@@ -12,6 +12,22 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+## Phase 1 — Foundation
+
+### 2026-04-03 — Core database connection and query builder
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [2026-04-03 — Core database connection & query builder](working-steps/2026-04-03-core-database-connection-and-query-builder.md)
+
+Starting the foundational database layer — .NET project scaffolding, dual connection pool architecture (system + data pools), query builder abstraction with SqlKata + Dapper, column type system, and namespace isolation with system table bootstrap.
+
+**Highlights:**
+- Project scaffolding with ASP.NET Core and all required NuGet dependencies
+- Dual connection pool architecture for security isolation (R1.8)
+- Query builder wrapping SqlKata + Dapper for Postgres and SQLite
+- Column type system with 12 types and cross-dialect mappings
+- System table bootstrap with idempotent first-run setup
+
 ---
 
 ## Released
