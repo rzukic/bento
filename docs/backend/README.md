@@ -12,17 +12,22 @@ src/backend/
 ├── Controllers/          ← API route handlers (one per resource area)
 ├── Services/             ← Business logic, injected into controllers
 ├── Db/
+│   ├── IDbPool.cs        ← Pool interfaces (ISystemPool, IDataPool)
+│   ├── DatabaseConfig.cs ← Configuration model (provider, connections, pool sizing)
 │   ├── SystemPool.cs     ← Privileged connection pool (_system schema)
 │   ├── DataPool.cs       ← Restricted connection pool (public schema)
-│   ├── DdlBlocklist.cs   ← SQL statement type checker
-│   └── Migrations/       ← Database migration files
+│   ├── DatabaseBootstrap.cs ← Creates system tables on first run (IHostedService)
+│   ├── QueryService.cs   ← Scoped QueryFactory provider (SqlKata + Dapper)
+│   ├── ColumnType.cs     ← Column type enum, DDL mappings, coercion matrix, validation
+│   ├── DdlBlocklist.cs   ← SQL statement type checker (Step 1.5)
+│   └── Migrations/       ← Database migration engine (Step 1.2)
 ├── Formula/
-│   ├── Evaluator.cs      ← Tier dispatch and evaluation orchestration
+│   ├── Evaluator.cs      ← Tier dispatch and evaluation orchestration (Phase 3)
 │   ├── SqlTier.cs        ← Tier 1: inline SQL computed columns
 │   ├── MaterializedTier.cs ← Tier 2: dirty flag + sync materialization
 │   ├── AsyncTier.cs      ← Tier 3: background worker + WebSocket push
 │   └── Sandbox/
-│       └── JintSandbox.cs ← Jint JS interpreter with resource limits
+│       └── JintSandbox.cs ← Jint JS interpreter with resource limits (Phase 4)
 ├── Workers/              ← Background services (dirty flag processor, etc.)
 ├── Hubs/                 ← SignalR WebSocket hubs
 ├── Models/               ← DTOs and domain models

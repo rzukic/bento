@@ -13,8 +13,9 @@ builder.Configuration.GetSection("Database").Bind(dbConfig);
 builder.Services.AddSingleton(dbConfig);
 
 // Dual connection pools
-var systemPool = new SystemPool(dbConfig);
-var dataPool = new DataPool(dbConfig);
+var loggerFactory = LoggerFactory.Create(b => b.AddConsole());
+var systemPool = new SystemPool(dbConfig, loggerFactory.CreateLogger<SystemPool>());
+var dataPool = new DataPool(dbConfig, loggerFactory.CreateLogger<DataPool>());
 builder.Services.AddSingleton<ISystemPool>(systemPool);
 builder.Services.AddSingleton<IDataPool>(dataPool);
 

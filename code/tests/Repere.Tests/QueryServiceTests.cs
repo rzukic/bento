@@ -182,6 +182,44 @@ public class QueryServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task Select_WithSubquery_FiltersUsingInnerQuery()
+    {
+        await using var scope = await _queryService.UseDataAsync();
+
+        // Subquery: get products whose price is above the average
+        var avgSubquery = new Query("products").SelectRaw("AVG(price)");
+        var results = (await scope.Db.Query("products")
+            .Where("price", ">", avgSubquery)
+            .OrderBy("price")
+            .GetAsync<dynamic>())
+            .ToList();
+
+        // Average is (9.99 + 24.99 + 4.50 + 15.00 + 7.25) / 5 = 12.346
+        // Above average: Thingamajig (15.00), Gadget (24.99)
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Thingamajig", (string)results[0].name);
+        Assert.Equal("Gadget", (string)results[1].name);
+    }
+
+    [Fact]
+    public void SqlGeneration_Subquery_WorksBothDialects()
+    {
+        var pgCompiler = new PostgresCompiler();
+        var sqliteCompiler = new SqliteCompiler();
+
+        var subquery = new Query("products").SelectRaw("AVG(price)");
+        var query = new Query("products").Where("price", ">", subquery);
+
+        var pgResult = pgCompiler.Compile(query);
+        var sqliteResult = sqliteCompiler.Compile(query);
+
+        Assert.Contains("SELECT", pgResult.Sql.ToUpper());
+        Assert.Contains("AVG", pgResult.Sql.ToUpper());
+        Assert.Contains("SELECT", sqliteResult.Sql.ToUpper());
+        Assert.Contains("AVG", sqliteResult.Sql.ToUpper());
+    }
+
+    [Fact]
     public void SqlGeneration_Postgres_ProducesCorrectDialect()
     {
         var compiler = new PostgresCompiler();
