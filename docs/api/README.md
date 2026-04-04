@@ -53,6 +53,27 @@ Unauthenticated requests return `401 Unauthorized`.
 
 ---
 
+### Admin
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
+
+Current response shape:
+
+```json
+{
+  "status": "healthy",
+  "database": "sqlite",
+  "systemPool": "open",
+  "dataPool": "open"
+}
+```
+
+If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and an `error` message.
+
+---
+
 ### Tables
 
 | Method | Path | Description |
