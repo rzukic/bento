@@ -30,11 +30,26 @@ Unauthenticated requests return `401 Unauthorized`.
 
 ```json
 {
-  "error": "table_not_found",
-  "message": "No table with ID abc-123 exists.",
-  "status": 404
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "No table with ID abc-123 exists.",
+    "details": {
+      "tableId": "abc-123",
+      "requestId": "req_123"
+    }
+  }
 }
 ```
+
+Known backend error codes:
+- `VALIDATION_FAILED`
+- `NOT_FOUND`
+- `UNAUTHORIZED`
+- `FORBIDDEN`
+- `CONFLICT`
+- `INTERNAL_ERROR`
+
+In development, unexpected `500` responses may also include debug-only fields such as `exceptionType` and `stackTrace` inside `error.details`. Those fields are not returned in production.
 
 ---
 
