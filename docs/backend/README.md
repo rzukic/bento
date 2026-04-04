@@ -11,6 +11,9 @@
 src/backend/
 ├── ApiRoutes.cs          ← Versioned backend route constants (`/api/v1/...`)
 ├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
+├── Configuration/
+│   ├── BackendRuntimeOptions.cs ← Typed runtime options available via DI
+│   └── BackendRuntimeConfiguration.cs ← Env-var adapter, validation, and DB override helpers
 ├── Controllers/          ← API route handlers (one per resource area)
 │   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
 ├── Exceptions/
@@ -117,6 +120,12 @@ Request-tracing contract:
 - every response includes `X-Request-Id`
 - safe incoming `X-Request-Id` values are reused; unsafe values are replaced
 - request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
+
+Runtime configuration contract:
+- `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
+- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
+- SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
+- Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
 
 ### Query builder
 
