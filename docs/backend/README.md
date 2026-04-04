@@ -119,6 +119,12 @@ All business logic lives here. Injected as interfaces for testability.
 
 The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
 
+Local launch-profile contract:
+- `Properties/launchSettings.json` keeps a single supported `http` profile
+- the local ASP.NET Core launch URL is `http://localhost:5000`
+- browser auto-launch is intentionally disabled so `dotnet run --launch-profile http` stays terminal-friendly
+- IIS Express and scaffold-only template routes are intentionally not part of the workflow
+
 Request-tracing contract:
 - every response includes `X-Request-Id`
 - safe incoming `X-Request-Id` values are reused; unsafe values are replaced
