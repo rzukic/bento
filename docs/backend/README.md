@@ -13,6 +13,8 @@ src/backend/
 ├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
 ├── Controllers/          ← API route handlers (one per resource area)
 │   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+├── Exceptions/
+│   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses
 ├── Middleware/           ← Cross-cutting HTTP pipeline behavior
 │   ├── RequestIdMiddleware.cs ← Assigns/propagates `X-Request-Id`
 │   └── RequestLoggingMiddleware.cs ← One structured completion log per request
@@ -52,6 +54,7 @@ src/backend/
 ├── Hubs/                 ← SignalR WebSocket hubs
 ├── Models/               ← DTOs and domain models
 │   └── AdminHealthResponse.cs ← Response model for `/api/v1/admin/health`
+│   └── ApiError.cs       ← Standard error envelope and stable error codes
 └── Program.cs            ← Minimal entry point delegating to `BackendHost`
 ```
 
@@ -130,6 +133,12 @@ var results = await _dataPool.QueryAsync<UserRow>("SELECT * FROM users WHERE id 
 ### Error handling
 
 Use a global exception middleware. Controllers do not catch exceptions — let them propagate.
+
+Backend error contract:
+- response shape is always `{ "error": { "code", "message", "details" } }`
+- business/domain failures should throw typed `ApiException` derivatives
+- unhandled exceptions map to `500 INTERNAL_ERROR`
+- debug-only fields such as `exceptionType` and `stackTrace` are included only in development
 
 ### Schema engine
 
