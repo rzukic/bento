@@ -9,6 +9,15 @@ namespace Repere.Api;
 
 public static class BackendHost
 {
+    public static IReadOnlyList<ReservedRouteArea> ReservedRouteAreas { get; } =
+    [
+        new(ApiRoutes.Auth, "Auth"),
+        new(ApiRoutes.Schema, "Schema"),
+        new(ApiRoutes.Admin, "Admin"),
+        new(ApiRoutes.Data, "Data"),
+        new(ApiRoutes.Query, "Query")
+    ];
+
     public static void ConfigureConfiguration(WebApplicationBuilder builder)
     {
         // The default ASP.NET Core builder already loads appsettings.json plus
@@ -71,6 +80,7 @@ public static class BackendHost
         services.AddSingleton<MigrationGenerator>();
         services.AddSingleton<MigrationRunner>();
         services.AddSingleton<SchemaService>();
+        services.AddSingleton(BackendRuntimeInfo.CreateForCurrentProcess());
         services.AddSingleton<AdminHealthService>();
 
         services.AddHostedService<DatabaseBootstrap>();
@@ -90,34 +100,11 @@ public static class BackendHost
     {
         app.MapControllers();
 
-        // Reserve the versioned route areas that later Step 1.3/1.5 work fills in.
-        ConfigureAuthRoutes(app);
-        ConfigureAdminRoutes(app);
-        ConfigureDataRoutes(app);
-        ConfigureQueryRoutes(app);
-    }
-
-    private static void ConfigureAuthRoutes(IEndpointRouteBuilder app)
-    {
-        _ = app.MapGroup("/" + ApiRoutes.Auth)
-            .WithTags("Auth");
-    }
-
-    private static void ConfigureAdminRoutes(IEndpointRouteBuilder app)
-    {
-        _ = app.MapGroup("/" + ApiRoutes.Admin)
-            .WithTags("Admin");
-    }
-
-    private static void ConfigureDataRoutes(IEndpointRouteBuilder app)
-    {
-        _ = app.MapGroup("/" + ApiRoutes.Data)
-            .WithTags("Data");
-    }
-
-    private static void ConfigureQueryRoutes(IEndpointRouteBuilder app)
-    {
-        _ = app.MapGroup("/" + ApiRoutes.Query)
-            .WithTags("Query");
+        // Reserve the versioned route areas that later Step 1.4/1.5 work fills in.
+        foreach (var area in ReservedRouteAreas)
+        {
+            _ = app.MapGroup("/" + area.RoutePrefix)
+                .WithTags(area.Tag);
+        }
     }
 }

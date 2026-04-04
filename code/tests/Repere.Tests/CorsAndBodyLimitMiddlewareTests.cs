@@ -1,8 +1,6 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 using Repere.Api.Configuration;
 using Repere.Api.Middleware;
 
@@ -197,15 +195,7 @@ public sealed class CorsAndBodyLimitMiddlewareTests
 
     private static async Task<ErrorEnvelopeJson> ReadErrorAsync(DefaultHttpContext context)
     {
-        context.Response.Body.Position = 0;
-        var payload = await JsonSerializer.DeserializeAsync<ErrorEnvelopeJson>(
-            context.Response.Body,
-            new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-        return Assert.IsType<ErrorEnvelopeJson>(payload);
+        return await TestHttpContextJson.ReadBodyAsync<ErrorEnvelopeJson>(context);
     }
 
     private sealed class TestMaxBodySizeFeature : IHttpMaxRequestBodySizeFeature
@@ -215,48 +205,4 @@ public sealed class CorsAndBodyLimitMiddlewareTests
         public long? MaxRequestBodySize { get; set; }
     }
 
-    private sealed class TestHostEnvironment : IHostEnvironment
-    {
-        public TestHostEnvironment(string environmentName)
-        {
-            EnvironmentName = environmentName;
-        }
-
-        public string EnvironmentName { get; set; }
-        public string ApplicationName { get; set; } = "Repere.Tests";
-        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
-        public Microsoft.Extensions.FileProviders.IFileProvider ContentRootFileProvider { get; set; } = null!;
-    }
-
-    private sealed class TestLogger<T> : ILogger<T>
-    {
-        public IDisposable BeginScope<TState>(TState state) where TState : notnull => NullScope.Instance;
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-        }
-    }
-
-    private sealed class NullScope : IDisposable
-    {
-        public static NullScope Instance { get; } = new();
-
-        public void Dispose()
-        {
-        }
-    }
-
-    private sealed record ErrorEnvelopeJson(ErrorBodyJson Error);
-
-    private sealed record ErrorBodyJson(
-        string Code,
-        string Message,
-        Dictionary<string, JsonElement>? Details);
 }

@@ -10,6 +10,7 @@
 ```
 src/backend/
 ├── ApiRoutes.cs          ← Versioned backend route constants (`/api/v1/...`)
+├── ReservedRouteArea.cs  ← Shared route-area metadata for reserved backend prefixes
 ├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
 ├── Configuration/
 │   ├── BackendRuntimeOptions.cs ← Typed runtime options available via DI
@@ -25,6 +26,7 @@ src/backend/
 │   └── CorsPolicyMiddleware.cs ← Same-origin default plus configured CORS allowlist
 │   └── BodySizeLimitMiddleware.cs ← Configurable JSON request-size enforcement
 ├── Services/             ← Business logic, injected into controllers
+│   ├── BackendRuntimeInfo.cs ← Captured startup time + version for operational endpoints
 │   └── AdminHealthService.cs ← Backend readiness check used by admin health route
 ├── Db/
 │   ├── IDbPool.cs        ← Pool interfaces (ISystemPool, IDataPool)
@@ -118,6 +120,8 @@ All business logic lives here. Injected as interfaces for testability.
 - route registration
 
 The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
+Its JSON contract now matches the deployment spec: nested `database` pool states, human-readable `uptime`, and backend `version`.
+The reserved Step 1.3 route areas are `auth`, `schema`, `admin`, `data`, and `query`; later steps fill those prefixes with real endpoints.
 
 Local launch-profile contract:
 - `Properties/launchSettings.json` keeps a single supported `http` profile
