@@ -302,6 +302,47 @@ public class SchemaDiffTests
         Assert.False(dropRelation.IsDestructive);
     }
 
+    [Fact]
+    public void Diff_DetectsRelationMetadataChanges_WhenOnlyAccessorsChange()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees" }
+              ]
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees", "fromAccessor": "mentors", "toAccessor": "mentees" }
+              ]
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var alterRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterRelation));
+        Assert.Equal("employee_peers", alterRelation.RelationName);
+    }
+
     private ModelJson Normalize(string json)
     {
         var parsed = ModelJsonSerializer.Parse(json);

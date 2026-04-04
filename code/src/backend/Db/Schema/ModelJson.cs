@@ -112,6 +112,12 @@ public sealed record RelationDef
     [JsonPropertyName("to")]
     public string To { get; init; } = string.Empty;
 
+    [JsonPropertyName("fromAccessor")]
+    public string? FromAccessor { get; init; }
+
+    [JsonPropertyName("toAccessor")]
+    public string? ToAccessor { get; init; }
+
     [JsonPropertyName("column")]
     public string? Column { get; init; }
 

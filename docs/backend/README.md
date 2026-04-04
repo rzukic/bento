@@ -137,8 +137,9 @@ SQLite-specific note: unsupported column alterations are handled by full table r
 
 `RelationResolver` turns top-level relation definitions into concrete backend metadata. It:
 - resolves dependency order for table creation
-- exposes relation accessors for future include/join code
+- exposes `fromAccessor` / `toAccessor` metadata for future include/join code
 - generates deterministic N:M junction-table definitions
+- supports self-referential N:M junctions with asymmetric default column names (`left_*` / `right_*`) plus optional `fromColumn` / `toColumn` overrides
 - flags self-references and circular dependency sets for higher layers
 
 `MigrationRunner` applies DDL to the data pool, stores the new schema version plus migration history through the system pool, supports rollback of the last N forward migrations, and uses best-effort compensation if cross-pool metadata persistence fails after the data schema changes.

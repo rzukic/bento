@@ -203,7 +203,7 @@ public class ModelJsonTests
                 { "name": "projects", "columns": [{ "name": "name", "type": "text" }], "indexes": [] }
               ],
               "relations": [
-                { "name": "employee_manager", "type": "1:N", "from": "employees", "to": "employees", "column": "manager_id" },
+                { "name": "employee_manager", "type": "1:N", "from": "employees", "to": "employees", "column": "manager_id", "fromAccessor": "reports", "toAccessor": "manager" },
                 { "name": "team_projects", "type": "N:M", "from": "teams", "to": "projects" }
               ]
             }
@@ -213,6 +213,8 @@ public class ModelJsonTests
         Assert.Equal(RelationType.OneToMany, model.Relations[0].Type);
         Assert.Equal("employees", model.Relations[0].From);
         Assert.Equal("employees", model.Relations[0].To);
+        Assert.Equal("reports", model.Relations[0].FromAccessor);
+        Assert.Equal("manager", model.Relations[0].ToAccessor);
         Assert.Equal(RelationType.ManyToMany, model.Relations[1].Type);
         Assert.Equal("teams", model.Relations[1].From);
         Assert.Equal("projects", model.Relations[1].To);
