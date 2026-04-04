@@ -57,12 +57,24 @@ public sealed class ApiHostTests
     }
 
     [Fact]
+    public void ConfigureRoutes_ReservesDocumentedRouteAreas_IncludingSchema()
+    {
+        var reservedRoutes = BackendHost.ReservedRouteAreas
+            .Select(area => area.RoutePrefix)
+            .ToArray();
+
+        Assert.Equal(
+            [ApiRoutes.Auth, ApiRoutes.Schema, ApiRoutes.Admin, ApiRoutes.Data, ApiRoutes.Query],
+            reservedRoutes);
+    }
+
+    [Fact]
     public async Task AdminController_ReturnsHealthyStatus_ForOpenPools()
     {
         var controller = new AdminController(new AdminHealthService(
             new SqliteTestPool(),
             new SqliteTestPool(),
-            new DatabaseConfig { Provider = DatabaseProvider.Sqlite }));
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0")));
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
 
@@ -71,9 +83,10 @@ public sealed class ApiHostTests
 
         var response = Assert.IsType<AdminHealthResponse>(objectResult.Value);
         Assert.Equal("healthy", response.Status);
-        Assert.Equal("sqlite", response.Database);
-        Assert.Equal("open", response.SystemPool);
-        Assert.Equal("open", response.DataPool);
+        Assert.Equal("connected", response.Database.SystemPool);
+        Assert.Equal("connected", response.Database.DataPool);
+        Assert.Equal("5m", response.Uptime);
+        Assert.Equal("1.2.0", response.Version);
         Assert.Null(response.Error);
     }
 
@@ -83,7 +96,7 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new FailingDbPool(),
             new FailingDbPool(),
-            new DatabaseConfig { Provider = DatabaseProvider.Sqlite }));
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0")));
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
 
@@ -92,9 +105,10 @@ public sealed class ApiHostTests
 
         var response = Assert.IsType<AdminHealthResponse>(objectResult.Value);
         Assert.Equal("unhealthy", response.Status);
-        Assert.Equal("sqlite", response.Database);
-        Assert.Equal("unavailable", response.SystemPool);
-        Assert.Equal("unavailable", response.DataPool);
+        Assert.Equal("unavailable", response.Database.SystemPool);
+        Assert.Equal("unavailable", response.Database.DataPool);
+        Assert.Equal("1m", response.Uptime);
+        Assert.Equal("1.2.0", response.Version);
         Assert.Contains("boom", response.Error, StringComparison.OrdinalIgnoreCase);
     }
 

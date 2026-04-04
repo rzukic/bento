@@ -86,13 +86,21 @@ Current response shape:
 ```json
 {
   "status": "healthy",
-  "database": "sqlite",
-  "systemPool": "open",
-  "dataPool": "open"
+  "database": {
+    "system_pool": "connected",
+    "data_pool": "connected"
+  },
+  "uptime": "3d 14h 22m",
+  "version": "1.0.0"
 }
 ```
 
-If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and an `error` message.
+Contract notes:
+- `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
+- `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
+- `version` comes from the backend assembly version metadata
+
+If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and the same structural fields plus an `error` message.
 
 The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
 This is the canonical backend health endpoint for deployment checks and container health probes.

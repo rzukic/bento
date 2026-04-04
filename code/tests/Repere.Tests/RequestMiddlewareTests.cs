@@ -121,52 +121,6 @@ public sealed class RequestMiddlewareTests
         Assert.Equal("incoming-safe-id", context.Response.Headers[RequestIdMiddleware.HeaderName].ToString());
     }
 
-    private sealed class TestLogger<T> : ILogger<T>
-    {
-        public List<LogEntry> Entries { get; } = [];
-
-        public IDisposable BeginScope<TState>(TState state) where TState : notnull
-        {
-            return NullScope.Instance;
-        }
-
-        public bool IsEnabled(LogLevel logLevel) => true;
-
-        public void Log<TState>(
-            LogLevel logLevel,
-            EventId eventId,
-            TState state,
-            Exception? exception,
-            Func<TState, Exception?, string> formatter)
-        {
-            var properties = new Dictionary<string, object?>(StringComparer.Ordinal);
-
-            if (state is IEnumerable<KeyValuePair<string, object?>> structuredState)
-            {
-                foreach (var pair in structuredState)
-                {
-                    properties[pair.Key] = pair.Value;
-                }
-            }
-
-            Entries.Add(new LogEntry(logLevel, formatter(state, exception), properties));
-        }
-    }
-
-    private sealed record LogEntry(
-        LogLevel Level,
-        string Message,
-        IReadOnlyDictionary<string, object?> Properties);
-
-    private sealed class NullScope : IDisposable
-    {
-        public static NullScope Instance { get; } = new();
-
-        public void Dispose()
-        {
-        }
-    }
-
     private static bool LooksLikeSafeRequestId(string? requestId)
     {
         if (string.IsNullOrWhiteSpace(requestId))

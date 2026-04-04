@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text;
+using System.Text.Json;
 using Repere.Api.Models;
 
 namespace Repere.Tests;
@@ -24,10 +25,25 @@ public sealed class ApiIntegrationTests
         payload = Assert.IsType<AdminHealthResponse>(payload);
 
         Assert.Equal("healthy", payload.Status);
-        Assert.Equal("sqlite", payload.Database);
-        Assert.Equal("open", payload.SystemPool);
-        Assert.Equal("open", payload.DataPool);
+        Assert.Equal("connected", payload.Database.SystemPool);
+        Assert.Equal("connected", payload.Database.DataPool);
+        Assert.False(string.IsNullOrWhiteSpace(payload.Uptime));
+        Assert.False(string.IsNullOrWhiteSpace(payload.Version));
         Assert.Null(payload.Error);
+
+        var rawJson = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(rawJson);
+        var root = document.RootElement;
+
+        Assert.True(root.TryGetProperty("database", out var database));
+        Assert.Equal("connected", database.GetProperty("system_pool").GetString());
+        Assert.Equal("connected", database.GetProperty("data_pool").GetString());
+        Assert.True(root.TryGetProperty("uptime", out var uptime));
+        Assert.False(string.IsNullOrWhiteSpace(uptime.GetString()));
+        Assert.True(root.TryGetProperty("version", out var version));
+        Assert.False(string.IsNullOrWhiteSpace(version.GetString()));
+        Assert.False(root.TryGetProperty("systemPool", out _));
+        Assert.False(root.TryGetProperty("dataPool", out _));
     }
 
     [Fact]
