@@ -159,6 +159,90 @@ public class SchemaValidatorTests
     }
 
     [Fact]
+    public void Validate_RejectsRelationAccessorCollisions_OnSameTable()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "billing_customer_id", "type": "reference", "references": "customers" },
+                    { "name": "shipping_customer_id", "type": "reference", "references": "customers" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "billing_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "billing_customer_id", "toAccessor": "customer" },
+                { "name": "shipping_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "shipping_customer_id", "toAccessor": "customer" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "relation_accessor_collision");
+    }
+
+    [Fact]
+    public void Validate_AllowsSelfReferentialManyToMany_WithDistinctEffectiveColumns()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Errors, e => e.Code == "many_to_many_junction_column_collision");
+    }
+
+    [Fact]
+    public void Validate_RejectsSelfReferentialManyToMany_WithDuplicateExplicitJunctionColumns()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees", "fromColumn": "employee_id", "toColumn": "employee_id" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "many_to_many_junction_column_collision");
+    }
+
+    [Fact]
     public void Validate_AllowsSelfReference_ButRejectsCircularDependencies()
     {
         var selfReferenceModel = ModelJsonSerializer.Parse("""

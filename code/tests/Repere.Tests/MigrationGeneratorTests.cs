@@ -364,6 +364,74 @@ public class MigrationGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_Sqlite_SelfReferentialManyToMany_CreatesDistinctJunctionColumns()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees" }
+              ]
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Sqlite });
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+
+        await using var conn = await OpenSqliteAsync();
+        await ExecuteStatementsAsync(conn, plan.SqlUp);
+
+        Assert.True(await TableExistsAsync(conn, "_jt_employees_employees"));
+        Assert.Equal(["left_employee_id", "right_employee_id", "created_at"], await GetTableColumnsAsync(conn, "_jt_employees_employees"));
+
+        using (var seed = conn.CreateCommand())
+        {
+            seed.CommandText = """
+                INSERT INTO "employees" ("id")
+                VALUES (1), (2);
+                """;
+            await seed.ExecuteNonQueryAsync();
+        }
+
+        using (var insert = conn.CreateCommand())
+        {
+            insert.CommandText = """
+                INSERT INTO "_jt_employees_employees" ("left_employee_id", "right_employee_id")
+                VALUES (1, 2);
+                """;
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        using (var createdAtQuery = conn.CreateCommand())
+        {
+            createdAtQuery.CommandText = """
+                SELECT "created_at"
+                FROM "_jt_employees_employees"
+                LIMIT 1;
+                """;
+            var createdAt = (string?)await createdAtQuery.ExecuteScalarAsync();
+            Assert.False(string.IsNullOrWhiteSpace(createdAt));
+        }
+    }
+
+    [Fact]
     public void Generate_Ignores_UnknownDefaultSqlExtensionField()
     {
         var oldModel = Normalize("""

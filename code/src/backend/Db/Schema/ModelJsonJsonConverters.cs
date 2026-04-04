@@ -231,6 +231,8 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
         var typeSpecified = false;
         var from = string.Empty;
         var to = string.Empty;
+        string? fromAccessor = null;
+        string? toAccessor = null;
         string? column = null;
         string? fromColumn = null;
         string? toColumn = null;
@@ -251,6 +253,12 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
                     break;
                 case "to":
                     to = property.Value.GetString() ?? string.Empty;
+                    break;
+                case "fromAccessor":
+                    fromAccessor = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
+                    break;
+                case "toAccessor":
+                    toAccessor = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
                     break;
                 case "column":
                     column = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
@@ -274,6 +282,8 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
             TypeSpecified = typeSpecified,
             From = from,
             To = to,
+            FromAccessor = fromAccessor,
+            ToAccessor = toAccessor,
             Column = column,
             FromColumn = fromColumn,
             ToColumn = toColumn,
@@ -289,6 +299,10 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
         JsonSerializer.Serialize(writer, value.Type, options);
         writer.WriteString("from", value.From);
         writer.WriteString("to", value.To);
+        if (value.FromAccessor is not null)
+            writer.WriteString("fromAccessor", value.FromAccessor);
+        if (value.ToAccessor is not null)
+            writer.WriteString("toAccessor", value.ToAccessor);
 
         if (value.Column is not null)
             writer.WriteString("column", value.Column);

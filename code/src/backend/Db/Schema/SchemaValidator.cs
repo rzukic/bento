@@ -161,6 +161,7 @@ public class SchemaValidator
     {
         var relationNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var junctionPairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var accessorsByTable = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
 
         for (var relationIndex = 0; relationIndex < model.Relations.Count; relationIndex++)
         {
@@ -185,6 +186,14 @@ public class SchemaValidator
                 errors.Add(new("relation_from_missing", $"Relation '{relation.Name}' refers to unknown table '{relation.From}'.", $"{relationPath}.from"));
             if (!toExists && !string.IsNullOrWhiteSpace(relation.To))
                 errors.Add(new("relation_to_missing", $"Relation '{relation.Name}' refers to unknown table '{relation.To}'.", $"{relationPath}.to"));
+            if (relation.FromAccessor is not null && string.IsNullOrWhiteSpace(relation.FromAccessor))
+                errors.Add(new("relation_from_accessor_invalid", $"Relation '{relation.Name}' must not use an empty 'fromAccessor'.", $"{relationPath}.fromAccessor"));
+            if (relation.ToAccessor is not null && string.IsNullOrWhiteSpace(relation.ToAccessor))
+                errors.Add(new("relation_to_accessor_invalid", $"Relation '{relation.Name}' must not use an empty 'toAccessor'.", $"{relationPath}.toAccessor"));
+            if (relation.FromColumn is not null && string.IsNullOrWhiteSpace(relation.FromColumn))
+                errors.Add(new("relation_from_column_invalid", $"Relation '{relation.Name}' must not use an empty 'fromColumn'.", $"{relationPath}.fromColumn"));
+            if (relation.ToColumn is not null && string.IsNullOrWhiteSpace(relation.ToColumn))
+                errors.Add(new("relation_to_column_invalid", $"Relation '{relation.Name}' must not use an empty 'toColumn'.", $"{relationPath}.toColumn"));
 
             if (relation.Type == RelationType.OneToMany)
             {
@@ -228,7 +237,82 @@ public class SchemaValidator
                 {
                     junctionPairs[orderedPair] = relation.Name;
                 }
+
+                ValidateManyToManyJunctionColumns(relation, relationPath, errors);
             }
+
+            if (fromExists)
+            {
+                RegisterAccessor(
+                    accessorsByTable,
+                    relation.From,
+                    RelationResolver.ResolveFromAccessor(relation),
+                    relation.Name,
+                    $"{relationPath}.fromAccessor",
+                    errors);
+            }
+
+            if (toExists)
+            {
+                RegisterAccessor(
+                    accessorsByTable,
+                    relation.To,
+                    RelationResolver.ResolveToAccessor(relation),
+                    relation.Name,
+                    $"{relationPath}.toAccessor",
+                    errors);
+            }
+        }
+    }
+
+    private static void RegisterAccessor(
+        Dictionary<string, Dictionary<string, string>> accessorsByTable,
+        string tableName,
+        string accessor,
+        string relationName,
+        string path,
+        List<SchemaValidationIssue> errors)
+    {
+        if (string.IsNullOrWhiteSpace(accessor))
+        {
+            errors.Add(new("relation_accessor_missing", $"Relation '{relationName}' resolved to an empty accessor on table '{tableName}'.", path));
+            return;
+        }
+
+        if (!accessorsByTable.TryGetValue(tableName, out var tableAccessors))
+        {
+            tableAccessors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            accessorsByTable[tableName] = tableAccessors;
+        }
+
+        if (tableAccessors.TryGetValue(accessor, out var existingRelation) &&
+            !string.Equals(existingRelation, relationName, StringComparison.OrdinalIgnoreCase))
+        {
+            errors.Add(new(
+                "relation_accessor_collision",
+                $"Accessor '{accessor}' on table '{tableName}' is used by both relation '{existingRelation}' and relation '{relationName}'.",
+                path));
+            return;
+        }
+
+        tableAccessors[accessor] = relationName;
+    }
+
+    private static void ValidateManyToManyJunctionColumns(RelationDef relation, string relationPath, List<SchemaValidationIssue> errors)
+    {
+        var junctionTable = new RelationResolver().BuildJunctionTable(relation);
+        var duplicateColumns = junctionTable.Columns
+            .GroupBy(column => column.Name, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1)
+            .Select(group => group.Key)
+            .ToList();
+
+        foreach (var duplicate in duplicateColumns)
+        {
+            errors.Add(new(
+                "many_to_many_junction_column_collision",
+                $"N:M relation '{relation.Name}' resolves duplicate junction column name '{duplicate}'.",
+                relationPath));
         }
     }
 

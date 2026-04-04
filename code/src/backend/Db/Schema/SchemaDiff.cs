@@ -364,6 +364,8 @@ public sealed class SchemaDiffEngine
         return left.Type == right.Type
             && string.Equals(left.From, right.From, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.To, right.To, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.FromAccessor, right.FromAccessor, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.ToAccessor, right.ToAccessor, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.Column, right.Column, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.FromColumn, right.FromColumn, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.ToColumn, right.ToColumn, StringComparison.OrdinalIgnoreCase);

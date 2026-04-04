@@ -415,6 +415,8 @@ public class MigrationGenerator
             {
                 var oldRelation = (RelationDef)change.OldValue!;
                 var oldJunction = _relationResolver.BuildJunctionTable(oldRelation);
+                if (JunctionTableEquals(oldJunction, junction))
+                    break;
                 Append(sqlUp, sqlDown,
                     new[]
                     {
@@ -669,6 +671,30 @@ public class MigrationGenerator
         return column.DefaultValue.HasValue
             ? FormatSqlLiteral(column.DefaultValue.Value, column.Type, provider)
             : null;
+    }
+
+    private static bool JunctionTableEquals(TableDef left, TableDef right)
+    {
+        if (!string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (left.Columns.Count != right.Columns.Count)
+            return false;
+
+        for (var i = 0; i < left.Columns.Count; i++)
+        {
+            var leftColumn = left.Columns[i];
+            var rightColumn = right.Columns[i];
+            if (!string.Equals(leftColumn.Name, rightColumn.Name, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.Type != rightColumn.Type
+                || !string.Equals(leftColumn.References, rightColumn.References, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.PrimaryKey != rightColumn.PrimaryKey
+                || leftColumn.Nullable != rightColumn.Nullable)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string FormatSqlLiteral(JsonElement element, ColumnType columnType, DatabaseProvider provider)

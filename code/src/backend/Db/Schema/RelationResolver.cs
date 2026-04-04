@@ -3,8 +3,8 @@ namespace Repere.Api.Db.Schema;
 public sealed record ResolvedRelation
 {
     public required RelationDef Definition { get; init; }
-    public required string ForwardAccessor { get; init; }
-    public required string ReverseAccessor { get; init; }
+    public required string FromAccessor { get; init; }
+    public required string ToAccessor { get; init; }
     public required bool IsSelfReferential { get; init; }
     public required bool RequiresDeferredConstraint { get; init; }
     public string? ForeignKeyColumn { get; init; }
@@ -47,6 +47,26 @@ public class RelationResolver
         return ResolveRelation(relation, tableLookup, []);
     }
 
+    public static string ResolveFromAccessor(RelationDef relation)
+    {
+        if (!string.IsNullOrWhiteSpace(relation.FromAccessor))
+            return relation.FromAccessor!;
+
+        return relation.Type == RelationType.ManyToMany
+            ? ResolveManyToManyDefaultAccessor(relation, isFromSide: true)
+            : relation.Name;
+    }
+
+    public static string ResolveToAccessor(RelationDef relation)
+    {
+        if (!string.IsNullOrWhiteSpace(relation.ToAccessor))
+            return relation.ToAccessor!;
+
+        return relation.Type == RelationType.ManyToMany
+            ? ResolveManyToManyDefaultAccessor(relation, isFromSide: false)
+            : DeriveReferenceAccessor(relation.Column, relation.From);
+    }
+
     public string GetJunctionTableName(RelationDef relation)
     {
         var endpoints = GetOrderedRelationEndpoints(relation);
@@ -55,14 +75,14 @@ public class RelationResolver
 
     public TableDef BuildJunctionTable(RelationDef relation)
     {
-        var endpoints = GetOrderedRelationEndpoints(relation);
+        var junctionColumns = BuildJunctionReferenceColumns(relation);
         return new TableDef
         {
             Name = GetJunctionTableName(relation),
             Columns =
             [
-                BuildJunctionReferenceColumn(endpoints.Left),
-                BuildJunctionReferenceColumn(endpoints.Right),
+                junctionColumns.First,
+                junctionColumns.Second,
                 new ColumnDef
                 {
                     Name = "created_at",
@@ -92,8 +112,8 @@ public class RelationResolver
             return new ResolvedRelation
             {
                 Definition = relation,
-                ForwardAccessor = relation.Name,
-                ReverseAccessor = relation.Name,
+                FromAccessor = ResolveFromAccessor(relation),
+                ToAccessor = ResolveToAccessor(relation),
                 IsSelfReferential = isSelfReferential,
                 RequiresDeferredConstraint = requiresDeferredConstraint,
                 JunctionTableName = junctionTable.Name,
@@ -104,8 +124,8 @@ public class RelationResolver
         return new ResolvedRelation
         {
             Definition = relation,
-            ForwardAccessor = SingularizeName(relation.From),
-            ReverseAccessor = relation.Name,
+            FromAccessor = ResolveFromAccessor(relation),
+            ToAccessor = ResolveToAccessor(relation),
             IsSelfReferential = isSelfReferential,
             RequiresDeferredConstraint = requiresDeferredConstraint,
             ForeignKeyColumn = relation.Column
@@ -273,11 +293,74 @@ public class RelationResolver
         };
     }
 
+    private static (ColumnDef First, ColumnDef Second) BuildJunctionReferenceColumns(RelationDef relation)
+    {
+        var isSelfReferential = string.Equals(relation.From, relation.To, StringComparison.OrdinalIgnoreCase);
+        if (isSelfReferential)
+        {
+            var singular = SingularizeName(relation.From);
+            return
+            (
+                BuildJunctionReferenceColumn(
+                    relation.From,
+                    relation.FromColumn,
+                    $"left_{singular}_id"),
+                BuildJunctionReferenceColumn(
+                    relation.To,
+                    relation.ToColumn,
+                    $"right_{singular}_id")
+            );
+        }
+
+        var fromColumn = relation.FromColumn ?? $"{SingularizeName(relation.From)}_id";
+        var toColumn = relation.ToColumn ?? $"{SingularizeName(relation.To)}_id";
+
+        return string.Compare(relation.From, relation.To, StringComparison.OrdinalIgnoreCase) <= 0
+            ? (BuildJunctionReferenceColumn(relation.From, fromColumn), BuildJunctionReferenceColumn(relation.To, toColumn))
+            : (BuildJunctionReferenceColumn(relation.To, toColumn), BuildJunctionReferenceColumn(relation.From, fromColumn));
+    }
+
+    private static ColumnDef BuildJunctionReferenceColumn(string tableName, string? explicitName, string? fallbackName = null)
+    {
+        return new ColumnDef
+        {
+            Name = explicitName ?? fallbackName ?? $"{SingularizeName(tableName)}_id",
+            Type = ColumnType.Reference,
+            TypeSpecified = true,
+            References = tableName,
+            Nullable = false,
+            PrimaryKey = true
+        };
+    }
+
     private static (string Left, string Right) GetOrderedRelationEndpoints(RelationDef relation)
     {
         return string.Compare(relation.From, relation.To, StringComparison.OrdinalIgnoreCase) <= 0
             ? (relation.From, relation.To)
             : (relation.To, relation.From);
+    }
+
+    private static string DeriveReferenceAccessor(string? columnName, string fallbackTableName)
+    {
+        if (string.IsNullOrWhiteSpace(columnName))
+            return SingularizeName(fallbackTableName);
+
+        return columnName.EndsWith("_id", StringComparison.OrdinalIgnoreCase) && columnName.Length > 3
+            ? columnName[..^3]
+            : columnName;
+    }
+
+    private static string ResolveManyToManyDefaultAccessor(RelationDef relation, bool isFromSide)
+    {
+        var isSelfReferential = string.Equals(relation.From, relation.To, StringComparison.OrdinalIgnoreCase);
+        if (!isSelfReferential)
+            return isFromSide ? relation.To : relation.From;
+
+        var columnName = isFromSide
+            ? relation.FromColumn ?? $"left_{SingularizeName(relation.From)}_id"
+            : relation.ToColumn ?? $"right_{SingularizeName(relation.To)}_id";
+
+        return DeriveReferenceAccessor(columnName, relation.From);
     }
 
     private static string SingularizeName(string name)

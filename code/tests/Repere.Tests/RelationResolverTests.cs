@@ -40,10 +40,51 @@ public class RelationResolverTests
         Assert.Equal(["customers", "orders"], result.OrderedTables.Select(t => t.Name).ToArray());
 
         var relation = Assert.Single(result.Relations);
-        Assert.Equal("customer", relation.ForwardAccessor);
-        Assert.Equal("customer_orders", relation.ReverseAccessor);
+        Assert.Equal("customer_orders", relation.FromAccessor);
+        Assert.Equal("customer", relation.ToAccessor);
         Assert.Equal("customer_id", relation.ForeignKeyColumn);
         Assert.False(relation.RequiresDeferredConstraint);
+    }
+
+    [Fact]
+    public void Resolve_OneToMany_UsesColumnDerivedAndExplicitAccessorNames()
+    {
+        var model = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "billing_customer_id", "type": "reference", "references": "customers", "nullable": false },
+                    { "name": "shipping_customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "billing_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "billing_customer_id" },
+                { "name": "shipping_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "shipping_customer_id", "toAccessor": "ship_to_customer" }
+              ]
+            }
+            """);
+
+        var result = _resolver.Resolve(model);
+
+        var billing = result.Relations.Single(r => r.Definition.Name == "billing_orders");
+        var shipping = result.Relations.Single(r => r.Definition.Name == "shipping_orders");
+
+        Assert.Equal("billing_orders", billing.FromAccessor);
+        Assert.Equal("billing_customer", billing.ToAccessor);
+        Assert.Equal("shipping_orders", shipping.FromAccessor);
+        Assert.Equal("ship_to_customer", shipping.ToAccessor);
     }
 
     [Fact]
@@ -66,12 +107,41 @@ public class RelationResolverTests
 
         var relation = Assert.Single(result.Relations);
         Assert.Equal("_jt_products_tags", relation.JunctionTableName);
+        Assert.Equal("tags", relation.FromAccessor);
+        Assert.Equal("products", relation.ToAccessor);
         Assert.NotNull(relation.JunctionTable);
         Assert.Equal(["product_id", "tag_id", "created_at"], relation.JunctionTable!.Columns.Select(c => c.Name).ToArray());
         Assert.Equal(2, relation.JunctionTable.Columns.Count(c => c.PrimaryKey));
         var createdAt = relation.JunctionTable.Columns.Single(c => c.Name == "created_at");
         Assert.Equal("CURRENT_TIMESTAMP", createdAt.InternalDefaultSql);
         Assert.Null(createdAt.AdditionalData);
+    }
+
+    [Fact]
+    public void Resolve_SelfReferentialManyToMany_GeneratesDistinctColumnsAndAccessors()
+    {
+        var model = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                { "name": "employees", "columns": [], "indexes": [] }
+              ],
+              "relations": [
+                { "name": "employee_peers", "type": "N:M", "from": "employees", "to": "employees" }
+              ]
+            }
+            """);
+
+        var result = _resolver.Resolve(model);
+
+        var relation = Assert.Single(result.Relations);
+        Assert.True(relation.IsSelfReferential);
+        Assert.True(relation.RequiresDeferredConstraint);
+        Assert.Equal("left_employee", relation.FromAccessor);
+        Assert.Equal("right_employee", relation.ToAccessor);
+        Assert.Equal("_jt_employees_employees", relation.JunctionTableName);
+        Assert.NotNull(relation.JunctionTable);
+        Assert.Equal(["left_employee_id", "right_employee_id", "created_at"], relation.JunctionTable!.Columns.Select(c => c.Name).ToArray());
     }
 
     [Fact]
