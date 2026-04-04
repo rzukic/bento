@@ -26,6 +26,16 @@ public static class ModelJsonSerializer
             PropertyNamingPolicy = null,
             WriteIndented = true,
             DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        };
+        }.WithConverters();
+    }
+}
+
+internal static class ModelJsonSerializerOptionsExtensions
+{
+    public static JsonSerializerOptions WithConverters(this JsonSerializerOptions options)
+    {
+        options.Converters.Add(new ColumnTypeJsonConverter());
+        options.Converters.Add(new RelationTypeJsonConverter());
+        return options;
     }
 }

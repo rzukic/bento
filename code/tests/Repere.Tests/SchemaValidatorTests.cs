@@ -1,0 +1,228 @@
+using Repere.Api.Db;
+using Repere.Api.Db.Schema;
+
+namespace Repere.Tests;
+
+public class SchemaValidatorTests
+{
+    private readonly SchemaValidator _validator = new();
+
+    [Fact]
+    public void Validate_AutoAddsIdPrimaryKey_WhenMissing()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+        Assert.Empty(result.Errors);
+        Assert.Equal("id", result.NormalizedModel.Tables[0].Columns[0].Name);
+        Assert.Equal(ColumnType.Integer, result.NormalizedModel.Tables[0].Columns[0].Type);
+        Assert.True(result.NormalizedModel.Tables[0].Columns[0].PrimaryKey);
+        Assert.False(result.NormalizedModel.Tables[0].Columns[0].Nullable);
+    }
+
+    [Fact]
+    public void Validate_RejectsMissingFields_AndDuplicateNames()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "",
+                  "columns": [
+                    { "name": "", "type": "text" },
+                    { "name": "sku" },
+                    { "name": "sku", "type": "text" }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "products",
+                  "columns": [],
+                  "indexes": []
+                },
+                {
+                  "name": "products",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "missing_table_name");
+        Assert.Contains(result.Errors, e => e.Code == "missing_column_name");
+        Assert.Contains(result.Errors, e => e.Code == "missing_column_type");
+        Assert.Contains(result.Errors, e => e.Code == "duplicate_column_name");
+        Assert.Contains(result.Errors, e => e.Code == "duplicate_table_name");
+    }
+
+    [Fact]
+    public void Validate_RejectsInvalidEnumReferenceComputedAndRelationDefinitions()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "status", "type": "enum", "values": [] },
+                    { "name": "customer_id", "type": "reference", "references": "customers" },
+                    { "name": "total_with_tax", "type": "computed" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "missing_fk" },
+                { "name": "project_tags", "type": "N:M", "from": "projects", "to": "tags" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "enum_values_required");
+        Assert.Contains(result.Errors, e => e.Code == "reference_target_missing");
+        Assert.Contains(result.Errors, e => e.Code == "computed_formula_required");
+        Assert.Contains(result.Errors, e => e.Code == "relation_from_missing");
+        Assert.Contains(result.Errors, e => e.Code == "relation_to_missing");
+        Assert.Contains(result.Errors, e => e.Code == "relation_column_missing");
+    }
+
+    [Fact]
+    public void Validate_AllowsSelfReference_ButRejectsCircularDependencies()
+    {
+        var selfReferenceModel = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "employees",
+                  "columns": [
+                    { "name": "manager_id", "type": "reference", "references": "employees" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var selfReferenceResult = _validator.Validate(selfReferenceModel);
+
+        Assert.True(selfReferenceResult.IsValid);
+        Assert.DoesNotContain(selfReferenceResult.Errors, e => e.Code == "circular_dependency");
+
+        var cycleModel = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "address_id", "type": "reference", "references": "addresses" }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "addresses",
+                  "columns": [
+                    { "name": "customer_id", "type": "reference", "references": "customers" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var cycleResult = _validator.Validate(cycleModel);
+
+        Assert.False(cycleResult.IsValid);
+        Assert.Contains(cycleResult.Errors, e => e.Code == "circular_dependency");
+    }
+
+    [Fact]
+    public void Validate_ReturnsWarnings_ForReservedWords_LongNames_AndIdOnlyTables()
+    {
+        var longName = new string('a', 64);
+        var model = ModelJsonSerializer.Parse($$"""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "reports",
+                  "columns": [
+                    { "name": "select", "type": "text" },
+                    { "name": "{{longName}}", "type": "text" }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "{{longName}}",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+        Assert.Contains(result.Warnings, w => w.Code == "reserved_column_name");
+        Assert.Contains(result.Warnings, w => w.Code == "long_column_name");
+        Assert.Contains(result.Warnings, w => w.Code == "long_table_name");
+        Assert.Contains(result.Warnings, w => w.Code == "id_only_table");
+    }
+
+    [Fact]
+    public void Validate_RejectsIdColumnWithoutPrimaryKey()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer" },
+                    { "name": "name", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "missing_primary_key");
+    }
+}

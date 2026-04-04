@@ -42,6 +42,7 @@ public sealed record TableDef
     public Dictionary<string, JsonElement>? AdditionalData { get; init; }
 }
 
+[JsonConverter(typeof(ColumnDefJsonConverter))]
 public sealed record ColumnDef
 {
     [JsonPropertyName("name")]
@@ -54,8 +55,10 @@ public sealed record ColumnDef
     public string? Description { get; init; }
 
     [JsonPropertyName("type")]
-    [JsonConverter(typeof(ColumnTypeJsonConverter))]
     public ColumnType Type { get; init; }
+
+    [JsonIgnore]
+    public bool TypeSpecified { get; init; }
 
     [JsonPropertyName("nullable")]
     public bool Nullable { get; init; } = true;
@@ -88,14 +91,17 @@ public sealed record ColumnDef
     public Dictionary<string, JsonElement>? AdditionalData { get; init; }
 }
 
+[JsonConverter(typeof(RelationDefJsonConverter))]
 public sealed record RelationDef
 {
     [JsonPropertyName("name")]
     public string Name { get; init; } = string.Empty;
 
     [JsonPropertyName("type")]
-    [JsonConverter(typeof(RelationTypeJsonConverter))]
     public RelationType Type { get; init; }
+
+    [JsonIgnore]
+    public bool TypeSpecified { get; init; }
 
     [JsonPropertyName("from")]
     public string From { get; init; } = string.Empty;

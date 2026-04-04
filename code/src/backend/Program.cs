@@ -23,6 +23,7 @@ builder.Services.AddSingleton<IDataPool>(dataPool);
 // Query builder service
 builder.Services.AddSingleton<QueryService>();
 builder.Services.AddSingleton<ModelJsonStore>();
+builder.Services.AddSingleton<SchemaValidator>();
 
 // Bootstrap service — creates schemas and system tables on first run
 builder.Services.AddHostedService<DatabaseBootstrap>();
