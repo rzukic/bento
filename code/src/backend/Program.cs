@@ -1,4 +1,5 @@
 using Repere.Api.Db;
+using Repere.Api.Db.Schema;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,6 +22,7 @@ builder.Services.AddSingleton<IDataPool>(dataPool);
 
 // Query builder service
 builder.Services.AddSingleton<QueryService>();
+builder.Services.AddSingleton<ModelJsonStore>();
 
 // Bootstrap service — creates schemas and system tables on first run
 builder.Services.AddHostedService<DatabaseBootstrap>();
