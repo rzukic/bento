@@ -25,6 +25,7 @@ Unauthenticated requests return `401 Unauthorized`.
 - All request and response bodies are JSON.
 - Dates are ISO 8601 strings (`2026-04-03T12:00:00Z`).
 - IDs are UUIDs.
+- Every response includes `X-Request-Id` for log correlation.
 - Errors follow a consistent shape:
 
 ```json
@@ -71,6 +72,8 @@ Current response shape:
 ```
 
 If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and an `error` message.
+
+The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
 
 ---
 

@@ -13,6 +13,9 @@ src/backend/
 ├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
 ├── Controllers/          ← API route handlers (one per resource area)
 │   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+├── Middleware/           ← Cross-cutting HTTP pipeline behavior
+│   ├── RequestIdMiddleware.cs ← Assigns/propagates `X-Request-Id`
+│   └── RequestLoggingMiddleware.cs ← One structured completion log per request
 ├── Services/             ← Business logic, injected into controllers
 │   └── AdminHealthService.cs ← Backend readiness check used by admin health route
 ├── Db/
@@ -106,6 +109,11 @@ All business logic lives here. Injected as interfaces for testability.
 - route registration
 
 The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
+
+Request-tracing contract:
+- every response includes `X-Request-Id`
+- safe incoming `X-Request-Id` values are reused; unsafe values are replaced
+- request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
 
 ### Query builder
 

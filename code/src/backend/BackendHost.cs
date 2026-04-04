@@ -1,6 +1,7 @@
 using Repere.Api.Db;
 using Repere.Api.Db.Migrations;
 using Repere.Api.Db.Schema;
+using Repere.Api.Middleware;
 using Repere.Api.Services;
 
 namespace Repere.Api;
@@ -37,7 +38,11 @@ public static class BackendHost
         services.AddLogging(logging =>
         {
             logging.AddConfiguration(configuration.GetSection("Logging"));
-            logging.AddConsole();
+            logging.AddJsonConsole(options =>
+            {
+                options.IncludeScopes = true;
+                options.TimestampFormat = "O";
+            });
         });
 
         services.AddSingleton<ISystemPool>(serviceProvider =>
@@ -66,8 +71,8 @@ public static class BackendHost
 
     public static void ConfigureMiddleware(WebApplication app)
     {
-        // Step 1.3 middleware layers (request ID, logging, errors, CORS) are added
-        // in follow-up tasks. The host split starts here so those changes land cleanly.
+        app.UseMiddleware<RequestIdMiddleware>();
+        app.UseMiddleware<RequestLoggingMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)
