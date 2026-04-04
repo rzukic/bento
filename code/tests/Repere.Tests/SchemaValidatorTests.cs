@@ -113,6 +113,52 @@ public class SchemaValidatorTests
     }
 
     [Fact]
+    public void Validate_RejectsRelationColumnMismatch_AndDuplicateManyToManyPairs()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "customer_id", "type": "text" }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "products",
+                  "columns": [],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" },
+                { "name": "product_tags_primary", "type": "N:M", "from": "products", "to": "tags" },
+                { "name": "product_tags_secondary", "type": "N:M", "from": "tags", "to": "products" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        Assert.Contains(result.Errors, e => e.Code == "relation_column_not_reference");
+        Assert.Contains(result.Errors, e => e.Code == "relation_reference_mismatch");
+        Assert.Contains(result.Errors, e => e.Code == "duplicate_many_to_many_pair");
+    }
+
+    [Fact]
     public void Validate_AllowsSelfReference_ButRejectsCircularDependencies()
     {
         var selfReferenceModel = ModelJsonSerializer.Parse("""
