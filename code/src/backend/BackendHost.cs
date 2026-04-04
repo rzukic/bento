@@ -82,6 +82,8 @@ public static class BackendHost
         app.UseMiddleware<RequestIdMiddleware>();
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<ErrorHandlingMiddleware>();
+        app.UseMiddleware<CorsPolicyMiddleware>();
+        app.UseMiddleware<BodySizeLimitMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)

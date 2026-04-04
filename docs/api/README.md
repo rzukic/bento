@@ -51,6 +51,12 @@ Known backend error codes:
 
 In development, unexpected `500` responses may also include debug-only fields such as `exceptionType` and `stackTrace` inside `error.details`. Those fields are not returned in production.
 
+Cross-origin and request-size behavior:
+- same-origin is allowed by default
+- configured origins from `ALLOWED_ORIGINS` receive CORS headers
+- disallowed cross-origin requests return `403 FORBIDDEN`
+- oversized JSON requests return `413` with `VALIDATION_FAILED`
+
 ---
 
 ## Endpoints

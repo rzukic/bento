@@ -21,6 +21,9 @@ src/backend/
 ├── Middleware/           ← Cross-cutting HTTP pipeline behavior
 │   ├── RequestIdMiddleware.cs ← Assigns/propagates `X-Request-Id`
 │   └── RequestLoggingMiddleware.cs ← One structured completion log per request
+│   └── ErrorHandlingMiddleware.cs ← Standard API error envelope for exceptions
+│   └── CorsPolicyMiddleware.cs ← Same-origin default plus configured CORS allowlist
+│   └── BodySizeLimitMiddleware.cs ← Configurable JSON request-size enforcement
 ├── Services/             ← Business logic, injected into controllers
 │   └── AdminHealthService.cs ← Backend readiness check used by admin health route
 ├── Db/
@@ -121,6 +124,13 @@ Request-tracing contract:
 - safe incoming `X-Request-Id` values are reused; unsafe values are replaced
 - request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
 
+Current middleware order:
+1. `RequestIdMiddleware`
+2. `RequestLoggingMiddleware`
+3. `ErrorHandlingMiddleware`
+4. `CorsPolicyMiddleware`
+5. `BodySizeLimitMiddleware`
+
 Runtime configuration contract:
 - `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
 - exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
@@ -148,6 +158,15 @@ Backend error contract:
 - business/domain failures should throw typed `ApiException` derivatives
 - unhandled exceptions map to `500 INTERNAL_ERROR`
 - debug-only fields such as `exceptionType` and `stackTrace` are included only in development
+- disallowed cross-origin requests map to `403 FORBIDDEN`
+- oversized JSON bodies map to `413` with `VALIDATION_FAILED`
+
+### CORS and body limits
+
+- same-origin is the default when `AllowedOrigins` is empty
+- configured cross-origin access is exact-origin matching via `ALLOWED_ORIGINS`
+- preflight `OPTIONS` requests are answered directly when the origin is allowed
+- JSON requests over `MAX_BODY_SIZE` are rejected before handlers run
 
 ### Schema engine
 
