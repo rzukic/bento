@@ -288,6 +288,39 @@ public class ModelJsonTests
         Assert.Equal(2, versionOne.Tables[0].Columns.Count);
     }
 
+    [Fact]
+    public async Task Store_ConcurrentSaves_AllocateUniqueVersions()
+    {
+        using var env = new TemporarySchemaStoreEnvironment();
+
+        var saves = Enumerable.Range(0, 8)
+            .Select(i => env.Store.SaveAsync(ModelJsonSerializer.Parse($$"""
+                {
+                  "version": 0,
+                  "tables": [
+                    {
+                      "name": "table_{{i}}",
+                      "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                      ],
+                      "indexes": []
+                    }
+                  ],
+                  "relations": []
+                }
+                """)))
+            .ToArray();
+
+        var results = await Task.WhenAll(saves);
+        var versions = results.Select(x => x.Version).OrderBy(x => x).ToArray();
+
+        Assert.Equal([1, 2, 3, 4, 5, 6, 7, 8], versions);
+
+        var current = await env.Store.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal(8, current!.Version);
+    }
+
     private sealed class TemporarySchemaStoreEnvironment : IDisposable
     {
         private readonly string _rootPath;

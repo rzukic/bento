@@ -13,6 +13,7 @@ public class DatabaseBootstrapTests
         "dashboards",
         "jobs",
         "migrations",
+        "schema_version_counters",
         "schema_versions",
         "users"
     ];
@@ -40,6 +41,8 @@ public class DatabaseBootstrapTests
                 'dashboards',
                 'credentials',
                 'jobs'
+                ,
+                'schema_version_counters'
               )
             ORDER BY name;
             """;
@@ -80,6 +83,39 @@ public class DatabaseBootstrapTests
 
         var ex = await Assert.ThrowsAsync<SqliteException>(async () => await cmd.ExecuteScalarAsync());
         Assert.Contains("no such table", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task SchemaVersions_VersionColumn_IsUniqueAtDatabaseLevel()
+    {
+        using var env = new TemporarySqliteEnvironment();
+        var bootstrap = new DatabaseBootstrap(env.SystemPool, NullLogger<DatabaseBootstrap>.Instance);
+
+        await bootstrap.StartAsync(CancellationToken.None);
+
+        await using var conn = (SqliteConnection)await env.SystemPool.GetConnectionAsync();
+
+        using (var insert = conn.CreateCommand())
+        {
+            insert.CommandText = """
+                INSERT INTO schema_versions (model_json, version)
+                VALUES ($modelJson, $version);
+                """;
+            insert.Parameters.AddWithValue("$modelJson", "{}");
+            insert.Parameters.AddWithValue("$version", 1);
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        using var duplicate = conn.CreateCommand();
+        duplicate.CommandText = """
+            INSERT INTO schema_versions (model_json, version)
+            VALUES ($modelJson, $version);
+            """;
+        duplicate.Parameters.AddWithValue("$modelJson", "{}");
+        duplicate.Parameters.AddWithValue("$version", 1);
+
+        var ex = await Assert.ThrowsAsync<SqliteException>(async () => await duplicate.ExecuteNonQueryAsync());
+        Assert.Contains("UNIQUE constraint failed", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class TemporarySqliteEnvironment : IDisposable

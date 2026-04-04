@@ -50,6 +50,25 @@ public class DatabaseBootstrap : IHostedService
             """);
 
         await conn.ExecuteAsync("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_schema_versions_version
+            ON _system.schema_versions(version);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.schema_version_counters (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                next_version    INTEGER NOT NULL
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            INSERT INTO _system.schema_version_counters (id, next_version)
+            SELECT 1, COALESCE(MAX(version), 0) + 1
+            FROM _system.schema_versions
+            ON CONFLICT (id) DO NOTHING;
+            """);
+
+        await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS _system.migrations (
                 id              SERIAL PRIMARY KEY,
                 version_from    INTEGER NOT NULL,
@@ -129,6 +148,24 @@ public class DatabaseBootstrap : IHostedService
                 version         INTEGER NOT NULL DEFAULT 1,
                 created_at      TEXT NOT NULL DEFAULT (datetime('now'))
             );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE UNIQUE INDEX IF NOT EXISTS ux_schema_versions_version
+            ON schema_versions(version);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS schema_version_counters (
+                id              INTEGER PRIMARY KEY CHECK (id = 1),
+                next_version    INTEGER NOT NULL
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            INSERT OR IGNORE INTO schema_version_counters (id, next_version)
+            SELECT 1, COALESCE(MAX(version), 0) + 1
+            FROM schema_versions;
             """);
 
         await conn.ExecuteAsync("""
