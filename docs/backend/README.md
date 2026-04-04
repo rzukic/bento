@@ -25,9 +25,15 @@ src/backend/
 │   │   ├── ModelJsonSerializer.cs ← Pretty-printing and round-trip parsing helpers
 │   │   ├── ModelJsonStore.cs ← Versioned persistence in `_system.schema_versions`
 │   │   ├── SchemaValidator.cs ← Validation + normalization before diffing/migrations
-│   │   └── RelationResolver.cs ← Relation and junction-table logic (Step 1.2)
+│   │   ├── SchemaDiff.cs ← Structured schema diff output for migrations
+│   │   ├── RelationResolver.cs ← Relation metadata, junction tables, and dependency ordering
+│   │   ├── SchemaService.cs ← High-level schema apply/rollback orchestration
+│   │   ├── SchemaRuntimeOptions.cs ← Startup schema file config
+│   │   └── SchemaAutoMigrationService.cs ← Optional startup auto-migrate hosted service
 │   ├── DdlBlocklist.cs   ← SQL statement type checker (Step 1.5)
-│   └── Migrations/       ← Database migration engine (Step 1.2)
+│   └── Migrations/
+│       ├── MigrationGenerator.cs ← Provider-specific SQL plan generation
+│       └── MigrationRunner.cs ← Migration execution, history, and rollback
 ├── Formula/
 │   ├── Evaluator.cs      ← Tier dispatch and evaluation orchestration (Phase 3)
 │   ├── SqlTier.cs        ← Tier 1: inline SQL computed columns
@@ -48,7 +54,8 @@ src/backend/
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
 | Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
-| Schema model, validator & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
+| Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
+| Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
 | JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |
 | Background workers | `Workers/` | [background-workers.md](background-workers.md) |
@@ -106,6 +113,32 @@ Always validate parsed Model JSON before diffing or generating SQL. `SchemaValid
 - collecting blocking errors with stable codes and paths
 - collecting non-blocking warnings for risky-but-allowed names
 - normalizing tables by auto-adding an integer `id` primary key when one is missing
+
+After validation, `SchemaDiffEngine` compares the normalized old and new models and emits typed `SchemaChange` records. Rename detection is explicit via `renamedFrom`; the diff layer does not guess.
+
+`MigrationGenerator` consumes those `SchemaChange` records plus the old/new normalized models and returns a `MigrationPlan` with:
+- ordered `SqlUp` and `SqlDown` statements
+- a destructive-change flag for confirmation workflows
+- provider-specific handling for Postgres vs. SQLite
+
+SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`).
+
+`SchemaService` is the single orchestration entry point for schema changes. It:
+- validates incoming Model JSON
+- diffs it against the current stored version
+- generates the migration plan
+- blocks destructive changes unless explicitly confirmed
+- delegates execution/history to `MigrationRunner`
+
+`RelationResolver` turns top-level relation definitions into concrete backend metadata. It:
+- resolves dependency order for table creation
+- exposes relation accessors for future include/join code
+- generates deterministic N:M junction-table definitions
+- flags self-references and circular dependency sets for higher layers
+
+`MigrationRunner` applies DDL to the data pool, stores the new schema version plus migration history through the system pool, supports rollback of the last N forward migrations, and uses best-effort compensation if cross-pool metadata persistence fails after the data schema changes.
+
+Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `SchemaAutoMigrationService` loads the desired Model JSON from `Schema.ModelJsonPath` and runs the same `SchemaService` pipeline at boot. Destructive plans are logged and skipped until an explicit confirmed migration is issued.
 
 ---
 

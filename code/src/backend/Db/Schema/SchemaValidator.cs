@@ -159,6 +159,9 @@ public class SchemaValidator
         Dictionary<string, TableDef> tableLookup,
         List<SchemaValidationIssue> errors)
     {
+        var relationNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var junctionPairs = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
         for (var relationIndex = 0; relationIndex < model.Relations.Count; relationIndex++)
         {
             var relation = model.Relations[relationIndex];
@@ -166,6 +169,8 @@ public class SchemaValidator
 
             if (string.IsNullOrWhiteSpace(relation.Name))
                 errors.Add(new("missing_relation_name", "Relation name is required.", $"{relationPath}.name"));
+            else if (!relationNames.Add(relation.Name))
+                errors.Add(new("duplicate_relation_name", $"Schema contains duplicate relation name '{relation.Name}'.", $"{relationPath}.name"));
             if (!relation.TypeSpecified)
                 errors.Add(new("missing_relation_type", $"Relation '{relation.Name}' is missing a required type.", $"{relationPath}.type"));
             if (string.IsNullOrWhiteSpace(relation.From))
@@ -190,11 +195,38 @@ public class SchemaValidator
                 else if (toExists)
                 {
                     var targetTable = tableLookup[relation.To];
-                    var columnExists = targetTable.Columns.Any(c => string.Equals(c.Name, relation.Column, StringComparison.OrdinalIgnoreCase));
-                    if (!columnExists)
+                    var column = targetTable.Columns.FirstOrDefault(c => string.Equals(c.Name, relation.Column, StringComparison.OrdinalIgnoreCase));
+                    if (column is null)
                     {
                         errors.Add(new("relation_column_missing", $"Relation '{relation.Name}' expects column '{relation.Column}' on table '{relation.To}'.", $"{relationPath}.column"));
                     }
+                    else
+                    {
+                        if (column.Type != ColumnType.Reference)
+                        {
+                            errors.Add(new("relation_column_not_reference", $"Relation '{relation.Name}' requires '{relation.To}.{column.Name}' to be a reference column.", $"{relationPath}.column"));
+                        }
+
+                        if (!string.Equals(column.References, relation.From, StringComparison.OrdinalIgnoreCase))
+                        {
+                            errors.Add(new("relation_reference_mismatch", $"Relation '{relation.Name}' requires '{relation.To}.{column.Name}' to reference '{relation.From}'.", $"{relationPath}.column"));
+                        }
+                    }
+                }
+            }
+            else if (relation.Type == RelationType.ManyToMany && fromExists && toExists)
+            {
+                var orderedPair = string.Compare(relation.From, relation.To, StringComparison.OrdinalIgnoreCase) <= 0
+                    ? $"{relation.From}|{relation.To}"
+                    : $"{relation.To}|{relation.From}";
+
+                if (junctionPairs.TryGetValue(orderedPair, out var existingRelation))
+                {
+                    errors.Add(new("duplicate_many_to_many_pair", $"N:M relation '{relation.Name}' duplicates the junction pair already used by '{existingRelation}'.", relationPath));
+                }
+                else
+                {
+                    junctionPairs[orderedPair] = relation.Name;
                 }
             }
         }

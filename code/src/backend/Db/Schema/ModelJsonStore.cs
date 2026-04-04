@@ -1,4 +1,5 @@
 using Dapper;
+using System.Data;
 
 namespace Repere.Api.Db.Schema;
 
@@ -31,6 +32,11 @@ public class ModelJsonStore
     public async Task<ModelJson> SaveAsync(ModelJson model)
     {
         using var conn = await _systemPool.GetConnectionAsync();
+        return await SaveAsync(conn, null, model);
+    }
+
+    public async Task<ModelJson> SaveAsync(IDbConnection conn, IDbTransaction? transaction, ModelJson model)
+    {
         var nextVersion = await conn.ExecuteScalarAsync<int>(GetNextVersionSql());
         var versionedModel = model with { Version = nextVersion };
         var json = ModelJsonSerializer.Serialize(versionedModel);
@@ -39,9 +45,20 @@ public class ModelJsonStore
         {
             Version = versionedModel.Version,
             ModelJson = json
-        });
+        }, transaction);
 
         return versionedModel;
+    }
+
+    public async Task DeleteVersionAsync(int version)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        await DeleteVersionAsync(conn, null, version);
+    }
+
+    public async Task DeleteVersionAsync(IDbConnection conn, IDbTransaction? transaction, int version)
+    {
+        await conn.ExecuteAsync($"DELETE FROM {GetSchemaVersionsTableName()} WHERE version = @Version;", new { Version = version }, transaction);
     }
 
     private ModelJson ParseRow(SchemaVersionRow row)
