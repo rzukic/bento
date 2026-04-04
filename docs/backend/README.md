@@ -9,8 +9,12 @@
 
 ```
 src/backend/
+├── ApiRoutes.cs          ← Versioned backend route constants (`/api/v1/...`)
+├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
 ├── Controllers/          ← API route handlers (one per resource area)
+│   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
 ├── Services/             ← Business logic, injected into controllers
+│   └── AdminHealthService.cs ← Backend readiness check used by admin health route
 ├── Db/
 │   ├── IDbPool.cs        ← Pool interfaces (ISystemPool, IDataPool)
 │   ├── DatabaseConfig.cs ← Configuration model (provider, connections, pool sizing)
@@ -44,7 +48,8 @@ src/backend/
 ├── Workers/              ← Background services (dirty flag processor, etc.)
 ├── Hubs/                 ← SignalR WebSocket hubs
 ├── Models/               ← DTOs and domain models
-└── Program.cs            ← Entry point, DI registration, middleware pipeline
+│   └── AdminHealthResponse.cs ← Response model for `/api/v1/admin/health`
+└── Program.cs            ← Minimal entry point delegating to `BackendHost`
 ```
 
 ---
@@ -54,6 +59,7 @@ src/backend/
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
 | Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
+| API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | [`../../wiki/parts/02-backend-api/README.md`](../../wiki/parts/02-backend-api/README.md) |
 | Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
@@ -90,6 +96,16 @@ public class TablesController : ControllerBase
 ### Services
 
 All business logic lives here. Injected as interfaces for testability.
+
+### API host
+
+`Program.cs` stays intentionally small. `BackendHost` owns:
+- configuration loading/binding
+- service registration
+- middleware registration
+- route registration
+
+The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
 
 ### Query builder
 
