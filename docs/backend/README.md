@@ -24,7 +24,7 @@ src/backend/
 │   │   ├── ModelJsonJsonConverters.cs ← Custom JSON converters for schema enums
 │   │   ├── ModelJsonSerializer.cs ← Pretty-printing and round-trip parsing helpers
 │   │   ├── ModelJsonStore.cs ← Versioned persistence in `_system.schema_versions`
-│   │   ├── SchemaValidator.cs ← Model JSON validation (Step 1.2)
+│   │   ├── SchemaValidator.cs ← Validation + normalization before diffing/migrations
 │   │   └── RelationResolver.cs ← Relation and junction-table logic (Step 1.2)
 │   ├── DdlBlocklist.cs   ← SQL statement type checker (Step 1.5)
 │   └── Migrations/       ← Database migration engine (Step 1.2)
@@ -48,7 +48,7 @@ src/backend/
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
 | Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
-| Schema model & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
+| Schema model, validator & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
 | JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |
 | Background workers | `Workers/` | [background-workers.md](background-workers.md) |
@@ -99,6 +99,13 @@ var results = await _dataPool.QueryAsync<UserRow>("SELECT * FROM users WHERE id 
 ### Error handling
 
 Use a global exception middleware. Controllers do not catch exceptions — let them propagate.
+
+### Schema engine
+
+Always validate parsed Model JSON before diffing or generating SQL. `SchemaValidator` is the first gate and is responsible for:
+- collecting blocking errors with stable codes and paths
+- collecting non-blocking warnings for risky-but-allowed names
+- normalizing tables by auto-adding an integer `id` primary key when one is missing
 
 ---
 
