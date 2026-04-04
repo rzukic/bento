@@ -41,7 +41,7 @@ public class DatabaseBootstrap : IHostedService
         // Here we only create the tables themselves.
 
         await conn.ExecuteAsync("""
-            CREATE TABLE IF NOT EXISTS _system.schema (
+            CREATE TABLE IF NOT EXISTS _system.schema_versions (
                 id              SERIAL PRIMARY KEY,
                 model_json      JSONB NOT NULL,
                 version         INTEGER NOT NULL DEFAULT 1,
