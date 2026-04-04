@@ -313,6 +313,44 @@ public class MigrationGeneratorTests
         Assert.True(await TableExistsAsync(conn, "_jt_products_tags"));
         Assert.Equal(["product_id", "tag_id", "created_at"], await GetTableColumnsAsync(conn, "_jt_products_tags"));
 
+        using (var seedProducts = conn.CreateCommand())
+        {
+            seedProducts.CommandText = """
+                INSERT INTO "products" ("id")
+                VALUES (1);
+                """;
+            await seedProducts.ExecuteNonQueryAsync();
+        }
+
+        using (var seedTags = conn.CreateCommand())
+        {
+            seedTags.CommandText = """
+                INSERT INTO "tags" ("id")
+                VALUES (1);
+                """;
+            await seedTags.ExecuteNonQueryAsync();
+        }
+
+        using (var insert = conn.CreateCommand())
+        {
+            insert.CommandText = """
+                INSERT INTO "_jt_products_tags" ("product_id", "tag_id")
+                VALUES (1, 1);
+                """;
+            await insert.ExecuteNonQueryAsync();
+        }
+
+        using (var createdAtQuery = conn.CreateCommand())
+        {
+            createdAtQuery.CommandText = """
+                SELECT "created_at"
+                FROM "_jt_products_tags"
+                LIMIT 1;
+                """;
+            var createdAt = (string?)await createdAtQuery.ExecuteScalarAsync();
+            Assert.False(string.IsNullOrWhiteSpace(createdAt));
+        }
+
         using var fkCmd = conn.CreateCommand();
         fkCmd.CommandText = "PRAGMA foreign_key_list(\"_jt_products_tags\");";
         await using var fkReader = await fkCmd.ExecuteReaderAsync();
@@ -323,6 +361,42 @@ public class MigrationGeneratorTests
         }
 
         Assert.Equal(["products", "tags"], targets.OrderBy(x => x).ToArray());
+    }
+
+    [Fact]
+    public void Generate_Ignores_UnknownDefaultSqlExtensionField()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "events",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime", "defaultSql": "CURRENT_TIMESTAMP" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+        var sql = string.Join("\n", plan.SqlUp);
+
+        Assert.DoesNotContain("DEFAULT CURRENT_TIMESTAMP", sql, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("defaultSql", sql, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

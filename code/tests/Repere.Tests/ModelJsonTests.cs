@@ -111,6 +111,38 @@ public class ModelJsonTests
     }
 
     [Fact]
+    public void Parse_Preserves_DefaultSql_AsUnknownMetadata_WithoutCreatingExecutableDefault()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "events",
+                  "columns": [
+                    {
+                      "name": "created_at",
+                      "type": "datetime",
+                      "defaultSql": "CURRENT_TIMESTAMP"
+                    }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var column = Assert.Single(model.Tables[0].Columns);
+        Assert.Null(column.InternalDefaultSql);
+        Assert.NotNull(column.AdditionalData);
+        Assert.Equal("CURRENT_TIMESTAMP", column.AdditionalData!["defaultSql"].GetString());
+
+        var roundTrip = ModelJsonSerializer.Serialize(model);
+        Assert.Contains("\"defaultSql\": \"CURRENT_TIMESTAMP\"", roundTrip, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Parse_AllColumnTypes_AreSupported()
     {
         var model = ModelJsonSerializer.Parse("""

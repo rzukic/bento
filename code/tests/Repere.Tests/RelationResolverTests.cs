@@ -69,6 +69,9 @@ public class RelationResolverTests
         Assert.NotNull(relation.JunctionTable);
         Assert.Equal(["product_id", "tag_id", "created_at"], relation.JunctionTable!.Columns.Select(c => c.Name).ToArray());
         Assert.Equal(2, relation.JunctionTable.Columns.Count(c => c.PrimaryKey));
+        var createdAt = relation.JunctionTable.Columns.Single(c => c.Name == "created_at");
+        Assert.Equal("CURRENT_TIMESTAMP", createdAt.InternalDefaultSql);
+        Assert.Null(createdAt.AdditionalData);
     }
 
     [Fact]

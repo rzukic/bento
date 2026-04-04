@@ -1,5 +1,3 @@
-using System.Text.Json;
-
 namespace Repere.Api.Db.Schema;
 
 public sealed record ResolvedRelation
@@ -71,10 +69,7 @@ public class RelationResolver
                     Type = ColumnType.DateTime,
                     TypeSpecified = true,
                     Nullable = false,
-                    AdditionalData = new Dictionary<string, JsonElement>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ["defaultSql"] = ParseJsonString("CURRENT_TIMESTAMP")
-                    }
+                    InternalDefaultSql = "CURRENT_TIMESTAMP"
                 }
             ],
             Indexes = []
@@ -283,12 +278,6 @@ public class RelationResolver
         return string.Compare(relation.From, relation.To, StringComparison.OrdinalIgnoreCase) <= 0
             ? (relation.From, relation.To)
             : (relation.To, relation.From);
-    }
-
-    private static JsonElement ParseJsonString(string value)
-    {
-        using var doc = JsonDocument.Parse($"\"{value}\"");
-        return doc.RootElement.Clone();
     }
 
     private static string SingularizeName(string name)
