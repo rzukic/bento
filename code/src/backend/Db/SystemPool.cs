@@ -53,7 +53,8 @@ public class SystemPool : ISystemPool, IDisposable
             {
                 DataSource = dbPath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Shared
+                Cache = SqliteCacheMode.Shared,
+                DefaultTimeout = _config.ConnectionTimeoutSeconds
             }.ToString();
 
             var conn = new SqliteConnection(connStr);

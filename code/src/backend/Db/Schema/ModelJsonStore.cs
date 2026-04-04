@@ -32,22 +32,42 @@ public class ModelJsonStore
     public async Task<ModelJson> SaveAsync(ModelJson model)
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        return await SaveAsync(conn, null, model);
+        using var tx = conn.BeginTransaction();
+        var saved = await SaveAsync(conn, tx, model);
+        tx.Commit();
+        return saved;
     }
 
     public async Task<ModelJson> SaveAsync(IDbConnection conn, IDbTransaction? transaction, ModelJson model)
     {
-        var nextVersion = await conn.ExecuteScalarAsync<int>(GetNextVersionSql());
-        var versionedModel = model with { Version = nextVersion };
-        var json = ModelJsonSerializer.Serialize(versionedModel);
+        var ownsTransaction = transaction is null;
+        using var localTransaction = ownsTransaction ? conn.BeginTransaction() : null;
+        var activeTransaction = transaction ?? localTransaction!;
 
-        await conn.ExecuteAsync(GetInsertSql(), new
+        try
         {
-            Version = versionedModel.Version,
-            ModelJson = json
-        }, transaction);
+            var nextVersion = await AllocateNextVersionAsync(conn, activeTransaction);
+            var versionedModel = model with { Version = nextVersion };
+            var json = ModelJsonSerializer.Serialize(versionedModel);
 
-        return versionedModel;
+            await conn.ExecuteAsync(GetInsertSql(), new
+            {
+                Version = versionedModel.Version,
+                ModelJson = json
+            }, activeTransaction);
+
+            if (ownsTransaction)
+                localTransaction!.Commit();
+
+            return versionedModel;
+        }
+        catch
+        {
+            if (ownsTransaction)
+                localTransaction?.Rollback();
+
+            throw;
+        }
     }
 
     public async Task DeleteVersionAsync(int version)
@@ -83,10 +103,31 @@ public class ModelJsonStore
             : $"SELECT version, model_json AS ModelJson FROM {table} WHERE version = @Version LIMIT 1;";
     }
 
-    private string GetNextVersionSql()
+    private async Task<int> AllocateNextVersionAsync(IDbConnection conn, IDbTransaction transaction)
     {
-        var table = GetSchemaVersionsTableName();
-        return $"SELECT COALESCE(MAX(version), 0) + 1 FROM {table};";
+        var counterTable = GetSchemaVersionCountersTableName();
+
+        if (_systemPool.Provider == DatabaseProvider.Postgres)
+        {
+            return await conn.ExecuteScalarAsync<int>($"""
+                UPDATE {counterTable}
+                SET next_version = next_version + 1
+                WHERE id = 1
+                RETURNING next_version - 1;
+                """, transaction: transaction);
+        }
+
+        await conn.ExecuteAsync($"""
+            UPDATE {counterTable}
+            SET next_version = next_version + 1
+            WHERE id = 1;
+            """, transaction: transaction);
+
+        return await conn.ExecuteScalarAsync<int>($"""
+            SELECT next_version - 1
+            FROM {counterTable}
+            WHERE id = 1;
+            """, transaction: transaction);
     }
 
     private string GetInsertSql()
@@ -99,6 +140,9 @@ public class ModelJsonStore
 
     private string GetSchemaVersionsTableName() =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.schema_versions" : "schema_versions";
+
+    private string GetSchemaVersionCountersTableName() =>
+        _systemPool.Provider == DatabaseProvider.Postgres ? "_system.schema_version_counters" : "schema_version_counters";
 
     private sealed class SchemaVersionRow
     {

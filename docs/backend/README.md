@@ -143,6 +143,8 @@ SQLite-specific note: unsupported column alterations are handled by full table r
 
 `MigrationRunner` applies DDL to the data pool, stores the new schema version plus migration history through the system pool, supports rollback of the last N forward migrations, and uses best-effort compensation if cross-pool metadata persistence fails after the data schema changes.
 
+`ModelJsonStore` allocates schema versions atomically inside the same system transaction as the insert, using a single-row counter table plus a database-level unique constraint on `schema_versions.version`.
+
 Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `SchemaAutoMigrationService` loads the desired Model JSON from `Schema.ModelJsonPath` and runs the same `SchemaService` pipeline at boot. Destructive plans are logged and skipped until an explicit confirmed migration is issued.
 
 ---
