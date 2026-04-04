@@ -95,6 +95,7 @@ Current response shape:
 If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and an `error` message.
 
 The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
+This is the canonical backend health endpoint for deployment checks and container health probes.
 
 ---
 
