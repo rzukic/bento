@@ -14,13 +14,18 @@ public class QueryService
 {
     private readonly ISystemPool _systemPool;
     private readonly IDataPool _dataPool;
-    private readonly DatabaseProvider _provider;
+    private readonly Compiler _compiler;
 
     public QueryService(ISystemPool systemPool, IDataPool dataPool, DatabaseConfig config)
     {
         _systemPool = systemPool;
         _dataPool = dataPool;
-        _provider = config.Provider;
+        _compiler = config.Provider switch
+        {
+            DatabaseProvider.Postgres => new PostgresCompiler(),
+            DatabaseProvider.Sqlite => new SqliteCompiler(),
+            _ => throw new InvalidOperationException($"Unsupported provider: {config.Provider}")
+        };
     }
 
     /// <summary>
@@ -30,7 +35,7 @@ public class QueryService
     public async Task<QueryScope> UseSystemAsync()
     {
         var conn = await _systemPool.GetConnectionAsync();
-        return new QueryScope(conn, CreateCompiler());
+        return new QueryScope(conn, _compiler);
     }
 
     /// <summary>
@@ -40,7 +45,7 @@ public class QueryService
     public async Task<QueryScope> UseDataAsync()
     {
         var conn = await _dataPool.GetConnectionAsync();
-        return new QueryScope(conn, CreateCompiler());
+        return new QueryScope(conn, _compiler);
     }
 
     /// <summary>
@@ -80,12 +85,6 @@ public class QueryService
         return await conn.ExecuteAsync(sql, parameters);
     }
 
-    private Compiler CreateCompiler() => _provider switch
-    {
-        DatabaseProvider.Postgres => new PostgresCompiler(),
-        DatabaseProvider.Sqlite => new SqliteCompiler(),
-        _ => throw new InvalidOperationException($"Unsupported provider: {_provider}")
-    };
 }
 
 /// <summary>

@@ -17,7 +17,7 @@ _Changes that are complete but not yet part of a versioned release._
 ### 2026-04-03 — Core database connection and query builder
 
 > **Phase**: Phase 1 — Foundation
-> **Working step**: [2026-04-03 — Core database connection & query builder](working-steps/2026-04-03-core-database-connection-and-query-builder.md)
+> **Working step**: [Step 1.1 — Core database connection & query builder](working-steps/1.1-core-database-connection-and-query-builder.md)
 
 Starting the foundational database layer — .NET project scaffolding, dual connection pool architecture (system + data pools), query builder abstraction with SqlKata + Dapper, column type system, and namespace isolation with system table bootstrap.
 

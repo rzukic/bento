@@ -1,5 +1,6 @@
 using System.Data;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.Logging;
 using Npgsql;
 
 namespace Repere.Api.Db;
@@ -7,22 +8,29 @@ namespace Repere.Api.Db;
 public class DataPool : IDataPool, IDisposable
 {
     private readonly DatabaseConfig _config;
+    private readonly ILogger<DataPool>? _logger;
     private readonly NpgsqlDataSource? _pgDataSource;
 
     public DatabaseProvider Provider => _config.Provider;
 
-    public DataPool(DatabaseConfig config)
+    public DataPool(DatabaseConfig config, ILogger<DataPool>? logger = null)
     {
         _config = config;
+        _logger = logger;
 
         if (config.Provider == DatabaseProvider.Postgres)
         {
             var builder = new NpgsqlDataSourceBuilder(config.DataConnection);
+            builder.ConnectionStringBuilder.MinPoolSize = config.MinPoolSize;
+            builder.ConnectionStringBuilder.MaxPoolSize = config.MaxPoolSize;
+            builder.ConnectionStringBuilder.Timeout = config.ConnectionTimeoutSeconds;
             _pgDataSource = builder.Build();
+            _logger?.LogInformation("DataPool configured for Postgres (pool {Min}-{Max})", config.MinPoolSize, config.MaxPoolSize);
         }
         else
         {
             Directory.CreateDirectory(config.DataConnection);
+            _logger?.LogInformation("DataPool configured for SQLite at {Path}", config.DataConnection);
         }
     }
 
@@ -45,11 +53,18 @@ public class DataPool : IDataPool, IDisposable
             {
                 DataSource = dbPath,
                 Mode = SqliteOpenMode.ReadWriteCreate,
-                Cache = SqliteCacheMode.Shared
+                Cache = SqliteCacheMode.Shared,
+                DefaultTimeout = _config.ConnectionTimeoutSeconds
             }.ToString();
 
             var conn = new SqliteConnection(connStr);
             await conn.OpenAsync();
+
+            // SQLite pragmas — must be set per connection
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;";
+            cmd.ExecuteNonQuery();
+
             return conn;
         }
     }

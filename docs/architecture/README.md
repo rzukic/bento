@@ -54,15 +54,15 @@ The frontend container only serves static files. All API calls from the browser 
 ```
 repere (database)
 ├── _system (schema)     ← privileged, repere_system role only
-│   ├── users
-│   ├── api_keys
-│   ├── dashboards
-│   ├── functions
-│   ├── forms
-│   ├── jobs
-│   ├── migrations
-│   ├── schema
-│   └── credentials
+│   ├── schema_versions  ← Model JSON + version history
+│   ├── migrations       ← migration log
+│   ├── users            ← platform user accounts
+│   ├── api_keys         ← API key hashes
+│   ├── dashboards       ← dashboard JSON definitions
+│   ├── credentials      ← encrypted third-party credentials
+│   ├── jobs             ← scheduled job definitions
+│   ├── functions        ← (Phase 3 — custom JS function definitions)
+│   └── forms            ← (Phase 4 — form definitions)
 └── public (schema)      ← user data, repere_data role
     ├── [user tables]
     └── [user tables]
