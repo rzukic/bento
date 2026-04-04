@@ -117,6 +117,8 @@ Browser → Caddy (/ws) → Backend (SignalR / WebSocket hub) → push on dirty 
 The frontend has **zero environment variables** — the API URL is always relative (`/api/v1/`). Caddy handles routing.
 
 The backend receives:
-- `DATABASE_URL` — Postgres connection string (or SQLite paths)
+- `DATABASE_URL` — SQLite convenience URL for the shared data root
+- `DATABASE_SYSTEM_CONNECTION` — privileged/system pool connection string
+- `DATABASE_DATA_CONNECTION` — restricted/data pool connection string
 - `JWT_SECRET` — signing key for JWT tokens
 - `DOMAIN` — passed to Caddy for TLS (default: `localhost`)

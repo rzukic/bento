@@ -1,3 +1,4 @@
+using Repere.Api.Configuration;
 using Repere.Api.Db;
 using Repere.Api.Db.Migrations;
 using Repere.Api.Db.Schema;
@@ -10,11 +11,14 @@ public static class BackendHost
 {
     public static void ConfigureConfiguration(WebApplicationBuilder builder)
     {
-        _ = builder;
-
         // The default ASP.NET Core builder already loads appsettings.json plus
         // appsettings.{Environment}.json. This hook keeps backend-specific config
         // setup in one place for the later Step 1.3 configuration tasks.
+        var overrides = BackendRuntimeConfiguration.BuildEnvironmentOverrides(Environment.GetEnvironmentVariable);
+        if (overrides.Count > 0)
+        {
+            builder.Configuration.AddInMemoryCollection(overrides);
+        }
     }
 
     public static void ConfigureServices(
@@ -27,8 +31,12 @@ public static class BackendHost
         services.AddControllers()
             .AddApplicationPart(typeof(Program).Assembly);
 
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        services.AddSingleton(runtimeOptions);
+
         var dbConfig = new DatabaseConfig();
         configuration.GetSection("Database").Bind(dbConfig);
+        BackendRuntimeConfiguration.ApplyDatabaseOverrides(dbConfig, runtimeOptions);
         services.AddSingleton(dbConfig);
 
         var schemaOptions = new SchemaRuntimeOptions();
