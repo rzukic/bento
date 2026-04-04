@@ -63,3 +63,11 @@ public sealed class ApiConflictException : ApiException
     {
     }
 }
+
+public sealed class ApiRequestTooLargeException : ApiException
+{
+    public ApiRequestTooLargeException(string message, IReadOnlyDictionary<string, object?>? details = null)
+        : base(ApiErrorCode.ValidationFailed, message, StatusCodes.Status413PayloadTooLarge, details)
+    {
+    }
+}
