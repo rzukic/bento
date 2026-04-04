@@ -663,11 +663,8 @@ public class MigrationGenerator
 
     private static string? BuildDefaultSql(ColumnDef column, DatabaseProvider provider)
     {
-        if (column.AdditionalData?.TryGetValue("defaultSql", out var defaultSql) == true &&
-            defaultSql.ValueKind == JsonValueKind.String)
-        {
-            return defaultSql.GetString();
-        }
+        if (!string.IsNullOrWhiteSpace(column.InternalDefaultSql))
+            return column.InternalDefaultSql;
 
         return column.DefaultValue.HasValue
             ? FormatSqlLiteral(column.DefaultValue.Value, column.Type, provider)

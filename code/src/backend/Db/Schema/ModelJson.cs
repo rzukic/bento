@@ -72,6 +72,9 @@ public sealed record ColumnDef
     [JsonPropertyName("default")]
     public JsonElement? DefaultValue { get; init; }
 
+    [JsonIgnore]
+    public string? InternalDefaultSql { get; init; }
+
     [JsonPropertyName("values")]
     public List<string> Values { get; init; } = [];
 

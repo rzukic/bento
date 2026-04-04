@@ -121,6 +121,11 @@ After validation, `SchemaDiffEngine` compares the normalized old and new models 
 - a destructive-change flag for confirmation workflows
 - provider-specific handling for Postgres vs. SQLite
 
+Defaults contract:
+- structured column defaults come from the public Model JSON `default` field
+- unknown extension fields are preserved for forward compatibility, but are treated as inert metadata
+- engine-generated columns may carry internal-only SQL defaults (for example junction-table `created_at`), but that path is not part of the user-editable Model JSON contract
+
 SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`).
 
 `SchemaService` is the single orchestration entry point for schema changes. It:
