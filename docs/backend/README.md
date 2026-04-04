@@ -19,6 +19,13 @@ src/backend/
 │   ├── DatabaseBootstrap.cs ← Creates system tables on first run (IHostedService)
 │   ├── QueryService.cs   ← Scoped QueryFactory provider (SqlKata + Dapper)
 │   ├── ColumnType.cs     ← Column type enum, DDL mappings, coercion matrix, validation
+│   ├── Schema/
+│   │   ├── ModelJson.cs  ← Model JSON type hierarchy (tables, columns, relations, indexes)
+│   │   ├── ModelJsonJsonConverters.cs ← Custom JSON converters for schema enums
+│   │   ├── ModelJsonSerializer.cs ← Pretty-printing and round-trip parsing helpers
+│   │   ├── ModelJsonStore.cs ← Versioned persistence in `_system.schema_versions`
+│   │   ├── SchemaValidator.cs ← Model JSON validation (Step 1.2)
+│   │   └── RelationResolver.cs ← Relation and junction-table logic (Step 1.2)
 │   ├── DdlBlocklist.cs   ← SQL statement type checker (Step 1.5)
 │   └── Migrations/       ← Database migration engine (Step 1.2)
 ├── Formula/
@@ -41,6 +48,7 @@ src/backend/
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
 | Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
+| Schema model & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
 | JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |
 | Background workers | `Workers/` | [background-workers.md](background-workers.md) |
