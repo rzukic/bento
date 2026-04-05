@@ -7,19 +7,23 @@
 
 ## Authentication
 
-Authentication is partially defined but not yet enforced.
+Step 1.4 auth is now active for the implemented backend surface.
 
-Planned Phase 1 auth methods:
+Current Phase 1 auth methods:
 
 | Method | Header | Value |
 |--------|--------|-------|
 | JWT Bearer | `Authorization` | `Bearer <token>` |
 | API Key | `X-API-Key` | `<key>` |
 
-Current Step 1.4 foundation contract:
-- `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, and the list of auth features still deferred
+Current Step 1.4 auth contract:
+- `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, whether bootstrap self-registration is currently open, and the list of auth features still deferred
 - `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
-- login, token issuance, auth middleware, and API key validation are still planned follow-on work within Step 1.4 / later phases
+- `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
+- `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
+- `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
+- API key auth and logout remain deferred to later phases
 
 ---
 
@@ -71,11 +75,12 @@ Cross-origin and request-size behavior:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
+| `POST` | `/api/v1/auth/register` | Create the bootstrap admin or an admin-managed user |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 
-`GET /api/v1/auth` is implemented as the Step 1.4 foundation surface. The interactive auth endpoints above remain planned for Phase 1 follow-on tasks.
+`GET /api/v1/auth`, `POST /register`, `POST /login`, and `POST /refresh` are implemented in Step 1.4. `POST /logout` and API key auth remain future work.
 
 ---
 
