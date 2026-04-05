@@ -73,6 +73,7 @@ public static class BackendHost
                 serviceProvider.GetRequiredService<ILogger<DataPool>>()));
 
         services.AddSingleton<QueryService>();
+        services.AddSingleton<AuthService>();
         services.AddSingleton<ModelJsonStore>();
         services.AddSingleton<SchemaValidator>();
         services.AddSingleton<RelationResolver>();

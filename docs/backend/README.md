@@ -227,6 +227,7 @@ Authentication middleware is not implemented yet, but the Step 1.4 foundation co
 
 Current Step 1.4 foundation state:
 - `/api/v1/auth` is a concrete controller endpoint that publishes the auth-mode/runtime contract
+- `POST /api/v1/auth/register` now bootstraps the first standard-mode user with a bcrypt hash and auto-assigns `admin`
 - `AUTH_MODE=open` and `AUTH_MODE=standard` are the only supported Phase 1 runtime modes
 - JWT metadata, refresh-cookie policy, and auth rate limits are now typed runtime configuration
 - no JWT issuance, login endpoint, refresh flow, or route protection exists yet
