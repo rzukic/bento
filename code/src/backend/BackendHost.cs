@@ -1,0 +1,110 @@
+using Repere.Api.Configuration;
+using Repere.Api.Db;
+using Repere.Api.Db.Migrations;
+using Repere.Api.Db.Schema;
+using Repere.Api.Middleware;
+using Repere.Api.Services;
+
+namespace Repere.Api;
+
+public static class BackendHost
+{
+    public static IReadOnlyList<ReservedRouteArea> ReservedRouteAreas { get; } =
+    [
+        new(ApiRoutes.Auth, "Auth"),
+        new(ApiRoutes.Schema, "Schema"),
+        new(ApiRoutes.Admin, "Admin"),
+        new(ApiRoutes.Data, "Data"),
+        new(ApiRoutes.Query, "Query")
+    ];
+
+    public static void ConfigureConfiguration(WebApplicationBuilder builder)
+    {
+        // The default ASP.NET Core builder already loads appsettings.json plus
+        // appsettings.{Environment}.json. This hook keeps backend-specific config
+        // setup in one place for the later Step 1.3 configuration tasks.
+        var overrides = BackendRuntimeConfiguration.BuildEnvironmentOverrides(Environment.GetEnvironmentVariable);
+        if (overrides.Count > 0)
+        {
+            builder.Configuration.AddInMemoryCollection(overrides);
+        }
+    }
+
+    public static void ConfigureServices(
+        IServiceCollection services,
+        IConfiguration configuration,
+        IHostEnvironment environment)
+    {
+        _ = environment;
+
+        services.AddControllers()
+            .AddApplicationPart(typeof(Program).Assembly);
+
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        services.AddSingleton(runtimeOptions);
+
+        var dbConfig = new DatabaseConfig();
+        configuration.GetSection("Database").Bind(dbConfig);
+        BackendRuntimeConfiguration.ApplyDatabaseOverrides(dbConfig, runtimeOptions);
+        services.AddSingleton(dbConfig);
+
+        var schemaOptions = new SchemaRuntimeOptions();
+        configuration.GetSection("Schema").Bind(schemaOptions);
+        services.AddSingleton(schemaOptions);
+
+        services.AddLogging(logging =>
+        {
+            logging.AddConfiguration(configuration.GetSection("Logging"));
+            logging.AddJsonConsole(options =>
+            {
+                options.IncludeScopes = true;
+                options.TimestampFormat = "O";
+            });
+        });
+
+        services.AddSingleton<ISystemPool>(serviceProvider =>
+            new SystemPool(
+                dbConfig,
+                serviceProvider.GetRequiredService<ILogger<SystemPool>>()));
+
+        services.AddSingleton<IDataPool>(serviceProvider =>
+            new DataPool(
+                dbConfig,
+                serviceProvider.GetRequiredService<ILogger<DataPool>>()));
+
+        services.AddSingleton<QueryService>();
+        services.AddSingleton<ModelJsonStore>();
+        services.AddSingleton<SchemaValidator>();
+        services.AddSingleton<RelationResolver>();
+        services.AddSingleton<SchemaDiffEngine>();
+        services.AddSingleton<MigrationGenerator>();
+        services.AddSingleton<MigrationRunner>();
+        services.AddSingleton<SchemaService>();
+        services.AddSingleton(BackendRuntimeInfo.CreateForCurrentProcess());
+        services.AddSingleton<AdminHealthService>();
+
+        services.AddHostedService<DatabaseBootstrap>();
+        services.AddHostedService<SchemaAutoMigrationService>();
+    }
+
+    public static void ConfigureMiddleware(WebApplication app)
+    {
+        app.UseMiddleware<RequestIdMiddleware>();
+        app.UseMiddleware<RequestLoggingMiddleware>();
+        app.UseMiddleware<ErrorHandlingMiddleware>();
+        app.UseMiddleware<CorsPolicyMiddleware>();
+        app.UseMiddleware<BodySizeLimitMiddleware>();
+    }
+
+    public static void ConfigureRoutes(WebApplication app)
+    {
+        app.MapControllers();
+
+        // Reserve the versioned route areas that later Step 1.4/1.5 work fills in.
+        foreach (var area in ReservedRouteAreas)
+        {
+            _ = app.MapGroup("/" + area.RoutePrefix)
+                .WithTags(area.Tag);
+        }
+    }
+}

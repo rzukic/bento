@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Complete backend API server foundation and align docs with implemented routes
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.3 — Backend API Server (Routing, Middleware, Error Handling)](working-steps/1.3-backend-api-server.md)
+
+Completed the Step 1.3 backend server foundation on `dev` and cleaned the docs so implemented behavior is clearly separated from planned Phase 1+ features. The API/docs now reflect the real current contract: middleware, runtime config, request tracing, and `/api/v1/admin/health` are real; auth, CRUD, query, and WebSocket pieces are still future work.
+
+**Highlights:**
+- Backend host composition, middleware stack, and reserved versioned route areas are implemented in Step 1.3
+- `/api/v1/admin/health` is the canonical health endpoint with request-id and operational metadata
+- API/backend/architecture docs now explicitly mark auth, CRUD, query, DDL blocklist, and WebSocket behavior as not yet implemented where applicable
+
 ### 2026-04-03 — Core database connection and query builder
 
 > **Phase**: Phase 1 — Foundation

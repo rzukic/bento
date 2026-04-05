@@ -7,16 +7,16 @@
 
 ## Authentication
 
-Two methods are accepted on all protected endpoints:
+Authentication is not implemented yet.
+
+Planned Phase 1 auth methods:
 
 | Method | Header | Value |
 |--------|--------|-------|
 | JWT Bearer | `Authorization` | `Bearer <token>` |
 | API Key | `X-API-Key` | `<key>` |
 
-Obtain a JWT via `POST /api/v1/auth/login`. API keys are managed in the UI under Settings → API Keys.
-
-Unauthenticated requests return `401 Unauthorized`.
+> **Not yet implemented** — Step 1.3 reserves the auth route area, but login, token issuance, auth middleware, and API key validation are still planned for Step 1.4 / later Phase 1 work.
 
 ---
 
@@ -24,16 +24,38 @@ Unauthenticated requests return `401 Unauthorized`.
 
 - All request and response bodies are JSON.
 - Dates are ISO 8601 strings (`2026-04-03T12:00:00Z`).
-- IDs are UUIDs.
+- ID formats are endpoint-specific. Do not assume UUIDs globally yet.
+- Every response includes `X-Request-Id` for log correlation.
 - Errors follow a consistent shape:
 
 ```json
 {
-  "error": "table_not_found",
-  "message": "No table with ID abc-123 exists.",
-  "status": 404
+  "error": {
+    "code": "NOT_FOUND",
+    "message": "No table with ID abc-123 exists.",
+    "details": {
+      "tableId": "abc-123",
+      "requestId": "req_123"
+    }
+  }
 }
 ```
+
+Known backend error codes:
+- `VALIDATION_FAILED`
+- `NOT_FOUND`
+- `UNAUTHORIZED`
+- `FORBIDDEN`
+- `CONFLICT`
+- `INTERNAL_ERROR`
+
+In development, unexpected `500` responses may also include debug-only fields such as `exceptionType` and `stackTrace` inside `error.details`. Those fields are not returned in production.
+
+Cross-origin and request-size behavior:
+- same-origin is allowed by default
+- configured origins from `ALLOWED_ORIGINS` receive CORS headers
+- disallowed cross-origin requests return `403 FORBIDDEN`
+- oversized JSON requests return `413` with `VALIDATION_FAILED`
 
 ---
 
@@ -53,21 +75,65 @@ Unauthenticated requests return `401 Unauthorized`.
 
 ---
 
-### Tables
+### Admin
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/v1/tables` | List all tables |
-| `POST` | `/api/v1/tables` | Create a new table |
-| `GET` | `/api/v1/tables/:tableId` | Get table schema |
-| `PATCH` | `/api/v1/tables/:tableId` | Update table metadata |
-| `DELETE` | `/api/v1/tables/:tableId` | Delete a table |
-| `GET` | `/api/v1/tables/:tableId/rows` | List rows (paginated) |
-| `POST` | `/api/v1/tables/:tableId/rows` | Insert a row |
-| `PATCH` | `/api/v1/tables/:tableId/rows/:rowId` | Update a row |
-| `DELETE` | `/api/v1/tables/:tableId/rows/:rowId` | Delete a row |
+| `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
 
-> **Not yet implemented** — planned for Phase 1.
+Current response shape:
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "system_pool": "connected",
+    "data_pool": "connected"
+  },
+  "uptime": "3d 14h 22m",
+  "version": "1.0.0"
+}
+```
+
+Contract notes:
+- `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
+- `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
+- `version` comes from the backend assembly version metadata
+
+If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and the same structural fields plus an `error` message.
+
+The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
+This is the canonical backend health endpoint for deployment checks and container health probes.
+
+---
+
+### Schema
+
+| Method | Path | Description |
+|--------|------|-------------|
+| — | `/api/v1/schema/*` | Reserved route area for future schema-management endpoints |
+
+> **Not yet implemented** — Step 1.3 reserves the `schema` prefix only. Concrete schema-management endpoints are future work.
+
+---
+
+### Data
+
+| Method | Path | Description |
+|--------|------|-------------|
+| — | `/api/v1/data/*` | Reserved route area for future auto-generated CRUD/data endpoints |
+
+> **Not yet implemented** — Step 1.3 reserves the `data` prefix only. Auto CRUD endpoints are planned for Step 1.5.
+
+---
+
+### Query
+
+| Method | Path | Description |
+|--------|------|-------------|
+| — | `/api/v1/query/*` | Reserved route area for future query/custom SQL endpoints |
+
+> **Not yet implemented** — Step 1.3 reserves the `query` prefix only. Concrete query endpoints are future work.
 
 ---
 

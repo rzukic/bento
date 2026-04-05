@@ -9,8 +9,25 @@
 
 ```
 src/backend/
+├── ApiRoutes.cs          ← Versioned backend route constants (`/api/v1/...`)
+├── ReservedRouteArea.cs  ← Shared route-area metadata for reserved backend prefixes
+├── BackendHost.cs        ← Startup composition (config, services, middleware, routes)
+├── Configuration/
+│   ├── BackendRuntimeOptions.cs ← Typed runtime options available via DI
+│   └── BackendRuntimeConfiguration.cs ← Env-var adapter, validation, and DB override helpers
 ├── Controllers/          ← API route handlers (one per resource area)
+│   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+├── Exceptions/
+│   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses
+├── Middleware/           ← Cross-cutting HTTP pipeline behavior
+│   ├── RequestIdMiddleware.cs ← Assigns/propagates `X-Request-Id`
+│   └── RequestLoggingMiddleware.cs ← One structured completion log per request
+│   └── ErrorHandlingMiddleware.cs ← Standard API error envelope for exceptions
+│   └── CorsPolicyMiddleware.cs ← Same-origin default plus configured CORS allowlist
+│   └── BodySizeLimitMiddleware.cs ← Configurable JSON request-size enforcement
 ├── Services/             ← Business logic, injected into controllers
+│   ├── BackendRuntimeInfo.cs ← Captured startup time + version for operational endpoints
+│   └── AdminHealthService.cs ← Backend readiness check used by admin health route
 ├── Db/
 │   ├── IDbPool.cs        ← Pool interfaces (ISystemPool, IDataPool)
 │   ├── DatabaseConfig.cs ← Configuration model (provider, connections, pool sizing)
@@ -44,7 +61,9 @@ src/backend/
 ├── Workers/              ← Background services (dirty flag processor, etc.)
 ├── Hubs/                 ← SignalR WebSocket hubs
 ├── Models/               ← DTOs and domain models
-└── Program.cs            ← Entry point, DI registration, middleware pipeline
+│   └── AdminHealthResponse.cs ← Response model for `/api/v1/admin/health`
+│   └── ApiError.cs       ← Standard error envelope and stable error codes
+└── Program.cs            ← Minimal entry point delegating to `BackendHost`
 ```
 
 ---
@@ -54,6 +73,7 @@ src/backend/
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
 | Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
+| API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | [`../../wiki/parts/02-backend-api/README.md`](../../wiki/parts/02-backend-api/README.md) |
 | Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
@@ -91,6 +111,42 @@ public class TablesController : ControllerBase
 
 All business logic lives here. Injected as interfaces for testability.
 
+### API host
+
+`Program.cs` stays intentionally small. `BackendHost` owns:
+- configuration loading/binding
+- service registration
+- middleware registration
+- route registration
+
+The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
+Its JSON contract now matches the deployment spec: nested `database` pool states, human-readable `uptime`, and backend `version`.
+The reserved Step 1.3 route areas are `auth`, `schema`, `admin`, `data`, and `query`; later steps fill those prefixes with real endpoints.
+
+Local launch-profile contract:
+- `Properties/launchSettings.json` keeps a single supported `http` profile
+- the local ASP.NET Core launch URL is `http://localhost:5000`
+- browser auto-launch is intentionally disabled so `dotnet run --launch-profile http` stays terminal-friendly
+- IIS Express and scaffold-only template routes are intentionally not part of the workflow
+
+Request-tracing contract:
+- every response includes `X-Request-Id`
+- safe incoming `X-Request-Id` values are reused; unsafe values are replaced
+- request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
+
+Current middleware order:
+1. `RequestIdMiddleware`
+2. `RequestLoggingMiddleware`
+3. `ErrorHandlingMiddleware`
+4. `CorsPolicyMiddleware`
+5. `BodySizeLimitMiddleware`
+
+Runtime configuration contract:
+- `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
+- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
+- SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
+- Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
+
 ### Query builder
 
 SqlKata is used for dynamic query construction. Dapper is used for raw SQL execution. Do not use Entity Framework.
@@ -106,6 +162,21 @@ var results = await _dataPool.QueryAsync<UserRow>("SELECT * FROM users WHERE id 
 ### Error handling
 
 Use a global exception middleware. Controllers do not catch exceptions — let them propagate.
+
+Backend error contract:
+- response shape is always `{ "error": { "code", "message", "details" } }`
+- business/domain failures should throw typed `ApiException` derivatives
+- unhandled exceptions map to `500 INTERNAL_ERROR`
+- debug-only fields such as `exceptionType` and `stackTrace` are included only in development
+- disallowed cross-origin requests map to `403 FORBIDDEN`
+- oversized JSON bodies map to `413` with `VALIDATION_FAILED`
+
+### CORS and body limits
+
+- same-origin is the default when `AllowedOrigins` is empty
+- configured cross-origin access is exact-origin matching via `ALLOWED_ORIGINS`
+- preflight `OPTIONS` requests are answered directly when the origin is allowed
+- JSON requests over `MAX_BODY_SIZE` are rejected before handlers run
 
 ### Schema engine
 
@@ -152,12 +223,16 @@ Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `
 
 ## Authentication
 
-All endpoints except `/api/v1/auth/*` require authentication.
+Authentication middleware is not implemented yet.
 
-Two auth methods are supported:
+Current Step 1.3 state:
+- the `auth` route area is reserved under `/api/v1/auth`
+- `AUTH_MODE` is parsed and validated as runtime configuration
+- no JWT issuance, login endpoint, refresh flow, or route protection exists yet
+- no API key validation exists yet
+
+Planned Phase 1 auth work:
 1. **JWT Bearer token** — for interactive sessions
 2. **API key** — for programmatic/external access (header: `X-API-Key`)
 
-Auth middleware checks both and sets `HttpContext.User` accordingly. Controllers access the current user via `User.GetUserId()` extension.
-
-> **Not yet implemented** — API key auth planned for Phase 1.
+> **Not yet implemented** — auth is planned for Step 1.4 and later Phase 1 work.
