@@ -11,8 +11,6 @@ public sealed class AuthController : ControllerBase
 {
     private static readonly string[] DeferredAuthFeatures =
     [
-        "interactive login endpoint",
-        "jwt issuance, validation, and refresh-token persistence",
         "authorization middleware and role attributes",
         "api key authentication",
         "vault mode"
@@ -60,5 +58,52 @@ public sealed class AuthController : ControllerBase
     {
         var response = await _authService.RegisterAsync(request, User, cancellationToken);
         return StatusCode(StatusCodes.Status201Created, response);
+    }
+
+    [HttpPost("login")]
+    [ProducesResponseType<AuthTokenResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuthTokenResponse>> Login(
+        [FromBody] LoginRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var session = await _authService.LoginAsync(request, cancellationToken);
+        WriteRefreshCookie(session);
+        return Ok(session.Response);
+    }
+
+    [HttpPost("refresh")]
+    [ProducesResponseType<AuthTokenResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<AuthTokenResponse>> Refresh(CancellationToken cancellationToken)
+    {
+        Request.Cookies.TryGetValue(_runtimeOptions.AuthCookie.RefreshCookieName, out var refreshToken);
+        var session = await _authService.RefreshAsync(refreshToken, cancellationToken);
+        WriteRefreshCookie(session);
+        return Ok(session.Response);
+    }
+
+    private void WriteRefreshCookie(AuthSessionResult session)
+    {
+        Response.Cookies.Append(
+            _runtimeOptions.AuthCookie.RefreshCookieName,
+            session.RefreshToken,
+            new CookieOptions
+            {
+                HttpOnly = _runtimeOptions.AuthCookie.HttpOnly,
+                Secure = _runtimeOptions.AuthCookie.RequireSecure,
+                SameSite = ParseSameSite(_runtimeOptions.AuthCookie.SameSite),
+                Path = _runtimeOptions.AuthCookie.Path,
+                Expires = session.RefreshExpiresAt.UtcDateTime
+            });
+    }
+
+    private static SameSiteMode ParseSameSite(string value)
+    {
+        return value switch
+        {
+            "Strict" => SameSiteMode.Strict,
+            "Lax" => SameSiteMode.Lax,
+            "None" => SameSiteMode.None,
+            _ => SameSiteMode.Strict
+        };
     }
 }
