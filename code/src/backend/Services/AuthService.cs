@@ -33,6 +33,23 @@ public sealed class AuthService
         _runtimeOptions = runtimeOptions;
     }
 
+    public async Task<bool> IsBootstrapSelfRegistrationOpenAsync(
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (_runtimeOptions.IsOpenAuthMode)
+        {
+            return true;
+        }
+
+        using var conn = await _systemPool.GetConnectionAsync();
+        var userCount = await conn.ExecuteScalarAsync<int>(
+            $"SELECT COUNT(*) FROM {GetUsersTableName()};");
+
+        return userCount == 0;
+    }
+
     public async Task<AuthSessionResult> LoginAsync(
         LoginRequest? request,
         CancellationToken cancellationToken = default)

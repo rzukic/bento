@@ -125,6 +125,36 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Get_AuthContract_ReportsBootstrapRegistrationClosure_AfterFirstUserExists()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var beforeBootstrapResponse = await host.Client.GetAsync("/api/v1/auth");
+        Assert.Equal(HttpStatusCode.OK, beforeBootstrapResponse.StatusCode);
+
+        var beforeBootstrapPayload = await beforeBootstrapResponse.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        beforeBootstrapPayload = Assert.IsType<AuthRuntimeContractResponse>(beforeBootstrapPayload);
+        Assert.True(beforeBootstrapPayload.RegistrationBootstrapOpen);
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var afterBootstrapResponse = await host.Client.GetAsync("/api/v1/auth");
+        Assert.Equal(HttpStatusCode.OK, afterBootstrapResponse.StatusCode);
+
+        var afterBootstrapPayload = await afterBootstrapResponse.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        afterBootstrapPayload = Assert.IsType<AuthRuntimeContractResponse>(afterBootstrapPayload);
+        Assert.False(afterBootstrapPayload.RegistrationBootstrapOpen);
+    }
+
+    [Fact]
     public async Task Get_AuthContract_InProductionMode_ReportsSecureRefreshCookiesByDefault()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(
