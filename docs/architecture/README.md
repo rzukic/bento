@@ -40,10 +40,12 @@ Browser / Client
 | Container | Image | Role |
 |-----------|-------|------|
 | `proxy` | `repere/proxy` | Caddy — TLS termination, routing |
-| `backend` | `repere/backend` | ASP.NET Core API + WebSocket server |
+| `backend` | `repere/backend` | ASP.NET Core API server (WebSocket planned later) |
 | `frontend` | `repere/frontend` | nginx serving Vite/React static build |
 
 The frontend container only serves static files. All API calls from the browser go to `/api/v1/*` — Caddy routes these to the backend. The frontend never needs to know the backend's address.
+
+> **Current implementation note** — the backend HTTP server foundation exists in Step 1.3. WebSocket transport is still planned for a later phase.
 
 ---
 
@@ -84,7 +86,9 @@ data.db       ← equivalent of public schema
 | `SystemPool` | `repere_system` | `_system.*` only | Platform operations — auth, migrations, config |
 | `DataPool` | `repere_data` | `public.*` only | All user-generated queries |
 
-The `DataPool` also runs user SQL through the **DDL blocklist** before execution. See [`backend/database.md`](../backend/database.md).
+The `DataPool` will also run user SQL through the **DDL blocklist** before execution once custom SQL/data-query endpoints exist.
+
+> **Not yet implemented** — the DDL blocklist is planned for Step 1.5.
 
 ---
 
@@ -102,11 +106,15 @@ Browser → Caddy → Backend (SystemPool or DataPool) → DB → response
 Browser → Caddy → Backend → DDL Blocklist → DataPool (repere_data) → public schema only
 ```
 
+> **Future flow** — this path describes the intended custom SQL/query pipeline once those endpoints and the DDL blocklist are implemented.
+
 ### WebSocket (Live Updates)
 
 ```
 Browser → Caddy (/ws) → Backend (SignalR / WebSocket hub) → push on dirty flag resolution
 ```
+
+> **Not yet implemented** — planned for a later phase when live updates are needed.
 
 ---
 
