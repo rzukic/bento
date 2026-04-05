@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 using Repere.Api.Configuration;
 using Repere.Api.Models;
+using Repere.Api.Services;
 
 namespace Repere.Api.Controllers;
 
@@ -10,7 +11,7 @@ public sealed class AuthController : ControllerBase
 {
     private static readonly string[] DeferredAuthFeatures =
     [
-        "interactive login and registration endpoints",
+        "interactive login endpoint",
         "jwt issuance, validation, and refresh-token persistence",
         "authorization middleware and role attributes",
         "api key authentication",
@@ -18,10 +19,12 @@ public sealed class AuthController : ControllerBase
     ];
 
     private readonly BackendRuntimeOptions _runtimeOptions;
+    private readonly AuthService _authService;
 
-    public AuthController(BackendRuntimeOptions runtimeOptions)
+    public AuthController(BackendRuntimeOptions runtimeOptions, AuthService authService)
     {
         _runtimeOptions = runtimeOptions;
+        _authService = authService;
     }
 
     [HttpGet]
@@ -47,5 +50,15 @@ public sealed class AuthController : ControllerBase
             Deferred: DeferredAuthFeatures);
 
         return Ok(response);
+    }
+
+    [HttpPost("register")]
+    [ProducesResponseType<RegisterUserResponse>(StatusCodes.Status201Created)]
+    public async Task<ActionResult<RegisterUserResponse>> Register(
+        [FromBody] RegisterUserRequest? request,
+        CancellationToken cancellationToken)
+    {
+        var response = await _authService.RegisterAsync(request, User, cancellationToken);
+        return StatusCode(StatusCodes.Status201Created, response);
     }
 }

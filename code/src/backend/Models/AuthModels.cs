@@ -21,3 +21,14 @@ public sealed record AuthRefreshCookieContractResponse(
     [property: JsonPropertyName("require_secure")] bool RequireSecure,
     [property: JsonPropertyName("same_site")] string SameSite,
     [property: JsonPropertyName("path")] string Path);
+
+public sealed record RegisterUserRequest(
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("password")] string? Password,
+    [property: JsonPropertyName("role")] string? Role);
+
+public sealed record RegisterUserResponse(
+    [property: JsonPropertyName("id")] int Id,
+    [property: JsonPropertyName("username")] string Username,
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("bootstrap_admin")] bool BootstrapAdmin);

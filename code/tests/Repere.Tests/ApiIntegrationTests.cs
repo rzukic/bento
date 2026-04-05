@@ -136,4 +136,88 @@ public sealed class ApiIntegrationTests
         Assert.NotNull(payload.Error.Details);
         Assert.Equal("1kb", Assert.IsType<System.Text.Json.JsonElement>(payload.Error.Details!["maxBodySize"]).GetString());
     }
+
+    [Fact]
+    public async Task Post_Register_CreatesBootstrapAdmin_WithBcryptPasswordHash()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure",
+            role = "viewer"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<RegisterUserResponse>();
+        payload = Assert.IsType<RegisterUserResponse>(payload);
+
+        Assert.Equal("bootstrap-admin", payload.Username);
+        Assert.Equal("admin", payload.Role);
+        Assert.True(payload.BootstrapAdmin);
+
+        var storedHash = await host.QuerySystemScalarAsync<string>(
+            "SELECT password_hash FROM users WHERE username = $username;",
+            new { username = "bootstrap-admin" });
+        var storedRole = await host.QuerySystemScalarAsync<string>(
+            "SELECT role FROM users WHERE username = $username;",
+            new { username = "bootstrap-admin" });
+
+        Assert.NotEqual("supersecure", storedHash);
+        Assert.StartsWith("$2", storedHash, StringComparison.Ordinal);
+        Assert.True(BCrypt.Net.BCrypt.Verify("supersecure", storedHash));
+        Assert.Equal("admin", storedRole);
+    }
+
+    [Fact]
+    public async Task Post_Register_RejectsWeakPayloads_WithStandardValidationEnvelope()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = " ",
+            password = "short",
+            role = "owner"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("VALIDATION_FAILED", payload.Error.Code);
+        Assert.Contains("Username is required.", payload.Error.Message, StringComparison.Ordinal);
+        Assert.NotNull(payload.Error.Details);
+        Assert.Equal("username", Assert.IsType<JsonElement>(payload.Error.Details!["field"]).GetString());
+    }
+
+    [Fact]
+    public async Task Post_Register_RejectsFollowUpSelfRegistration_AfterBootstrapUserExists()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var firstResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        using var secondResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "second-user",
+            password = "anotherpass"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, secondResponse.StatusCode);
+
+        var payload = await secondResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("FORBIDDEN", payload.Error.Code);
+        Assert.Contains("Self-registration is closed", payload.Error.Message, StringComparison.Ordinal);
+    }
 }
