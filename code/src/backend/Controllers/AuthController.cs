@@ -43,7 +43,7 @@ public sealed class AuthController : ControllerBase
             RefreshCookie: new AuthRefreshCookieContractResponse(
                 Name: _runtimeOptions.AuthCookie.RefreshCookieName,
                 HttpOnly: _runtimeOptions.AuthCookie.HttpOnly,
-                RequireSecure: _runtimeOptions.AuthCookie.RequireSecure,
+                RequireSecure: _runtimeOptions.AuthCookie.EffectiveRequireSecure,
                 SameSite: _runtimeOptions.AuthCookie.SameSite,
                 Path: _runtimeOptions.AuthCookie.Path),
             Deferred: DeferredAuthFeatures);
@@ -90,7 +90,7 @@ public sealed class AuthController : ControllerBase
             new CookieOptions
             {
                 HttpOnly = _runtimeOptions.AuthCookie.HttpOnly,
-                Secure = _runtimeOptions.AuthCookie.RequireSecure,
+                Secure = _runtimeOptions.AuthCookie.EffectiveRequireSecure,
                 SameSite = ParseSameSite(_runtimeOptions.AuthCookie.SameSite),
                 Path = _runtimeOptions.AuthCookie.Path,
                 Expires = session.RefreshExpiresAt.UtcDateTime

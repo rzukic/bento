@@ -45,7 +45,7 @@ public static class BackendHost
                 options.InvalidModelStateResponseFactory = ApiValidationResponseFactory.CreateActionResult;
             });
 
-        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration, environment);
         services.AddSingleton(runtimeOptions);
 
         var dbConfig = new DatabaseConfig();

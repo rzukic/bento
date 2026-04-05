@@ -26,7 +26,9 @@ public sealed class AuthCookieRuntimeOptions
 
     public bool HttpOnly { get; set; } = true;
 
-    public bool RequireSecure { get; set; } = true;
+    public bool? RequireSecure { get; set; }
+
+    public bool EffectiveRequireSecure { get; set; }
 
     public string SameSite { get; set; } = "Strict";
 

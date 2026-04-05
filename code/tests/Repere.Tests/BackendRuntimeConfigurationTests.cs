@@ -1,4 +1,6 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Repere.Api.Configuration;
 using Repere.Api.Db;
 
@@ -54,7 +56,9 @@ public sealed class BackendRuntimeConfigurationTests
             .AddInMemoryCollection(BackendRuntimeConfiguration.BuildEnvironmentOverrides(GetEnv))
             .Build();
 
-        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            configuration,
+            new FakeHostEnvironment("Development"));
 
         var dbConfig = new DatabaseConfig();
         configuration.GetSection("Database").Bind(dbConfig);
@@ -73,6 +77,7 @@ public sealed class BackendRuntimeConfigurationTests
         Assert.Equal("repere_rt", runtimeOptions.AuthCookie.RefreshCookieName);
         Assert.True(runtimeOptions.AuthCookie.HttpOnly);
         Assert.False(runtimeOptions.AuthCookie.RequireSecure);
+        Assert.False(runtimeOptions.AuthCookie.EffectiveRequireSecure);
         Assert.Equal("Lax", runtimeOptions.AuthCookie.SameSite);
         Assert.Equal("/api/v1/auth", runtimeOptions.AuthCookie.Path);
         Assert.Equal(9, runtimeOptions.AuthRateLimitPerMinute);
@@ -104,6 +109,7 @@ public sealed class BackendRuntimeConfigurationTests
             DatabaseUrl = "sqlite:///var/lib/repere/system.db"
         };
 
+        runtimeOptions.AuthCookie.EffectiveRequireSecure = false;
         BackendRuntimeConfiguration.Validate(runtimeOptions);
         BackendRuntimeConfiguration.ApplyDatabaseOverrides(dbConfig, runtimeOptions);
 
@@ -132,6 +138,7 @@ public sealed class BackendRuntimeConfigurationTests
             DatabaseUrl = "postgresql://admin:pass@db:5432/repere"
         };
 
+        runtimeOptions.AuthCookie.EffectiveRequireSecure = false;
         BackendRuntimeConfiguration.Validate(runtimeOptions);
 
         var ex = Assert.Throws<InvalidOperationException>(
@@ -156,7 +163,9 @@ public sealed class BackendRuntimeConfigurationTests
             .Build();
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration));
+            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+                configuration,
+                new FakeHostEnvironment("Development")));
 
         Assert.Contains("AUTH_MODE", ex.Message, StringComparison.Ordinal);
     }
@@ -181,7 +190,9 @@ public sealed class BackendRuntimeConfigurationTests
             .Build();
 
         var ex = Assert.Throws<InvalidOperationException>(
-            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration));
+            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+                configuration,
+                new FakeHostEnvironment("Development")));
 
         Assert.Contains("not implemented yet", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -192,5 +203,53 @@ public sealed class BackendRuntimeConfigurationTests
         Assert.Equal(512L, BackendRuntimeConfiguration.ParseByteSize("512"));
         Assert.Equal(1024L, BackendRuntimeConfiguration.ParseByteSize("1kb"));
         Assert.Equal(10L * 1024L * 1024L, BackendRuntimeConfiguration.ParseByteSize("10mb"));
+    }
+
+    [Fact]
+    public void BindAndValidateRuntimeOptions_DefaultsRefreshCookieSecurity_ByEnvironment()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:Port"] = "5000",
+                ["Backend:LogLevel"] = "Information",
+                ["Backend:MaxBodySize"] = "10mb",
+                ["Backend:AuthMode"] = "standard",
+                ["Backend:Jwt:Issuer"] = "repere-api",
+                ["Backend:Jwt:Audience"] = "repere-clients",
+                ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+                ["Backend:AuthCookie:SameSite"] = "Strict",
+                ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+                ["Backend:DataDir"] = "./data"
+            })
+            .Build();
+
+        var developmentOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            configuration,
+            new FakeHostEnvironment("Development"));
+        var productionOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            configuration,
+            new FakeHostEnvironment("Production"));
+
+        Assert.Null(developmentOptions.AuthCookie.RequireSecure);
+        Assert.False(developmentOptions.AuthCookie.EffectiveRequireSecure);
+        Assert.Null(productionOptions.AuthCookie.RequireSecure);
+        Assert.True(productionOptions.AuthCookie.EffectiveRequireSecure);
+    }
+
+    private sealed class FakeHostEnvironment : IHostEnvironment
+    {
+        public FakeHostEnvironment(string environmentName)
+        {
+            EnvironmentName = environmentName;
+        }
+
+        public string EnvironmentName { get; set; }
+
+        public string ApplicationName { get; set; } = "Repere.Tests";
+
+        public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
+
+        public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(AppContext.BaseDirectory);
     }
 }
