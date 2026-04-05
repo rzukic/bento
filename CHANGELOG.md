@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Harden auth endpoints and cookie/session boundaries
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Completed the Step 1.4 hardening slice so auth endpoints now enforce baseline abuse protection and reject malformed requests using the standard API error contract. The auth docs also now make the browser-only security deferrals explicit instead of leaving them implicit.
+
+**Highlights:**
+- Added per-route auth throttling for `register`, `login`, and `refresh` using the configured per-minute limit
+- Standardized auth payload validation so malformed or incomplete JSON fails before deeper auth/session logic runs
+- Verified refresh-cookie behavior against configurable `HttpOnly`, `Secure`, and `SameSite` flags and documented CSRF/CSP deferrals
+
 ### 2026-04-05 — Establish Step 1.4 auth foundation contract
 
 > **Phase**: Phase 1 — Foundation

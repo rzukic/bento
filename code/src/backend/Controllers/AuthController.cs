@@ -11,8 +11,9 @@ public sealed class AuthController : ControllerBase
 {
     private static readonly string[] DeferredAuthFeatures =
     [
-        "authorization middleware and role attributes",
         "api key authentication",
+        "CSRF protections until the browser-facing frontend exists",
+        "CSP headers until the browser-facing frontend exists",
         "vault mode"
     ];
 

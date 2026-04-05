@@ -41,7 +41,8 @@ public sealed class ErrorHandlingMiddlewareTests
             (new ApiNotFoundException("Missing."), StatusCodes.Status404NotFound, "NOT_FOUND"),
             (new ApiUnauthorizedException("Login required."), StatusCodes.Status401Unauthorized, "UNAUTHORIZED"),
             (new ApiForbiddenException("No access."), StatusCodes.Status403Forbidden, "FORBIDDEN"),
-            (new ApiConflictException("Already exists."), StatusCodes.Status409Conflict, "CONFLICT")
+            (new ApiConflictException("Already exists."), StatusCodes.Status409Conflict, "CONFLICT"),
+            (new ApiTooManyRequestsException("Slow down."), StatusCodes.Status429TooManyRequests, "TOO_MANY_REQUESTS")
         };
 
         foreach (var testCase in testCases)
