@@ -11,7 +11,16 @@ public static class BackendRuntimeConfiguration
 
         SetIfPresent("BACKEND_PORT", "Backend:Port");
         SetIfPresent("AUTH_MODE", "Backend:AuthMode");
-        SetIfPresent("JWT_SECRET", "Backend:JwtSecret");
+        SetIfPresent("JWT_SECRET", "Backend:Jwt:Secret");
+        SetIfPresent("JWT_ISSUER", "Backend:Jwt:Issuer");
+        SetIfPresent("JWT_AUDIENCE", "Backend:Jwt:Audience");
+        SetIfPresent("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", "Backend:Jwt:AccessTokenLifetimeMinutes");
+        SetIfPresent("JWT_REFRESH_TOKEN_LIFETIME_DAYS", "Backend:Jwt:RefreshTokenLifetimeDays");
+        SetIfPresent("AUTH_REFRESH_COOKIE_NAME", "Backend:AuthCookie:RefreshCookieName");
+        SetIfPresent("AUTH_REFRESH_COOKIE_SECURE", "Backend:AuthCookie:RequireSecure");
+        SetIfPresent("AUTH_REFRESH_COOKIE_SAME_SITE", "Backend:AuthCookie:SameSite");
+        SetIfPresent("AUTH_REFRESH_COOKIE_PATH", "Backend:AuthCookie:Path");
+        SetIfPresent("AUTH_RATE_LIMIT_PER_MINUTE", "Backend:AuthRateLimitPerMinute");
         SetIfPresent("MAX_BODY_SIZE", "Backend:MaxBodySize");
         SetIfPresent("DATABASE_URL", "Backend:DatabaseUrl");
         SetIfPresent("DATABASE_PROVIDER", "Database:Provider");
@@ -68,7 +77,26 @@ public static class BackendRuntimeConfiguration
     public static BackendRuntimeOptions BindAndValidateRuntimeOptions(IConfiguration configuration)
     {
         var options = new BackendRuntimeOptions();
-        configuration.GetSection("Backend").Bind(options);
+        try
+        {
+            configuration.GetSection("Backend").Bind(options);
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Backend:AuthMode", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"AUTH_MODE '{configuration["Backend:AuthMode"]}' is invalid. Use open, standard, or vault.",
+                ex);
+        }
+
+        var configuredAuthMode = configuration["Backend:AuthMode"];
+        if (string.IsNullOrWhiteSpace(configuredAuthMode)
+            || !Enum.TryParse<BackendAuthMode>(configuredAuthMode, ignoreCase: true, out var authMode))
+        {
+            throw new InvalidOperationException(
+                $"AUTH_MODE '{configuredAuthMode}' is invalid. Use open, standard, or vault.");
+        }
+
+        options.AuthMode = authMode;
         Validate(options);
         return options;
     }
@@ -192,11 +220,64 @@ public static class BackendRuntimeConfiguration
 
         ParseByteSize(options.MaxBodySize);
 
-        options.AuthMode = options.AuthMode.Trim().ToLowerInvariant();
-        if (options.AuthMode is not ("open" or "standard" or "vault"))
+        if (options.AuthMode == BackendAuthMode.Vault)
         {
             throw new InvalidOperationException(
-                $"AUTH_MODE '{options.AuthMode}' is invalid. Use open, standard, or vault.");
+                "AUTH_MODE 'vault' is reserved for a later phase and is not implemented yet. Use open or standard.");
+        }
+
+        if (options.AuthRateLimitPerMinute <= 0)
+        {
+            throw new InvalidOperationException("AUTH_RATE_LIMIT_PER_MINUTE must be greater than 0.");
+        }
+
+        if (options.Jwt.AccessTokenLifetimeMinutes <= 0)
+        {
+            throw new InvalidOperationException("JWT_ACCESS_TOKEN_LIFETIME_MINUTES must be greater than 0.");
+        }
+
+        if (options.Jwt.RefreshTokenLifetimeDays <= 0)
+        {
+            throw new InvalidOperationException("JWT_REFRESH_TOKEN_LIFETIME_DAYS must be greater than 0.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Jwt.Issuer))
+        {
+            throw new InvalidOperationException("JWT_ISSUER must not be empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.Jwt.Audience))
+        {
+            throw new InvalidOperationException("JWT_AUDIENCE must not be empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.AuthCookie.RefreshCookieName))
+        {
+            throw new InvalidOperationException("AUTH_REFRESH_COOKIE_NAME must not be empty.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.AuthCookie.SameSite))
+        {
+            throw new InvalidOperationException("AUTH_REFRESH_COOKIE_SAME_SITE must not be empty.");
+        }
+
+        options.AuthCookie.SameSite = options.AuthCookie.SameSite.Trim().ToLowerInvariant() switch
+        {
+            "strict" => "Strict",
+            "lax" => "Lax",
+            "none" => "None",
+            _ => options.AuthCookie.SameSite.Trim()
+        };
+
+        if (options.AuthCookie.SameSite is not ("Strict" or "Lax" or "None"))
+        {
+            throw new InvalidOperationException(
+                $"AUTH_REFRESH_COOKIE_SAME_SITE '{options.AuthCookie.SameSite}' is invalid. Use Strict, Lax, or None.");
+        }
+
+        if (string.IsNullOrWhiteSpace(options.AuthCookie.Path))
+        {
+            throw new InvalidOperationException("AUTH_REFRESH_COOKIE_PATH must not be empty.");
         }
 
         if (string.IsNullOrWhiteSpace(options.DataDir))
