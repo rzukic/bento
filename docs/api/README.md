@@ -7,7 +7,7 @@
 
 ## Authentication
 
-Authentication is not implemented yet.
+Authentication is partially defined but not yet enforced.
 
 Planned Phase 1 auth methods:
 
@@ -16,7 +16,9 @@ Planned Phase 1 auth methods:
 | JWT Bearer | `Authorization` | `Bearer <token>` |
 | API Key | `X-API-Key` | `<key>` |
 
-> **Not yet implemented** — Step 1.3 reserves the auth route area, but login, token issuance, auth middleware, and API key validation are still planned for Step 1.4 / later Phase 1 work.
+Current Step 1.4 foundation contract:
+- `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, and the list of auth features still deferred
+- login, token issuance, auth middleware, and API key validation are still planned follow-on work within Step 1.4 / later phases
 
 ---
 
@@ -67,11 +69,12 @@ Cross-origin and request-size behavior:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 
-> **Not yet implemented** — planned for Phase 1.
+`GET /api/v1/auth` is implemented as the Step 1.4 foundation surface. The interactive auth endpoints above remain planned for Phase 1 follow-on tasks.
 
 ---
 

@@ -223,11 +223,12 @@ Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `
 
 ## Authentication
 
-Authentication middleware is not implemented yet.
+Authentication middleware is not implemented yet, but the Step 1.4 foundation contract now exists.
 
-Current Step 1.3 state:
-- the `auth` route area is reserved under `/api/v1/auth`
-- `AUTH_MODE` is parsed and validated as runtime configuration
+Current Step 1.4 foundation state:
+- `/api/v1/auth` is a concrete controller endpoint that publishes the auth-mode/runtime contract
+- `AUTH_MODE=open` and `AUTH_MODE=standard` are the only supported Phase 1 runtime modes
+- JWT metadata, refresh-cookie policy, and auth rate limits are now typed runtime configuration
 - no JWT issuance, login endpoint, refresh flow, or route protection exists yet
 - no API key validation exists yet
 

@@ -73,6 +73,47 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Get_AuthContract_ReturnsTypedAuthSurface_ForStandardMode()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:Jwt:Issuer"] = "repere-tests",
+            ["Backend:Jwt:Audience"] = "repere-clients",
+            ["Backend:Jwt:AccessTokenLifetimeMinutes"] = "15",
+            ["Backend:Jwt:RefreshTokenLifetimeDays"] = "7",
+            ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+            ["Backend:AuthCookie:RequireSecure"] = "true",
+            ["Backend:AuthCookie:SameSite"] = "Strict",
+            ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+            ["Backend:AuthRateLimitPerMinute"] = "5"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/auth");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        payload = Assert.IsType<AuthRuntimeContractResponse>(payload);
+
+        Assert.Equal("standard", payload.Mode);
+        Assert.True(payload.AuthRequired);
+        Assert.True(payload.RegistrationBootstrapOpen);
+        Assert.True(payload.JwtConfigured);
+        Assert.Equal("repere-tests", payload.JwtIssuer);
+        Assert.Equal("repere-clients", payload.JwtAudience);
+        Assert.Equal(15, payload.AccessTokenLifetimeMinutes);
+        Assert.Equal(7, payload.RefreshTokenLifetimeDays);
+        Assert.Equal(5, payload.AuthRateLimitPerMinute);
+        Assert.Equal("repere_refresh", payload.RefreshCookie.Name);
+        Assert.True(payload.RefreshCookie.HttpOnly);
+        Assert.True(payload.RefreshCookie.RequireSecure);
+        Assert.Equal("Strict", payload.RefreshCookie.SameSite);
+        Assert.Equal("/api/v1/auth", payload.RefreshCookie.Path);
+        Assert.Contains("vault mode", payload.Deferred, StringComparer.Ordinal);
+    }
+
+    [Fact]
     public async Task Post_AdminHealth_WithOversizedJson_ReturnsStandardPayloadTooLargeError()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>

@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Establish Step 1.4 auth foundation contract
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Locked down the Step 1.4 auth foundation so later slices build against a concrete runtime and route contract instead of placeholders. The backend now exposes a typed `/api/v1/auth` contract endpoint, validates the Phase 1 auth-mode boundary, and documents which security/auth features remain deferred.
+
+**Highlights:**
+- Added typed auth runtime settings for mode, JWT metadata, refresh-cookie policy, and auth rate limits
+- Registered a concrete `/api/v1/auth` endpoint that reports the current Step 1.4 auth contract and deferrals
+- Closed Task 26 and updated the Step 1.4 working step/wiki docs to separate foundation work from later login/middleware implementation
+
 ### 2026-04-05 — Complete backend API server foundation and align docs with implemented routes
 
 > **Phase**: Phase 1 — Foundation
