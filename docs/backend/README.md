@@ -223,12 +223,16 @@ Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `
 
 ## Authentication
 
-All endpoints except `/api/v1/auth/*` require authentication.
+Authentication middleware is not implemented yet.
 
-Two auth methods are supported:
+Current Step 1.3 state:
+- the `auth` route area is reserved under `/api/v1/auth`
+- `AUTH_MODE` is parsed and validated as runtime configuration
+- no JWT issuance, login endpoint, refresh flow, or route protection exists yet
+- no API key validation exists yet
+
+Planned Phase 1 auth work:
 1. **JWT Bearer token** — for interactive sessions
 2. **API key** — for programmatic/external access (header: `X-API-Key`)
 
-Auth middleware checks both and sets `HttpContext.User` accordingly. Controllers access the current user via `User.GetUserId()` extension.
-
-> **Not yet implemented** — API key auth planned for Phase 1.
+> **Not yet implemented** — auth is planned for Step 1.4 and later Phase 1 work.
