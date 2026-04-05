@@ -11,7 +11,10 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_AdminHealth_ReturnsHealthyJson_AndGeneratedRequestId()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
 
         using var response = await host.Client.GetAsync("/api/v1/admin/health");
 
@@ -49,7 +52,10 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_AdminHealth_ReusesIncomingRequestId_AndRespondsOnVersionedRoute()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
         request.Headers.TryAddWithoutValidation("X-Request-Id", "req_http_integration_123");
 
@@ -63,7 +69,10 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_RootHealth_ReturnsNotFound_WhileVersionedHealthExists()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
 
         using var rootResponse = await host.Client.GetAsync("/health");
         using var versionedResponse = await host.Client.GetAsync("/api/v1/admin/health");
@@ -111,6 +120,79 @@ public sealed class ApiIntegrationTests
         Assert.Equal("Strict", payload.RefreshCookie.SameSite);
         Assert.Equal("/api/v1/auth", payload.RefreshCookie.Path);
         Assert.Contains("vault mode", payload.Deferred, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RequiresBearerToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Bearer token is required", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_ReturnsForbidden_ForNonAdminRole()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var createUserRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register")
+        {
+            Content = JsonContent.Create(new
+            {
+                username = "editor-user",
+                password = "anotherpass",
+                role = "editor"
+            })
+        };
+        createUserRequest.Headers.Authorization = new("Bearer", await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure"));
+
+        using var createUserResponse = await host.Client.SendAsync(createUserRequest);
+        Assert.Equal(HttpStatusCode.Created, createUserResponse.StatusCode);
+
+        var editorToken = await LoginAndGetAccessTokenAsync(host, "editor-user", "anotherpass");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", editorToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("FORBIDDEN", payload.Error.Code);
+        Assert.Contains("required", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InOpenMode_BypassesBearerAuth()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -222,6 +304,43 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Post_Register_AllowsAdminManagedCreation_WhenBearerIdentityIsPresentOnAuthRoute()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var bootstrapResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, bootstrapResponse.StatusCode);
+
+        var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register")
+        {
+            Content = JsonContent.Create(new
+            {
+                username = "editor-user",
+                password = "anotherpass",
+                role = "editor"
+            })
+        };
+        request.Headers.Authorization = new("Bearer", adminToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<RegisterUserResponse>();
+        payload = Assert.IsType<RegisterUserResponse>(payload);
+        Assert.Equal("editor", payload.Role);
+        Assert.False(payload.BootstrapAdmin);
+    }
+
+    [Fact]
     public async Task Post_Login_ReturnsAccessToken_AndRefreshCookie()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
@@ -328,5 +447,22 @@ public sealed class ApiIntegrationTests
         var cookie = header.Split(';', 2, StringSplitOptions.TrimEntries)[0];
         Assert.StartsWith(cookieName + "=", cookie, StringComparison.Ordinal);
         return cookie;
+    }
+
+    private static async Task<string> LoginAndGetAccessTokenAsync(
+        ApiIntegrationTestHost host,
+        string username,
+        string password)
+    {
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username,
+            password
+        });
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
+        payload = Assert.IsType<AuthTokenResponse>(payload);
+        return payload.AccessToken;
     }
 }
