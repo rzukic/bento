@@ -64,6 +64,14 @@ public sealed class ApiConflictException : ApiException
     }
 }
 
+public sealed class ApiTooManyRequestsException : ApiException
+{
+    public ApiTooManyRequestsException(string message, IReadOnlyDictionary<string, object?>? details = null)
+        : base(ApiErrorCode.TooManyRequests, message, StatusCodes.Status429TooManyRequests, details)
+    {
+    }
+}
+
 public sealed class ApiRequestTooLargeException : ApiException
 {
     public ApiRequestTooLargeException(string message, IReadOnlyDictionary<string, object?>? details = null)

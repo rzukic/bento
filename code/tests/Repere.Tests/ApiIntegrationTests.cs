@@ -119,6 +119,8 @@ public sealed class ApiIntegrationTests
         Assert.True(payload.RefreshCookie.RequireSecure);
         Assert.Equal("Strict", payload.RefreshCookie.SameSite);
         Assert.Equal("/api/v1/auth", payload.RefreshCookie.Path);
+        Assert.Contains("CSRF protections until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
+        Assert.Contains("CSP headers until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
         Assert.Contains("vault mode", payload.Deferred, StringComparer.Ordinal);
     }
 
@@ -382,6 +384,101 @@ public sealed class ApiIntegrationTests
         Assert.Equal("admin", claims.GetProperty("role").GetString());
         Assert.True(claims.TryGetProperty("iat", out _));
         Assert.True(claims.TryGetProperty("exp", out _));
+    }
+
+    [Fact]
+    public async Task Post_Login_UsesConfiguredRefreshCookieSecurityFlags()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthCookie:RequireSecure"] = "false",
+            ["Backend:AuthCookie:SameSite"] = "Lax"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("repere_refresh=", refreshCookie, StringComparison.Ordinal);
+        Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_Login_RejectsInvalidPayload_BeforeAuthLogicRuns()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("VALIDATION_FAILED", payload.Error.Code);
+        Assert.Contains("Username is required.", payload.Error.Message, StringComparison.Ordinal);
+        Assert.NotNull(payload.Error.Details);
+        Assert.Equal("username", Assert.IsType<JsonElement>(payload.Error.Details!["field"]).GetString());
+    }
+
+    [Fact]
+    public async Task Post_Login_ReturnsTooManyRequests_WhenAuthRateLimitIsExceeded()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "2"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var firstResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+
+        using var secondResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+
+        using var throttledResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal((HttpStatusCode)429, throttledResponse.StatusCode);
+
+        var payload = await throttledResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("TOO_MANY_REQUESTS", payload.Error.Code);
+        Assert.Contains("Too many auth attempts", payload.Error.Message, StringComparison.Ordinal);
     }
 
     [Fact]

@@ -1,3 +1,4 @@
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
 namespace Repere.Api.Models;
@@ -22,10 +23,33 @@ public sealed record AuthRefreshCookieContractResponse(
     [property: JsonPropertyName("same_site")] string SameSite,
     [property: JsonPropertyName("path")] string Path);
 
-public sealed record RegisterUserRequest(
-    [property: JsonPropertyName("username")] string? Username,
-    [property: JsonPropertyName("password")] string? Password,
-    [property: JsonPropertyName("role")] string? Role);
+public sealed class RegisterUserRequest
+{
+    public RegisterUserRequest()
+    {
+    }
+
+    public RegisterUserRequest(string? username, string? password, string? role)
+    {
+        Username = username;
+        Password = password;
+        Role = role;
+    }
+
+    [Required(ErrorMessage = "Username is required.")]
+    [StringLength(255, ErrorMessage = "Username must be 255 characters or fewer.")]
+    [JsonPropertyName("username")]
+    public string? Username { get; init; }
+
+    [Required(ErrorMessage = "Password is required.")]
+    [MinLength(8, ErrorMessage = "Password must be at least 8 characters long.")]
+    [JsonPropertyName("password")]
+    public string? Password { get; init; }
+
+    [RegularExpression("^(admin|editor|viewer|api)?$", ErrorMessage = "Role must be one of: admin, editor, viewer, api.")]
+    [JsonPropertyName("role")]
+    public string? Role { get; init; }
+}
 
 public sealed record RegisterUserResponse(
     [property: JsonPropertyName("id")] int Id,
@@ -33,9 +57,26 @@ public sealed record RegisterUserResponse(
     [property: JsonPropertyName("role")] string Role,
     [property: JsonPropertyName("bootstrap_admin")] bool BootstrapAdmin);
 
-public sealed record LoginRequest(
-    [property: JsonPropertyName("username")] string? Username,
-    [property: JsonPropertyName("password")] string? Password);
+public sealed class LoginRequest
+{
+    public LoginRequest()
+    {
+    }
+
+    public LoginRequest(string? username, string? password)
+    {
+        Username = username;
+        Password = password;
+    }
+
+    [Required(ErrorMessage = "Username is required.")]
+    [JsonPropertyName("username")]
+    public string? Username { get; init; }
+
+    [Required(ErrorMessage = "Password is required.")]
+    [JsonPropertyName("password")]
+    public string? Password { get; init; }
+}
 
 public sealed record RefreshAccessTokenRequest();
 
