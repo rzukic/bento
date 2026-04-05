@@ -95,6 +95,7 @@ public static class BackendHost
         app.UseMiddleware<ErrorHandlingMiddleware>();
         app.UseMiddleware<CorsPolicyMiddleware>();
         app.UseMiddleware<BodySizeLimitMiddleware>();
+        app.UseMiddleware<AuthMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)
