@@ -54,7 +54,6 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             ["Backend:Jwt:RefreshTokenLifetimeDays"] = "7",
             ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
             ["Backend:AuthCookie:HttpOnly"] = "true",
-            ["Backend:AuthCookie:RequireSecure"] = "true",
             ["Backend:AuthCookie:SameSite"] = "Strict",
             ["Backend:AuthCookie:Path"] = "/api/v1/auth",
             ["Backend:AuthRateLimitPerMinute"] = "5",

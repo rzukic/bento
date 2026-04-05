@@ -74,7 +74,9 @@ public static class BackendRuntimeConfiguration
         }
     }
 
-    public static BackendRuntimeOptions BindAndValidateRuntimeOptions(IConfiguration configuration)
+    public static BackendRuntimeOptions BindAndValidateRuntimeOptions(
+        IConfiguration configuration,
+        IHostEnvironment environment)
     {
         var options = new BackendRuntimeOptions();
         try
@@ -97,6 +99,7 @@ public static class BackendRuntimeConfiguration
         }
 
         options.AuthMode = authMode;
+        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? environment.IsProduction();
         Validate(options);
         return options;
     }

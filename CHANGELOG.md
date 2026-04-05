@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Fix refresh cookie defaults for local auth
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Aligned the Step 1.4 refresh-cookie default with the documented development vs production contract so browser-based refresh works on local HTTP without losing the ability to force secure cookies explicitly. The auth docs and regression suite now cover both the local-development and production-style behaviors.
+
+**Highlights:**
+- Refresh-cookie `Secure` now defaults from the host environment when `AUTH_REFRESH_COOKIE_SECURE` is unset
+- Added HTTP-level regressions that prove refresh works in development and is withheld on plain HTTP in production-style hosts
+- Closed TASK-032 and updated the auth/backend docs to document the effective cookie policy
+
 ### 2026-04-05 — Close Step 1.4 auth regression coverage
 
 > **Phase**: Phase 1 — Foundation

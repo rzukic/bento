@@ -93,7 +93,6 @@ public sealed class ApiIntegrationTests
             ["Backend:Jwt:AccessTokenLifetimeMinutes"] = "15",
             ["Backend:Jwt:RefreshTokenLifetimeDays"] = "7",
             ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
-            ["Backend:AuthCookie:RequireSecure"] = "true",
             ["Backend:AuthCookie:SameSite"] = "Strict",
             ["Backend:AuthCookie:Path"] = "/api/v1/auth",
             ["Backend:AuthRateLimitPerMinute"] = "5"
@@ -117,12 +116,31 @@ public sealed class ApiIntegrationTests
         Assert.Equal(5, payload.AuthRateLimitPerMinute);
         Assert.Equal("repere_refresh", payload.RefreshCookie.Name);
         Assert.True(payload.RefreshCookie.HttpOnly);
-        Assert.True(payload.RefreshCookie.RequireSecure);
+        Assert.False(payload.RefreshCookie.RequireSecure);
         Assert.Equal("Strict", payload.RefreshCookie.SameSite);
         Assert.Equal("/api/v1/auth", payload.RefreshCookie.Path);
         Assert.Contains("CSRF protections until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
         Assert.Contains("CSP headers until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
         Assert.Contains("vault mode", payload.Deferred, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_AuthContract_InProductionMode_ReportsSecureRefreshCookiesByDefault()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        using var response = await host.Client.GetAsync("/api/v1/auth");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        payload = Assert.IsType<AuthRuntimeContractResponse>(payload);
+        Assert.True(payload.RefreshCookie.RequireSecure);
     }
 
     [Fact]
@@ -463,6 +481,7 @@ public sealed class ApiIntegrationTests
         Assert.Contains("repere_refresh=", refreshCookie, StringComparison.Ordinal);
         Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=strict", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
 
         var claims = ParseJwtPayload(payload.AccessToken);
         Assert.Equal(payload.User.Id.ToString(), claims.GetProperty("sub").GetString());
@@ -501,6 +520,35 @@ public sealed class ApiIntegrationTests
         Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("samesite=lax", refreshCookie, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_Login_InProductionMode_DefaultsRefreshCookieToSecure()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -615,11 +663,18 @@ public sealed class ApiIntegrationTests
             password = "supersecure"
         });
         var initialCookie = ExtractCookieHeader(loginResponse, "repere_refresh");
+        using var manualClient = new HttpClient(new HttpClientHandler
+        {
+            UseCookies = false
+        })
+        {
+            BaseAddress = host.Client.BaseAddress
+        };
 
         using var refreshRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
         refreshRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
 
-        using var refreshResponse = await host.Client.SendAsync(refreshRequest);
+        using var refreshResponse = await manualClient.SendAsync(refreshRequest);
         Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
 
         var refreshedCookie = ExtractCookieHeader(refreshResponse, "repere_refresh");
@@ -628,13 +683,69 @@ public sealed class ApiIntegrationTests
         using var reuseRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
         reuseRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
 
-        using var reuseResponse = await host.Client.SendAsync(reuseRequest);
+        using var reuseResponse = await manualClient.SendAsync(reuseRequest);
         Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
 
         var payload = await reuseResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
         payload = Assert.IsType<ApiErrorEnvelope>(payload);
         Assert.Equal("UNAUTHORIZED", payload.Error.Code);
         Assert.Contains("Refresh session", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_Refresh_InDevelopmentMode_WorksThroughHttpClientCookieJar_ByDefault()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_Refresh_InProductionMode_DoesNotReplaySecureCookie_OnPlainHttp()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
+
+        var payload = await refreshResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
     }
 
     private static JsonElement ParseJwtPayload(string token)

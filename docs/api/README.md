@@ -18,6 +18,7 @@ Planned Phase 1 auth methods:
 
 Current Step 1.4 foundation contract:
 - `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, and the list of auth features still deferred
+- `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
 - login, token issuance, auth middleware, and API key validation are still planned follow-on work within Step 1.4 / later phases
 
 ---
