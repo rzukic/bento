@@ -103,6 +103,19 @@ public class DatabaseBootstrap : IHostedService
             """);
 
         await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.auth_sessions (
+                id                      SERIAL PRIMARY KEY,
+                user_id                 INTEGER NOT NULL REFERENCES _system.users(id),
+                refresh_token_hash      VARCHAR(255) NOT NULL UNIQUE,
+                expires_at              TIMESTAMPTZ NOT NULL,
+                last_used_at            TIMESTAMPTZ,
+                revoked_at              TIMESTAMPTZ,
+                replaced_by_session_id  INTEGER REFERENCES _system.auth_sessions(id),
+                created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS _system.dashboards (
                 id              SERIAL PRIMARY KEY,
                 name            VARCHAR(255) NOT NULL,
@@ -199,6 +212,19 @@ public class DatabaseBootstrap : IHostedService
                 user_id         INTEGER REFERENCES users(id),
                 created_at      TEXT NOT NULL DEFAULT (datetime('now')),
                 expires_at      TEXT
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS auth_sessions (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id                 INTEGER NOT NULL REFERENCES users(id),
+                refresh_token_hash      TEXT NOT NULL UNIQUE,
+                expires_at              TEXT NOT NULL,
+                last_used_at            TEXT,
+                revoked_at              TEXT,
+                replaced_by_session_id  INTEGER REFERENCES auth_sessions(id),
+                created_at              TEXT NOT NULL DEFAULT (datetime('now'))
             );
             """);
 

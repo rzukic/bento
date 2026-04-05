@@ -220,4 +220,113 @@ public sealed class ApiIntegrationTests
         Assert.Equal("FORBIDDEN", payload.Error.Code);
         Assert.Contains("Self-registration is closed", payload.Error.Message, StringComparison.Ordinal);
     }
+
+    [Fact]
+    public async Task Post_Login_ReturnsAccessToken_AndRefreshCookie()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
+        payload = Assert.IsType<AuthTokenResponse>(payload);
+
+        Assert.False(string.IsNullOrWhiteSpace(payload.AccessToken));
+        Assert.Equal("Bearer", payload.TokenType);
+        Assert.Equal("bootstrap-admin", payload.User.Username);
+        Assert.Equal("admin", payload.User.Role);
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("repere_refresh=", refreshCookie, StringComparison.Ordinal);
+        Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", refreshCookie, StringComparison.OrdinalIgnoreCase);
+
+        var claims = ParseJwtPayload(payload.AccessToken);
+        Assert.Equal(payload.User.Id.ToString(), claims.GetProperty("sub").GetString());
+        Assert.Equal("admin", claims.GetProperty("role").GetString());
+        Assert.True(claims.TryGetProperty("iat", out _));
+        Assert.True(claims.TryGetProperty("exp", out _));
+    }
+
+    [Fact]
+    public async Task Post_Refresh_RotatesCookie_AndRejectsReusedRefreshToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        var initialCookie = ExtractCookieHeader(loginResponse, "repere_refresh");
+
+        using var refreshRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
+        refreshRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
+
+        using var refreshResponse = await host.Client.SendAsync(refreshRequest);
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+
+        var refreshedCookie = ExtractCookieHeader(refreshResponse, "repere_refresh");
+        Assert.NotEqual(initialCookie, refreshedCookie);
+
+        using var reuseRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
+        reuseRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
+
+        using var reuseResponse = await host.Client.SendAsync(reuseRequest);
+        Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
+
+        var payload = await reuseResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Refresh session", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    private static JsonElement ParseJwtPayload(string token)
+    {
+        var segments = token.Split('.');
+        Assert.Equal(3, segments.Length);
+
+        var padded = segments[1]
+            .Replace('-', '+')
+            .Replace('_', '/');
+        padded = padded.PadRight(padded.Length + ((4 - padded.Length % 4) % 4), '=');
+
+        using var document = JsonDocument.Parse(Convert.FromBase64String(padded));
+        return document.RootElement.Clone();
+    }
+
+    private static string ExtractCookieHeader(HttpResponseMessage response, string cookieName)
+    {
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var values));
+        var header = Assert.Single(values);
+        var cookie = header.Split(';', 2, StringSplitOptions.TrimEntries)[0];
+        Assert.StartsWith(cookieName + "=", cookie, StringComparison.Ordinal);
+        return cookie;
+    }
 }

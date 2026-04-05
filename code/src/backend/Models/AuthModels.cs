@@ -32,3 +32,20 @@ public sealed record RegisterUserResponse(
     [property: JsonPropertyName("username")] string Username,
     [property: JsonPropertyName("role")] string Role,
     [property: JsonPropertyName("bootstrap_admin")] bool BootstrapAdmin);
+
+public sealed record LoginRequest(
+    [property: JsonPropertyName("username")] string? Username,
+    [property: JsonPropertyName("password")] string? Password);
+
+public sealed record RefreshAccessTokenRequest();
+
+public sealed record AuthenticatedUserResponse(
+    [property: JsonPropertyName("id")] int Id,
+    [property: JsonPropertyName("username")] string Username,
+    [property: JsonPropertyName("role")] string Role);
+
+public sealed record AuthTokenResponse(
+    [property: JsonPropertyName("access_token")] string AccessToken,
+    [property: JsonPropertyName("token_type")] string TokenType,
+    [property: JsonPropertyName("expires_at")] string ExpiresAt,
+    [property: JsonPropertyName("user")] AuthenticatedUserResponse User);
