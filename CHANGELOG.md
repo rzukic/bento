@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Close Step 1.4 auth regression coverage
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Closed the final open Step 1.4 task by expanding the shared HTTP auth integration suite around full request-pipeline behavior instead of isolated service checks. The auth step now has explicit regression coverage for successful admin access, token failure modes, and end-to-end login/refresh contract behavior in both standard and open auth modes.
+
+**Highlights:**
+- Added protected-route success coverage for authenticated admin requests using the shared API host test harness
+- Added negative auth regressions for invalid credentials plus malformed and expired bearer tokens
+- Closed TASK-031 and marked Step 1.4 complete with the backend auth suite staying green
+
 ### 2026-04-05 — Harden auth endpoints and cookie/session boundaries
 
 > **Phase**: Phase 1 — Foundation

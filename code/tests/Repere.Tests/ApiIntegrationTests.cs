@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Repere.Api.Models;
@@ -182,6 +183,90 @@ public sealed class ApiIntegrationTests
         payload = Assert.IsType<ApiErrorEnvelope>(payload);
         Assert.Equal("FORBIDDEN", payload.Error.Code);
         Assert.Contains("required", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_AllowsAdminBearerToken()
+    {
+        const string jwtSecret = "super-secret";
+
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = jwtSecret
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", adminToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RejectsMalformedBearerToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", "not-a-jwt");
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("invalid", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RejectsExpiredBearerToken()
+    {
+        const string jwtSecret = "super-secret";
+
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = jwtSecret
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        var validToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        var expiredToken = RewriteJwtExpiration(validToken, jwtSecret, DateTimeOffset.UtcNow.AddMinutes(-5));
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", expiredToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("expired", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -440,6 +525,35 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Post_Login_RejectsInvalidCredentials()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "wrong-password"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Invalid username or password", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Post_Login_ReturnsTooManyRequests_WhenAuthRateLimitIsExceeded()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
@@ -546,6 +660,29 @@ public sealed class ApiIntegrationTests
         return cookie;
     }
 
+    private static string RewriteJwtExpiration(string token, string secret, DateTimeOffset expiresAt)
+    {
+        var segments = token.Split('.');
+        Assert.Equal(3, segments.Length);
+
+        using var document = JsonDocument.Parse(Base64UrlDecode(segments[1]));
+        var payload = document.RootElement.EnumerateObject()
+            .ToDictionary(
+                property => property.Name,
+                property => property.Value.Clone(),
+                StringComparer.Ordinal);
+
+        payload["exp"] = JsonSerializer.SerializeToElement(expiresAt.ToUnixTimeSeconds());
+
+        var payloadJson = JsonSerializer.Serialize(payload);
+        var encodedPayload = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
+        var signingInput = $"{segments[0]}.{encodedPayload}";
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var signature = Base64UrlEncode(hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput)));
+        return $"{signingInput}.{signature}";
+    }
+
     private static async Task<string> LoginAndGetAccessTokenAsync(
         ApiIntegrationTestHost host,
         string username,
@@ -561,5 +698,22 @@ public sealed class ApiIntegrationTests
         var payload = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
         payload = Assert.IsType<AuthTokenResponse>(payload);
         return payload.AccessToken;
+    }
+
+    private static byte[] Base64UrlDecode(string value)
+    {
+        var normalized = value
+            .Replace('-', '+')
+            .Replace('_', '/');
+        normalized = normalized.PadRight(normalized.Length + ((4 - normalized.Length % 4) % 4), '=');
+        return Convert.FromBase64String(normalized);
+    }
+
+    private static string Base64UrlEncode(byte[] bytes)
+    {
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 }
