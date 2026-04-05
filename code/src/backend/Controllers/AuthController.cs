@@ -28,12 +28,14 @@ public sealed class AuthController : ControllerBase
 
     [HttpGet]
     [ProducesResponseType<AuthRuntimeContractResponse>(StatusCodes.Status200OK)]
-    public ActionResult<AuthRuntimeContractResponse> GetContract()
+    public async Task<ActionResult<AuthRuntimeContractResponse>> GetContract(CancellationToken cancellationToken)
     {
+        var registrationBootstrapOpen = await _authService.IsBootstrapSelfRegistrationOpenAsync(cancellationToken);
+
         var response = new AuthRuntimeContractResponse(
             Mode: _runtimeOptions.AuthMode.ToString().ToLowerInvariant(),
             AuthRequired: _runtimeOptions.IsStandardAuthMode,
-            RegistrationBootstrapOpen: _runtimeOptions.IsOpenAuthMode || _runtimeOptions.IsStandardAuthMode,
+            RegistrationBootstrapOpen: registrationBootstrapOpen,
             JwtConfigured: !string.IsNullOrWhiteSpace(_runtimeOptions.Jwt.Secret),
             JwtIssuer: _runtimeOptions.Jwt.Issuer,
             JwtAudience: _runtimeOptions.Jwt.Audience,
