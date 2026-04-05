@@ -63,28 +63,32 @@ public sealed class AuthServiceTests
     }
 
     [Fact]
-    public async Task LoginAsync_IssuesAccessToken_AndPersistedRefreshSession()
+    public async Task LoginAndRefreshAsync_PreserveNonBootstrapRole_InPayloadClaimsAndSession()
     {
         using var env = new TemporarySqliteEnvironment();
         var service = new AuthService(env.SystemPool, CreateRuntimeOptions());
 
-        var registered = await service.RegisterAsync(
-            new RegisterUserRequest("editor-user", "supersecure", "editor"),
+        await service.RegisterAsync(
+            new RegisterUserRequest("bootstrap-admin", "supersecure", null),
             new ClaimsPrincipal(new ClaimsIdentity()));
 
-        var session = await service.LoginAsync(new LoginRequest("editor-user", "supersecure"));
+        var registered = await service.RegisterAsync(
+            new RegisterUserRequest("editor-user", "anotherpass", "editor"),
+            CreateAdminPrincipal());
+
+        var session = await service.LoginAsync(new LoginRequest("editor-user", "anotherpass"));
 
         Assert.False(string.IsNullOrWhiteSpace(session.Response.AccessToken));
         Assert.False(string.IsNullOrWhiteSpace(session.RefreshToken));
         Assert.Equal("Bearer", session.Response.TokenType);
         Assert.Equal(registered.Id, session.Response.User.Id);
         Assert.Equal("editor-user", session.Response.User.Username);
-        Assert.Equal("admin", session.Response.User.Role);
+        Assert.Equal("editor", session.Response.User.Role);
 
         var claims = ParseJwtPayload(session.Response.AccessToken);
         Assert.Equal(registered.Id.ToString(), claims.GetProperty("sub").GetString());
         Assert.Equal("editor-user", claims.GetProperty("username").GetString());
-        Assert.Equal("admin", claims.GetProperty("role").GetString());
+        Assert.Equal("editor", claims.GetProperty("role").GetString());
         Assert.True(claims.TryGetProperty("iat", out _));
         Assert.True(claims.TryGetProperty("exp", out _));
 
@@ -99,6 +103,19 @@ public sealed class AuthServiceTests
 
         Assert.Equal(registered.Id, stored.UserId);
         Assert.NotEqual(session.RefreshToken, stored.Hash);
+
+        var refreshed = await service.RefreshAsync(session.RefreshToken);
+
+        Assert.NotEqual(session.RefreshToken, refreshed.RefreshToken);
+        Assert.NotEqual(session.Response.AccessToken, refreshed.Response.AccessToken);
+        Assert.Equal(registered.Id, refreshed.Response.User.Id);
+        Assert.Equal("editor-user", refreshed.Response.User.Username);
+        Assert.Equal("editor", refreshed.Response.User.Role);
+
+        var refreshedClaims = ParseJwtPayload(refreshed.Response.AccessToken);
+        Assert.Equal(registered.Id.ToString(), refreshedClaims.GetProperty("sub").GetString());
+        Assert.Equal("editor-user", refreshedClaims.GetProperty("username").GetString());
+        Assert.Equal("editor", refreshedClaims.GetProperty("role").GetString());
     }
 
     [Fact]
