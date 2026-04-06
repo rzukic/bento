@@ -188,7 +188,7 @@ public sealed class CorsAndBodyLimitMiddlewareTests
             LogLevel = "Information",
             AllowedOrigins = allowedOrigins ?? [],
             MaxBodySize = maxBodySize,
-            AuthMode = "standard",
+            AuthMode = BackendAuthMode.Standard,
             DataDir = "./data"
         };
     }

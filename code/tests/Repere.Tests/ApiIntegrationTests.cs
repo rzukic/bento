@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Repere.Api.Models;
@@ -11,7 +12,10 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_AdminHealth_ReturnsHealthyJson_AndGeneratedRequestId()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
 
         using var response = await host.Client.GetAsync("/api/v1/admin/health");
 
@@ -49,7 +53,10 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_AdminHealth_ReusesIncomingRequestId_AndRespondsOnVersionedRoute()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
         request.Headers.TryAddWithoutValidation("X-Request-Id", "req_http_integration_123");
 
@@ -63,13 +70,264 @@ public sealed class ApiIntegrationTests
     [Fact]
     public async Task Get_RootHealth_ReturnsNotFound_WhileVersionedHealthExists()
     {
-        await using var host = await ApiIntegrationTestHost.StartAsync();
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
 
         using var rootResponse = await host.Client.GetAsync("/health");
         using var versionedResponse = await host.Client.GetAsync("/api/v1/admin/health");
 
         Assert.Equal(HttpStatusCode.NotFound, rootResponse.StatusCode);
         Assert.Equal(HttpStatusCode.OK, versionedResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_AuthContract_ReturnsTypedAuthSurface_ForStandardMode()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:Jwt:Issuer"] = "repere-tests",
+            ["Backend:Jwt:Audience"] = "repere-clients",
+            ["Backend:Jwt:AccessTokenLifetimeMinutes"] = "15",
+            ["Backend:Jwt:RefreshTokenLifetimeDays"] = "7",
+            ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+            ["Backend:AuthCookie:SameSite"] = "Strict",
+            ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+            ["Backend:AuthRateLimitPerMinute"] = "5"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/auth");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        payload = Assert.IsType<AuthRuntimeContractResponse>(payload);
+
+        Assert.Equal("standard", payload.Mode);
+        Assert.True(payload.AuthRequired);
+        Assert.True(payload.RegistrationBootstrapOpen);
+        Assert.True(payload.JwtConfigured);
+        Assert.Equal("repere-tests", payload.JwtIssuer);
+        Assert.Equal("repere-clients", payload.JwtAudience);
+        Assert.Equal(15, payload.AccessTokenLifetimeMinutes);
+        Assert.Equal(7, payload.RefreshTokenLifetimeDays);
+        Assert.Equal(5, payload.AuthRateLimitPerMinute);
+        Assert.Equal("repere_refresh", payload.RefreshCookie.Name);
+        Assert.True(payload.RefreshCookie.HttpOnly);
+        Assert.False(payload.RefreshCookie.RequireSecure);
+        Assert.Equal("Strict", payload.RefreshCookie.SameSite);
+        Assert.Equal("/api/v1/auth", payload.RefreshCookie.Path);
+        Assert.Contains("CSRF protections until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
+        Assert.Contains("CSP headers until the browser-facing frontend exists", payload.Deferred, StringComparer.Ordinal);
+        Assert.Contains("vault mode", payload.Deferred, StringComparer.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_AuthContract_ReportsBootstrapRegistrationClosure_AfterFirstUserExists()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var beforeBootstrapResponse = await host.Client.GetAsync("/api/v1/auth");
+        Assert.Equal(HttpStatusCode.OK, beforeBootstrapResponse.StatusCode);
+
+        var beforeBootstrapPayload = await beforeBootstrapResponse.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        beforeBootstrapPayload = Assert.IsType<AuthRuntimeContractResponse>(beforeBootstrapPayload);
+        Assert.True(beforeBootstrapPayload.RegistrationBootstrapOpen);
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var afterBootstrapResponse = await host.Client.GetAsync("/api/v1/auth");
+        Assert.Equal(HttpStatusCode.OK, afterBootstrapResponse.StatusCode);
+
+        var afterBootstrapPayload = await afterBootstrapResponse.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        afterBootstrapPayload = Assert.IsType<AuthRuntimeContractResponse>(afterBootstrapPayload);
+        Assert.False(afterBootstrapPayload.RegistrationBootstrapOpen);
+    }
+
+    [Fact]
+    public async Task Get_AuthContract_InProductionMode_ReportsSecureRefreshCookiesByDefault()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        using var response = await host.Client.GetAsync("/api/v1/auth");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        payload = Assert.IsType<AuthRuntimeContractResponse>(payload);
+        Assert.True(payload.RefreshCookie.RequireSecure);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RequiresBearerToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Bearer token is required", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_ReturnsForbidden_ForNonAdminRole()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var createUserRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register")
+        {
+            Content = JsonContent.Create(new
+            {
+                username = "editor-user",
+                password = "anotherpass",
+                role = "editor"
+            })
+        };
+        createUserRequest.Headers.Authorization = new("Bearer", await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure"));
+
+        using var createUserResponse = await host.Client.SendAsync(createUserRequest);
+        Assert.Equal(HttpStatusCode.Created, createUserResponse.StatusCode);
+
+        var editorToken = await LoginAndGetAccessTokenAsync(host, "editor-user", "anotherpass");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", editorToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("FORBIDDEN", payload.Error.Code);
+        Assert.Contains("required", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_AllowsAdminBearerToken()
+    {
+        const string jwtSecret = "super-secret";
+
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = jwtSecret
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", adminToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RejectsMalformedBearerToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", "not-a-jwt");
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("invalid", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InStandardMode_RejectsExpiredBearerToken()
+    {
+        const string jwtSecret = "super-secret";
+
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = jwtSecret
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        var validToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        var expiredToken = RewriteJwtExpiration(validToken, jwtSecret, DateTimeOffset.UtcNow.AddMinutes(-5));
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        request.Headers.Authorization = new("Bearer", expiredToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("expired", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_InOpenMode_BypassesBearerAuth()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
 
     [Fact]
@@ -94,5 +352,509 @@ public sealed class ApiIntegrationTests
         Assert.Contains("max size", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.NotNull(payload.Error.Details);
         Assert.Equal("1kb", Assert.IsType<System.Text.Json.JsonElement>(payload.Error.Details!["maxBodySize"]).GetString());
+    }
+
+    [Fact]
+    public async Task Post_Register_CreatesBootstrapAdmin_WithBcryptPasswordHash()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure",
+            role = "viewer"
+        });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<RegisterUserResponse>();
+        payload = Assert.IsType<RegisterUserResponse>(payload);
+
+        Assert.Equal("bootstrap-admin", payload.Username);
+        Assert.Equal("admin", payload.Role);
+        Assert.True(payload.BootstrapAdmin);
+
+        var storedHash = await host.QuerySystemScalarAsync<string>(
+            "SELECT password_hash FROM users WHERE username = $username;",
+            new { username = "bootstrap-admin" });
+        var storedRole = await host.QuerySystemScalarAsync<string>(
+            "SELECT role FROM users WHERE username = $username;",
+            new { username = "bootstrap-admin" });
+
+        Assert.NotEqual("supersecure", storedHash);
+        Assert.StartsWith("$2", storedHash, StringComparison.Ordinal);
+        Assert.True(BCrypt.Net.BCrypt.Verify("supersecure", storedHash));
+        Assert.Equal("admin", storedRole);
+    }
+
+    [Fact]
+    public async Task Post_Register_RejectsWeakPayloads_WithStandardValidationEnvelope()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = " ",
+            password = "short",
+            role = "owner"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("VALIDATION_FAILED", payload.Error.Code);
+        Assert.Contains("Username is required.", payload.Error.Message, StringComparison.Ordinal);
+        Assert.NotNull(payload.Error.Details);
+        Assert.Equal("username", Assert.IsType<JsonElement>(payload.Error.Details!["field"]).GetString());
+    }
+
+    [Fact]
+    public async Task Post_Register_RejectsFollowUpSelfRegistration_AfterBootstrapUserExists()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var firstResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, firstResponse.StatusCode);
+
+        using var secondResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "second-user",
+            password = "anotherpass"
+        });
+
+        Assert.Equal(HttpStatusCode.Forbidden, secondResponse.StatusCode);
+
+        var payload = await secondResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("FORBIDDEN", payload.Error.Code);
+        Assert.Contains("Self-registration is closed", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_Register_AllowsAdminManagedCreation_WhenBearerIdentityIsPresentOnAuthRoute()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var bootstrapResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, bootstrapResponse.StatusCode);
+
+        var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register")
+        {
+            Content = JsonContent.Create(new
+            {
+                username = "editor-user",
+                password = "anotherpass",
+                role = "editor"
+            })
+        };
+        request.Headers.Authorization = new("Bearer", adminToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<RegisterUserResponse>();
+        payload = Assert.IsType<RegisterUserResponse>(payload);
+        Assert.Equal("editor", payload.Role);
+        Assert.False(payload.BootstrapAdmin);
+    }
+
+    [Fact]
+    public async Task Post_Login_ReturnsAccessToken_AndRefreshCookie()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
+        payload = Assert.IsType<AuthTokenResponse>(payload);
+
+        Assert.False(string.IsNullOrWhiteSpace(payload.AccessToken));
+        Assert.Equal("Bearer", payload.TokenType);
+        Assert.Equal("bootstrap-admin", payload.User.Username);
+        Assert.Equal("admin", payload.User.Role);
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("repere_refresh=", refreshCookie, StringComparison.Ordinal);
+        Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=strict", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+
+        var claims = ParseJwtPayload(payload.AccessToken);
+        Assert.Equal(payload.User.Id.ToString(), claims.GetProperty("sub").GetString());
+        Assert.Equal("admin", claims.GetProperty("role").GetString());
+        Assert.True(claims.TryGetProperty("iat", out _));
+        Assert.True(claims.TryGetProperty("exp", out _));
+    }
+
+    [Fact]
+    public async Task Post_Login_UsesConfiguredRefreshCookieSecurityFlags()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthCookie:RequireSecure"] = "false",
+            ["Backend:AuthCookie:SameSite"] = "Lax"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("repere_refresh=", refreshCookie, StringComparison.Ordinal);
+        Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("samesite=lax", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_Login_InProductionMode_DefaultsRefreshCookieToSecure()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+
+        var refreshCookie = Assert.Single(cookieValues);
+        Assert.Contains("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Post_Login_RejectsInvalidPayload_BeforeAuthLogicRuns()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync();
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            password = "supersecure"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+
+        Assert.Equal("VALIDATION_FAILED", payload.Error.Code);
+        Assert.Contains("Username is required.", payload.Error.Message, StringComparison.Ordinal);
+        Assert.NotNull(payload.Error.Details);
+        Assert.Equal("username", Assert.IsType<JsonElement>(payload.Error.Details!["field"]).GetString());
+    }
+
+    [Fact]
+    public async Task Post_Login_RejectsInvalidCredentials()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "wrong-password"
+        });
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Invalid username or password", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_Login_ReturnsTooManyRequests_WhenAuthRateLimitIsExceeded()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "2"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var firstResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+
+        using var secondResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+
+        using var throttledResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal((HttpStatusCode)429, throttledResponse.StatusCode);
+
+        var payload = await throttledResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("TOO_MANY_REQUESTS", payload.Error.Code);
+        Assert.Contains("Too many auth attempts", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_Refresh_RotatesCookie_AndRejectsReusedRefreshToken()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        var initialCookie = ExtractCookieHeader(loginResponse, "repere_refresh");
+        using var manualClient = new HttpClient(new HttpClientHandler
+        {
+            UseCookies = false
+        })
+        {
+            BaseAddress = host.Client.BaseAddress
+        };
+
+        using var refreshRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
+        refreshRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
+
+        using var refreshResponse = await manualClient.SendAsync(refreshRequest);
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+
+        var refreshedCookie = ExtractCookieHeader(refreshResponse, "repere_refresh");
+        Assert.NotEqual(initialCookie, refreshedCookie);
+
+        using var reuseRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
+        reuseRequest.Headers.TryAddWithoutValidation("Cookie", initialCookie);
+
+        using var reuseResponse = await manualClient.SendAsync(reuseRequest);
+        Assert.Equal(HttpStatusCode.Unauthorized, reuseResponse.StatusCode);
+
+        var payload = await reuseResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        Assert.Contains("Refresh session", payload.Error.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task Post_Refresh_InDevelopmentMode_WorksThroughHttpClientCookieJar_ByDefault()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_Refresh_InProductionMode_DoesNotReplaySecureCookie_OnPlainHttp()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            environmentName: "Production");
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
+
+        var payload = await refreshResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
+        payload = Assert.IsType<ApiErrorEnvelope>(payload);
+        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+    }
+
+    private static JsonElement ParseJwtPayload(string token)
+    {
+        var segments = token.Split('.');
+        Assert.Equal(3, segments.Length);
+
+        var padded = segments[1]
+            .Replace('-', '+')
+            .Replace('_', '/');
+        padded = padded.PadRight(padded.Length + ((4 - padded.Length % 4) % 4), '=');
+
+        using var document = JsonDocument.Parse(Convert.FromBase64String(padded));
+        return document.RootElement.Clone();
+    }
+
+    private static string ExtractCookieHeader(HttpResponseMessage response, string cookieName)
+    {
+        Assert.True(response.Headers.TryGetValues("Set-Cookie", out var values));
+        var header = Assert.Single(values);
+        var cookie = header.Split(';', 2, StringSplitOptions.TrimEntries)[0];
+        Assert.StartsWith(cookieName + "=", cookie, StringComparison.Ordinal);
+        return cookie;
+    }
+
+    private static string RewriteJwtExpiration(string token, string secret, DateTimeOffset expiresAt)
+    {
+        var segments = token.Split('.');
+        Assert.Equal(3, segments.Length);
+
+        using var document = JsonDocument.Parse(Base64UrlDecode(segments[1]));
+        var payload = document.RootElement.EnumerateObject()
+            .ToDictionary(
+                property => property.Name,
+                property => property.Value.Clone(),
+                StringComparer.Ordinal);
+
+        payload["exp"] = JsonSerializer.SerializeToElement(expiresAt.ToUnixTimeSeconds());
+
+        var payloadJson = JsonSerializer.Serialize(payload);
+        var encodedPayload = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
+        var signingInput = $"{segments[0]}.{encodedPayload}";
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var signature = Base64UrlEncode(hmac.ComputeHash(Encoding.UTF8.GetBytes(signingInput)));
+        return $"{signingInput}.{signature}";
+    }
+
+    private static async Task<string> LoginAndGetAccessTokenAsync(
+        ApiIntegrationTestHost host,
+        string username,
+        string password)
+    {
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username,
+            password
+        });
+        response.EnsureSuccessStatusCode();
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthTokenResponse>();
+        payload = Assert.IsType<AuthTokenResponse>(payload);
+        return payload.AccessToken;
+    }
+
+    private static byte[] Base64UrlDecode(string value)
+    {
+        var normalized = value
+            .Replace('-', '+')
+            .Replace('_', '/');
+        normalized = normalized.PadRight(normalized.Length + ((4 - normalized.Length % 4) % 4), '=');
+        return Convert.FromBase64String(normalized);
+    }
+
+    private static string Base64UrlEncode(byte[] bytes)
+    {
+        return Convert.ToBase64String(bytes)
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
     }
 }

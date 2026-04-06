@@ -4,6 +4,7 @@ using Repere.Api.Db.Migrations;
 using Repere.Api.Db.Schema;
 using Repere.Api.Middleware;
 using Repere.Api.Services;
+using Repere.Api.Validation;
 
 namespace Repere.Api;
 
@@ -38,9 +39,13 @@ public static class BackendHost
         _ = environment;
 
         services.AddControllers()
-            .AddApplicationPart(typeof(Program).Assembly);
+            .AddApplicationPart(typeof(Program).Assembly)
+            .ConfigureApiBehaviorOptions(options =>
+            {
+                options.InvalidModelStateResponseFactory = ApiValidationResponseFactory.CreateActionResult;
+            });
 
-        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration, environment);
         services.AddSingleton(runtimeOptions);
 
         var dbConfig = new DatabaseConfig();
@@ -73,6 +78,8 @@ public static class BackendHost
                 serviceProvider.GetRequiredService<ILogger<DataPool>>()));
 
         services.AddSingleton<QueryService>();
+        services.AddSingleton<AuthService>();
+        services.AddSingleton<AuthRateLimiter>();
         services.AddSingleton<ModelJsonStore>();
         services.AddSingleton<SchemaValidator>();
         services.AddSingleton<RelationResolver>();
@@ -94,6 +101,8 @@ public static class BackendHost
         app.UseMiddleware<ErrorHandlingMiddleware>();
         app.UseMiddleware<CorsPolicyMiddleware>();
         app.UseMiddleware<BodySizeLimitMiddleware>();
+        app.UseMiddleware<AuthRateLimitMiddleware>();
+        app.UseMiddleware<AuthMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)

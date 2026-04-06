@@ -53,6 +53,7 @@ public sealed class ApiHostTests
             .ToList();
 
         Assert.Contains(ApiRoutes.AdminHealth, endpoints);
+        Assert.Contains(ApiRoutes.Auth, endpoints);
         Assert.DoesNotContain("health", endpoints.Where(pattern => pattern != ApiRoutes.AdminHealth));
     }
 

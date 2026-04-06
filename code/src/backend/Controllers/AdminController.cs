@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Repere.Api.Authorization;
 using Repere.Api.Models;
 using Repere.Api.Services;
 
@@ -6,6 +7,7 @@ namespace Repere.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Admin)]
+[RequireRole("admin")]
 public sealed class AdminController : ControllerBase
 {
     private readonly AdminHealthService _adminHealthService;

@@ -144,6 +144,7 @@ Current middleware order:
 Runtime configuration contract:
 - `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
 - exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
+- `AUTH_REFRESH_COOKIE_SECURE` remains an explicit override, but when it is unset the refresh cookie now defaults to `Secure=false` in development-style hosts and `Secure=true` in production
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
 
@@ -223,11 +224,13 @@ Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `
 
 ## Authentication
 
-Authentication middleware is not implemented yet.
+Authentication middleware is not implemented yet, but the Step 1.4 foundation contract now exists.
 
-Current Step 1.3 state:
-- the `auth` route area is reserved under `/api/v1/auth`
-- `AUTH_MODE` is parsed and validated as runtime configuration
+Current Step 1.4 foundation state:
+- `/api/v1/auth` is a concrete controller endpoint that publishes the auth-mode/runtime contract
+- `POST /api/v1/auth/register` now bootstraps the first standard-mode user with a bcrypt hash and auto-assigns `admin`
+- `AUTH_MODE=open` and `AUTH_MODE=standard` are the only supported Phase 1 runtime modes
+- JWT metadata, refresh-cookie policy, and auth rate limits are now typed runtime configuration
 - no JWT issuance, login endpoint, refresh flow, or route protection exists yet
 - no API key validation exists yet
 

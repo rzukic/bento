@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Data.Sqlite;
 using Repere.Api;
 
 namespace Repere.Tests;
@@ -22,6 +23,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
     }
 
     public HttpClient Client { get; }
+
+    public string SystemDatabasePath => Path.Combine(_sqliteRootPath, "system.db");
 
     public static async Task<ApiIntegrationTestHost> StartAsync(
         IReadOnlyDictionary<string, string?>? overrides = null,
@@ -45,6 +48,15 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             ["Backend:LogLevel"] = "Information",
             ["Backend:MaxBodySize"] = "10mb",
             ["Backend:AuthMode"] = "standard",
+            ["Backend:Jwt:Issuer"] = "repere-api",
+            ["Backend:Jwt:Audience"] = "repere-clients",
+            ["Backend:Jwt:AccessTokenLifetimeMinutes"] = "15",
+            ["Backend:Jwt:RefreshTokenLifetimeDays"] = "7",
+            ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+            ["Backend:AuthCookie:HttpOnly"] = "true",
+            ["Backend:AuthCookie:SameSite"] = "Strict",
+            ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+            ["Backend:AuthRateLimitPerMinute"] = "5",
             ["Backend:DataDir"] = sqliteRootPath,
             ["Database:Provider"] = "Sqlite",
             ["Database:SystemConnection"] = sqliteRootPath,
@@ -89,6 +101,15 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
         response.EnsureSuccessStatusCode();
         return await response.Content.ReadFromJsonAsync<T>(cancellationToken: cancellationToken)
             ?? throw new InvalidOperationException("Expected JSON response body.");
+    }
+
+    public async Task<T> QuerySystemScalarAsync<T>(string sql, object? parameters = null)
+        where T : notnull
+    {
+        await using var conn = new SqliteConnection($"Data Source={SystemDatabasePath}");
+        await conn.OpenAsync();
+        var result = await conn.ExecuteScalarAsync<T>(sql, parameters);
+        return result ?? throw new InvalidOperationException("Expected scalar result.");
     }
 
     public async ValueTask DisposeAsync()

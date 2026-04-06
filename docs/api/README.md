@@ -7,16 +7,23 @@
 
 ## Authentication
 
-Authentication is not implemented yet.
+Step 1.4 auth is now active for the implemented backend surface.
 
-Planned Phase 1 auth methods:
+Current Phase 1 auth methods:
 
 | Method | Header | Value |
 |--------|--------|-------|
 | JWT Bearer | `Authorization` | `Bearer <token>` |
 | API Key | `X-API-Key` | `<key>` |
 
-> **Not yet implemented** — Step 1.3 reserves the auth route area, but login, token issuance, auth middleware, and API key validation are still planned for Step 1.4 / later Phase 1 work.
+Current Step 1.4 auth contract:
+- `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, whether bootstrap self-registration is currently open, and the list of auth features still deferred
+- `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
+- `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
+- `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
+- `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
+- API key auth and logout remain deferred to later phases
 
 ---
 
@@ -67,11 +74,13 @@ Cross-origin and request-size behavior:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
+| `POST` | `/api/v1/auth/register` | Create the bootstrap admin or an admin-managed user |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 
-> **Not yet implemented** — planned for Phase 1.
+`GET /api/v1/auth`, `POST /register`, `POST /login`, and `POST /refresh` are implemented in Step 1.4. `POST /logout` and API key auth remain future work.
 
 ---
 

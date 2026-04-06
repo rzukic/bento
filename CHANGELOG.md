@@ -14,6 +14,54 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-05 — Fix refresh cookie defaults for local auth
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Aligned the Step 1.4 refresh-cookie default with the documented development vs production contract so browser-based refresh works on local HTTP without losing the ability to force secure cookies explicitly. The auth docs and regression suite now cover both the local-development and production-style behaviors.
+
+**Highlights:**
+- Refresh-cookie `Secure` now defaults from the host environment when `AUTH_REFRESH_COOKIE_SECURE` is unset
+- Added HTTP-level regressions that prove refresh works in development and is withheld on plain HTTP in production-style hosts
+- Closed TASK-032 and updated the auth/backend docs to document the effective cookie policy
+
+### 2026-04-05 — Close Step 1.4 auth regression coverage
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Closed the final open Step 1.4 task by expanding the shared HTTP auth integration suite around full request-pipeline behavior instead of isolated service checks. The auth step now has explicit regression coverage for successful admin access, token failure modes, and end-to-end login/refresh contract behavior in both standard and open auth modes.
+
+**Highlights:**
+- Added protected-route success coverage for authenticated admin requests using the shared API host test harness
+- Added negative auth regressions for invalid credentials plus malformed and expired bearer tokens
+- Closed TASK-031 and marked Step 1.4 complete with the backend auth suite staying green
+
+### 2026-04-05 — Harden auth endpoints and cookie/session boundaries
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Completed the Step 1.4 hardening slice so auth endpoints now enforce baseline abuse protection and reject malformed requests using the standard API error contract. The auth docs also now make the browser-only security deferrals explicit instead of leaving them implicit.
+
+**Highlights:**
+- Added per-route auth throttling for `register`, `login`, and `refresh` using the configured per-minute limit
+- Standardized auth payload validation so malformed or incomplete JSON fails before deeper auth/session logic runs
+- Verified refresh-cookie behavior against configurable `HttpOnly`, `Secure`, and `SameSite` flags and documented CSRF/CSP deferrals
+
+### 2026-04-05 — Establish Step 1.4 auth foundation contract
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.4 — Basic auth (JWT, login, middleware)](working-steps/1.4-basic-auth.md)
+
+Locked down the Step 1.4 auth foundation so later slices build against a concrete runtime and route contract instead of placeholders. The backend now exposes a typed `/api/v1/auth` contract endpoint, validates the Phase 1 auth-mode boundary, and documents which security/auth features remain deferred.
+
+**Highlights:**
+- Added typed auth runtime settings for mode, JWT metadata, refresh-cookie policy, and auth rate limits
+- Registered a concrete `/api/v1/auth` endpoint that reports the current Step 1.4 auth contract and deferrals
+- Closed Task 26 and updated the Step 1.4 working step/wiki docs to separate foundation work from later login/middleware implementation
+
 ### 2026-04-05 — Complete backend API server foundation and align docs with implemented routes
 
 > **Phase**: Phase 1 — Foundation

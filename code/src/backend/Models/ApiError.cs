@@ -7,6 +7,7 @@ public enum ApiErrorCode
     Unauthorized,
     Forbidden,
     Conflict,
+    TooManyRequests,
     InternalError
 }
 
@@ -28,6 +29,7 @@ public static class ApiErrorCodeExtensions
             ApiErrorCode.Unauthorized => "UNAUTHORIZED",
             ApiErrorCode.Forbidden => "FORBIDDEN",
             ApiErrorCode.Conflict => "CONFLICT",
+            ApiErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
             ApiErrorCode.InternalError => "INTERNAL_ERROR",
             _ => throw new ArgumentOutOfRangeException(nameof(code), code, null)
         };
