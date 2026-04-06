@@ -10,6 +10,8 @@ public sealed record ListQueryParameters
     public int PerPage { get; init; } = 25;
     public IReadOnlyList<FilterClause> Filters { get; init; } = [];
     public IReadOnlyList<SortClause> Sorts { get; init; } = [];
+    public IReadOnlyList<string>? Fields { get; init; }
+    public IReadOnlyList<string> Includes { get; init; } = [];
 }
 
 public sealed record FilterClause(string Column, string Operator, string? Value);
@@ -29,6 +31,26 @@ public static class QueryParameterParser
         "eq", "neq", "gt", "gte", "lt", "lte", "like", "in", "null", "notnull"
     };
 
+    /// <summary>
+    /// Parse only pagination parameters (no filter/sort column validation).
+    /// Used for sub-resource endpoints where the target table isn't known upfront.
+    /// </summary>
+    public static ListQueryParameters ParseBasic(IQueryCollection query)
+    {
+        var page = ParseInt(query, "page", 1);
+        var perPage = ParseInt(query, "per_page", DefaultPerPage);
+
+        if (page < 1) page = 1;
+        if (perPage < 1) perPage = 1;
+        if (perPage > MaxPerPage) perPage = MaxPerPage;
+
+        return new ListQueryParameters
+        {
+            Page = page,
+            PerPage = perPage
+        };
+    }
+
     public static ListQueryParameters Parse(IQueryCollection query, TableDef table)
     {
         var page = ParseInt(query, "page", 1);
@@ -40,13 +62,17 @@ public static class QueryParameterParser
 
         var filters = ParseFilters(query, table);
         var sorts = ParseSorts(query, table);
+        var fields = ParseFields(query, table);
+        var includes = ParseIncludes(query);
 
         return new ListQueryParameters
         {
             Page = page,
             PerPage = perPage,
             Filters = filters,
-            Sorts = sorts
+            Sorts = sorts,
+            Fields = fields,
+            Includes = includes
         };
     }
 
@@ -133,6 +159,33 @@ public static class QueryParameterParser
                     ["validOperators"] = ValidOperators.ToList()
                 });
         }
+    }
+
+    private static List<string>? ParseFields(IQueryCollection query, TableDef table)
+    {
+        if (!query.TryGetValue("fields", out var fieldsValue) || string.IsNullOrWhiteSpace(fieldsValue))
+            return null;
+
+        var columnNames = GetPhysicalColumnNames(table);
+        var fields = new List<string>();
+
+        foreach (var part in fieldsValue.ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            ValidateColumnName(part, columnNames);
+            fields.Add(part);
+        }
+
+        return fields;
+    }
+
+    private static List<string> ParseIncludes(IQueryCollection query)
+    {
+        if (!query.TryGetValue("include", out var includeValue) || string.IsNullOrWhiteSpace(includeValue))
+            return [];
+
+        return includeValue.ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .ToList();
     }
 
     private static int ParseInt(IQueryCollection query, string key, int defaultValue)

@@ -105,6 +105,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             ?? throw new InvalidOperationException("Expected JSON response body.");
     }
 
+    public string DataDatabasePath => Path.Combine(_sqliteRootPath, "data.db");
+
     public async Task<T> QuerySystemScalarAsync<T>(string sql, object? parameters = null)
         where T : notnull
     {
@@ -112,6 +114,16 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
         await conn.OpenAsync();
         var result = await conn.ExecuteScalarAsync<T>(sql, parameters);
         return result ?? throw new InvalidOperationException("Expected scalar result.");
+    }
+
+    /// <summary>
+    /// Execute arbitrary SQL against the data database (useful for inserting junction table rows).
+    /// </summary>
+    public async Task ExecuteDataSqlAsync(string sql, object? parameters = null)
+    {
+        await using var conn = new SqliteConnection($"Data Source={DataDatabasePath}");
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(sql, parameters);
     }
 
     /// <summary>
