@@ -22,11 +22,23 @@ public sealed class DataController : ControllerBase
     /// List rows in a table (paginated, filterable, sortable).
     /// </summary>
     [HttpGet("{table}")]
-    public IActionResult List(string table)
+    public async Task<IActionResult> List(string table)
     {
         var tableDef = ResolveTable(table);
-        // List/filter/sort/pagination wired in TASK-037
-        return Ok(new { data = Array.Empty<object>(), meta = new { page = 1, per_page = 25, total = 0, total_pages = 0 } });
+        var parameters = QueryParameterParser.Parse(Request.Query, tableDef);
+        var result = await _crudService.ListAsync(tableDef, parameters);
+
+        return Ok(new
+        {
+            data = result.Data,
+            meta = new
+            {
+                page = result.Page,
+                per_page = result.PerPage,
+                total = result.Total,
+                total_pages = result.TotalPages
+            }
+        });
     }
 
     /// <summary>
