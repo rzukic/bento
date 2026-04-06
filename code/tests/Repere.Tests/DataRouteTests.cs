@@ -188,18 +188,19 @@ public sealed class DataRouteTests
         using var getList = await host.Client.GetAsync("/api/v1/data/customers");
         Assert.Equal(HttpStatusCode.OK, getList.StatusCode);
 
-        using var getById = await host.Client.GetAsync("/api/v1/data/customers/1");
-        Assert.Equal(HttpStatusCode.OK, getById.StatusCode);
-
+        // Create a row first so subsequent operations have something to work with
         using var post = await host.Client.PostAsJsonAsync("/api/v1/data/customers", new { name = "test" });
         Assert.Equal(HttpStatusCode.Created, post.StatusCode);
 
-        using var put = await host.Client.PutAsJsonAsync("/api/v1/data/customers/1", new { name = "test" });
+        using var getById = await host.Client.GetAsync("/api/v1/data/customers/1");
+        Assert.Equal(HttpStatusCode.OK, getById.StatusCode);
+
+        using var put = await host.Client.PutAsJsonAsync("/api/v1/data/customers/1", new { name = "updated" });
         Assert.Equal(HttpStatusCode.OK, put.StatusCode);
 
         using var patchRequest = new HttpRequestMessage(HttpMethod.Patch, "/api/v1/data/customers/1")
         {
-            Content = JsonContent.Create(new { name = "test" })
+            Content = JsonContent.Create(new { name = "patched" })
         };
         using var patch = await host.Client.SendAsync(patchRequest);
         Assert.Equal(HttpStatusCode.OK, patch.StatusCode);

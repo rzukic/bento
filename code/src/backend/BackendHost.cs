@@ -89,6 +89,7 @@ public static class BackendHost
         services.AddSingleton<SchemaService>();
         services.AddSingleton(BackendRuntimeInfo.CreateForCurrentProcess());
         services.AddSingleton<AdminHealthService>();
+        services.AddSingleton<CrudService>();
         services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();
