@@ -11,11 +11,13 @@ public sealed class DataController : ControllerBase
 {
     private readonly SchemaCache _schemaCache;
     private readonly CrudService _crudService;
+    private readonly IncludeService _includeService;
 
-    public DataController(SchemaCache schemaCache, CrudService crudService)
+    public DataController(SchemaCache schemaCache, CrudService crudService, IncludeService includeService)
     {
         _schemaCache = schemaCache;
         _crudService = crudService;
+        _includeService = includeService;
     }
 
     /// <summary>
@@ -27,6 +29,19 @@ public sealed class DataController : ControllerBase
         var tableDef = ResolveTable(table);
         var parameters = QueryParameterParser.Parse(Request.Query, tableDef);
         var result = await _crudService.ListAsync(tableDef, parameters);
+
+        // Apply relation includes
+        if (parameters.Includes.Count > 0)
+        {
+            var includes = _includeService.ResolveIncludes(tableDef.Name, parameters.Includes);
+            var mutableRows = result.Data.ToList();
+            await _includeService.ApplyIncludesAsync(mutableRows, includes);
+            return Ok(new
+            {
+                data = mutableRows,
+                meta = new { page = result.Page, per_page = result.PerPage, total = result.Total, total_pages = result.TotalPages }
+            });
+        }
 
         return Ok(new
         {
@@ -100,11 +115,26 @@ public sealed class DataController : ControllerBase
     /// Get related rows for a specific record via a named relation accessor.
     /// </summary>
     [HttpGet("{table}/{id:long}/{relation}")]
-    public IActionResult GetRelated(string table, long id, string relation)
+    public async Task<IActionResult> GetRelated(string table, long id, string relation)
     {
         var tableDef = ResolveTable(table);
-        // Relation resolution wired in TASK-038
-        return Ok(new { data = Array.Empty<object>(), meta = new { page = 1, per_page = 25, total = 0, total_pages = 0 } });
+
+        // Build query parameters for the related rows (filters, sorts, pagination)
+        // We need a target table to validate columns — resolve the relation first
+        var (rows, targetTable) = await _includeService.LoadRelatedRowsAsync(
+            tableDef.Name, id, relation, QueryParameterParser.ParseBasic(Request.Query));
+
+        return Ok(new
+        {
+            data = rows,
+            meta = new
+            {
+                page = 1,
+                per_page = rows.Count,
+                total = rows.Count,
+                total_pages = rows.Count > 0 ? 1 : 0
+            }
+        });
     }
 
     private Db.Schema.TableDef ResolveTable(string table)

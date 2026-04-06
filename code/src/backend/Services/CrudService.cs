@@ -3,6 +3,7 @@ using Dapper;
 using Repere.Api.Db;
 using Repere.Api.Db.Schema;
 using Repere.Api.Exceptions;
+using SqlKata;
 using SqlKata.Execution;
 
 namespace Repere.Api.Services;
@@ -36,7 +37,7 @@ public sealed class CrudService
 
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
-        ApplyFilters(baseQuery, parameters.Filters);
+        ApplyFiltersStatic(baseQuery, parameters.Filters);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
@@ -48,6 +49,12 @@ public sealed class CrudService
                 baseQuery = baseQuery.OrderByDesc(sort.Column);
             else
                 baseQuery = baseQuery.OrderBy(sort.Column);
+        }
+
+        // Apply field selection
+        if (parameters.Fields is { Count: > 0 })
+        {
+            baseQuery = baseQuery.Select(parameters.Fields.ToArray());
         }
 
         // Apply pagination
@@ -280,7 +287,7 @@ public sealed class CrudService
         return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
     }
 
-    private static void ApplyFilters(SqlKata.Query query, IReadOnlyList<FilterClause> filters)
+    internal static void ApplyFiltersStatic(SqlKata.Query query, IReadOnlyList<FilterClause> filters)
     {
         foreach (var filter in filters)
         {
