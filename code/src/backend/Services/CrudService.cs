@@ -7,8 +7,17 @@ using SqlKata.Execution;
 
 namespace Repere.Api.Services;
 
+public sealed record ListResult
+{
+    public required IReadOnlyList<IDictionary<string, object?>> Data { get; init; }
+    public required int Page { get; init; }
+    public required int PerPage { get; init; }
+    public required long Total { get; init; }
+    public required int TotalPages { get; init; }
+}
+
 /// <summary>
-/// Performs single-row CRUD operations against user tables via the data pool.
+/// Performs CRUD operations against user tables via the data pool.
 /// </summary>
 public sealed class CrudService
 {
@@ -19,6 +28,44 @@ public sealed class CrudService
     {
         _queryService = queryService;
         _dbConfig = dbConfig;
+    }
+
+    public async Task<ListResult> ListAsync(TableDef table, ListQueryParameters parameters)
+    {
+        await using var scope = await _queryService.UseDataAsync();
+
+        // Build the base query with filters
+        var baseQuery = scope.Db.Query(table.Name);
+        ApplyFilters(baseQuery, parameters.Filters);
+
+        // Count total matching rows
+        var total = await baseQuery.Clone().CountAsync<long>();
+
+        // Apply sorting
+        foreach (var sort in parameters.Sorts)
+        {
+            if (sort.Descending)
+                baseQuery = baseQuery.OrderByDesc(sort.Column);
+            else
+                baseQuery = baseQuery.OrderBy(sort.Column);
+        }
+
+        // Apply pagination
+        baseQuery = baseQuery.ForPage(parameters.Page, parameters.PerPage);
+
+        var rows = (await baseQuery.GetAsync()).Select(ToDictionary).ToList();
+        var totalPages = parameters.PerPage > 0
+            ? (int)Math.Ceiling((double)total / parameters.PerPage)
+            : 0;
+
+        return new ListResult
+        {
+            Data = rows,
+            Page = parameters.Page,
+            PerPage = parameters.PerPage,
+            Total = total,
+            TotalPages = totalPages
+        };
     }
 
     public async Task<IDictionary<string, object?>> GetByIdAsync(TableDef table, long id)
@@ -231,6 +278,47 @@ public sealed class CrudService
         var insertSql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
         await scope.Db.Connection.ExecuteAsync(insertSql, parameters);
         return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
+    }
+
+    private static void ApplyFilters(SqlKata.Query query, IReadOnlyList<FilterClause> filters)
+    {
+        foreach (var filter in filters)
+        {
+            switch (filter.Operator)
+            {
+                case "eq":
+                    query.Where(filter.Column, filter.Value);
+                    break;
+                case "neq":
+                    query.WhereNot(filter.Column, filter.Value);
+                    break;
+                case "gt":
+                    query.Where(filter.Column, ">", filter.Value);
+                    break;
+                case "gte":
+                    query.Where(filter.Column, ">=", filter.Value);
+                    break;
+                case "lt":
+                    query.Where(filter.Column, "<", filter.Value);
+                    break;
+                case "lte":
+                    query.Where(filter.Column, "<=", filter.Value);
+                    break;
+                case "like":
+                    query.WhereLike(filter.Column, filter.Value ?? "");
+                    break;
+                case "in":
+                    var values = (filter.Value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    query.WhereIn(filter.Column, values);
+                    break;
+                case "null":
+                    query.WhereNull(filter.Column);
+                    break;
+                case "notnull":
+                    query.WhereNotNull(filter.Column);
+                    break;
+            }
+        }
     }
 
     private static IDictionary<string, object?> ToDictionary(object row)
