@@ -89,9 +89,11 @@ public static class BackendHost
         services.AddSingleton<SchemaService>();
         services.AddSingleton(BackendRuntimeInfo.CreateForCurrentProcess());
         services.AddSingleton<AdminHealthService>();
+        services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();
         services.AddHostedService<SchemaAutoMigrationService>();
+        services.AddHostedService<SchemaCacheInitializer>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)
