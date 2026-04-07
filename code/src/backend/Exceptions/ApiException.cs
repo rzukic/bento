@@ -64,6 +64,14 @@ public sealed class ApiConflictException : ApiException
     }
 }
 
+public sealed class ApiUnprocessableEntityException : ApiException
+{
+    public ApiUnprocessableEntityException(string message, IReadOnlyDictionary<string, object?>? details = null)
+        : base(ApiErrorCode.UnprocessableEntity, message, 422, details)
+    {
+    }
+}
+
 public sealed class ApiTooManyRequestsException : ApiException
 {
     public ApiTooManyRequestsException(string message, IReadOnlyDictionary<string, object?>? details = null)

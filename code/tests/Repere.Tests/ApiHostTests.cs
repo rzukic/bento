@@ -75,7 +75,8 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new SqliteTestPool(),
             new SqliteTestPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0")));
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0")),
+            null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
 
@@ -97,7 +98,8 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new FailingDbPool(),
             new FailingDbPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0")));
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0")),
+            null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
 
