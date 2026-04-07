@@ -24,11 +24,13 @@ public sealed class CrudService
 {
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
+    private readonly RequestBodyValidator _validator;
 
-    public CrudService(QueryService queryService, DatabaseConfig dbConfig)
+    public CrudService(QueryService queryService, DatabaseConfig dbConfig, RequestBodyValidator validator)
     {
         _queryService = queryService;
         _dbConfig = dbConfig;
+        _validator = validator;
     }
 
     public async Task<ListResult> ListAsync(TableDef table, ListQueryParameters parameters)
@@ -98,6 +100,8 @@ public sealed class CrudService
 
     public async Task<IDictionary<string, object?>> CreateAsync(TableDef table, JsonElement body)
     {
+        await _validator.ValidateCreateAsync(table, body);
+
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
 
@@ -115,6 +119,7 @@ public sealed class CrudService
     public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, long id, JsonElement body)
     {
         await EnsureRowExistsAsync(table, id);
+        await _validator.ValidateUpdateAsync(table, id, body);
 
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
@@ -141,6 +146,7 @@ public sealed class CrudService
     public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, long id, JsonElement body)
     {
         await EnsureRowExistsAsync(table, id);
+        await _validator.ValidatePatchAsync(table, id, body);
 
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
@@ -218,13 +224,13 @@ public sealed class CrudService
             if (col is null)
                 continue; // Unknown columns silently ignored; validation is TASK-039
 
-            data[col.Name] = CoerceValue(prop.Value, col.Type);
+            data[col.Name] = CoerceValueStatic(prop.Value, col.Type);
         }
 
         return data;
     }
 
-    private static object? CoerceValue(JsonElement value, ColumnType type)
+    internal static object? CoerceValueStatic(JsonElement value, ColumnType type)
     {
         if (value.ValueKind == JsonValueKind.Null)
             return null;
