@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Data.Sqlite;
 using Repere.Api;
+using Repere.Api.Db.Schema;
+using Repere.Api.Services;
 
 namespace Repere.Tests;
 
@@ -103,6 +105,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             ?? throw new InvalidOperationException("Expected JSON response body.");
     }
 
+    public string DataDatabasePath => Path.Combine(_sqliteRootPath, "data.db");
+
     public async Task<T> QuerySystemScalarAsync<T>(string sql, object? parameters = null)
         where T : notnull
     {
@@ -110,6 +114,36 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
         await conn.OpenAsync();
         var result = await conn.ExecuteScalarAsync<T>(sql, parameters);
         return result ?? throw new InvalidOperationException("Expected scalar result.");
+    }
+
+    /// <summary>
+    /// Execute arbitrary SQL against the data database (useful for inserting junction table rows).
+    /// </summary>
+    public async Task ExecuteDataSqlAsync(string sql, object? parameters = null)
+    {
+        await using var conn = new SqliteConnection($"Data Source={DataDatabasePath}");
+        await conn.OpenAsync();
+        await conn.ExecuteAsync(sql, parameters);
+    }
+
+    /// <summary>
+    /// Apply a Model JSON schema and reload the schema cache so data routes become available.
+    /// </summary>
+    public async Task ApplySchemaAsync(string modelJson)
+    {
+        var schemaService = _app.Services.GetRequiredService<SchemaService>();
+        var schemaCache = _app.Services.GetRequiredService<SchemaCache>();
+
+        var model = ModelJsonSerializer.Parse(modelJson);
+        var result = await schemaService.ApplySchemaAsync(model, confirmDestructive: true);
+
+        if (result.Errors.Count > 0)
+        {
+            var errors = string.Join(", ", result.Errors.Select(e => $"{e.Code}: {e.Message}"));
+            throw new InvalidOperationException($"Schema apply failed: {errors}");
+        }
+
+        await schemaCache.ReloadAsync();
     }
 
     public async ValueTask DisposeAsync()

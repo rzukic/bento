@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-08 — Complete Step 1.5 auto CRUD API and docs sync
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.5 — Auto CRUD API](working-steps/1.5-auto-crud-api.md)
+
+Completed the Step 1.5 MVP 1 data surface so schema-defined tables now expose a live CRUD API with filtering, sorting, pagination, relation traversal, search, and schema-aware validation, backed by admin schema-management endpoints. The follow-up hardening pass closed the audit findings around sparse fieldsets plus includes, relation sub-resource query semantics, PUT edge cases, id-only inserts, and then synced the docs and project state to the finished behavior.
+
+**Highlights:**
+- Auto-generated `/api/v1/data/*` CRUD routes are now live for the current Model JSON, including relation sub-resources and include-based traversal
+- Admin schema operations (`GET/PUT /api/v1/admin/schema`, migration history, rollback, health) are documented and aligned with the shipped backend contract
+- Closed TASK-035 through TASK-045, marked Step 1.5 complete, and verified the final regression pass at `346/346`
+
 ### 2026-04-05 — Fix refresh cookie defaults for local auth
 
 > **Phase**: Phase 1 — Foundation
