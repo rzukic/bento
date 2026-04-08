@@ -32,27 +32,21 @@ public static class QueryParameterParser
         "eq", "neq", "gt", "gte", "lt", "lte", "like", "in", "null", "notnull"
     };
 
-    /// <summary>
-    /// Parse only pagination parameters (no filter/sort column validation).
-    /// Used for sub-resource endpoints where the target table isn't known upfront.
-    /// </summary>
-    public static ListQueryParameters ParseBasic(IQueryCollection query)
+    public static ListQueryParameters Parse(IQueryCollection query, TableDef table)
     {
-        var page = ParseInt(query, "page", 1);
-        var perPage = ParseInt(query, "per_page", DefaultPerPage);
-
-        if (page < 1) page = 1;
-        if (perPage < 1) perPage = 1;
-        if (perPage > MaxPerPage) perPage = MaxPerPage;
-
-        return new ListQueryParameters
-        {
-            Page = page,
-            PerPage = perPage
-        };
+        return ParseInternal(query, table, includeFieldsAndIncludes: true, includeSearch: true);
     }
 
-    public static ListQueryParameters Parse(IQueryCollection query, TableDef table)
+    public static ListQueryParameters ParseRelated(IQueryCollection query, TableDef table)
+    {
+        return ParseInternal(query, table, includeFieldsAndIncludes: false, includeSearch: false);
+    }
+
+    private static ListQueryParameters ParseInternal(
+        IQueryCollection query,
+        TableDef table,
+        bool includeFieldsAndIncludes,
+        bool includeSearch)
     {
         var page = ParseInt(query, "page", 1);
         var perPage = ParseInt(query, "per_page", DefaultPerPage);
@@ -63,9 +57,9 @@ public static class QueryParameterParser
 
         var filters = ParseFilters(query, table);
         var sorts = ParseSorts(query, table);
-        var fields = ParseFields(query, table);
-        var includes = ParseIncludes(query);
-        var search = ParseSearch(query);
+        var fields = includeFieldsAndIncludes ? ParseFields(query, table) : null;
+        var includes = includeFieldsAndIncludes ? ParseIncludes(query) : [];
+        var search = includeSearch ? ParseSearch(query) : null;
 
         return new ListQueryParameters
         {

@@ -277,6 +277,47 @@ public sealed class IncludeAndFieldTests
         Assert.Equal(1, orders.GetArrayLength());
     }
 
+    [Fact]
+    public async Task Fields_And_FromSideInclude_WorkWithoutIdInParentFieldset()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/customers", new { name = "Acme", email = "acme@test.com" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 100.0, status = "paid", customer_id = 1 });
+
+        using var response = await host.Client.GetAsync("/api/v1/data/customers?fields=name&include=customer_orders");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var customer = json.GetProperty("data")[0];
+
+        Assert.True(customer.TryGetProperty("name", out _));
+        Assert.False(customer.TryGetProperty("id", out _));
+        Assert.True(customer.TryGetProperty("customer_orders", out var orders));
+        Assert.Equal(1, orders.GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Fields_And_ToSideInclude_WorkWithoutForeignKeyInParentFieldset()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/customers", new { name = "Acme" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 100.0, status = "paid", customer_id = 1 });
+
+        using var response = await host.Client.GetAsync("/api/v1/data/orders?fields=id,total&include=customer");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var order = json.GetProperty("data")[0];
+
+        Assert.True(order.TryGetProperty("id", out _));
+        Assert.True(order.TryGetProperty("total", out _));
+        Assert.False(order.TryGetProperty("customer_id", out _));
+        Assert.True(order.TryGetProperty("customer", out var customer));
+        Assert.Equal("Acme", customer.GetProperty("name").GetString());
+    }
+
     // ── Sub-resource endpoint ──
 
     [Fact]
@@ -342,6 +383,51 @@ public sealed class IncludeAndFieldTests
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(2, json.GetProperty("data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task SubResource_AppliesFiltersAndSorts()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/customers", new { name = "Acme" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 100.0, status = "paid", customer_id = 1 });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 200.0, status = "pending", customer_id = 1 });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 150.0, status = "paid", customer_id = 1 });
+
+        using var response = await host.Client.GetAsync("/api/v1/data/customers/1/customer_orders?filter[status]=paid&sort=-total");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var data = json.GetProperty("data");
+        Assert.Equal(2, data.GetArrayLength());
+        Assert.Equal(150.0, data[0].GetProperty("total").GetDouble());
+        Assert.Equal(100.0, data[1].GetProperty("total").GetDouble());
+    }
+
+    [Fact]
+    public async Task SubResource_ReturnsAccuratePaginationMetadata()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/customers", new { name = "Acme" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 100.0, status = "paid", customer_id = 1 });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 200.0, status = "pending", customer_id = 1 });
+        await host.Client.PostAsJsonAsync("/api/v1/data/orders", new { total = 300.0, status = "new", customer_id = 1 });
+
+        using var response = await host.Client.GetAsync("/api/v1/data/customers/1/customer_orders?sort=id&page=2&per_page=1");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var data = json.GetProperty("data");
+        var meta = json.GetProperty("meta");
+
+        Assert.Single(data.EnumerateArray());
+        Assert.Equal(2, meta.GetProperty("page").GetInt32());
+        Assert.Equal(1, meta.GetProperty("per_page").GetInt32());
+        Assert.Equal(3, meta.GetProperty("total").GetInt64());
+        Assert.Equal(3, meta.GetProperty("total_pages").GetInt32());
+        Assert.Equal(2, data[0].GetProperty("id").GetInt32());
     }
 
     private static async Task<ApiIntegrationTestHost> CreateHostAsync()

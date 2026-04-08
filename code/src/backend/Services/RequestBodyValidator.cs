@@ -101,10 +101,11 @@ public sealed class RequestBodyValidator
         ValidateUnknownColumns(bodyProps, allColumns, errors);
         ValidateComputedColumns(bodyProps, allColumns, errors);
 
-        // For PUT, require all non-nullable columns without defaults
+        // For PUT, require all non-nullable columns because the request is a full replacement.
+        // This keeps validation aligned with the write path, which clears omitted writable fields.
         foreach (var col in writableColumns)
         {
-            if (!col.Nullable && col.DefaultValue is null && col.InternalDefaultSql is null)
+            if (!col.Nullable)
             {
                 if (!bodyProps.ContainsKey(col.Name))
                 {

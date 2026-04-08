@@ -28,14 +28,20 @@ public sealed class DataController : ControllerBase
     {
         var tableDef = ResolveTable(table);
         var parameters = QueryParameterParser.Parse(Request.Query, tableDef);
-        var result = await _crudService.ListAsync(tableDef, parameters);
+        var includes = parameters.Includes.Count > 0
+            ? _includeService.ResolveIncludes(tableDef.Name, parameters.Includes)
+            : null;
+        var requiredIncludeColumns = includes is not null
+            ? IncludeService.GetRequiredLinkColumns(includes)
+            : null;
+        var result = await _crudService.ListAsync(tableDef, parameters, requiredIncludeColumns);
 
         // Apply relation includes
-        if (parameters.Includes.Count > 0)
+        if (includes is not null)
         {
-            var includes = _includeService.ResolveIncludes(tableDef.Name, parameters.Includes);
             var mutableRows = result.Data.ToList();
             await _includeService.ApplyIncludesAsync(mutableRows, includes);
+            TrimRowsToRequestedFields(mutableRows, parameters, includes);
             return Ok(new
             {
                 data = mutableRows,
@@ -118,23 +124,46 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> GetRelated(string table, long id, string relation)
     {
         var tableDef = ResolveTable(table);
-
-        // Build query parameters for the related rows (filters, sorts, pagination)
-        // We need a target table to validate columns — resolve the relation first
-        var (rows, targetTable) = await _includeService.LoadRelatedRowsAsync(
-            tableDef.Name, id, relation, QueryParameterParser.ParseBasic(Request.Query));
+        var result = await _includeService.LoadRelatedRowsAsync(tableDef.Name, id, relation, Request.Query);
 
         return Ok(new
         {
-            data = rows,
+            data = result.Rows,
             meta = new
             {
-                page = 1,
-                per_page = rows.Count,
-                total = rows.Count,
-                total_pages = rows.Count > 0 ? 1 : 0
+                page = result.Page,
+                per_page = result.PerPage,
+                total = result.Total,
+                total_pages = result.TotalPages
             }
         });
+    }
+
+    private static void TrimRowsToRequestedFields(
+        IReadOnlyList<IDictionary<string, object?>> rows,
+        ListQueryParameters parameters,
+        IReadOnlyList<ResolvedInclude> includes)
+    {
+        if (parameters.Fields is not { Count: > 0 })
+            return;
+
+        var allowedKeys = new HashSet<string>(parameters.Fields, StringComparer.OrdinalIgnoreCase);
+        foreach (var include in includes)
+        {
+            allowedKeys.Add(include.AccessorName);
+        }
+
+        foreach (var row in rows)
+        {
+            var keysToRemove = row.Keys
+                .Where(key => !allowedKeys.Contains(key))
+                .ToList();
+
+            foreach (var key in keysToRemove)
+            {
+                row.Remove(key);
+            }
+        }
     }
 
     private Db.Schema.TableDef ResolveTable(string table)

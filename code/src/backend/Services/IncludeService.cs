@@ -26,6 +26,15 @@ public sealed record ResolvedInclude
     public List<ResolvedInclude> Children { get; init; } = [];
 }
 
+public sealed record RelatedRowsResult
+{
+    public required IReadOnlyList<IDictionary<string, object?>> Rows { get; init; }
+    public required int Page { get; init; }
+    public required int PerPage { get; init; }
+    public required long Total { get; init; }
+    public required int TotalPages { get; init; }
+}
+
 /// <summary>
 /// Resolves include parameter names to relation metadata and loads related rows in batches.
 /// </summary>
@@ -77,32 +86,57 @@ public sealed class IncludeService
         }
     }
 
+    public static IReadOnlyList<string> GetRequiredLinkColumns(IReadOnlyList<ResolvedInclude> includes)
+    {
+        var requiredColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var include in includes)
+        {
+            var def = include.Relation.Definition;
+            if (def.Type == RelationType.OneToMany && !include.IsFromSide)
+            {
+                requiredColumns.Add(def.Column!);
+            }
+            else
+            {
+                requiredColumns.Add("id");
+            }
+        }
+
+        return requiredColumns.ToList();
+    }
+
     /// <summary>
     /// Load related rows for a single parent row via a relation accessor.
     /// Used by the sub-resource endpoint.
     /// </summary>
-    public async Task<(IReadOnlyList<IDictionary<string, object?>> Rows, string TargetTable)> LoadRelatedRowsAsync(
+    public async Task<RelatedRowsResult> LoadRelatedRowsAsync(
         string tableName,
         long parentId,
         string relationAccessor,
-        ListQueryParameters parameters)
+        IQueryCollection query)
     {
-        var model = _schemaCache.Current;
-        var resolver = new RelationResolver();
-        var resolved = resolver.Resolve(model);
-
-        var include = FindInclude(tableName, relationAccessor, resolved.Relations)
+        var include = ResolveInclude(tableName, relationAccessor)
             ?? throw new ApiNotFoundException(
                 $"Unknown relation accessor '{relationAccessor}' on table '{tableName}'.",
                 new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
                     ["table"] = tableName,
                     ["accessor"] = relationAccessor,
-                    ["availableAccessors"] = GetAvailableAccessors(tableName, resolved.Relations)
+                    ["availableAccessors"] = GetAvailableAccessors(tableName, GetResolvedRelations())
                 });
 
         var rel = include.Relation;
         var def = rel.Definition;
+        var targetTableName = GetTargetTable(include);
+        var targetTable = _schemaCache.GetTable(targetTableName)
+            ?? throw new ApiNotFoundException(
+                $"Table '{targetTableName}' does not exist.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["table"] = targetTableName
+                });
+        var parameters = QueryParameterParser.ParseRelated(query, targetTable);
 
         await using var scope = await _queryService.UseDataAsync();
 
@@ -111,8 +145,8 @@ public sealed class IncludeService
             if (include.IsFromSide)
             {
                 // From parent → children (e.g., customers/:id/customer_orders → orders)
-                var query = scope.Db.Query(def.To).Where(def.Column!, parentId);
-                return await ExecutePaginatedQuery(query, parameters, def.To);
+                var relatedQuery = scope.Db.Query(def.To).Where(def.Column!, parentId);
+                return await ExecutePaginatedQuery(relatedQuery, parameters);
             }
             else
             {
@@ -123,22 +157,18 @@ public sealed class IncludeService
                     .FirstOrDefaultAsync();
 
                 if (childRow is null)
-                    return ([], def.From);
+                    return EmptyRelatedRowsResult(parameters);
 
                 var dict = ToDictionary(childRow);
                 object? fkObj;
                 var fkValue = dict.TryGetValue(def.Column!, out fkObj) ? fkObj : null;
                 if (fkValue is null)
-                    return ([], def.From);
+                    return EmptyRelatedRowsResult(parameters);
 
-                object? parentRow = await scope.Db.Query(def.From)
-                    .Where("id", fkValue)
-                    .FirstOrDefaultAsync();
+                var parentQuery = scope.Db.Query(def.From)
+                    .Where("id", fkValue);
 
-                if (parentRow is null)
-                    return ([], def.From);
-
-                return ([ToDictionary(parentRow)], def.From);
+                return await ExecutePaginatedQuery(parentQuery, parameters);
             }
         }
         else // ManyToMany
@@ -161,12 +191,12 @@ public sealed class IncludeService
                 remoteTable = def.From;
             }
 
-            var query = scope.Db.Query(remoteTable)
+            var relatedQuery = scope.Db.Query(remoteTable)
                 .Join(junctionTable, $"{junctionTable}.{remoteJunctionCol}", $"{remoteTable}.id")
                 .Where($"{junctionTable}.{localJunctionCol}", parentId)
                 .Select($"{remoteTable}.*");
 
-            return await ExecutePaginatedQuery(query, parameters, remoteTable);
+            return await ExecutePaginatedQuery(relatedQuery, parameters);
         }
     }
 
@@ -413,6 +443,30 @@ public sealed class IncludeService
         return null;
     }
 
+    private ResolvedInclude? ResolveInclude(string tableName, string accessorName)
+    {
+        return FindInclude(tableName, accessorName, GetResolvedRelations());
+    }
+
+    private IReadOnlyList<ResolvedRelation> GetResolvedRelations()
+    {
+        var model = _schemaCache.Current;
+        var resolver = new RelationResolver();
+        return resolver.Resolve(model).Relations;
+    }
+
+    private static RelatedRowsResult EmptyRelatedRowsResult(ListQueryParameters parameters)
+    {
+        return new RelatedRowsResult
+        {
+            Rows = [],
+            Page = parameters.Page,
+            PerPage = parameters.PerPage,
+            Total = 0,
+            TotalPages = 0
+        };
+    }
+
     private static List<string> GetAvailableAccessors(
         string tableName,
         IReadOnlyList<ResolvedRelation> relations)
@@ -429,10 +483,9 @@ public sealed class IncludeService
         return accessors;
     }
 
-    private static async Task<(IReadOnlyList<IDictionary<string, object?>> Rows, string TargetTable)> ExecutePaginatedQuery(
+    private static async Task<RelatedRowsResult> ExecutePaginatedQuery(
         SqlKata.Query query,
-        ListQueryParameters parameters,
-        string targetTable)
+        ListQueryParameters parameters)
     {
         // Apply filters
         CrudService.ApplyFiltersStatic(query, parameters.Filters);
@@ -453,7 +506,18 @@ public sealed class IncludeService
         query = query.ForPage(parameters.Page, parameters.PerPage);
 
         var rows = (await query.GetAsync()).Select(ToDictionary).ToList();
-        return (rows, targetTable);
+        var totalPages = parameters.PerPage > 0
+            ? (int)Math.Ceiling((double)total / parameters.PerPage)
+            : 0;
+
+        return new RelatedRowsResult
+        {
+            Rows = rows,
+            Page = parameters.Page,
+            PerPage = parameters.PerPage,
+            Total = total,
+            TotalPages = totalPages
+        };
     }
 
     private static IDictionary<string, object?> ToDictionary(object row)

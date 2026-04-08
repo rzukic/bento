@@ -33,7 +33,10 @@ public sealed class CrudService
         _validator = validator;
     }
 
-    public async Task<ListResult> ListAsync(TableDef table, ListQueryParameters parameters)
+    public async Task<ListResult> ListAsync(
+        TableDef table,
+        ListQueryParameters parameters,
+        IReadOnlyCollection<string>? additionalSelectColumns = null)
     {
         await using var scope = await _queryService.UseDataAsync();
 
@@ -57,7 +60,8 @@ public sealed class CrudService
         // Apply field selection
         if (parameters.Fields is { Count: > 0 })
         {
-            baseQuery = baseQuery.Select(parameters.Fields.ToArray());
+            var selectedColumns = BuildSelectedColumns(parameters.Fields, additionalSelectColumns);
+            baseQuery = baseQuery.Select(selectedColumns.ToArray());
         }
 
         // Apply pagination
@@ -76,6 +80,31 @@ public sealed class CrudService
             Total = total,
             TotalPages = totalPages
         };
+    }
+
+    private static IReadOnlyList<string> BuildSelectedColumns(
+        IReadOnlyList<string> requestedFields,
+        IReadOnlyCollection<string>? additionalSelectColumns)
+    {
+        if (additionalSelectColumns is null || additionalSelectColumns.Count == 0)
+            return requestedFields;
+
+        var selected = new List<string>(requestedFields.Count + additionalSelectColumns.Count);
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var field in requestedFields)
+        {
+            if (seen.Add(field))
+                selected.Add(field);
+        }
+
+        foreach (var field in additionalSelectColumns)
+        {
+            if (seen.Add(field))
+                selected.Add(field);
+        }
+
+        return selected;
     }
 
     public async Task<IDictionary<string, object?>> GetByIdAsync(TableDef table, long id)
@@ -274,6 +303,20 @@ public sealed class CrudService
     private async Task<long> InsertAndGetIdAsync(QueryScope scope, string tableName, Dictionary<string, object?> data)
     {
         var columns = data.Keys.ToList();
+
+        if (columns.Count == 0)
+        {
+            if (_dbConfig.Provider == DatabaseProvider.Postgres)
+            {
+                var sql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES RETURNING \"id\";";
+                return await scope.Db.Connection.ExecuteScalarAsync<long>(sql);
+            }
+
+            var defaultValuesSql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES;";
+            await scope.Db.Connection.ExecuteAsync(defaultValuesSql);
+            return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
+        }
+
         var parameters = new DynamicParameters();
         for (int i = 0; i < columns.Count; i++)
         {
