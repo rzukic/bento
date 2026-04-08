@@ -40,6 +40,7 @@ public sealed class CrudService
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
         ApplyFiltersStatic(baseQuery, parameters.Filters);
+        ApplySearchStatic(baseQuery, parameters.Search, table);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
@@ -291,6 +292,29 @@ public sealed class CrudService
         var insertSql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
         await scope.Db.Connection.ExecuteAsync(insertSql, parameters);
         return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
+    }
+
+    internal static void ApplySearchStatic(SqlKata.Query query, string? search, TableDef table)
+    {
+        if (string.IsNullOrWhiteSpace(search)) return;
+
+        var textColumns = table.Columns
+            .Where(c => c.Type == ColumnType.Text)
+            .Select(c => c.Name)
+            .ToList();
+
+        if (textColumns.Count == 0) return;
+
+        var pattern = $"%{search}%";
+        query.Where(q =>
+        {
+            q = q.WhereLike(textColumns[0], pattern);
+            for (int i = 1; i < textColumns.Count; i++)
+            {
+                q = q.OrWhereLike(textColumns[i], pattern);
+            }
+            return q;
+        });
     }
 
     internal static void ApplyFiltersStatic(SqlKata.Query query, IReadOnlyList<FilterClause> filters)
