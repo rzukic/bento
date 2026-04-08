@@ -12,6 +12,7 @@ public sealed record ListQueryParameters
     public IReadOnlyList<SortClause> Sorts { get; init; } = [];
     public IReadOnlyList<string>? Fields { get; init; }
     public IReadOnlyList<string> Includes { get; init; } = [];
+    public string? Search { get; init; }
 }
 
 public sealed record FilterClause(string Column, string Operator, string? Value);
@@ -64,6 +65,7 @@ public static class QueryParameterParser
         var sorts = ParseSorts(query, table);
         var fields = ParseFields(query, table);
         var includes = ParseIncludes(query);
+        var search = ParseSearch(query);
 
         return new ListQueryParameters
         {
@@ -72,8 +74,16 @@ public static class QueryParameterParser
             Filters = filters,
             Sorts = sorts,
             Fields = fields,
-            Includes = includes
+            Includes = includes,
+            Search = search
         };
+    }
+
+    private static string? ParseSearch(IQueryCollection query)
+    {
+        if (!query.TryGetValue("search", out var value)) return null;
+        var s = value.ToString();
+        return string.IsNullOrWhiteSpace(s) ? null : s;
     }
 
     private static List<FilterClause> ParseFilters(IQueryCollection query, TableDef table)
