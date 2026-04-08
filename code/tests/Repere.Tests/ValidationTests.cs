@@ -6,6 +6,22 @@ namespace Repere.Tests;
 
 public sealed class ValidationTests
 {
+    private const string DefaultedPutSchema = """
+        {
+            "tables": [
+                {
+                    "name": "documents",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "title", "type": "text", "nullable": false },
+                        { "name": "status", "type": "text", "nullable": false, "default": "draft" }
+                    ]
+                }
+            ],
+            "relations": []
+        }
+        """;
+
     private const string TestSchema = """
         {
             "tables": [
@@ -81,6 +97,24 @@ public sealed class ValidationTests
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Contains("name", json.GetProperty("error").GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Put_MissingDefaultedNonNullableColumn_Returns400()
+    {
+        await using var host = await CreateHostAsync(DefaultedPutSchema);
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/documents", new { title = "Doc 1" });
+
+        using var response = await host.Client.PutAsJsonAsync("/api/v1/data/documents/1", new
+        {
+            title = "Updated Doc"
+        });
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Contains("status", json.GetProperty("error").GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -469,13 +503,18 @@ public sealed class ValidationTests
 
     private static async Task<ApiIntegrationTestHost> CreateHostAsync()
     {
+        return await CreateHostAsync(TestSchema);
+    }
+
+    private static async Task<ApiIntegrationTestHost> CreateHostAsync(string schema)
+    {
         var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
             ["Backend:AuthMode"] = "open",
             ["Schema:AutoMigrateOnStartup"] = "false"
         });
 
-        await host.ApplySchemaAsync(TestSchema);
+        await host.ApplySchemaAsync(schema);
         return host;
     }
 }

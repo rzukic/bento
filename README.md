@@ -112,7 +112,7 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [1.2](project-management/working-steps/1.2-schema-engine.md) | Schema engine (Model JSON & migrations) | Done |
 | [1.3](project-management/working-steps/1.3-backend-api-server.md) | Backend API server (routing, middleware, errors) | Done |
 | [1.4](project-management/working-steps/1.4-basic-auth.md) | Basic auth (JWT, login, middleware) | Done |
-| [1.5](project-management/working-steps/1.5-auto-crud-api.md) | Auto CRUD API (endpoints from Model JSON) | **In Progress** |
+| [1.5](project-management/working-steps/1.5-auto-crud-api.md) | Auto CRUD API (endpoints from Model JSON) | Done |
 | [1.6](project-management/working-steps/1.6-docker-packaging.md) | Docker packaging & MVP 1 validation | Planned |
 
 **MVP 1 "Data API"**: Define a schema as JSON, start the container, get a full REST API with auth. Reached after Step 1.6.

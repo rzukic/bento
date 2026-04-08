@@ -7,6 +7,18 @@ namespace Repere.Tests;
 
 public sealed class CrudOperationTests
 {
+    private const string IdOnlySchema = """
+        {
+            "tables": [
+                {
+                    "name": "tokens",
+                    "columns": []
+                }
+            ],
+            "relations": []
+        }
+        """;
+
     private const string TestSchema = """
         {
             "tables": [
@@ -77,6 +89,19 @@ public sealed class CrudOperationTests
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(2, json.GetProperty("data").GetProperty("id").GetInt64());
+    }
+
+    [Fact]
+    public async Task Post_Create_SucceedsForIdOnlyTable()
+    {
+        await using var host = await CreateHostAsync(IdOnlySchema);
+
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/data/tokens", new { });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, json.GetProperty("data").GetProperty("id").GetInt64());
     }
 
     [Fact]
@@ -340,13 +365,18 @@ public sealed class CrudOperationTests
 
     private static async Task<ApiIntegrationTestHost> CreateHostWithSchemaAsync()
     {
+        return await CreateHostAsync(TestSchema);
+    }
+
+    private static async Task<ApiIntegrationTestHost> CreateHostAsync(string schema)
+    {
         var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
             ["Backend:AuthMode"] = "open",
             ["Schema:AutoMigrateOnStartup"] = "false"
         });
 
-        await host.ApplySchemaAsync(TestSchema);
+        await host.ApplySchemaAsync(schema);
         return host;
     }
 }
