@@ -19,7 +19,6 @@ RUN addgroup --system repere \
 
 ENV DATA_DIR=/data
 ENV BACKEND_PORT=5000
-ENV ASPNETCORE_URLS=http://0.0.0.0:5000
 
 COPY --from=build /app/publish/ ./
 
@@ -27,6 +26,7 @@ RUN mkdir -p /data \
     && chown -R repere:repere /app /data
 
 EXPOSE 5000
+VOLUME ["/data"]
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=5 \
   CMD curl --fail http://127.0.0.1:${BACKEND_PORT}/api/v1/admin/health || exit 1

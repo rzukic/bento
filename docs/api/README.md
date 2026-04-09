@@ -100,7 +100,8 @@ Cross-origin and request-size behavior:
 | `POST` | `/api/v1/admin/migrations/rollback` | Roll back the most recent migration |
 
 Current Step 1.5 admin contract:
-- all `/api/v1/admin/*` endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
+- `GET /api/v1/admin/health` is public in both `standard` and `open` mode so container and orchestrator readiness probes can use the canonical versioned health route without a bootstrap token
+- the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
 - `GET /api/v1/admin/schema` returns the raw Model JSON document with `application/json`
 - `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
 - destructive schema changes must be retried with `?confirm_destructive=true`; otherwise the endpoint returns `409 CONFLICT` with `CONFIRMATION_REQUIRED`
