@@ -38,6 +38,15 @@ public static class BackendHost
     {
         _ = environment;
 
+        if (configuration is ConfigurationManager configurationManager)
+        {
+            var persistentOverrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configurationManager);
+            if (persistentOverrides.Count > 0)
+            {
+                configurationManager.AddInMemoryCollection(persistentOverrides);
+            }
+        }
+
         services.AddControllers()
             .AddApplicationPart(typeof(Program).Assembly)
             .ConfigureApiBehaviorOptions(options =>

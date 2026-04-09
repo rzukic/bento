@@ -1,0 +1,96 @@
+name: Deployment Validation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/deployment-validation.yml'
+      - 'code/docker-compose.yml'
+      - 'code/docker-compose.postgres.yml'
+      - 'code/.env.example'
+      - 'code/init-db/**'
+      - 'code/scripts/**'
+      - 'code/src/backend/**'
+  pull_request:
+    paths:
+      - '.github/workflows/deployment-validation.yml'
+      - 'code/docker-compose.yml'
+      - 'code/docker-compose.postgres.yml'
+      - 'code/.env.example'
+      - 'code/init-db/**'
+      - 'code/scripts/**'
+      - 'code/src/backend/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deployment-sqlite:
+    name: Packaged SQLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
+        run: |
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Run packaged SQLite validation
+        run: |
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp1-demo.sh sqlite \
+            --host-backend-port 5001 \
+            --project-name gha-demo-sqlite \
+            --log-dir .artifacts/packaged-mvp1-sqlite
+
+      - name: Upload SQLite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-sqlite
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .artifacts/**
+            /tmp/repere-smoke-*
+            /tmp/repere-demo-*
+
+  deployment-postgres:
+    name: Packaged Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
+        run: |
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Run packaged Postgres validation
+        run: |
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp1-demo.sh postgres \
+            --host-backend-port 5002 \
+            --host-postgres-port 5433 \
+            --project-name gha-demo-postgres \
+            --log-dir .artifacts/packaged-mvp1-postgres
+
+      - name: Upload Postgres diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-postgres
+          if-no-files-found: ignore
+          retention-days: 7
+          path: |
+            .artifacts/**
+            /tmp/repere-smoke-*
+            /tmp/repere-demo-*

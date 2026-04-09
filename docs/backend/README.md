@@ -120,7 +120,7 @@ All business logic lives here. Injected as interfaces for testability.
 - route registration
 
 The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
-Its JSON contract now matches the deployment spec: nested `database` pool states, human-readable `uptime`, and backend `version`.
+Its JSON contract now matches the deployment spec: nested `database` pool states, a `runtime` block with non-secret deployment settings, human-readable `uptime`, and backend `version`.
 The reserved Step 1.3 route areas are `auth`, `schema`, `admin`, `data`, and `query`; later steps fill those prefixes with real endpoints.
 
 Local launch-profile contract:
@@ -147,6 +147,13 @@ Runtime configuration contract:
 - `AUTH_REFRESH_COOKIE_SECURE` remains an explicit override, but when it is unset the refresh cookie now defaults to `Secure=false` in development-style hosts and `Secure=true` in production
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
+- packaged deployments now persist generated runtime config at `DATA_DIR/config.json`; when `JWT_SECRET` is not supplied, the backend generates a signing secret there on first launch and reuses it on later starts
+- the current manual packaged validation flow for SQLite and Postgres is documented in [packaged-mvp1-validation.md](packaged-mvp1-validation.md)
+- the reusable packaged startup/readiness harness lives at `code/scripts/compose-smoke.sh` and is intended to be shared by local verification and future GitHub Actions deployment jobs
+- the executable packaged MVP 1 product-flow suite lives at `code/scripts/packaged-mvp1-demo.sh` and validates the Phase 1 golden path against SQLite or Postgres deployments
+- the in-process Postgres-backed `.NET` integration slice is opt-in and uses `ApiIntegrationTestHost.StartPostgresAsync`; enable it locally by setting `REPERE_TEST_POSTGRES_ADMIN_CONNECTION`
+- GitHub Actions runs that provider-aware slice separately from the fast SQLite/default test job via `dotnet test --filter "Category=Postgres"`
+- the current Postgres-backed `.NET` scope is intentional: it covers a shared backend/integration slice (health, auth bootstrap/login, schema apply, CRUD, relation reads) without trying to mirror every SQLite-oriented test one-for-one yet
 
 ### Query builder
 

@@ -3,9 +3,13 @@ name: Tests
 on:
   push:
     branches: [main]
-    paths: ['code/**']
+    paths:
+      - 'code/**'
+      - '.github/workflows/test.yml'
   pull_request:
-    paths: ['code/**']
+    paths:
+      - 'code/**'
+      - '.github/workflows/test.yml'
 
 jobs:
   test:
@@ -30,4 +34,46 @@ jobs:
         run: dotnet build tests/Repere.Tests/Repere.Tests.csproj --no-restore
 
       - name: Test
-        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal
+        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal --filter "Category!=Postgres"
+
+  test-postgres:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: code
+
+    env:
+      REPERE_TEST_POSTGRES_ADMIN_CONNECTION: Host=127.0.0.1;Port=5432;Database=postgres;Username=postgres;Password=postgres;Pooling=false
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore tests/Repere.Tests/Repere.Tests.csproj
+
+      - name: Build
+        run: dotnet build tests/Repere.Tests/Repere.Tests.csproj --no-restore
+
+      - name: Run Postgres-backed test slice
+        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal --filter "Category=Postgres"

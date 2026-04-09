@@ -13,7 +13,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO repere_system;
 
 -- Restricted role: user data only, no access to _system
 CREATE ROLE repere_data WITH LOGIN PASSWORD 'repere_data_dev';
-GRANT USAGE ON SCHEMA public TO repere_data;
+GRANT USAGE, CREATE ON SCHEMA public TO repere_data;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO repere_data;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO repere_data;
