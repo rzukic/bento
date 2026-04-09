@@ -31,6 +31,9 @@ public sealed class ApiIntegrationTests
         Assert.Equal("healthy", payload.Status);
         Assert.Equal("connected", payload.Database.SystemPool);
         Assert.Equal("connected", payload.Database.DataPool);
+        Assert.Equal("sqlite", payload.Runtime.DatabaseProvider);
+        Assert.Equal("open", payload.Runtime.AuthMode);
+        Assert.True(payload.Runtime.JwtConfigured);
         Assert.False(string.IsNullOrWhiteSpace(payload.Uptime));
         Assert.False(string.IsNullOrWhiteSpace(payload.Version));
         Assert.Null(payload.Error);
@@ -42,6 +45,10 @@ public sealed class ApiIntegrationTests
         Assert.True(root.TryGetProperty("database", out var database));
         Assert.Equal("connected", database.GetProperty("system_pool").GetString());
         Assert.Equal("connected", database.GetProperty("data_pool").GetString());
+        Assert.True(root.TryGetProperty("runtime", out var runtime));
+        Assert.Equal("sqlite", runtime.GetProperty("database_provider").GetString());
+        Assert.Equal("open", runtime.GetProperty("auth_mode").GetString());
+        Assert.True(runtime.GetProperty("jwt_configured").GetBoolean());
         Assert.True(root.TryGetProperty("uptime", out var uptime));
         Assert.False(string.IsNullOrWhiteSpace(uptime.GetString()));
         Assert.True(root.TryGetProperty("version", out var version));
@@ -188,6 +195,8 @@ public sealed class ApiIntegrationTests
         var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
         payload = Assert.IsType<AdminHealthResponse>(payload);
         Assert.Equal("healthy", payload.Status);
+        Assert.Equal("standard", payload.Runtime.AuthMode);
+        Assert.True(payload.Runtime.JwtConfigured);
     }
 
     [Fact]

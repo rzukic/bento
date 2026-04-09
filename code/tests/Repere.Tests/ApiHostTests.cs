@@ -75,7 +75,9 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new SqliteTestPool(),
             new SqliteTestPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0")),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
             null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
@@ -87,6 +89,10 @@ public sealed class ApiHostTests
         Assert.Equal("healthy", response.Status);
         Assert.Equal("connected", response.Database.SystemPool);
         Assert.Equal("connected", response.Database.DataPool);
+        Assert.Equal("sqlite", response.Runtime.DatabaseProvider);
+        Assert.Equal("standard", response.Runtime.AuthMode);
+        Assert.Equal("./data", response.Runtime.DataDir);
+        Assert.True(response.Runtime.JwtConfigured);
         Assert.Equal("5m", response.Uptime);
         Assert.Equal("1.2.0", response.Version);
         Assert.Null(response.Error);
@@ -98,7 +104,9 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new FailingDbPool(),
             new FailingDbPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0")),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
             null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
@@ -110,6 +118,10 @@ public sealed class ApiHostTests
         Assert.Equal("unhealthy", response.Status);
         Assert.Equal("unavailable", response.Database.SystemPool);
         Assert.Equal("unavailable", response.Database.DataPool);
+        Assert.Equal("sqlite", response.Runtime.DatabaseProvider);
+        Assert.Equal("standard", response.Runtime.AuthMode);
+        Assert.Equal("./data", response.Runtime.DataDir);
+        Assert.True(response.Runtime.JwtConfigured);
         Assert.Equal("1m", response.Uptime);
         Assert.Equal("1.2.0", response.Version);
         Assert.Contains("boom", response.Error, StringComparison.OrdinalIgnoreCase);
@@ -154,5 +166,30 @@ public sealed class ApiHostTests
         {
             throw new InvalidOperationException("boom");
         }
+    }
+
+    private static Repere.Api.Configuration.BackendRuntimeOptions CreateRuntimeOptions()
+    {
+        return new Repere.Api.Configuration.BackendRuntimeOptions
+        {
+            AuthMode = Repere.Api.Configuration.BackendAuthMode.Standard,
+            LogLevel = "Information",
+            DataDir = "./data",
+            PersistentConfigPath = "./data/config.json",
+            Jwt =
+            {
+                Secret = "super-secret"
+            }
+        };
+    }
+
+    private static DatabaseConfig CreateDatabaseConfig()
+    {
+        return new DatabaseConfig
+        {
+            Provider = DatabaseProvider.Sqlite,
+            SystemConnection = "./data",
+            DataConnection = "./data"
+        };
     }
 }

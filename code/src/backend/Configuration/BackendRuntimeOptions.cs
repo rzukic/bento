@@ -22,6 +22,8 @@ public sealed class BackendRuntimeOptions
 
     public string? DatabaseUrl { get; set; }
 
+    public string PersistentConfigPath { get; set; } = "./data/config.json";
+
     public bool IsOpenAuthMode => AuthMode == BackendAuthMode.Open;
 
     public bool IsStandardAuthMode => AuthMode == BackendAuthMode.Standard;

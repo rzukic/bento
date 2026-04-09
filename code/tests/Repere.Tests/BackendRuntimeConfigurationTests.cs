@@ -237,6 +237,60 @@ public sealed class BackendRuntimeConfigurationTests
         Assert.True(productionOptions.AuthCookie.EffectiveRequireSecure);
     }
 
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_GeneratesJwtSecret_File_WhenMissing()
+    {
+        using var tempDir = new TemporaryDirectory();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        var overrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration);
+
+        var configPath = Assert.IsType<string>(overrides["Backend:PersistentConfigPath"]);
+        var secret = Assert.IsType<string>(overrides["Backend:Jwt:Secret"]);
+
+        Assert.Equal(Path.Combine(tempDir.Path, "config.json"), configPath);
+        Assert.False(string.IsNullOrWhiteSpace(secret));
+        Assert.True(File.Exists(configPath));
+
+        var persisted = File.ReadAllText(configPath);
+        Assert.Contains("\"Secret\"", persisted, StringComparison.Ordinal);
+        Assert.Contains(secret, persisted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_ReusesPersistedJwtSecret()
+    {
+        using var tempDir = new TemporaryDirectory();
+        var configPath = Path.Combine(tempDir.Path, "config.json");
+        File.WriteAllText(configPath, """
+            {
+              "Backend": {
+                "Jwt": {
+                  "Secret": "persisted-secret"
+                }
+              }
+            }
+            """);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        var overrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration);
+
+        Assert.Equal("persisted-secret", overrides["Backend:Jwt:Secret"]);
+        Assert.Equal(configPath, overrides["Backend:PersistentConfigPath"]);
+    }
+
     private sealed class FakeHostEnvironment : IHostEnvironment
     {
         public FakeHostEnvironment(string environmentName)
@@ -251,5 +305,24 @@ public sealed class BackendRuntimeConfigurationTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(AppContext.BaseDirectory);
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "repere-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
     }
 }

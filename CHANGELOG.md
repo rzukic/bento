@@ -14,6 +14,29 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-09 — Add Postgres-backed .NET test coverage
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Added a true Postgres-backed `.NET` test lane on top of the packaged deployment work so backend behavior can now be exercised against a real PostgreSQL database from inside the normal test project, not only through black-box compose checks. The new slice stays intentionally narrow and provider-aware, which keeps the fast SQLite job quick while adding trustworthy Postgres regression coverage in CI.
+
+**Highlights:**
+- Added isolated Postgres test-database infrastructure and a provider-aware `ApiIntegrationTestHost.StartPostgresAsync` path for backend integration tests
+- Added a dedicated Postgres-tagged integration slice covering health, auth bootstrap/login, schema apply, CRUD, relation reads, and migration history
+- Extended `.github/workflows/test.yml` with a separate `test-postgres` service-container job while keeping packaged deployment validation in its own workflow
+
+### 2026-04-09 — Complete Step 1.6 Docker packaging and deployment validation
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Completed the Step 1.6 packaged MVP 1 story so the backend now ships with production compose entrypoints for SQLite and Postgres, reusable local smoke/demo scripts, and a dedicated GitHub Actions deployment workflow that validates both packaged variants. The live packaged Postgres run also surfaced two real deployment bugs, which were fixed before the step was closed.
+
+**Highlights:**
+- Added packaged deployment validation scripts for startup/readiness (`compose-smoke.sh`) and the full MVP 1 golden path (`packaged-mvp1-demo.sh`)
+- Verified the packaged SQLite and Postgres flows locally end to end, then wired both into a dedicated `deployment-validation.yml` workflow with separate jobs and artifact capture
+- Fixed packaged Postgres bootstrap issues by granting `CREATE` on `public` to `repere_data` and generating identity-backed integer primary keys for Postgres tables
 ### 2026-04-08 — Complete Step 1.5 auto CRUD API and docs sync
 
 > **Phase**: Phase 1 — Foundation

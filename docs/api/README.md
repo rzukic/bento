@@ -117,6 +117,14 @@ Current response shape:
     "system_pool": "connected",
     "data_pool": "connected"
   },
+  "runtime": {
+    "database_provider": "sqlite",
+    "auth_mode": "standard",
+    "log_level": "Information",
+    "data_dir": "/data",
+    "config_path": "/data/config.json",
+    "jwt_configured": true
+  },
   "uptime": "3d 14h 22m",
   "version": "1.0.0"
 }
@@ -124,6 +132,9 @@ Current response shape:
 
 Contract notes:
 - `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
+- `runtime.database_provider` reports the effective backend database provider (`sqlite` or `postgres`)
+- `runtime.auth_mode`, `runtime.log_level`, `runtime.data_dir`, and `runtime.config_path` expose non-secret packaged runtime state for operators
+- `runtime.jwt_configured` reports whether a signing secret is available, whether it came from env or from the persisted runtime config
 - `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
 - `version` comes from the backend assembly version metadata
 
