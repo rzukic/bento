@@ -174,7 +174,7 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RequiresBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_AllowsAnonymousReadinessProbe()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -183,16 +183,15 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.GetAsync("/api/v1/admin/health");
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("Bearer token is required", payload.Error.Message, StringComparison.Ordinal);
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_ReturnsForbidden_ForNonAdminRole()
+    public async Task Get_AdminHealth_InStandardMode_RemainsReadable_ForNonAdminRole()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -225,12 +224,11 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("FORBIDDEN", payload.Error.Code);
-        Assert.Contains("required", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
     }
 
     [Fact]
@@ -264,7 +262,7 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RejectsMalformedBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_IgnoresMalformedBearerToken_ForReadinessProbe()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -276,16 +274,15 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("invalid", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RejectsExpiredBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_IgnoresExpiredBearerToken_ForReadinessProbe()
     {
         const string jwtSecret = "super-secret";
 
@@ -309,12 +306,11 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("expired", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
+        payload = Assert.IsType<AdminHealthResponse>(payload);
+        Assert.Equal("healthy", payload.Status);
     }
 
     [Fact]

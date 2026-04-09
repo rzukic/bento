@@ -9,7 +9,6 @@ namespace Repere.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Admin)]
-[RequireRole("admin")]
 public sealed class AdminController : ControllerBase
 {
     private readonly AdminHealthService _adminHealthService;
@@ -46,6 +45,7 @@ public sealed class AdminController : ControllerBase
     /// Return the current Model JSON schema.
     /// </summary>
     [HttpGet("schema")]
+    [RequireRole("admin")]
     public async Task<IActionResult> GetSchema()
     {
         var model = await _modelJsonStore.GetCurrentAsync();
@@ -60,6 +60,7 @@ public sealed class AdminController : ControllerBase
     /// Pass ?confirm_destructive=true to confirm destructive changes.
     /// </summary>
     [HttpPut("schema")]
+    [RequireRole("admin")]
     public async Task<IActionResult> PutSchema(
         [FromBody] JsonElement body,
         [FromQuery(Name = "confirm_destructive")] bool confirmDestructive = false)
@@ -148,6 +149,7 @@ public sealed class AdminController : ControllerBase
     /// Return the migration history in reverse chronological order.
     /// </summary>
     [HttpGet("migrations")]
+    [RequireRole("admin")]
     public async Task<IActionResult> GetMigrations()
     {
         var history = await _schemaService.GetHistoryAsync();
@@ -168,6 +170,7 @@ public sealed class AdminController : ControllerBase
     /// Rollback the last migration.
     /// </summary>
     [HttpPost("migrations/rollback")]
+    [RequireRole("admin")]
     public async Task<IActionResult> RollbackMigration()
     {
         var result = await _schemaService.RollbackLastAsync();
