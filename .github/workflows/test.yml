@@ -76,4 +76,4 @@ jobs:
         run: dotnet build tests/Repere.Tests/Repere.Tests.csproj --no-restore
 
       - name: Run Postgres-backed test slice
-        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal"
+        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal
