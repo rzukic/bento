@@ -4,12 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - 'code/**'
-      - '.github/workflows/test.yml'
+      - "code/**"
+      - ".github/workflows/test.yml"
   pull_request:
     paths:
-      - 'code/**'
-      - '.github/workflows/test.yml'
+      - "code/**"
+      - ".github/workflows/test.yml"
 
 jobs:
   test:
@@ -25,7 +25,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Restore dependencies
         run: dotnet restore tests/Repere.Tests/Repere.Tests.csproj
@@ -67,7 +67,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '8.0.x'
+          dotnet-version: "8.0.x"
 
       - name: Restore dependencies
         run: dotnet restore tests/Repere.Tests/Repere.Tests.csproj
@@ -76,4 +76,4 @@ jobs:
         run: dotnet build tests/Repere.Tests/Repere.Tests.csproj --no-restore
 
       - name: Run Postgres-backed test slice
-        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal --filter "Category=Postgres"
+        run: dotnet test tests/Repere.Tests/Repere.Tests.csproj --no-build --verbosity normal"
