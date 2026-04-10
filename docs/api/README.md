@@ -1,7 +1,7 @@
 # API Reference
 
 > REST API served by the ASP.NET Core backend at `/api/v1/`.
-> All requests go through Caddy — clients always use relative URLs.
+> Phase 1 packaged deployments expose the backend directly on the configured host port; a future proxy/frontend layer may sit in front of the same route contract later.
 
 ---
 
@@ -94,6 +94,7 @@ Cross-origin and request-size behavior:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
+| `GET` | `/api/v1/admin/health/details` | Detailed backend health and runtime state for admin callers |
 | `GET` | `/api/v1/admin/schema` | Return the current Model JSON |
 | `PUT` | `/api/v1/admin/schema` | Apply a new Model JSON and run the generated migration |
 | `GET` | `/api/v1/admin/migrations` | List migration history |
@@ -101,6 +102,7 @@ Cross-origin and request-size behavior:
 
 Current Step 1.5 admin contract:
 - `GET /api/v1/admin/health` is public in both `standard` and `open` mode so container and orchestrator readiness probes can use the canonical versioned health route without a bootstrap token
+- `GET /api/v1/admin/health/details` requires an admin caller in `standard` mode and uses the open-mode admin bypass in `open` mode
 - the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
 - `GET /api/v1/admin/schema` returns the raw Model JSON document with `application/json`
 - `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
@@ -108,7 +110,25 @@ Current Step 1.5 admin contract:
 - `GET /api/v1/admin/migrations` returns migration history in reverse chronological order
 - `POST /api/v1/admin/migrations/rollback` rolls back the most recent migration and reloads the schema cache; if no migration exists it returns `400` with `NO_MIGRATIONS`
 
-Current response shape:
+Public probe shape (`GET /api/v1/admin/health`):
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "system_pool": "connected",
+    "data_pool": "connected"
+  },
+  "version": "1.0.0"
+}
+```
+
+Contract notes:
+- `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
+- `version` comes from the backend assembly version metadata
+- anonymous unhealthy responses keep the same minimal structure and replace detailed exception text with `error: "unhealthy"`
+
+Detailed admin shape (`GET /api/v1/admin/health/details`):
 
 ```json
 {
@@ -130,18 +150,14 @@ Current response shape:
 }
 ```
 
-Contract notes:
-- `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
 - `runtime.database_provider` reports the effective backend database provider (`sqlite` or `postgres`)
-- `runtime.auth_mode`, `runtime.log_level`, `runtime.data_dir`, and `runtime.config_path` expose non-secret packaged runtime state for operators
+- `runtime.auth_mode`, `runtime.log_level`, `runtime.data_dir`, and `runtime.config_path` expose packaged runtime state for operators
 - `runtime.jwt_configured` reports whether a signing secret is available, whether it came from env or from the persisted runtime config
 - `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
-- `version` comes from the backend assembly version metadata
-
-If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and the same structural fields plus an `error` message.
+- admin unhealthy responses keep the detailed structure and include the underlying `error` message for diagnosis
 
 The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
-This is the canonical backend health endpoint for deployment checks and container health probes.
+`GET /api/v1/admin/health` is the canonical backend health endpoint for deployment checks and container health probes.
 
 ---
 

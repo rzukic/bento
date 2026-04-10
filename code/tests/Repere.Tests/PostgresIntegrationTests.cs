@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
+using Npgsql;
 using Repere.Api.Models;
 
 namespace Repere.Tests;
@@ -43,7 +44,7 @@ public sealed class PostgresIntegrationTests
         """;
 
     [PostgresFact]
-    public async Task AdminHealth_ReportsPostgresRuntimeState()
+    public async Task AdminHealth_PublicProbe_RemainsMinimalUnderPostgres()
     {
         await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
         {
@@ -55,14 +56,14 @@ public sealed class PostgresIntegrationTests
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
-        payload = Assert.IsType<AdminHealthResponse>(payload);
+        var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
 
-        Assert.Equal("healthy", payload.Status);
-        Assert.Equal("connected", payload.Database.SystemPool);
-        Assert.Equal("connected", payload.Database.DataPool);
-        Assert.Equal("postgres", payload.Runtime.DatabaseProvider);
-        Assert.True(payload.Runtime.JwtConfigured);
+        Assert.Equal("healthy", payload.GetProperty("status").GetString());
+        Assert.Equal("connected", payload.GetProperty("database").GetProperty("system_pool").GetString());
+        Assert.Equal("connected", payload.GetProperty("database").GetProperty("data_pool").GetString());
+        Assert.True(payload.TryGetProperty("version", out _));
+        Assert.False(payload.TryGetProperty("runtime", out _));
+        Assert.False(payload.TryGetProperty("uptime", out _));
     }
 
     [PostgresFact]
@@ -139,6 +140,33 @@ public sealed class PostgresIntegrationTests
 
         var migrations = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/admin/migrations");
         Assert.True(migrations.GetProperty("data").GetArrayLength() >= 1);
+    }
+
+    [PostgresFact]
+    public async Task PostgresDataRole_CannotCreateTables_ButSchemaApplyStillSucceeds()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        var createTableException = await Assert.ThrowsAsync<PostgresException>(() =>
+            host.ExecuteDataSqlAsync("""CREATE TABLE "should_not_exist" ("id" BIGINT PRIMARY KEY);"""));
+        Assert.Equal(PostgresErrorCodes.InsufficientPrivilege, createTableException.SqlState);
+
+        using var schemaResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(DemoSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, schemaResponse.StatusCode);
+
+        var customerId = await CreateAsync(host, "customers", new
+        {
+            name = "Boundary Test",
+            email = "boundary@example.com"
+        });
+
+        Assert.True(customerId > 0);
     }
 
     private static async Task<long> CreateAsync(ApiIntegrationTestHost host, string table, object body)

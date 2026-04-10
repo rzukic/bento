@@ -171,7 +171,7 @@ public class MigrationRunner
 
     private async Task ExecuteDataStatementsAsync(IReadOnlyList<string> statements)
     {
-        using var conn = await OpenDataConnectionAsync();
+        using var conn = await OpenMigrationConnectionAsync();
         using var tx = conn.BeginTransaction();
 
         try
@@ -238,6 +238,16 @@ public class MigrationRunner
     private async Task<IDbConnection> OpenDataConnectionAsync()
     {
         return await _dataPool.GetConnectionAsync();
+    }
+
+    private async Task<IDbConnection> OpenMigrationConnectionAsync()
+    {
+        if (_systemPool.Provider != DatabaseProvider.Postgres)
+            return await OpenDataConnectionAsync();
+
+        var conn = await OpenSystemConnectionAsync();
+        await conn.ExecuteAsync("SET search_path TO public, _system;");
+        return conn;
     }
 
     private async Task<IDbConnection> OpenSystemConnectionAsync()

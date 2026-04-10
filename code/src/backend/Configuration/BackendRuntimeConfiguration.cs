@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Data.Common;
 using Repere.Api.Db;
 
 namespace Repere.Api.Configuration;
@@ -26,6 +27,7 @@ public static class BackendRuntimeConfiguration
         SetIfPresent("DATABASE_PROVIDER", "Database:Provider");
         SetIfPresent("DATABASE_SYSTEM_CONNECTION", "Database:SystemConnection");
         SetIfPresent("DATABASE_DATA_CONNECTION", "Database:DataConnection");
+        SetIfPresent("POSTGRES_SUPERUSER_PASSWORD", "Backend:PostgresPackaging:SuperuserPassword");
 
         var logLevel = getEnvironmentVariable("LOG_LEVEL");
         if (!string.IsNullOrWhiteSpace(logLevel))
@@ -101,6 +103,7 @@ public static class BackendRuntimeConfiguration
         options.AuthMode = authMode;
         options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? environment.IsProduction();
         Validate(options);
+        ValidatePackagedPostgresSecrets(configuration);
         return options;
     }
 
@@ -305,6 +308,81 @@ public static class BackendRuntimeConfiguration
         {
             throw new InvalidOperationException("Database:DataConnection must not be empty.");
         }
+    }
+
+    private static void ValidatePackagedPostgresSecrets(IConfiguration configuration)
+    {
+        var configuredProvider = configuration["Database:Provider"];
+        if (!Enum.TryParse<DatabaseProvider>(configuredProvider, ignoreCase: true, out var provider)
+            || provider != DatabaseProvider.Postgres)
+        {
+            return;
+        }
+
+        EnsureSafePostgresSecret(
+            "POSTGRES_SUPERUSER_PASSWORD",
+            configuration["Backend:PostgresPackaging:SuperuserPassword"]);
+        EnsureSafePostgresConnectionPassword(
+            "DATABASE_SYSTEM_CONNECTION",
+            configuration["Database:SystemConnection"]);
+        EnsureSafePostgresConnectionPassword(
+            "DATABASE_DATA_CONNECTION",
+            configuration["Database:DataConnection"]);
+    }
+
+    private static void EnsureSafePostgresConnectionPassword(string envName, string? connectionString)
+    {
+        if (string.IsNullOrWhiteSpace(connectionString))
+        {
+            return;
+        }
+
+        string? password;
+        try
+        {
+            var builder = new DbConnectionStringBuilder
+            {
+                ConnectionString = connectionString
+            };
+
+            password = builder.TryGetValue("Password", out var value)
+                ? Convert.ToString(value, CultureInfo.InvariantCulture)
+                : null;
+        }
+        catch (ArgumentException ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not validate {envName} because the configured connection string is invalid.",
+                ex);
+        }
+
+        EnsureSafePostgresSecret(envName, password);
+    }
+
+    private static void EnsureSafePostgresSecret(string envName, string? value)
+    {
+        if (!IsKnownUnsafePostgresSecret(value))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Postgres startup refused because {envName} is using a committed dev default or placeholder value. " +
+            "Set a real secret before starting the packaged Postgres deployment.");
+    }
+
+    private static bool IsKnownUnsafePostgresSecret(string? value)
+    {
+        var normalized = value?.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return normalized.Equals("repere_dev", StringComparison.Ordinal)
+            || normalized.Equals("repere_system_dev", StringComparison.Ordinal)
+            || normalized.Equals("repere_data_dev", StringComparison.Ordinal)
+            || normalized.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Uri ParseDatabaseUrl(string databaseUrl)

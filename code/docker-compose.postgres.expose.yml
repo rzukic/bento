@@ -1,0 +1,4 @@
+services:
+  postgres:
+    ports:
+      - "${HOST_POSTGRES_PORT:?HOST_POSTGRES_PORT is required when exposing the Postgres service}:5432"

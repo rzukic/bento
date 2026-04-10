@@ -7,6 +7,7 @@ on:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
       - 'code/docker-compose.postgres.yml'
+      - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
       - 'code/init-db/**'
       - 'code/scripts/**'
@@ -16,6 +17,7 @@ on:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
       - 'code/docker-compose.postgres.yml'
+      - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
       - 'code/init-db/**'
       - 'code/scripts/**'
@@ -75,11 +77,14 @@ jobs:
           jq --version
 
       - name: Run packaged Postgres validation
+        env:
+          POSTGRES_SUPERUSER_PASSWORD: gha-postgres-superuser-secret
+          REPERE_SYSTEM_PASSWORD: gha-postgres-system-secret
+          REPERE_DATA_PASSWORD: gha-postgres-data-secret
         run: |
           mkdir -p .artifacts
           code/scripts/packaged-mvp1-demo.sh postgres \
             --host-backend-port 5002 \
-            --host-postgres-port 5433 \
             --project-name gha-demo-postgres \
             --log-dir .artifacts/packaged-mvp1-postgres
 

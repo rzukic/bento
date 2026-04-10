@@ -120,7 +120,8 @@ All business logic lives here. Injected as interfaces for testability.
 - route registration
 
 The canonical backend health endpoint is `GET /api/v1/admin/health`. Root-level `/health` is no longer part of the route contract.
-Its JSON contract now matches the deployment spec: nested `database` pool states, a `runtime` block with non-secret deployment settings, human-readable `uptime`, and backend `version`.
+`GET /api/v1/admin/health` is intentionally the minimal public probe: nested `database` pool states plus a short `version`, and only a generic `error: "unhealthy"` when dependencies fail.
+Detailed runtime state now lives on `GET /api/v1/admin/health/details`, which is admin-only in `standard` mode and uses the open-mode admin bypass in `open` mode.
 The reserved Step 1.3 route areas are `auth`, `schema`, `admin`, `data`, and `query`; later steps fill those prefixes with real endpoints.
 
 Local launch-profile contract:
@@ -147,7 +148,9 @@ Runtime configuration contract:
 - `AUTH_REFRESH_COOKIE_SECURE` remains an explicit override, but when it is unset the refresh cookie now defaults to `Secure=false` in development-style hosts and `Secure=true` in production
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
+- the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `REPERE_SYSTEM_PASSWORD`, and `REPERE_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added
 - packaged deployments now persist generated runtime config at `DATA_DIR/config.json`; when `JWT_SECRET` is not supplied, the backend generates a signing secret there on first launch and reuses it on later starts
+- on POSIX hosts, first-run packaged bootstrap creates `DATA_DIR/config.json` with mode `0600` and tightens the owned `DATA_DIR` to `0700`; if an older `config.json` is still group- or world-readable, startup logs a one-time warning instead of aborting
 - the current manual packaged validation flow for SQLite and Postgres is documented in [packaged-mvp1-validation.md](packaged-mvp1-validation.md)
 - the reusable packaged startup/readiness harness lives at `code/scripts/compose-smoke.sh` and is intended to be shared by local verification and future GitHub Actions deployment jobs
 - the executable packaged MVP 1 product-flow suite lives at `code/scripts/packaged-mvp1-demo.sh` and validates the Phase 1 golden path against SQLite or Postgres deployments
@@ -221,7 +224,7 @@ SQLite-specific note: unsupported column alterations are handled by full table r
 - supports self-referential N:M junctions with asymmetric default column names (`left_*` / `right_*`) plus optional `fromColumn` / `toColumn` overrides
 - flags self-references and circular dependency sets for higher layers
 
-`MigrationRunner` applies DDL to the data pool, stores the new schema version plus migration history through the system pool, supports rollback of the last N forward migrations, and uses best-effort compensation if cross-pool metadata persistence fails after the data schema changes.
+`MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback still uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
 
 `ModelJsonStore` allocates schema versions atomically inside the same system transaction as the insert, using a single-row counter table plus a database-level unique constraint on `schema_versions.version`.
 
@@ -231,18 +234,19 @@ Startup auto-migrations are optional. When `Schema.AutoMigrateOnStartup=true`, `
 
 ## Authentication
 
-Authentication middleware is not implemented yet, but the Step 1.4 foundation contract now exists.
+Authentication is live for the implemented Phase 1 backend surface.
 
-Current Step 1.4 foundation state:
-- `/api/v1/auth` is a concrete controller endpoint that publishes the auth-mode/runtime contract
-- `POST /api/v1/auth/register` now bootstraps the first standard-mode user with a bcrypt hash and auto-assigns `admin`
-- `AUTH_MODE=open` and `AUTH_MODE=standard` are the only supported Phase 1 runtime modes
-- JWT metadata, refresh-cookie policy, and auth rate limits are now typed runtime configuration
-- no JWT issuance, login endpoint, refresh flow, or route protection exists yet
-- no API key validation exists yet
+Current implemented auth state:
+- `/api/v1/auth` publishes the active auth-mode/runtime contract, including bootstrap-registration state and the remaining auth deferrals
+- `POST /api/v1/auth/register` bootstraps the first admin user, then requires an authenticated admin for additional user creation
+- `POST /api/v1/auth/login` issues a bearer access token plus refresh cookie
+- `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- auth middleware protects `/api/v1/*` outside `/api/v1/auth/*` in `standard` mode and applies the open-mode admin bypass in `open` mode
+- `AUTH_MODE=open` and `AUTH_MODE=standard` are the only supported Phase 1 runtime modes; `vault` remains rejected until its later phase
+- JWT metadata, refresh-cookie policy, and auth rate limits are typed runtime configuration, including environment-aware default `Secure` handling for the refresh cookie
 
-Planned Phase 1 auth work:
-1. **JWT Bearer token** — for interactive sessions
-2. **API key** — for programmatic/external access (header: `X-API-Key`)
-
-> **Not yet implemented** — auth is planned for Step 1.4 and later Phase 1 work.
+Current auth deferrals:
+1. **API key auth** — stored schema exists, but runtime validation and scoped enforcement are later-phase work
+2. **Logout / explicit session revocation endpoint** — refresh-session persistence exists, but a public logout surface is still pending
+3. **Vault mode** — certificate-based single-user mode remains future work
+4. **Browser hardening beyond the current cookie contract** — CSRF/CSP work stays tied to the later browser-facing frontend

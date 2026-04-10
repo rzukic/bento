@@ -45,7 +45,7 @@ Browser / Client
 
 The frontend container only serves static files. All API calls from the browser go to `/api/v1/*` — Caddy routes these to the backend. The frontend never needs to know the backend's address.
 
-> **Current implementation note** — the backend HTTP server foundation exists in Step 1.3. WebSocket transport is still planned for a later phase.
+> **Current implementation note** — this diagram is the long-term target topology. Phase 1 currently ships a backend-only packaged deployment (no Caddy or frontend container yet), while keeping the backend route contract compatible with that later proxy shape.
 
 ---
 
@@ -88,7 +88,7 @@ data.db       ← equivalent of public schema
 
 The `DataPool` will also run user SQL through the **DDL blocklist** before execution once custom SQL/data-query endpoints exist.
 
-> **Not yet implemented** — the DDL blocklist is planned for Step 1.5.
+> **Current implementation note** — the DDL blocklist exists as a backend building block after Step 1.5, but the custom SQL/query endpoints that would exercise it are still future work.
 
 ---
 

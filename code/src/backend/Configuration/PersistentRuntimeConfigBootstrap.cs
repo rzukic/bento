@@ -1,12 +1,21 @@
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.Logging;
 
 namespace Repere.Api.Configuration;
 
 public static class PersistentRuntimeConfigBootstrap
 {
-    public static IReadOnlyDictionary<string, string?> BuildOverrides(IConfiguration configuration)
+    private static readonly object WarningLock = new();
+    private static readonly HashSet<string> WarnedInsecureConfigPaths = new(StringComparer.Ordinal);
+    private const UnixFileMode SecureConfigFileMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+    private const UnixFileMode SecureDataDirectoryMode =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
+
+    public static IReadOnlyDictionary<string, string?> BuildOverrides(
+        IConfiguration configuration,
+        ILogger? logger = null)
     {
         var dataDir = configuration["Backend:DataDir"];
         if (string.IsNullOrWhiteSpace(dataDir))
@@ -14,7 +23,7 @@ public static class PersistentRuntimeConfigBootstrap
             dataDir = "./data";
         }
 
-        Directory.CreateDirectory(dataDir);
+        EnsureDataDirectoryExists(dataDir, logger);
 
         var configPath = Path.Combine(dataDir, "config.json");
         var overrides = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
@@ -27,23 +36,25 @@ public static class PersistentRuntimeConfigBootstrap
             return overrides;
         }
 
-        var secret = ReadPersistedJwtSecret(configPath);
+        var secret = ReadPersistedJwtSecret(configPath, logger);
         if (string.IsNullOrWhiteSpace(secret))
         {
             secret = GenerateJwtSecret();
-            WritePersistedJwtSecret(configPath, secret);
+            WritePersistedJwtSecret(configPath, secret, logger);
         }
 
         overrides["Backend:Jwt:Secret"] = secret;
         return overrides;
     }
 
-    private static string? ReadPersistedJwtSecret(string configPath)
+    private static string? ReadPersistedJwtSecret(string configPath, ILogger? logger)
     {
         if (!File.Exists(configPath))
         {
             return null;
         }
+
+        WarnIfConfigPathIsOverPermissive(configPath, logger);
 
         JsonNode? root;
         try
@@ -66,11 +77,13 @@ public static class PersistentRuntimeConfigBootstrap
         return obj["Backend"]?["Jwt"]?["Secret"]?.GetValue<string>();
     }
 
-    private static void WritePersistedJwtSecret(string configPath, string secret)
+    private static void WritePersistedJwtSecret(string configPath, string secret, ILogger? logger)
     {
         JsonObject root;
         if (File.Exists(configPath))
         {
+            WarnIfConfigPathIsOverPermissive(configPath, logger);
+
             JsonNode? parsed;
             try
             {
@@ -104,12 +117,111 @@ public static class PersistentRuntimeConfigBootstrap
 
         jwt["Secret"] = secret;
 
-        File.WriteAllText(
+        var json = root.ToJsonString(new JsonSerializerOptions
+        {
+            WriteIndented = true
+        });
+
+        if (OperatingSystem.IsWindows())
+        {
+            File.WriteAllText(configPath, json);
+            return;
+        }
+
+        if (File.Exists(configPath))
+        {
+            File.WriteAllText(configPath, json);
+            return;
+        }
+
+        using var stream = new FileStream(
             configPath,
-            root.ToJsonString(new JsonSerializerOptions
+            new FileStreamOptions
             {
-                WriteIndented = true
-            }));
+                Access = FileAccess.Write,
+                Mode = FileMode.CreateNew,
+                Share = FileShare.None,
+                Options = FileOptions.None,
+                UnixCreateMode = SecureConfigFileMode
+            });
+        using var writer = new StreamWriter(stream);
+        writer.Write(json);
+    }
+
+    private static void EnsureDataDirectoryExists(string dataDir, ILogger? logger)
+    {
+        Directory.CreateDirectory(dataDir);
+
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        try
+        {
+            File.SetUnixFileMode(dataDir, SecureDataDirectoryMode);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            logger?.LogDebug(
+                ex,
+                "Could not tighten permissions for runtime data directory '{DataDir}'.",
+                dataDir);
+        }
+    }
+
+    private static void WarnIfConfigPathIsOverPermissive(string configPath, ILogger? logger)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(configPath))
+        {
+            return;
+        }
+
+        UnixFileMode mode;
+        try
+        {
+            mode = File.GetUnixFileMode(configPath);
+        }
+        catch (Exception ex) when (ex is UnauthorizedAccessException or IOException)
+        {
+            logger?.LogDebug(
+                ex,
+                "Could not inspect permissions for runtime config '{ConfigPath}'.",
+                configPath);
+            return;
+        }
+
+        const UnixFileMode insecureMask =
+            UnixFileMode.GroupRead |
+            UnixFileMode.GroupWrite |
+            UnixFileMode.GroupExecute |
+            UnixFileMode.OtherRead |
+            UnixFileMode.OtherWrite |
+            UnixFileMode.OtherExecute;
+
+        if ((mode & insecureMask) == 0)
+        {
+            return;
+        }
+
+        var shouldWarn = false;
+        lock (WarningLock)
+        {
+            if (WarnedInsecureConfigPaths.Add(configPath))
+            {
+                shouldWarn = true;
+            }
+        }
+
+        if (!shouldWarn)
+        {
+            return;
+        }
+
+        logger?.LogWarning(
+            "Persistent runtime config '{ConfigPath}' has over-permissive mode '{Mode}'. Rotate the JWT secret and tighten the file to 0600.",
+            configPath,
+            Convert.ToString((int)mode, 8));
     }
 
     private static string GenerateJwtSecret()

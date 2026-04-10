@@ -9,9 +9,9 @@ public sealed record PostgresTestSettings
 
     public string AdminConnectionString { get; init; } = string.Empty;
     public string SystemRoleName { get; init; } = "repere_system";
-    public string SystemRolePassword { get; init; } = "repere_system_dev";
+    public string SystemRolePassword { get; init; } = "repere_system_test_secret";
     public string DataRoleName { get; init; } = "repere_data";
-    public string DataRolePassword { get; init; } = "repere_data_dev";
+    public string DataRolePassword { get; init; } = "repere_data_test_secret";
 
     public static bool IsConfigured =>
         !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(AdminConnectionEnvironmentVariable));
@@ -29,9 +29,9 @@ public sealed record PostgresTestSettings
         {
             AdminConnectionString = adminConnectionString,
             SystemRoleName = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_SYSTEM_ROLE") ?? "repere_system",
-            SystemRolePassword = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_SYSTEM_PASSWORD") ?? "repere_system_dev",
+            SystemRolePassword = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_SYSTEM_PASSWORD") ?? "repere_system_test_secret",
             DataRoleName = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_DATA_ROLE") ?? "repere_data",
-            DataRolePassword = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_DATA_PASSWORD") ?? "repere_data_dev"
+            DataRolePassword = Environment.GetEnvironmentVariable("REPERE_TEST_POSTGRES_DATA_PASSWORD") ?? "repere_data_test_secret"
         };
     }
 
@@ -164,8 +164,18 @@ public sealed class PostgresTestDatabase : IAsyncDisposable
 
             GRANT ALL ON SCHEMA _system TO {QuoteIdentifier(settings.SystemRoleName)};
             GRANT ALL ON SCHEMA public TO {QuoteIdentifier(settings.SystemRoleName)};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {QuoteIdentifier(settings.SystemRoleName)} IN SCHEMA public
+                GRANT ALL ON TABLES TO {QuoteIdentifier(settings.SystemRoleName)};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {QuoteIdentifier(settings.SystemRoleName)} IN SCHEMA public
+                GRANT ALL ON SEQUENCES TO {QuoteIdentifier(settings.SystemRoleName)};
 
-            GRANT USAGE, CREATE ON SCHEMA public TO {QuoteIdentifier(settings.DataRoleName)};
+            GRANT USAGE ON SCHEMA public TO {QuoteIdentifier(settings.DataRoleName)};
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {QuoteIdentifier(settings.DataRoleName)};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {QuoteIdentifier(settings.SystemRoleName)} IN SCHEMA public
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {QuoteIdentifier(settings.DataRoleName)};
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {QuoteIdentifier(settings.DataRoleName)};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {QuoteIdentifier(settings.SystemRoleName)} IN SCHEMA public
+                GRANT USAGE, SELECT ON SEQUENCES TO {QuoteIdentifier(settings.DataRoleName)};
             REVOKE ALL ON SCHEMA _system FROM {QuoteIdentifier(settings.DataRoleName)};
             """);
     }
