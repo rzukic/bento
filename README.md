@@ -113,16 +113,22 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [1.3](project-management/working-steps/1.3-backend-api-server.md) | Backend API server (routing, middleware, errors) | Done |
 | [1.4](project-management/working-steps/1.4-basic-auth.md) | Basic auth (JWT, login, middleware) | Done |
 | [1.5](project-management/working-steps/1.5-auto-crud-api.md) | Auto CRUD API (endpoints from Model JSON) | Done |
-| [1.6](project-management/working-steps/1.6-docker-packaging.md) | Docker packaging & MVP 1 validation | Planned |
+| [1.6](project-management/working-steps/1.6-docker-packaging.md) | Docker packaging & MVP 1 validation | Done |
 
 **MVP 1 "Data API"**: Define a schema as JSON, start the container, get a full REST API with auth. Reached after Step 1.6.
 
 ---
 
-## Quick Start (once MVP 1 ships)
+## Quick Start (current MVP 1)
 
 ```bash
-docker compose up
+docker compose -f code/docker-compose.yml up --build
 ```
 
-Then define a schema via `PUT /api/v1/admin/schema` and start using the auto-generated CRUD endpoints.
+For Postgres:
+
+```bash
+docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
+```
+
+Then register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and start using the auto-generated CRUD endpoints.

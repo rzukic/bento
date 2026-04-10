@@ -1,0 +1,32 @@
+services:
+  backend:
+    environment:
+      DATABASE_PROVIDER: Postgres
+      DATABASE_SYSTEM_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-repere};Username=repere_system;Password=${REPERE_SYSTEM_PASSWORD:?REPERE_SYSTEM_PASSWORD is required}"
+      DATABASE_DATA_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-repere};Username=repere_data;Password=${REPERE_DATA_PASSWORD:?REPERE_DATA_PASSWORD is required}"
+      POSTGRES_SUPERUSER_PASSWORD: "${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD is required}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-repere}"
+      POSTGRES_USER: "${POSTGRES_SUPERUSER:-repere_admin}"
+      POSTGRES_PASSWORD: "${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD is required}"
+      REPERE_SYSTEM_PASSWORD: "${REPERE_SYSTEM_PASSWORD:?REPERE_SYSTEM_PASSWORD is required}"
+      REPERE_DATA_PASSWORD: "${REPERE_DATA_PASSWORD:?REPERE_DATA_PASSWORD is required}"
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_SUPERUSER:-repere_admin} -d ${POSTGRES_DB:-repere}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  pg-data:

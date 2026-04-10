@@ -1,4 +1,5 @@
 using System.Data;
+using System.Security.Claims;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -53,6 +54,7 @@ public sealed class ApiHostTests
             .ToList();
 
         Assert.Contains(ApiRoutes.AdminHealth, endpoints);
+        Assert.Contains(ApiRoutes.AdminHealthDetails, endpoints);
         Assert.Contains(ApiRoutes.Auth, endpoints);
         Assert.DoesNotContain("health", endpoints.Where(pattern => pattern != ApiRoutes.AdminHealth));
     }
@@ -75,7 +77,9 @@ public sealed class ApiHostTests
         var controller = new AdminController(new AdminHealthService(
             new SqliteTestPool(),
             new SqliteTestPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0")),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
             null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
@@ -83,22 +87,23 @@ public sealed class ApiHostTests
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status200OK, objectResult.StatusCode);
 
-        var response = Assert.IsType<AdminHealthResponse>(objectResult.Value);
+        var response = Assert.IsType<AdminHealthPublicResponse>(objectResult.Value);
         Assert.Equal("healthy", response.Status);
         Assert.Equal("connected", response.Database.SystemPool);
         Assert.Equal("connected", response.Database.DataPool);
-        Assert.Equal("5m", response.Uptime);
         Assert.Equal("1.2.0", response.Version);
         Assert.Null(response.Error);
     }
 
     [Fact]
-    public async Task AdminController_ReturnsServiceUnavailable_WhenHealthCheckFails()
+    public async Task AdminController_ReturnsGenericPublicFailure_WhenHealthCheckFails()
     {
         var controller = new AdminController(new AdminHealthService(
             new FailingDbPool(),
             new FailingDbPool(),
-            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0")),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
             null!, null!, null!);
 
         var result = await controller.GetHealthAsync(CancellationToken.None);
@@ -106,10 +111,85 @@ public sealed class ApiHostTests
         var objectResult = Assert.IsType<ObjectResult>(result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, objectResult.StatusCode);
 
-        var response = Assert.IsType<AdminHealthResponse>(objectResult.Value);
+        var response = Assert.IsType<AdminHealthPublicResponse>(objectResult.Value);
         Assert.Equal("unhealthy", response.Status);
         Assert.Equal("unavailable", response.Database.SystemPool);
         Assert.Equal("unavailable", response.Database.DataPool);
+        Assert.Equal("1.2.0", response.Version);
+        Assert.Equal("unhealthy", response.Error);
+    }
+
+    [Fact]
+    public async Task AdminController_ReturnsDetailedHealth_ForAdminCaller()
+    {
+        var controller = new AdminController(new AdminHealthService(
+            new SqliteTestPool(),
+            new SqliteTestPool(),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(5)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
+            null!, null!, null!)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = CreatePrincipal("admin")
+                }
+            }
+        };
+
+        var result = await controller.GetHealthDetailsAsync(CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status200OK, objectResult.StatusCode);
+
+        var response = Assert.IsType<AdminHealthDetailedResponse>(objectResult.Value);
+        Assert.Equal("healthy", response.Status);
+        Assert.Equal("connected", response.Database.SystemPool);
+        Assert.Equal("connected", response.Database.DataPool);
+        Assert.Equal("sqlite", response.Runtime.DatabaseProvider);
+        Assert.Equal("standard", response.Runtime.AuthMode);
+        Assert.Equal("./data", response.Runtime.DataDir);
+        Assert.True(response.Runtime.JwtConfigured);
+        Assert.Equal("5m", response.Uptime);
+        Assert.Equal("1.2.0", response.Version);
+        Assert.Null(response.Error);
+    }
+
+    [Fact]
+    public async Task AdminController_ReturnsDetailedFailure_ForAdminCaller()
+    {
+        var controller = new AdminController(new AdminHealthService(
+            new FailingDbPool(),
+            new FailingDbPool(),
+            new BackendRuntimeInfo(DateTimeOffset.UtcNow.Subtract(TimeSpan.FromMinutes(1)), "1.2.0"),
+            CreateRuntimeOptions(),
+            CreateDatabaseConfig()),
+            null!, null!, null!)
+        {
+            ControllerContext = new ControllerContext
+            {
+                HttpContext = new DefaultHttpContext
+                {
+                    User = CreatePrincipal("admin")
+                }
+            }
+        };
+
+        var result = await controller.GetHealthDetailsAsync(CancellationToken.None);
+
+        var objectResult = Assert.IsType<ObjectResult>(result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, objectResult.StatusCode);
+
+        var response = Assert.IsType<AdminHealthDetailedResponse>(objectResult.Value);
+        Assert.Equal("unhealthy", response.Status);
+        Assert.Equal("unavailable", response.Database.SystemPool);
+        Assert.Equal("unavailable", response.Database.DataPool);
+        Assert.Equal("sqlite", response.Runtime.DatabaseProvider);
+        Assert.Equal("standard", response.Runtime.AuthMode);
+        Assert.Equal("./data", response.Runtime.DataDir);
+        Assert.True(response.Runtime.JwtConfigured);
         Assert.Equal("1m", response.Uptime);
         Assert.Equal("1.2.0", response.Version);
         Assert.Contains("boom", response.Error, StringComparison.OrdinalIgnoreCase);
@@ -154,5 +234,39 @@ public sealed class ApiHostTests
         {
             throw new InvalidOperationException("boom");
         }
+    }
+
+    private static Repere.Api.Configuration.BackendRuntimeOptions CreateRuntimeOptions()
+    {
+        return new Repere.Api.Configuration.BackendRuntimeOptions
+        {
+            AuthMode = Repere.Api.Configuration.BackendAuthMode.Standard,
+            LogLevel = "Information",
+            DataDir = "./data",
+            PersistentConfigPath = "./data/config.json",
+            Jwt =
+            {
+                Secret = "super-secret"
+            }
+        };
+    }
+
+    private static DatabaseConfig CreateDatabaseConfig()
+    {
+        return new DatabaseConfig
+        {
+            Provider = DatabaseProvider.Sqlite,
+            SystemConnection = "./data",
+            DataConnection = "./data"
+        };
+    }
+
+    private static ClaimsPrincipal CreatePrincipal(string role)
+    {
+        return new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.Role, role),
+            new Claim("role", role)
+        ], "Test"));
     }
 }

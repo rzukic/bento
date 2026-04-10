@@ -29,6 +29,12 @@ public sealed class AuthMiddleware
             return;
         }
 
+        if (IsPublicHealthRoute(context.Request.Path))
+        {
+            await _next(context);
+            return;
+        }
+
         if (_runtimeOptions.IsOpenAuthMode)
         {
             context.User = CreateOpenModePrincipal();
@@ -56,6 +62,11 @@ public sealed class AuthMiddleware
     private static bool IsAuthRoute(PathString path)
     {
         return path.StartsWithSegments("/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsPublicHealthRoute(PathString path)
+    {
+        return path.Equals("/" + ApiRoutes.AdminHealth, StringComparison.OrdinalIgnoreCase);
     }
 
     private ClaimsPrincipal CreateAuthenticatedPrincipal(string? authorizationHeader)

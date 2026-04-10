@@ -1,0 +1,48 @@
+{
+  "tables": [
+    {
+      "name": "customers",
+      "columns": [
+        { "name": "id", "type": "integer", "primaryKey": true },
+        { "name": "name", "type": "text", "nullable": false },
+        { "name": "email", "type": "text", "nullable": false, "unique": true },
+        { "name": "tier", "type": "enum", "values": ["bronze", "silver", "gold"] },
+        { "name": "notes", "type": "text" }
+      ]
+    },
+    {
+      "name": "orders",
+      "columns": [
+        { "name": "id", "type": "integer", "primaryKey": true },
+        { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false },
+        { "name": "total", "type": "currency", "nullable": false },
+        { "name": "status", "type": "enum", "values": ["pending", "paid", "shipped", "cancelled"] },
+        { "name": "placed_at", "type": "datetime" }
+      ]
+    },
+    {
+      "name": "products",
+      "columns": [
+        { "name": "id", "type": "integer", "primaryKey": true },
+        { "name": "sku", "type": "text", "nullable": false, "unique": true },
+        { "name": "name", "type": "text", "nullable": false },
+        { "name": "price", "type": "currency" }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "customer_orders",
+      "type": "1:N",
+      "from": "customers",
+      "to": "orders",
+      "column": "customer_id"
+    },
+    {
+      "name": "product_orders",
+      "type": "N:M",
+      "from": "products",
+      "to": "orders"
+    }
+  ]
+}

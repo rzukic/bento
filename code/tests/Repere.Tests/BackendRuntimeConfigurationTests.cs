@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Repere.Api.Configuration;
 using Repere.Api.Db;
 
@@ -149,6 +150,67 @@ public sealed class BackendRuntimeConfigurationTests
     }
 
     [Fact]
+    public void BindAndValidateRuntimeOptions_RejectsCommittedPostgresSecrets()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:Port"] = "5000",
+                ["Backend:LogLevel"] = "Information",
+                ["Backend:MaxBodySize"] = "10mb",
+                ["Backend:AuthMode"] = "standard",
+                ["Backend:Jwt:Issuer"] = "repere-api",
+                ["Backend:Jwt:Audience"] = "repere-clients",
+                ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+                ["Backend:AuthCookie:SameSite"] = "Strict",
+                ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+                ["Backend:DataDir"] = "./data",
+                ["Backend:PostgresPackaging:SuperuserPassword"] = "repere_dev",
+                ["Database:Provider"] = nameof(DatabaseProvider.Postgres),
+                ["Database:SystemConnection"] = "Host=localhost;Port=5432;Database=repere;Username=repere_system;Password=repere_system_dev",
+                ["Database:DataConnection"] = "Host=localhost;Port=5432;Database=repere;Username=repere_data;Password=repere_data_dev"
+            })
+            .Build();
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+                configuration,
+                new FakeHostEnvironment("Production")));
+
+        Assert.Contains("POSTGRES_SUPERUSER_PASSWORD", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BindAndValidateRuntimeOptions_AllowsNonDefaultPostgresSecrets()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:Port"] = "5000",
+                ["Backend:LogLevel"] = "Information",
+                ["Backend:MaxBodySize"] = "10mb",
+                ["Backend:AuthMode"] = "standard",
+                ["Backend:Jwt:Issuer"] = "repere-api",
+                ["Backend:Jwt:Audience"] = "repere-clients",
+                ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+                ["Backend:AuthCookie:SameSite"] = "Strict",
+                ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+                ["Backend:DataDir"] = "./data",
+                ["Backend:PostgresPackaging:SuperuserPassword"] = "superuser-secret-123",
+                ["Database:Provider"] = nameof(DatabaseProvider.Postgres),
+                ["Database:SystemConnection"] = "Host=localhost;Port=5432;Database=repere;Username=repere_system;Password=system-secret-123",
+                ["Database:DataConnection"] = "Host=localhost;Port=5432;Database=repere;Username=repere_data;Password=data-secret-123"
+            })
+            .Build();
+
+        var options = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            configuration,
+            new FakeHostEnvironment("Production"));
+
+        Assert.Equal(BackendAuthMode.Standard, options.AuthMode);
+    }
+
+    [Fact]
     public void BindAndValidateRuntimeOptions_RejectsInvalidAuthMode()
     {
         var configuration = new ConfigurationBuilder()
@@ -237,6 +299,135 @@ public sealed class BackendRuntimeConfigurationTests
         Assert.True(productionOptions.AuthCookie.EffectiveRequireSecure);
     }
 
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_GeneratesJwtSecret_File_WhenMissing()
+    {
+        using var tempDir = new TemporaryDirectory();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        var overrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration);
+
+        var configPath = Assert.IsType<string>(overrides["Backend:PersistentConfigPath"]);
+        var secret = Assert.IsType<string>(overrides["Backend:Jwt:Secret"]);
+
+        Assert.Equal(Path.Combine(tempDir.Path, "config.json"), configPath);
+        Assert.False(string.IsNullOrWhiteSpace(secret));
+        Assert.True(File.Exists(configPath));
+
+        var persisted = File.ReadAllText(configPath);
+        Assert.Contains("\"Secret\"", persisted, StringComparison.Ordinal);
+        Assert.Contains(secret, persisted, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_OnPosix_CreatesSecureModes()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var tempDir = new TemporaryDirectory();
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        _ = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration);
+
+        var configPath = Path.Combine(tempDir.Path, "config.json");
+        var fileMode = File.GetUnixFileMode(configPath);
+        var directoryMode = File.GetUnixFileMode(tempDir.Path);
+
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            fileMode);
+        Assert.Equal(
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute,
+            directoryMode);
+    }
+
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_ReusesPersistedJwtSecret()
+    {
+        using var tempDir = new TemporaryDirectory();
+        var configPath = Path.Combine(tempDir.Path, "config.json");
+        File.WriteAllText(configPath, """
+            {
+              "Backend": {
+                "Jwt": {
+                  "Secret": "persisted-secret"
+                }
+              }
+            }
+            """);
+
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        var overrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration);
+
+        Assert.Equal("persisted-secret", overrides["Backend:Jwt:Secret"]);
+        Assert.Equal(configPath, overrides["Backend:PersistentConfigPath"]);
+    }
+
+    [Fact]
+    public void BuildPersistentRuntimeOverrides_OnPosix_WarnsOnceForOverPermissiveConfig()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var tempDir = new TemporaryDirectory();
+        var configPath = Path.Combine(tempDir.Path, "config.json");
+        File.WriteAllText(configPath, """
+            {
+              "Backend": {
+                "Jwt": {
+                  "Secret": "persisted-secret"
+                }
+              }
+            }
+            """);
+        File.SetUnixFileMode(
+            configPath,
+            UnixFileMode.UserRead |
+            UnixFileMode.UserWrite |
+            UnixFileMode.GroupRead |
+            UnixFileMode.OtherRead);
+
+        var logger = new TestLogger();
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:DataDir"] = tempDir.Path
+            })
+            .Build();
+
+        var first = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration, logger);
+        var second = PersistentRuntimeConfigBootstrap.BuildOverrides(configuration, logger);
+
+        Assert.Equal("persisted-secret", first["Backend:Jwt:Secret"]);
+        Assert.Equal("persisted-secret", second["Backend:Jwt:Secret"]);
+        Assert.Single(logger.WarningMessages);
+        Assert.Contains("over-permissive mode", logger.WarningMessages[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("644", logger.WarningMessages[0], StringComparison.Ordinal);
+    }
+
     private sealed class FakeHostEnvironment : IHostEnvironment
     {
         public FakeHostEnvironment(string environmentName)
@@ -251,5 +442,56 @@ public sealed class BackendRuntimeConfigurationTests
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
 
         public IFileProvider ContentRootFileProvider { get; set; } = new PhysicalFileProvider(AppContext.BaseDirectory);
+    }
+
+    private sealed class TemporaryDirectory : IDisposable
+    {
+        public TemporaryDirectory()
+        {
+            Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "repere-tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(Path);
+        }
+
+        public string Path { get; }
+
+        public void Dispose()
+        {
+            if (Directory.Exists(Path))
+            {
+                Directory.Delete(Path, recursive: true);
+            }
+        }
+    }
+
+    private sealed class TestLogger : ILogger
+    {
+        public List<string> WarningMessages { get; } = [];
+
+        public IDisposable BeginScope<TState>(TState state)
+            where TState : notnull => NullScope.Instance;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == LogLevel.Warning)
+            {
+                WarningMessages.Add(formatter(state, exception));
+            }
+        }
+    }
+
+    private sealed class NullScope : IDisposable
+    {
+        public static NullScope Instance { get; } = new();
+
+        public void Dispose()
+        {
+        }
     }
 }

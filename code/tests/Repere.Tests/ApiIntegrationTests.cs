@@ -3,7 +3,12 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Repere.Api.Configuration;
+using Repere.Api.Db;
 using Repere.Api.Models;
+using Repere.Api.Services;
 
 namespace Repere.Tests;
 
@@ -25,29 +30,9 @@ public sealed class ApiIntegrationTests
         var requestId = Assert.Single(values);
         Assert.False(string.IsNullOrWhiteSpace(requestId));
 
-        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
-        payload = Assert.IsType<AdminHealthResponse>(payload);
+        var root = await ReadJsonAsync(response);
 
-        Assert.Equal("healthy", payload.Status);
-        Assert.Equal("connected", payload.Database.SystemPool);
-        Assert.Equal("connected", payload.Database.DataPool);
-        Assert.False(string.IsNullOrWhiteSpace(payload.Uptime));
-        Assert.False(string.IsNullOrWhiteSpace(payload.Version));
-        Assert.Null(payload.Error);
-
-        var rawJson = await response.Content.ReadAsStringAsync();
-        using var document = JsonDocument.Parse(rawJson);
-        var root = document.RootElement;
-
-        Assert.True(root.TryGetProperty("database", out var database));
-        Assert.Equal("connected", database.GetProperty("system_pool").GetString());
-        Assert.Equal("connected", database.GetProperty("data_pool").GetString());
-        Assert.True(root.TryGetProperty("uptime", out var uptime));
-        Assert.False(string.IsNullOrWhiteSpace(uptime.GetString()));
-        Assert.True(root.TryGetProperty("version", out var version));
-        Assert.False(string.IsNullOrWhiteSpace(version.GetString()));
-        Assert.False(root.TryGetProperty("systemPool", out _));
-        Assert.False(root.TryGetProperty("dataPool", out _));
+        AssertPublicHealthPayload(root, "healthy");
     }
 
     [Fact]
@@ -174,7 +159,7 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RequiresBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_AllowsAnonymousReadinessProbe()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -183,16 +168,15 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.GetAsync("/api/v1/admin/health");
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("Bearer token is required", payload.Error.Message, StringComparison.Ordinal);
+        var root = await ReadJsonAsync(response);
+
+        AssertPublicHealthPayload(root, "healthy");
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_ReturnsForbidden_ForNonAdminRole()
+    public async Task Get_AdminHealth_InStandardMode_RemainsReadable_ForNonAdminRole()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -225,16 +209,52 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("FORBIDDEN", payload.Error.Code);
-        Assert.Contains("required", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var root = await ReadJsonAsync(response);
+
+        AssertPublicHealthPayload(root, "healthy");
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_AllowsAdminBearerToken()
+    public async Task Get_AdminHealthDetails_InStandardMode_RequiresAdminRole()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+
+        using var createUserRequest = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/register")
+        {
+            Content = JsonContent.Create(new
+            {
+                username = "viewer-user",
+                password = "anotherpass",
+                role = "viewer"
+            })
+        };
+        createUserRequest.Headers.Authorization = new("Bearer", await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure"));
+
+        using var createUserResponse = await host.Client.SendAsync(createUserRequest);
+        Assert.Equal(HttpStatusCode.Created, createUserResponse.StatusCode);
+
+        var viewerToken = await LoginAndGetAccessTokenAsync(host, "viewer-user", "anotherpass");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health/details");
+        request.Headers.Authorization = new("Bearer", viewerToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealthDetails_InStandardMode_AllowsAdminBearerToken()
     {
         const string jwtSecret = "super-secret";
 
@@ -251,20 +271,20 @@ public sealed class ApiIntegrationTests
         Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
 
         var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
-        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health/details");
         request.Headers.Authorization = new("Bearer", adminToken);
 
         using var response = await host.Client.SendAsync(request);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<AdminHealthResponse>();
-        payload = Assert.IsType<AdminHealthResponse>(payload);
-        Assert.Equal("healthy", payload.Status);
+        var root = await ReadJsonAsync(response);
+
+        AssertDetailedHealthPayload(root, "healthy", "standard", "sqlite");
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RejectsMalformedBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_IgnoresMalformedBearerToken_ForReadinessProbe()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -276,16 +296,15 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("invalid", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var root = await ReadJsonAsync(response);
+
+        AssertPublicHealthPayload(root, "healthy");
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InStandardMode_RejectsExpiredBearerToken()
+    public async Task Get_AdminHealth_InStandardMode_IgnoresExpiredBearerToken_ForReadinessProbe()
     {
         const string jwtSecret = "super-secret";
 
@@ -309,25 +328,99 @@ public sealed class ApiIntegrationTests
 
         using var response = await host.Client.SendAsync(request);
 
-        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-        var payload = await response.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
-        Assert.Contains("expired", payload.Error.Message, StringComparison.OrdinalIgnoreCase);
+        var root = await ReadJsonAsync(response);
+
+        AssertPublicHealthPayload(root, "healthy");
     }
 
     [Fact]
-    public async Task Get_AdminHealth_InOpenMode_BypassesBearerAuth()
+    public async Task Get_AdminHealthDetails_InOpenMode_UsesOpenModeAdmin()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
             ["Backend:AuthMode"] = "open"
         });
 
-        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+        using var response = await host.Client.GetAsync("/api/v1/admin/health/details");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var root = await ReadJsonAsync(response);
+
+        AssertDetailedHealthPayload(root, "healthy", "open", "sqlite");
+    }
+
+    [Fact]
+    public async Task Get_AdminHealth_WhenUnhealthy_RemainsGenericForAnonymousCallers()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            configureTestServices: services =>
+            {
+                services.RemoveAll<AdminHealthService>();
+                services.AddSingleton<AdminHealthService>(serviceProvider => new AdminHealthService(
+                    new FailingDbPool(),
+                    new FailingDbPool(),
+                    serviceProvider.GetRequiredService<BackendRuntimeInfo>(),
+                    serviceProvider.GetRequiredService<BackendRuntimeOptions>(),
+                    serviceProvider.GetRequiredService<DatabaseConfig>()));
+            });
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/health");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        var root = await ReadJsonAsync(response);
+
+        AssertPublicHealthPayload(root, "unhealthy", expectedSystemPool: "unavailable", expectedDataPool: "unavailable", expectedError: "unhealthy");
+        Assert.DoesNotContain("boom", root.GetRawText(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Get_AdminHealthDetails_WhenUnhealthy_PreservesDetailedErrorForAdmin()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret"
+            },
+            configureTestServices: services =>
+            {
+                services.RemoveAll<AdminHealthService>();
+                services.AddSingleton<AdminHealthService>(serviceProvider => new AdminHealthService(
+                    new FailingDbPool(),
+                    new FailingDbPool(),
+                    serviceProvider.GetRequiredService<BackendRuntimeInfo>(),
+                    serviceProvider.GetRequiredService<BackendRuntimeOptions>(),
+                    serviceProvider.GetRequiredService<DatabaseConfig>()));
+            });
+
+        using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, registerResponse.StatusCode);
+
+        var adminToken = await LoginAndGetAccessTokenAsync(host, "bootstrap-admin", "supersecure");
+        using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/admin/health/details");
+        request.Headers.Authorization = new("Bearer", adminToken);
+
+        using var response = await host.Client.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
+
+        var root = await ReadJsonAsync(response);
+
+        AssertDetailedHealthPayload(
+            root,
+            "unhealthy",
+            "standard",
+            "sqlite",
+            expectedSystemPool: "unavailable",
+            expectedDataPool: "unavailable",
+            expectedErrorSubstring: "boom");
     }
 
     [Fact]
@@ -778,6 +871,72 @@ public sealed class ApiIntegrationTests
         Assert.Equal("UNAUTHORIZED", payload.Error.Code);
     }
 
+    private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)
+    {
+        using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        return document.RootElement.Clone();
+    }
+
+    private static void AssertPublicHealthPayload(
+        JsonElement root,
+        string expectedStatus,
+        string expectedSystemPool = "connected",
+        string expectedDataPool = "connected",
+        string? expectedError = null)
+    {
+        Assert.Equal(expectedStatus, root.GetProperty("status").GetString());
+        Assert.Equal(expectedSystemPool, root.GetProperty("database").GetProperty("system_pool").GetString());
+        Assert.Equal(expectedDataPool, root.GetProperty("database").GetProperty("data_pool").GetString());
+        Assert.True(root.TryGetProperty("version", out var version));
+        Assert.False(string.IsNullOrWhiteSpace(version.GetString()));
+        Assert.False(root.TryGetProperty("runtime", out _));
+        Assert.False(root.TryGetProperty("uptime", out _));
+        Assert.DoesNotContain("config_path", root.GetRawText(), StringComparison.Ordinal);
+        Assert.DoesNotContain("data_dir", root.GetRawText(), StringComparison.Ordinal);
+
+        if (expectedError is null)
+        {
+            Assert.False(root.TryGetProperty("error", out _));
+        }
+        else
+        {
+            Assert.Equal(expectedError, root.GetProperty("error").GetString());
+        }
+    }
+
+    private static void AssertDetailedHealthPayload(
+        JsonElement root,
+        string expectedStatus,
+        string expectedAuthMode,
+        string expectedProvider,
+        string expectedSystemPool = "connected",
+        string expectedDataPool = "connected",
+        string? expectedErrorSubstring = null)
+    {
+        Assert.Equal(expectedStatus, root.GetProperty("status").GetString());
+        Assert.Equal(expectedSystemPool, root.GetProperty("database").GetProperty("system_pool").GetString());
+        Assert.Equal(expectedDataPool, root.GetProperty("database").GetProperty("data_pool").GetString());
+        Assert.True(root.TryGetProperty("runtime", out var runtime));
+        Assert.Equal(expectedProvider, runtime.GetProperty("database_provider").GetString());
+        Assert.Equal(expectedAuthMode, runtime.GetProperty("auth_mode").GetString());
+        Assert.True(runtime.GetProperty("jwt_configured").GetBoolean());
+        Assert.True(runtime.TryGetProperty("config_path", out _));
+        Assert.True(runtime.TryGetProperty("data_dir", out _));
+        Assert.True(root.TryGetProperty("uptime", out var uptime));
+        Assert.False(string.IsNullOrWhiteSpace(uptime.GetString()));
+        Assert.True(root.TryGetProperty("version", out var version));
+        Assert.False(string.IsNullOrWhiteSpace(version.GetString()));
+
+        if (expectedErrorSubstring is null)
+        {
+            Assert.False(root.TryGetProperty("error", out _));
+        }
+        else
+        {
+            Assert.Contains(expectedErrorSubstring, root.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+        }
+    }
+
     private static JsonElement ParseJwtPayload(string token)
     {
         var segments = token.Split('.');
@@ -856,5 +1015,15 @@ public sealed class ApiIntegrationTests
             .TrimEnd('=')
             .Replace('+', '-')
             .Replace('/', '_');
+    }
+
+    private sealed class FailingDbPool : ISystemPool, IDataPool
+    {
+        public DatabaseProvider Provider => DatabaseProvider.Sqlite;
+
+        public Task<System.Data.IDbConnection> GetConnectionAsync()
+        {
+            throw new InvalidOperationException("boom: detailed database connection failure");
+        }
     }
 }

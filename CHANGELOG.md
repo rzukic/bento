@@ -14,6 +14,76 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 1 — Foundation
 
+### 2026-04-10 — Close the remaining Step 1.6 packaging audit follow-ups
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Closed the last two Step 1.6 audit tasks by restoring the Postgres dual-pool privilege boundary and tightening the packaged image/scripts around health probing and build-context hygiene. The final validation pass now includes live packaged SQLite and Postgres demos plus the Postgres-tagged `.NET` slice against a real containerized database.
+
+**Highlights:**
+- Postgres tenant DDL now runs through the privileged/system pool with `public` first in `search_path`, while `repere_data` no longer has `CREATE` on `public`
+- Fresh packaged Postgres databases now auto-grant table and sequence DML access from `repere_system` to `repere_data`, preserving CRUD after the ownership shift
+- The runtime image now uses a built-in `--healthcheck` self-probe instead of installing `curl`, the smoke/demo scripts no longer source arbitrary env files, and packaged SQLite/Postgres validation both passed live
+### 2026-04-10 — Harden packaged Postgres secrets and host exposure defaults
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Closed the third packaging-audit follow-up by removing the packaged Postgres stack’s dangerous defaults. The Postgres override no longer publishes 5432 to the host automatically, application role passwords are no longer baked into source control, and the backend now fails fast if the packaged Postgres secrets are left on the shipped placeholder or the old committed dev values.
+
+**Highlights:**
+- `docker-compose.postgres.yml` now requires explicit Postgres secrets, while `docker-compose.postgres.expose.yml` is the only path that publishes Postgres to the host
+- the Postgres init script now reads role passwords from environment instead of hard-coding `repere_system_dev` / `repere_data_dev`
+- the smoke/demo scripts and deployment workflow now pass explicit Postgres secrets, and the backend startup guard rejects the known insecure defaults
+
+### 2026-04-10 — Trim the public health probe to a minimal contract
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Closed the second packaging-audit follow-up by splitting the health contract into a safe anonymous readiness probe and an admin-only detailed diagnostics route. Anonymous callers now get only the information a probe needs, while operators still have a versioned route for runtime details and raw failure messages when they are authenticated.
+
+**Highlights:**
+- `GET /api/v1/admin/health` now returns only status, database pool state, version, and a generic `error: "unhealthy"` on failure
+- `GET /api/v1/admin/health/details` preserves runtime, uptime, and detailed error information for admin callers
+- Added HTTP regressions that prove the anonymous probe does not leak `config_path`, `data_dir`, or raw exception text in either healthy or unhealthy paths
+
+### 2026-04-10 — Harden persisted packaged JWT secret permissions
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Closed the first follow-up issue from the Step 1.6 packaging audit by tightening how the packaged runtime persists auto-generated JWT signing secrets. New packaged deployments now create the runtime config with owner-only POSIX permissions, while older over-permissive files are detected and surfaced through a one-time startup warning instead of failing the app.
+
+**Highlights:**
+- `PersistentRuntimeConfigBootstrap` now creates `DATA_DIR/config.json` with `0600` on first write and repairs owned runtime data directories to `0700` on POSIX hosts
+- Existing over-permissive runtime config files are detected and logged once per process so operators get a migration signal without a breaking startup change
+- Added POSIX-gated regression coverage for secure file modes and the warning path, then verified the non-Postgres test suite still passes
+
+### 2026-04-09 — Add Postgres-backed .NET test coverage
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Added a true Postgres-backed `.NET` test lane on top of the packaged deployment work so backend behavior can now be exercised against a real PostgreSQL database from inside the normal test project, not only through black-box compose checks. The new slice stays intentionally narrow and provider-aware, which keeps the fast SQLite job quick while adding trustworthy Postgres regression coverage in CI.
+
+**Highlights:**
+- Added isolated Postgres test-database infrastructure and a provider-aware `ApiIntegrationTestHost.StartPostgresAsync` path for backend integration tests
+- Added a dedicated Postgres-tagged integration slice covering health, auth bootstrap/login, schema apply, CRUD, relation reads, and migration history
+- Extended `.github/workflows/test.yml` with a separate `test-postgres` service-container job while keeping packaged deployment validation in its own workflow
+
+### 2026-04-09 — Complete Step 1.6 Docker packaging and deployment validation
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.6 — Docker Packaging & MVP 1 Validation](working-steps/1.6-docker-packaging.md)
+
+Completed the Step 1.6 packaged MVP 1 story so the backend now ships with production compose entrypoints for SQLite and Postgres, reusable local smoke/demo scripts, and a dedicated GitHub Actions deployment workflow that validates both packaged variants. The live packaged Postgres run also surfaced two real deployment bugs, which were fixed before the step was closed.
+
+**Highlights:**
+- Added packaged deployment validation scripts for startup/readiness (`compose-smoke.sh`) and the full MVP 1 golden path (`packaged-mvp1-demo.sh`)
+- Verified the packaged SQLite and Postgres flows locally end to end, then wired both into a dedicated `deployment-validation.yml` workflow with separate jobs and artifact capture
+- Fixed packaged Postgres bootstrap issues by granting `CREATE` on `public` to `repere_data` and generating identity-backed integer primary keys for Postgres tables
 ### 2026-04-08 — Complete Step 1.5 auto CRUD API and docs sync
 
 > **Phase**: Phase 1 — Foundation

@@ -9,7 +9,6 @@ namespace Repere.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Admin)]
-[RequireRole("admin")]
 public sealed class AdminController : ControllerBase
 {
     private readonly AdminHealthService _adminHealthService;
@@ -30,8 +29,8 @@ public sealed class AdminController : ControllerBase
     }
 
     [HttpGet("health")]
-    [ProducesResponseType<AdminHealthResponse>(StatusCodes.Status200OK)]
-    [ProducesResponseType<AdminHealthResponse>(StatusCodes.Status503ServiceUnavailable)]
+    [ProducesResponseType<AdminHealthPublicResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<AdminHealthPublicResponse>(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> GetHealthAsync(CancellationToken cancellationToken)
     {
         var result = await _adminHealthService.GetHealthAsync(cancellationToken);
@@ -39,13 +38,28 @@ public sealed class AdminController : ControllerBase
             ? StatusCodes.Status200OK
             : StatusCodes.Status503ServiceUnavailable;
 
-        return StatusCode(statusCode, result.Response);
+        return StatusCode(statusCode, BuildPublicHealthResponse(result));
+    }
+
+    [HttpGet("health/details")]
+    [RequireRole("admin")]
+    [ProducesResponseType<AdminHealthDetailedResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<AdminHealthDetailedResponse>(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<IActionResult> GetHealthDetailsAsync(CancellationToken cancellationToken)
+    {
+        var result = await _adminHealthService.GetHealthAsync(cancellationToken);
+        var statusCode = result.IsHealthy
+            ? StatusCodes.Status200OK
+            : StatusCodes.Status503ServiceUnavailable;
+
+        return StatusCode(statusCode, BuildDetailedHealthResponse(result));
     }
 
     /// <summary>
     /// Return the current Model JSON schema.
     /// </summary>
     [HttpGet("schema")]
+    [RequireRole("admin")]
     public async Task<IActionResult> GetSchema()
     {
         var model = await _modelJsonStore.GetCurrentAsync();
@@ -60,6 +74,7 @@ public sealed class AdminController : ControllerBase
     /// Pass ?confirm_destructive=true to confirm destructive changes.
     /// </summary>
     [HttpPut("schema")]
+    [RequireRole("admin")]
     public async Task<IActionResult> PutSchema(
         [FromBody] JsonElement body,
         [FromQuery(Name = "confirm_destructive")] bool confirmDestructive = false)
@@ -148,6 +163,7 @@ public sealed class AdminController : ControllerBase
     /// Return the migration history in reverse chronological order.
     /// </summary>
     [HttpGet("migrations")]
+    [RequireRole("admin")]
     public async Task<IActionResult> GetMigrations()
     {
         var history = await _schemaService.GetHistoryAsync();
@@ -168,6 +184,7 @@ public sealed class AdminController : ControllerBase
     /// Rollback the last migration.
     /// </summary>
     [HttpPost("migrations/rollback")]
+    [RequireRole("admin")]
     public async Task<IActionResult> RollbackMigration()
     {
         var result = await _schemaService.RollbackLastAsync();
@@ -196,5 +213,25 @@ public sealed class AdminController : ControllerBase
                 versionTo = result.VersionTo
             }
         });
+    }
+
+    private static AdminHealthPublicResponse BuildPublicHealthResponse(AdminHealthResult result)
+    {
+        return new AdminHealthPublicResponse(
+            Status: result.IsHealthy ? "healthy" : "unhealthy",
+            Database: result.Database,
+            Version: result.Version,
+            Error: result.IsHealthy ? null : "unhealthy");
+    }
+
+    private static AdminHealthDetailedResponse BuildDetailedHealthResponse(AdminHealthResult result)
+    {
+        return new AdminHealthDetailedResponse(
+            Status: result.IsHealthy ? "healthy" : "unhealthy",
+            Database: result.Database,
+            Runtime: result.Runtime,
+            Uptime: result.Uptime,
+            Version: result.Version,
+            Error: result.Error);
     }
 }
