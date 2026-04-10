@@ -40,7 +40,17 @@ public static class BackendHost
 
         if (configuration is ConfigurationManager configurationManager)
         {
-            var persistentOverrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configurationManager);
+            using var bootstrapLoggerFactory = LoggerFactory.Create(logging =>
+            {
+                logging.AddConfiguration(configuration.GetSection("Logging"));
+                logging.AddJsonConsole(options =>
+                {
+                    options.IncludeScopes = true;
+                    options.TimestampFormat = "O";
+                });
+            });
+            var bootstrapLogger = bootstrapLoggerFactory.CreateLogger("Repere.Api.Configuration.PersistentRuntimeConfigBootstrap");
+            var persistentOverrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configurationManager, bootstrapLogger);
             if (persistentOverrides.Count > 0)
             {
                 configurationManager.AddInMemoryCollection(persistentOverrides);

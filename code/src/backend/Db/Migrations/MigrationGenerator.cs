@@ -536,6 +536,7 @@ public class MigrationGenerator
         var definitions = new List<string>();
         var physicalColumns = table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type)).ToList();
         var primaryKeyColumns = physicalColumns.Where(c => c.PrimaryKey).Select(c => c.Name).ToList();
+        EnsureSupportedPostgresPrimaryKey(table, provider, physicalColumns, primaryKeyColumns);
         var useCompositePrimaryKey = primaryKeyColumns.Count > 1;
         var useSqliteInlineIntegerPrimaryKey = provider == DatabaseProvider.Sqlite
             && primaryKeyColumns.Count == 1
@@ -563,6 +564,35 @@ public class MigrationGenerator
             );
             """;
     }
+
+    private static void EnsureSupportedPostgresPrimaryKey(
+        TableDef table,
+        DatabaseProvider provider,
+        IReadOnlyList<ColumnDef> physicalColumns,
+        IReadOnlyList<string> primaryKeyColumns)
+    {
+        if (provider != DatabaseProvider.Postgres)
+            return;
+
+        if (IsInternalJunctionTable(table))
+            return;
+
+        if (primaryKeyColumns.Count != 1)
+        {
+            throw new InvalidOperationException(
+                $"Postgres migrations require exactly one integer primary key column. Table '{table.Name}' has {primaryKeyColumns.Count} primary key columns.");
+        }
+
+        var primaryKeyColumn = physicalColumns.First(c => c.PrimaryKey);
+        if (primaryKeyColumn.Type != ColumnType.Integer)
+        {
+            throw new InvalidOperationException(
+                $"Postgres migrations require the primary key column to use the integer type so identity-backed inserts remain supported. Table '{table.Name}' uses '{primaryKeyColumn.Type}'.");
+        }
+    }
+
+    private static bool IsInternalJunctionTable(TableDef table) =>
+        table.Name.StartsWith("_jt_", StringComparison.Ordinal);
 
     private string BuildCreateTableColumnDefinition(
         ColumnDef column,

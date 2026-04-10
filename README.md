@@ -119,10 +119,16 @@ The **[project-management/](project-management/README.md)** directory tracks all
 
 ---
 
-## Quick Start (once MVP 1 ships)
+## Quick Start (current MVP 1)
 
 ```bash
-docker compose up
+docker compose -f code/docker-compose.yml up --build
 ```
 
-Then define a schema via `PUT /api/v1/admin/schema` and start using the auto-generated CRUD endpoints.
+For Postgres:
+
+```bash
+docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
+```
+
+Then register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and start using the auto-generated CRUD endpoints.

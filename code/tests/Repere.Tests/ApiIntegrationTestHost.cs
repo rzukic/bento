@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Data.Sqlite;
 using Npgsql;
@@ -52,7 +53,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
 
     public static async Task<ApiIntegrationTestHost> StartAsync(
         IReadOnlyDictionary<string, string?>? overrides = null,
-        string environmentName = "Development")
+        string environmentName = "Development",
+        Action<IServiceCollection>? configureTestServices = null)
     {
         var dataRootPath = Path.Combine(Path.GetTempPath(), "repere-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataRootPath);
@@ -78,6 +80,7 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             dataRootPath,
             configOverrides,
             environmentName,
+            configureTestServices,
             openSystemConnectionAsync: async () =>
             {
                 var conn = new SqliteConnection($"Data Source={Path.Combine(dataRootPath, "system.db")}");
@@ -103,7 +106,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
 
     public static async Task<ApiIntegrationTestHost> StartPostgresAsync(
         IReadOnlyDictionary<string, string?>? overrides = null,
-        string environmentName = "Development")
+        string environmentName = "Development",
+        Action<IServiceCollection>? configureTestServices = null)
     {
         var dataRootPath = Path.Combine(Path.GetTempPath(), "repere-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dataRootPath);
@@ -135,6 +139,7 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
                 dataRootPath,
                 configOverrides,
                 environmentName,
+                configureTestServices,
                 openSystemConnectionAsync: async () =>
                 {
                     var conn = new NpgsqlConnection(database.SystemConnectionString);
@@ -184,13 +189,14 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
         string dataRootPath,
         IReadOnlyDictionary<string, string?> configOverrides,
         string environmentName,
+        Action<IServiceCollection>? configureTestServices,
         Func<Task<IDbConnection>> openSystemConnectionAsync,
         Func<Task<IDbConnection>> openDataConnectionAsync,
         Func<ValueTask> cleanupAsync)
     {
         try
         {
-            var app = await BuildAndStartAppAsync(dataRootPath, configOverrides, environmentName);
+            var app = await BuildAndStartAppAsync(dataRootPath, configOverrides, environmentName, configureTestServices);
             var server = app.Services.GetRequiredService<IServer>();
             var addresses = server.Features.Get<IServerAddressesFeature>()?.Addresses
                 ?? throw new InvalidOperationException("Server addresses were not available after startup.");
@@ -220,7 +226,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
     private static async Task<WebApplication> BuildAndStartAppAsync(
         string dataRootPath,
         IReadOnlyDictionary<string, string?> configOverrides,
-        string environmentName)
+        string environmentName,
+        Action<IServiceCollection>? configureTestServices)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions
         {
@@ -258,6 +265,7 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
 
         builder.Configuration.AddInMemoryCollection(mergedOverrides);
         BackendHost.ConfigureServices(builder.Services, builder.Configuration, builder.Environment);
+        configureTestServices?.Invoke(builder.Services);
 
         var app = builder.Build();
         BackendHost.ConfigureMiddleware(app);

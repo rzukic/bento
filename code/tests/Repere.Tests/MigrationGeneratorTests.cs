@@ -520,6 +520,67 @@ public class MigrationGeneratorTests
         Assert.True(sql.IndexOf("CREATE TABLE \"customers\"", StringComparison.Ordinal) < sql.IndexOf("ALTER TABLE \"orders\" ADD COLUMN \"customer_id\"", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void Generate_Postgres_Throws_WhenCompositePrimaryKeyReachesDdlEmission()
+    {
+        var model = new ModelJson
+        {
+            Version = 1,
+            Tables =
+            [
+                new TableDef
+                {
+                    Name = "memberships",
+                    Columns =
+                    [
+                        new ColumnDef { Name = "user_id", Type = ColumnType.Integer, TypeSpecified = true, PrimaryKey = true, Nullable = false },
+                        new ColumnDef { Name = "group_id", Type = ColumnType.Integer, TypeSpecified = true, PrimaryKey = true, Nullable = false }
+                    ],
+                    Indexes = []
+                }
+            ],
+            Relations = []
+        };
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => generator.Generate(
+            new ModelJson { Version = 0, Tables = [], Relations = [] },
+            model,
+            [new SchemaChange { ChangeType = SchemaChangeType.AddTable, TableName = "memberships" }]));
+        Assert.Contains("exactly one integer primary key", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Generate_Postgres_Throws_WhenNonIntegerPrimaryKeyReachesDdlEmission()
+    {
+        var model = new ModelJson
+        {
+            Version = 1,
+            Tables =
+            [
+                new TableDef
+                {
+                    Name = "widgets",
+                    Columns =
+                    [
+                        new ColumnDef { Name = "id", Type = ColumnType.Text, TypeSpecified = true, PrimaryKey = true, Nullable = false }
+                    ],
+                    Indexes = []
+                }
+            ],
+            Relations = []
+        };
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+
+        var ex = Assert.Throws<InvalidOperationException>(() => generator.Generate(
+            new ModelJson { Version = 0, Tables = [], Relations = [] },
+            model,
+            [new SchemaChange { ChangeType = SchemaChangeType.AddTable, TableName = "widgets" }]));
+        Assert.Contains("integer type", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
     private ModelJson Normalize(string json)
     {
         var parsed = ModelJsonSerializer.Parse(json);

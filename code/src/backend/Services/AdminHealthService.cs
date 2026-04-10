@@ -44,26 +44,22 @@ public sealed class AdminHealthService
             dataConnection = await _dataPool.GetConnectionAsync();
             dataPoolStatus = ToPoolStatus(dataConnection.State);
 
-            var response = new AdminHealthResponse(
-                Status: "healthy",
+            return new AdminHealthResult(
+                IsHealthy: true,
                 Database: new AdminHealthDatabaseStatus(systemPoolStatus, dataPoolStatus),
                 Runtime: BuildRuntimeStatus(),
                 Uptime: FormatUptime(DateTimeOffset.UtcNow - _runtimeInfo.StartedAtUtc),
                 Version: _runtimeInfo.Version);
-
-            return new AdminHealthResult(IsHealthy: true, Response: response);
         }
         catch (Exception ex)
         {
-            var response = new AdminHealthResponse(
-                Status: "unhealthy",
+            return new AdminHealthResult(
+                IsHealthy: false,
                 Database: new AdminHealthDatabaseStatus(systemPoolStatus, dataPoolStatus),
                 Runtime: BuildRuntimeStatus(),
                 Uptime: FormatUptime(DateTimeOffset.UtcNow - _runtimeInfo.StartedAtUtc),
                 Version: _runtimeInfo.Version,
                 Error: ex.Message);
-
-            return new AdminHealthResult(IsHealthy: false, Response: response);
         }
         finally
         {

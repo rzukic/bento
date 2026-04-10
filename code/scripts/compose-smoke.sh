@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 CODE_DIR="${REPO_ROOT}/code"
 DEFAULT_ENV_FILE="${CODE_DIR}/.env.example"
+POSTGRES_EXPOSE_OVERRIDE_FILE="${CODE_DIR}/docker-compose.postgres.expose.yml"
 
 usage() {
   cat <<'EOF'
@@ -27,7 +28,7 @@ Options:
   --project-name <name>     Explicit Docker Compose project name
   --timeout-seconds <n>     Seconds to wait for container/API readiness (default: 180)
   --host-backend-port <n>   Override HOST_BACKEND_PORT without editing an env file
-  --host-postgres-port <n>  Override HOST_POSTGRES_PORT without editing an env file
+  --host-postgres-port <n>  Opt in to host Postgres publish and set HOST_POSTGRES_PORT
   --log-dir <path>          Directory for captured failure logs
   --keep-running            Do not tear down automatically after `smoke`
   --help                    Show this help
@@ -63,6 +64,7 @@ HOST_BACKEND_PORT_OVERRIDE=""
 HOST_POSTGRES_PORT_OVERRIDE=""
 TEMP_ENV_FILE=""
 EFFECTIVE_ENV_FILE=""
+POSTGRES_PORT_EXPOSED=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -181,6 +183,80 @@ prepare_effective_env_file() {
   fi
 }
 
+get_env_var_from_file() {
+  local file="$1"
+  local key="$2"
+
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+
+  grep "^${key}=" "$file" | tail -n 1 | cut -d= -f2- || true
+}
+
+resolve_env_var() {
+  local key="$1"
+  local default_value="${2:-}"
+  local value="${!key:-}"
+
+  if [[ -z "$value" ]]; then
+    value="$(get_env_var_from_file "$EFFECTIVE_ENV_FILE" "$key")"
+  fi
+
+  if [[ -z "$value" ]]; then
+    value="$default_value"
+  fi
+
+  printf '%s' "$value"
+}
+
+generate_secret() {
+  local secret
+  secret="$(
+    set +o pipefail
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
+  )"
+  printf '%s' "$secret"
+}
+
+is_insecure_postgres_secret() {
+  local value="${1:-}"
+
+  [[ -z "$value" ]] \
+    || [[ "$value" == "CHANGE_ME" ]] \
+    || [[ "$value" == "repere_dev" ]] \
+    || [[ "$value" == "repere_system_dev" ]] \
+    || [[ "$value" == "repere_data_dev" ]]
+}
+
+ensure_postgres_passwords() {
+  if [[ "$VARIANT" != "postgres" ]]; then
+    return
+  fi
+
+  if [[ -z "$TEMP_ENV_FILE" ]]; then
+    TEMP_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/compose-smoke-env.XXXXXX")"
+    cp "$ENV_FILE" "$TEMP_ENV_FILE"
+    EFFECTIVE_ENV_FILE="$TEMP_ENV_FILE"
+  fi
+
+  local key
+  for key in POSTGRES_SUPERUSER_PASSWORD REPERE_SYSTEM_PASSWORD REPERE_DATA_PASSWORD; do
+    local value="${!key:-}"
+
+    if is_insecure_postgres_secret "$value"; then
+      value="$(get_env_var_from_file "$TEMP_ENV_FILE" "$key")"
+    fi
+
+    if is_insecure_postgres_secret "$value"; then
+      value="$(generate_secret)"
+      printf '[compose-smoke] generated ephemeral %s for disposable Postgres validation\n' "$key"
+    fi
+
+    set_env_var "$TEMP_ENV_FILE" "$key" "$value"
+  done
+}
+
 cleanup_temp_env_file() {
   if [[ -n "$TEMP_ENV_FILE" && -f "$TEMP_ENV_FILE" ]]; then
     rm -f "$TEMP_ENV_FILE"
@@ -188,15 +264,11 @@ cleanup_temp_env_file() {
 }
 
 prepare_effective_env_file
+ensure_postgres_passwords
 
-set -a
-# shellcheck disable=SC1090
-source "$EFFECTIVE_ENV_FILE"
-set +a
-
-HOST_BACKEND_PORT="${HOST_BACKEND_PORT:-5000}"
-BACKEND_PORT="${BACKEND_PORT:-5000}"
-HOST_POSTGRES_PORT="${HOST_POSTGRES_PORT:-5432}"
+HOST_BACKEND_PORT="$(resolve_env_var "HOST_BACKEND_PORT" "5000")"
+BACKEND_PORT="$(resolve_env_var "BACKEND_PORT" "5000")"
+HOST_POSTGRES_PORT="$(resolve_env_var "HOST_POSTGRES_PORT" "")"
 
 if [[ -z "$PROJECT_NAME" ]]; then
   PROJECT_NAME="repere-smoke-${VARIANT}"
@@ -211,6 +283,10 @@ mkdir -p "$LOG_DIR"
 COMPOSE_FILES=("${CODE_DIR}/docker-compose.yml")
 if [[ "$VARIANT" == "postgres" ]]; then
   COMPOSE_FILES+=("${CODE_DIR}/docker-compose.postgres.yml")
+  if [[ -n "$HOST_POSTGRES_PORT" ]]; then
+    COMPOSE_FILES+=("${POSTGRES_EXPOSE_OVERRIDE_FILE}")
+    POSTGRES_PORT_EXPOSED=1
+  fi
 fi
 
 compose_cmd() {
@@ -251,6 +327,7 @@ capture_debug_artifacts() {
     echo "host_backend_port=${HOST_BACKEND_PORT}"
     echo "backend_port=${BACKEND_PORT}"
     echo "host_postgres_port=${HOST_POSTGRES_PORT}"
+    echo "postgres_port_exposed=${POSTGRES_PORT_EXPOSED}"
   } > "${artifact_dir}/context.txt"
 
   compose_cmd ps > "${artifact_dir}/compose-ps.txt" 2>&1 || true

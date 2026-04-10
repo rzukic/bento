@@ -14,7 +14,14 @@ public sealed record AdminHealthRuntimeStatus(
     [property: JsonPropertyName("config_path")] string ConfigPath,
     [property: JsonPropertyName("jwt_configured")] bool JwtConfigured);
 
-public sealed record AdminHealthResponse(
+public sealed record AdminHealthPublicResponse(
+    string Status,
+    AdminHealthDatabaseStatus Database,
+    string Version,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? Error = null);
+
+public sealed record AdminHealthDetailedResponse(
     string Status,
     AdminHealthDatabaseStatus Database,
     AdminHealthRuntimeStatus Runtime,
@@ -25,4 +32,8 @@ public sealed record AdminHealthResponse(
 
 public sealed record AdminHealthResult(
     bool IsHealthy,
-    AdminHealthResponse Response);
+    AdminHealthDatabaseStatus Database,
+    AdminHealthRuntimeStatus Runtime,
+    string Uptime,
+    string Version,
+    string? Error = null);

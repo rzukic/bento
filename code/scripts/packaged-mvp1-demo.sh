@@ -8,6 +8,7 @@ CODE_DIR="${REPO_ROOT}/code"
 DEFAULT_ENV_FILE="${CODE_DIR}/.env.example"
 DEFAULT_SCHEMA_FILE="${CODE_DIR}/scripts/fixtures/mvp1-demo-schema.json"
 SMOKE_HARNESS="${CODE_DIR}/scripts/compose-smoke.sh"
+POSTGRES_EXPOSE_OVERRIDE_FILE="${CODE_DIR}/docker-compose.postgres.expose.yml"
 
 usage() {
   cat <<'EOF'
@@ -20,7 +21,7 @@ Options:
   --project-name <name>     Explicit Docker Compose project name
   --timeout-seconds <n>     Seconds to allow startup/readiness
   --host-backend-port <n>   Override HOST_BACKEND_PORT for the packaged stack
-  --host-postgres-port <n>  Override HOST_POSTGRES_PORT for the packaged stack
+  --host-postgres-port <n>  Opt in to host Postgres publish and set HOST_POSTGRES_PORT
   --api-root <url>          Override the API root instead of deriving it from the host port
   --log-dir <path>          Directory for captured failure logs
   --skip-startup            Assume the selected stack is already running and healthy
@@ -166,6 +167,7 @@ TEMP_ENV_FILE=""
 EFFECTIVE_ENV_FILE="$ENV_FILE"
 STACK_AVAILABLE=0
 STACK_OWNED=0
+POSTGRES_PORT_EXPOSED=0
 CURRENT_STEP="initialization"
 LAST_RESPONSE_FILE=""
 TOKEN=""
@@ -205,15 +207,85 @@ prepare_effective_env_file() {
   fi
 }
 
+get_env_var_from_file() {
+  local file="$1"
+  local key="$2"
+
+  if [[ ! -f "$file" ]]; then
+    return 0
+  fi
+
+  grep "^${key}=" "$file" | tail -n 1 | cut -d= -f2- || true
+}
+
+resolve_env_var() {
+  local key="$1"
+  local default_value="${2:-}"
+  local value="${!key:-}"
+
+  if [[ -z "$value" ]]; then
+    value="$(get_env_var_from_file "$EFFECTIVE_ENV_FILE" "$key")"
+  fi
+
+  if [[ -z "$value" ]]; then
+    value="$default_value"
+  fi
+
+  printf '%s' "$value"
+}
+
+generate_secret() {
+  local secret
+  secret="$(
+    set +o pipefail
+    LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 32
+  )"
+  printf '%s' "$secret"
+}
+
+is_insecure_postgres_secret() {
+  local value="${1:-}"
+
+  [[ -z "$value" ]] \
+    || [[ "$value" == "CHANGE_ME" ]] \
+    || [[ "$value" == "repere_dev" ]] \
+    || [[ "$value" == "repere_system_dev" ]] \
+    || [[ "$value" == "repere_data_dev" ]]
+}
+
+ensure_postgres_passwords() {
+  if [[ "$VARIANT" != "postgres" ]]; then
+    return
+  fi
+
+  if [[ -z "$TEMP_ENV_FILE" ]]; then
+    TEMP_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/packaged-mvp1-demo-env.XXXXXX")"
+    cp "$ENV_FILE" "$TEMP_ENV_FILE"
+    EFFECTIVE_ENV_FILE="$TEMP_ENV_FILE"
+  fi
+
+  local key
+  for key in POSTGRES_SUPERUSER_PASSWORD REPERE_SYSTEM_PASSWORD REPERE_DATA_PASSWORD; do
+    local value="${!key:-}"
+
+    if is_insecure_postgres_secret "$value"; then
+      value="$(get_env_var_from_file "$TEMP_ENV_FILE" "$key")"
+    fi
+
+    if is_insecure_postgres_secret "$value"; then
+      value="$(generate_secret)"
+      printf '[packaged-mvp1-demo] generated ephemeral %s for disposable Postgres validation\n' "$key"
+    fi
+
+    set_env_var "$TEMP_ENV_FILE" "$key" "$value"
+  done
+}
+
 prepare_effective_env_file
+ensure_postgres_passwords
 
-set -a
-# shellcheck disable=SC1090
-source "$EFFECTIVE_ENV_FILE"
-set +a
-
-HOST_BACKEND_PORT="${HOST_BACKEND_PORT:-5000}"
-HOST_POSTGRES_PORT="${HOST_POSTGRES_PORT:-5432}"
+HOST_BACKEND_PORT="$(resolve_env_var "HOST_BACKEND_PORT" "5000")"
+HOST_POSTGRES_PORT="$(resolve_env_var "HOST_POSTGRES_PORT" "")"
 
 if [[ -n "$API_ROOT_OVERRIDE" ]]; then
   API_ROOT="$API_ROOT_OVERRIDE"
@@ -230,6 +302,10 @@ mkdir -p "$LOG_DIR"
 COMPOSE_FILES=("${CODE_DIR}/docker-compose.yml")
 if [[ "$VARIANT" == "postgres" ]]; then
   COMPOSE_FILES+=("${CODE_DIR}/docker-compose.postgres.yml")
+  if [[ -n "$HOST_POSTGRES_PORT" ]]; then
+    COMPOSE_FILES+=("${POSTGRES_EXPOSE_OVERRIDE_FILE}")
+    POSTGRES_PORT_EXPOSED=1
+  fi
 fi
 
 compose_cmd() {
@@ -328,6 +404,7 @@ capture_debug_artifacts() {
     echo "api_root=${API_ROOT}"
     echo "host_backend_port=${HOST_BACKEND_PORT}"
     echo "host_postgres_port=${HOST_POSTGRES_PORT}"
+    echo "postgres_port_exposed=${POSTGRES_PORT_EXPOSED}"
   } > "${artifact_dir}/context.txt"
 
   if [[ -n "$LAST_RESPONSE_FILE" && -f "$LAST_RESPONSE_FILE" ]]; then
@@ -395,13 +472,17 @@ start_stack() {
 }
 
 check_public_health() {
-  local expected_provider
-  expected_provider="$VARIANT"
-
   api_request 200 GET "/admin/health" none
   assert_json '.status == "healthy"' 'health status should be healthy'
   assert_json '.database.system_pool == "connected"' 'system pool should be connected'
   assert_json '.database.data_pool == "connected"' 'data pool should be connected'
+  assert_json '.version | type == "string"' 'health endpoint should expose a short version string'
+}
+
+check_admin_health_details() {
+  local expected_provider="$VARIANT"
+
+  api_request 200 GET "/admin/health/details" bearer
   assert_json ".runtime.database_provider == \"${expected_provider}\"" "database provider should be ${expected_provider}"
   assert_json '.runtime.jwt_configured == true' 'JWT should be configured by packaged runtime bootstrap'
 }
@@ -541,6 +622,7 @@ fi
 run_step "checking public health contract" check_public_health
 run_step "registering bootstrap admin" register_bootstrap_admin
 run_step "logging in as admin" login_admin
+run_step "checking admin health details" check_admin_health_details
 run_step "applying demo schema" apply_demo_schema
 run_step "verifying schema visibility" verify_schema_visibility
 run_step "creating customer" create_customer
