@@ -156,6 +156,18 @@ Completed the Step 1.3 backend server foundation on `dev` and cleaned the docs s
 - `/api/v1/admin/health` is the canonical health endpoint with request-id and operational metadata
 - API/backend/architecture docs now explicitly mark auth, CRUD, query, DDL blocklist, and WebSocket behavior as not yet implemented where applicable
 
+### 2026-04-04 — Build the schema engine and migration pipeline
+
+> **Phase**: Phase 1 — Foundation
+> **Working step**: [Step 1.2 — Schema engine (Model JSON & migrations)](working-steps/1.2-schema-engine.md)
+
+Built the schema engine that turns Model JSON into a validated, versioned database contract with provider-aware migrations for SQLite and Postgres. This completed the foundation needed for later admin schema operations and auto-generated CRUD work.
+
+**Highlights:**
+- Added typed Model JSON parsing, round-trip serialization, stable validation errors, and schema-version persistence
+- Added schema diffing, relation resolution, deterministic junction-table generation, and provider-specific migration planning
+- Added schema apply/rollback orchestration, startup auto-migrate support, and broad regression coverage for validation, diffing, migrations, and relation metadata
+
 ### 2026-04-03 — Core database connection and query builder
 
 > **Phase**: Phase 1 — Foundation
@@ -174,7 +186,17 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 
 ## Released
 
-_No versions shipped yet. First release will appear here._
+### 2026-04-11 — Ship v0.1.0 MVP 1: Data API
+
+> **Version**: [v0.1.0 — MVP 1: Data API](releases/v0.1.0.md)
+> **Phase**: Phase 1 — Foundation
+
+Published the first versioned release note for the completed MVP 1 milestone. This release captures the finished Phase 1 backend/API foundation: schema engine, auth, auto-generated CRUD API, Docker packaging, packaged validation flows, and the initial Postgres-backed regression lane.
+
+**Highlights:**
+- MVP 1 is now recorded as the first shippable Repere milestone with a dedicated semver release page
+- The release bundles completed Steps 1.1 through 1.6 into a backend-only Dockerized Data API with SQLite and Postgres deployment paths
+- Git tagging and artifact publication remain the final operational release-cut steps outside the changelog itself
 
 ---
 
