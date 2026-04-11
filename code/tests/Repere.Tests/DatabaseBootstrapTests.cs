@@ -9,6 +9,7 @@ public class DatabaseBootstrapTests
     private static readonly string[] ExpectedSystemTables =
     [
         "api_keys",
+        "auth_sessions",
         "credentials",
         "dashboards",
         "jobs",
@@ -38,6 +39,7 @@ public class DatabaseBootstrapTests
                 'migrations',
                 'users',
                 'api_keys',
+                'auth_sessions',
                 'dashboards',
                 'credentials',
                 'jobs'

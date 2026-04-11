@@ -10,13 +10,23 @@ public sealed class BackendRuntimeOptions
 
     public string MaxBodySize { get; set; } = "10mb";
 
-    public string AuthMode { get; set; } = "standard";
+    public BackendAuthMode AuthMode { get; set; } = BackendAuthMode.Standard;
 
-    public string? JwtSecret { get; set; }
+    public JwtRuntimeOptions Jwt { get; set; } = new();
+
+    public AuthCookieRuntimeOptions AuthCookie { get; set; } = new();
+
+    public int AuthRateLimitPerMinute { get; set; } = 5;
 
     public string DataDir { get; set; } = "./data";
 
     public string? DatabaseUrl { get; set; }
+
+    public string PersistentConfigPath { get; set; } = "./data/config.json";
+
+    public bool IsOpenAuthMode => AuthMode == BackendAuthMode.Open;
+
+    public bool IsStandardAuthMode => AuthMode == BackendAuthMode.Standard;
 
     public long GetMaxBodySizeBytes()
     {

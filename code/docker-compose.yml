@@ -1,0 +1,26 @@
+services:
+  backend:
+    image: repere/backend:local
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "${HOST_BACKEND_PORT:-5000}:${BACKEND_PORT:-5000}"
+    environment:
+      AUTH_MODE: "${AUTH_MODE:-standard}"
+      JWT_SECRET: "${JWT_SECRET:-}"
+      BACKEND_PORT: "${BACKEND_PORT:-5000}"
+      DATA_DIR: /data
+      LOG_LEVEL: "${LOG_LEVEL:-Information}"
+    volumes:
+      - repere-data:/data
+    healthcheck:
+      test: ["CMD", "dotnet", "Repere.Api.dll", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 5
+
+volumes:
+  repere-data:

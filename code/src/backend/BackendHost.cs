@@ -4,6 +4,7 @@ using Repere.Api.Db.Migrations;
 using Repere.Api.Db.Schema;
 using Repere.Api.Middleware;
 using Repere.Api.Services;
+using Repere.Api.Validation;
 
 namespace Repere.Api;
 
@@ -37,10 +38,33 @@ public static class BackendHost
     {
         _ = environment;
 
-        services.AddControllers()
-            .AddApplicationPart(typeof(Program).Assembly);
+        if (configuration is ConfigurationManager configurationManager)
+        {
+            using var bootstrapLoggerFactory = LoggerFactory.Create(logging =>
+            {
+                logging.AddConfiguration(configuration.GetSection("Logging"));
+                logging.AddJsonConsole(options =>
+                {
+                    options.IncludeScopes = true;
+                    options.TimestampFormat = "O";
+                });
+            });
+            var bootstrapLogger = bootstrapLoggerFactory.CreateLogger("Repere.Api.Configuration.PersistentRuntimeConfigBootstrap");
+            var persistentOverrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configurationManager, bootstrapLogger);
+            if (persistentOverrides.Count > 0)
+            {
+                configurationManager.AddInMemoryCollection(persistentOverrides);
+            }
+        }
 
-        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration);
+        services.AddControllers()
+            .AddApplicationPart(typeof(Program).Assembly)
+            .ConfigureApiBehaviorOptions(options =>
+            {
+                options.InvalidModelStateResponseFactory = ApiValidationResponseFactory.CreateActionResult;
+            });
+
+        var runtimeOptions = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(configuration, environment);
         services.AddSingleton(runtimeOptions);
 
         var dbConfig = new DatabaseConfig();
@@ -73,6 +97,8 @@ public static class BackendHost
                 serviceProvider.GetRequiredService<ILogger<DataPool>>()));
 
         services.AddSingleton<QueryService>();
+        services.AddSingleton<AuthService>();
+        services.AddSingleton<AuthRateLimiter>();
         services.AddSingleton<ModelJsonStore>();
         services.AddSingleton<SchemaValidator>();
         services.AddSingleton<RelationResolver>();
@@ -82,9 +108,14 @@ public static class BackendHost
         services.AddSingleton<SchemaService>();
         services.AddSingleton(BackendRuntimeInfo.CreateForCurrentProcess());
         services.AddSingleton<AdminHealthService>();
+        services.AddSingleton<RequestBodyValidator>();
+        services.AddSingleton<CrudService>();
+        services.AddSingleton<IncludeService>();
+        services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();
         services.AddHostedService<SchemaAutoMigrationService>();
+        services.AddHostedService<SchemaCacheInitializer>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)
@@ -94,6 +125,8 @@ public static class BackendHost
         app.UseMiddleware<ErrorHandlingMiddleware>();
         app.UseMiddleware<CorsPolicyMiddleware>();
         app.UseMiddleware<BodySizeLimitMiddleware>();
+        app.UseMiddleware<AuthRateLimitMiddleware>();
+        app.UseMiddleware<AuthMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)

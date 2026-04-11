@@ -1,6 +1,7 @@
 using Repere.Api.Db;
 using Repere.Api.Models;
 using System.Data;
+using Repere.Api.Configuration;
 
 namespace Repere.Api.Services;
 
@@ -9,15 +10,21 @@ public sealed class AdminHealthService
     private readonly ISystemPool _systemPool;
     private readonly IDataPool _dataPool;
     private readonly BackendRuntimeInfo _runtimeInfo;
+    private readonly BackendRuntimeOptions _runtimeOptions;
+    private readonly DatabaseConfig _databaseConfig;
 
     public AdminHealthService(
         ISystemPool systemPool,
         IDataPool dataPool,
-        BackendRuntimeInfo runtimeInfo)
+        BackendRuntimeInfo runtimeInfo,
+        BackendRuntimeOptions runtimeOptions,
+        DatabaseConfig databaseConfig)
     {
         _systemPool = systemPool;
         _dataPool = dataPool;
         _runtimeInfo = runtimeInfo;
+        _runtimeOptions = runtimeOptions;
+        _databaseConfig = databaseConfig;
     }
 
     public async Task<AdminHealthResult> GetHealthAsync(CancellationToken cancellationToken = default)
@@ -37,24 +44,22 @@ public sealed class AdminHealthService
             dataConnection = await _dataPool.GetConnectionAsync();
             dataPoolStatus = ToPoolStatus(dataConnection.State);
 
-            var response = new AdminHealthResponse(
-                Status: "healthy",
+            return new AdminHealthResult(
+                IsHealthy: true,
                 Database: new AdminHealthDatabaseStatus(systemPoolStatus, dataPoolStatus),
+                Runtime: BuildRuntimeStatus(),
                 Uptime: FormatUptime(DateTimeOffset.UtcNow - _runtimeInfo.StartedAtUtc),
                 Version: _runtimeInfo.Version);
-
-            return new AdminHealthResult(IsHealthy: true, Response: response);
         }
         catch (Exception ex)
         {
-            var response = new AdminHealthResponse(
-                Status: "unhealthy",
+            return new AdminHealthResult(
+                IsHealthy: false,
                 Database: new AdminHealthDatabaseStatus(systemPoolStatus, dataPoolStatus),
+                Runtime: BuildRuntimeStatus(),
                 Uptime: FormatUptime(DateTimeOffset.UtcNow - _runtimeInfo.StartedAtUtc),
                 Version: _runtimeInfo.Version,
                 Error: ex.Message);
-
-            return new AdminHealthResult(IsHealthy: false, Response: response);
         }
         finally
         {
@@ -68,6 +73,17 @@ public sealed class AdminHealthService
         return state == ConnectionState.Open
             ? "connected"
             : "unavailable";
+    }
+
+    private AdminHealthRuntimeStatus BuildRuntimeStatus()
+    {
+        return new AdminHealthRuntimeStatus(
+            DatabaseProvider: _databaseConfig.Provider.ToString().ToLowerInvariant(),
+            AuthMode: _runtimeOptions.AuthMode.ToString().ToLowerInvariant(),
+            LogLevel: _runtimeOptions.LogLevel,
+            DataDir: _runtimeOptions.DataDir,
+            ConfigPath: _runtimeOptions.PersistentConfigPath,
+            JwtConfigured: !string.IsNullOrWhiteSpace(_runtimeOptions.Jwt.Secret));
     }
 
     private static string FormatUptime(TimeSpan uptime)

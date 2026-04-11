@@ -1,22 +1,28 @@
 # API Reference
 
 > REST API served by the ASP.NET Core backend at `/api/v1/`.
-> All requests go through Caddy — clients always use relative URLs.
+> Phase 1 packaged deployments expose the backend directly on the configured host port; a future proxy/frontend layer may sit in front of the same route contract later.
 
 ---
 
 ## Authentication
 
-Authentication is not implemented yet.
+Step 1.4 auth is now active for the implemented backend surface.
 
-Planned Phase 1 auth methods:
+Current implemented Phase 1 auth method:
 
 | Method | Header | Value |
 |--------|--------|-------|
 | JWT Bearer | `Authorization` | `Bearer <token>` |
-| API Key | `X-API-Key` | `<key>` |
 
-> **Not yet implemented** — Step 1.3 reserves the auth route area, but login, token issuance, auth middleware, and API key validation are still planned for Step 1.4 / later Phase 1 work.
+Current Step 1.4 auth contract:
+- `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, whether bootstrap self-registration is currently open, and the list of auth features still deferred
+- `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
+- `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
+- `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
+- `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
+- API key auth and logout remain deferred to later phases
 
 ---
 
@@ -47,7 +53,13 @@ Known backend error codes:
 - `UNAUTHORIZED`
 - `FORBIDDEN`
 - `CONFLICT`
+- `UNPROCESSABLE_ENTITY`
+- `TOO_MANY_REQUESTS`
 - `INTERNAL_ERROR`
+
+Endpoint-specific codes currently used by implemented routes:
+- `CONFIRMATION_REQUIRED` (`PUT /api/v1/admin/schema` when destructive changes need explicit confirmation)
+- `NO_MIGRATIONS` (`POST /api/v1/admin/migrations/rollback` when there is nothing to roll back)
 
 In development, unexpected `500` responses may also include debug-only fields such as `exceptionType` and `stackTrace` inside `error.details`. Those fields are not returned in production.
 
@@ -67,11 +79,13 @@ Cross-origin and request-size behavior:
 
 | Method | Path | Description |
 |--------|------|-------------|
+| `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
+| `POST` | `/api/v1/auth/register` | Create the bootstrap admin or an admin-managed user |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 
-> **Not yet implemented** — planned for Phase 1.
+`GET /api/v1/auth`, `POST /register`, `POST /login`, and `POST /refresh` are implemented in Step 1.4. `POST /logout` and API key auth remain future work.
 
 ---
 
@@ -80,8 +94,23 @@ Cross-origin and request-size behavior:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
+| `GET` | `/api/v1/admin/health/details` | Detailed backend health and runtime state for admin callers |
+| `GET` | `/api/v1/admin/schema` | Return the current Model JSON |
+| `PUT` | `/api/v1/admin/schema` | Apply a new Model JSON and run the generated migration |
+| `GET` | `/api/v1/admin/migrations` | List migration history |
+| `POST` | `/api/v1/admin/migrations/rollback` | Roll back the most recent migration |
 
-Current response shape:
+Current Step 1.5 admin contract:
+- `GET /api/v1/admin/health` is public in both `standard` and `open` mode so container and orchestrator readiness probes can use the canonical versioned health route without a bootstrap token
+- `GET /api/v1/admin/health/details` requires an admin caller in `standard` mode and uses the open-mode admin bypass in `open` mode
+- the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
+- `GET /api/v1/admin/schema` returns the raw Model JSON document with `application/json`
+- `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
+- destructive schema changes must be retried with `?confirm_destructive=true`; otherwise the endpoint returns `409 CONFLICT` with `CONFIRMATION_REQUIRED`
+- `GET /api/v1/admin/migrations` returns migration history in reverse chronological order
+- `POST /api/v1/admin/migrations/rollback` rolls back the most recent migration and reloads the schema cache; if no migration exists it returns `400` with `NO_MIGRATIONS`
+
+Public probe shape (`GET /api/v1/admin/health`):
 
 ```json
 {
@@ -90,20 +119,45 @@ Current response shape:
     "system_pool": "connected",
     "data_pool": "connected"
   },
-  "uptime": "3d 14h 22m",
   "version": "1.0.0"
 }
 ```
 
 Contract notes:
 - `database.system_pool` and `database.data_pool` report `connected` or `unavailable`
-- `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
 - `version` comes from the backend assembly version metadata
+- anonymous unhealthy responses keep the same minimal structure and replace detailed exception text with `error: "unhealthy"`
 
-If a backend dependency is unavailable, the same endpoint returns `503 Service Unavailable` with `status: "unhealthy"` and the same structural fields plus an `error` message.
+Detailed admin shape (`GET /api/v1/admin/health/details`):
+
+```json
+{
+  "status": "healthy",
+  "database": {
+    "system_pool": "connected",
+    "data_pool": "connected"
+  },
+  "runtime": {
+    "database_provider": "sqlite",
+    "auth_mode": "standard",
+    "log_level": "Information",
+    "data_dir": "/data",
+    "config_path": "/data/config.json",
+    "jwt_configured": true
+  },
+  "uptime": "3d 14h 22m",
+  "version": "1.0.0"
+}
+```
+
+- `runtime.database_provider` reports the effective backend database provider (`sqlite` or `postgres`)
+- `runtime.auth_mode`, `runtime.log_level`, `runtime.data_dir`, and `runtime.config_path` expose packaged runtime state for operators
+- `runtime.jwt_configured` reports whether a signing secret is available, whether it came from env or from the persisted runtime config
+- `uptime` is the current backend process runtime formatted as `Xd Xh Xm`
+- admin unhealthy responses keep the detailed structure and include the underlying `error` message for diagnosis
 
 The response also includes the `X-Request-Id` header so callers can correlate failures with backend logs.
-This is the canonical backend health endpoint for deployment checks and container health probes.
+`GET /api/v1/admin/health` is the canonical backend health endpoint for deployment checks and container health probes.
 
 ---
 
@@ -111,9 +165,9 @@ This is the canonical backend health endpoint for deployment checks and containe
 
 | Method | Path | Description |
 |--------|------|-------------|
-| — | `/api/v1/schema/*` | Reserved route area for future schema-management endpoints |
+| — | `/api/v1/schema/*` | Reserved route area for future non-admin schema endpoints |
 
-> **Not yet implemented** — Step 1.3 reserves the `schema` prefix only. Concrete schema-management endpoints are future work.
+> Schema management for Phase 1 lives under `/api/v1/admin/schema`. The standalone `/api/v1/schema/*` area is still reserved for future work.
 
 ---
 
@@ -121,9 +175,41 @@ This is the canonical backend health endpoint for deployment checks and containe
 
 | Method | Path | Description |
 |--------|------|-------------|
-| — | `/api/v1/data/*` | Reserved route area for future auto-generated CRUD/data endpoints |
+| `GET` | `/api/v1/data/<table>` | List rows for a schema-defined table |
+| `GET` | `/api/v1/data/<table>/:id` | Fetch a single row by numeric ID |
+| `POST` | `/api/v1/data/<table>` | Create a row |
+| `PUT` | `/api/v1/data/<table>/:id` | Replace all writable columns on a row |
+| `PATCH` | `/api/v1/data/<table>/:id` | Update only provided writable columns |
+| `DELETE` | `/api/v1/data/<table>/:id` | Delete a row |
+| `GET` | `/api/v1/data/<table>/:id/<relation>` | Fetch related rows through a relation accessor |
 
-> **Not yet implemented** — Step 1.3 reserves the `data` prefix only. Auto CRUD endpoints are planned for Step 1.5.
+Current Step 1.5 data contract:
+- tables and relation accessors come from the current Model JSON; route availability updates immediately after `PUT /api/v1/admin/schema`
+- all `/api/v1/data/*` endpoints require auth in `standard` mode and run with the open-mode admin bypass in `open` mode
+- `GET /api/v1/data/<table>` returns `{ data, meta }`, where `meta` includes `page`, `per_page`, `total`, and `total_pages`
+- `POST /api/v1/data/<table>` returns `201 Created` with `{ data }`
+- `PUT` is full replacement for writable columns; omitted optional writable columns may become `null`, while omitted non-nullable writable columns fail validation
+- `PATCH` updates only the provided writable columns
+- writes are validated against the current Model JSON: required columns, types, enums, unique constraints, foreign keys, unknown columns, and computed/read-only columns
+- foreign-key validation failures return `422 UNPROCESSABLE_ENTITY`
+
+List query parameters for `GET /api/v1/data/<table>`:
+
+| Param | Description |
+|-------|-------------|
+| `filter[col]` | Exact match |
+| `filter[col][op]` | Operators: `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `in`, `null`, `notnull` |
+| `sort` | Column name, prefix `-` for descending, comma-separated for multi-sort |
+| `include` | Comma-separated relation accessors, with dot notation for nested includes |
+| `fields` | Sparse fieldset of physical column names on the root table |
+| `page`, `per_page` | Pagination (default `25`, max `1000`) |
+| `search` | Case-insensitive text search across text columns |
+
+Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
+- relation names use relation accessor metadata, not raw relation IDs
+- supports `filter`, `sort`, `page`, and `per_page` against the related table
+- returns the same `{ data, meta }` envelope with real pagination metadata for the related query
+- does not currently support nested `include`, `fields`, or `search` on the sub-resource endpoint
 
 ---
 

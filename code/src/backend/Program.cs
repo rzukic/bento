@@ -1,5 +1,11 @@
 using Repere.Api;
 
+if (HealthcheckCommand.IsRequested(args))
+{
+    Environment.ExitCode = await HealthcheckCommand.RunAsync(Environment.GetEnvironmentVariable);
+    return;
+}
+
 var builder = WebApplication.CreateBuilder(args);
 
 BackendHost.ConfigureConfiguration(builder);
