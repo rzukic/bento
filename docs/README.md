@@ -1,6 +1,6 @@
-# Repère — Code Documentation
+# Repère Documentation
 
-> Technical documentation for the Repère codebase. Covers architecture, backend, frontend, API, and component library.
+> Documentation for both current users and contributors.
 > For the project wiki (requirements, design decisions, plan), see [`wiki/`](../wiki/README.md).
 
 ---
@@ -9,6 +9,7 @@
 
 | Section | What's covered |
 |---------|---------------|
+| [User Guides](user/README.md) | Setup and practical MVP 1 usage without needing deep implementation knowledge |
 | [Architecture](architecture/README.md) | System topology, service boundaries, data flow diagrams |
 | [Backend](backend/README.md) | ASP.NET Core structure, DB access, formula engine, background workers |
 | [Frontend](frontend/README.md) | Vite/React structure, routing, state management, build pipeline |
@@ -26,6 +27,14 @@ See [ai-guidelines.md](ai-guidelines.md) for:
 - How to keep docs in sync with code
 
 ---
+
+## User Docs vs Technical Docs
+
+| Audience | Best place to start |
+|----------|---------------------|
+| Someone trying the current product | [User Guides](user/README.md) |
+| Someone integrating against the API in detail | [API](api/README.md) |
+| Someone working on the codebase | [Backend](backend/README.md), [Architecture](architecture/README.md) |
 
 ## Relationship to the Wiki
 

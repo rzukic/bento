@@ -60,6 +60,7 @@ The **[docs/](docs/README.md)** describe how the code actually works — archite
 
 | Section | What's there |
 |---------|-------------|
+| [User Guides](docs/user/README.md) | Setup and practical MVP 1 usage |
 | [Architecture](docs/architecture/README.md) | System topology, service boundaries, data flow |
 | [Backend](docs/backend/README.md) | ASP.NET Core structure, DB access, runtime config |
 | [API Reference](docs/api/README.md) | REST endpoints, auth contract, error codes |
@@ -99,7 +100,7 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [Changelog](project-management/CHANGELOG.md) | What changed and when |
 | [Working Steps](project-management/working-steps/) | Detailed implementation logs per step |
 | [Code Reviews](project-management/code-reviews/) | Audit findings for completed steps |
-| [Releases](project-management/releases/README.md) | Versioned release notes (none yet) |
+| [Releases](project-management/releases/README.md) | Versioned release notes |
 | [AI Worker Instructions](project-management/ai-workers/README.md) | How AI agents maintain this system |
 
 ### Current Progress
@@ -116,6 +117,8 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [1.6](project-management/working-steps/1.6-docker-packaging.md) | Docker packaging & MVP 1 validation | Done |
 
 **MVP 1 "Data API"**: Define a schema as JSON, start the container, get a full REST API with auth. Reached after Step 1.6.
+
+For a non-technical path through the current product, start with [docs/user/README.md](docs/user/README.md).
 
 ---
 
