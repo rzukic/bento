@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+## Phase 2 — Data Management
+
+### 2026-04-12 — Complete Step 2.1 frontend shell foundation
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.1 — Frontend Core & SPA Shell](working-steps/2.1-frontend-core-and-spa-shell.md)
+
+Completed the first browser-facing frontend foundation so Repere now has a real SPA shell on top of the shipped backend contract. The Step 2.1 closeout leaves the repo with authenticated navigation, a shared typed client/store layer, and the first reusable theme/component baseline for the upcoming Data Explorer and Schema Designer work.
+
+**Highlights:**
+- The frontend shell now uses the real Phase 1 auth flow, including login, silent refresh bootstrap, protected routes, and schema snapshot loading against the live backend
+- Added a reusable primitive layer for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs, plus practical light/dark/system theme switching
+- Closed TASK-062 through TASK-066 and verified the frontend loop with `npm run typecheck`, `npm run test`, and `npm run build`
+
 ## Phase 1 — Foundation
 
 ### 2026-04-10 — Close the remaining Step 1.6 packaging audit follow-ups
