@@ -3,6 +3,7 @@ import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAppStore, type ThemeMode } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
+import { useSchemaStore } from "../../stores/schemaStore";
 import { Icon, type IconName } from "../common/Icon";
 import type { AppRouteHandle } from "../../router";
 import { Button } from "../ui/Button";
@@ -32,21 +33,21 @@ const navSections: NavSection[] = [
     items: [
       { to: "/", label: "Overview", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
-      { to: "/model", label: "Schema", icon: "schema" }
-    ]
+      { to: "/model", label: "Schema", icon: "schema" },
+    ],
   },
   {
     title: "Later Modules",
     items: [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
-      { to: "/ai", label: "AI", icon: "sparkles" }
-    ]
+      { to: "/ai", label: "AI", icon: "sparkles" },
+    ],
   },
   {
     title: "Admin",
-    items: [{ to: "/settings", label: "Settings", icon: "settings" }]
-  }
+    items: [{ to: "/settings", label: "Settings", icon: "settings" }],
+  },
 ];
 
 export function AppFrame({ children }: AppFrameProps) {
@@ -58,6 +59,7 @@ export function AppFrame({ children }: AppFrameProps) {
   const setThemeMode = useAppStore((state) => state.setThemeMode);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
+  const schemaSnapshot = useSchemaStore((state) => state.snapshot);
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   function handleLogout() {
@@ -76,13 +78,45 @@ export function AppFrame({ children }: AppFrameProps) {
         items.push(handle.breadcrumbParent);
       }
       const label =
-        typeof handle.title === "function" ? handle.title(match.params) : handle.title;
+        typeof handle.title === "function"
+          ? handle.title(match.params)
+          : handle.title;
       items.push({ label, to: match.pathname });
     }
     return items;
   }, [matches]);
 
-  const currentTitle = breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Repere";
+  const currentTitle =
+    useMemo(() => {
+      const tableId = matches[matches.length - 1]?.params?.tableId;
+      if (!tableId || !schemaSnapshot) {
+        return breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Repere";
+      }
+
+      const table = schemaSnapshot.tables.find((candidate) => candidate.name === tableId);
+      return table?.displayName ?? breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Repere";
+    }, [breadcrumbItems, matches, schemaSnapshot]);
+
+  const currentSubtitle = useMemo(() => {
+    const currentMatch = matches[matches.length - 1];
+    const handle = currentMatch?.handle as AppRouteHandle | undefined;
+    const tableId = currentMatch?.params?.tableId;
+
+    if (tableId && schemaSnapshot) {
+      const table = schemaSnapshot.tables.find((candidate) => candidate.name === tableId);
+      if (table?.description) return table.description;
+    }
+
+    if (!handle?.subtitle) return null;
+    return typeof handle.subtitle === "function"
+      ? handle.subtitle(currentMatch?.params ?? {})
+      : handle.subtitle;
+  }, [matches, schemaSnapshot]);
+  const currentHandle = matches[matches.length - 1]?.handle as
+    | AppRouteHandle
+    | undefined;
+  const hidePageHeader = currentHandle?.hidePageHeader === true;
+
   useDocumentTitle(`${currentTitle} · Repere`);
 
   return (
@@ -98,7 +132,11 @@ export function AppFrame({ children }: AppFrameProps) {
           </div>
         </div>
 
-        <button type="button" className="shell__search" aria-label="Open command palette">
+        <button
+          type="button"
+          className="shell__search"
+          aria-label="Open command palette"
+        >
           <Icon name="search" size={14} />
           <span className="shell__search-text">Search or jump…</span>
           <span className="kbd">⌘</span>
@@ -108,7 +146,9 @@ export function AppFrame({ children }: AppFrameProps) {
         <nav className="shell__nav" aria-label="Main navigation">
           {navSections.map((section) => (
             <div key={section.title} className="shell__nav-section">
-              <div className="shell__nav-section-title section-label">{section.title}</div>
+              <div className="shell__nav-section-title section-label">
+                {section.title}
+              </div>
               <ul className="shell__nav-list">
                 {section.items.map((item) => (
                   <li key={item.to}>
@@ -116,7 +156,9 @@ export function AppFrame({ children }: AppFrameProps) {
                       to={item.to}
                       end={item.to === "/"}
                       className={({ isActive }) =>
-                        isActive ? "shell__nav-link shell__nav-link--active" : "shell__nav-link"
+                        isActive
+                          ? "shell__nav-link shell__nav-link--active"
+                          : "shell__nav-link"
                       }
                     >
                       <Icon name={item.icon} size={15} />
@@ -135,7 +177,9 @@ export function AppFrame({ children }: AppFrameProps) {
               <Icon name="user" size={14} />
             </div>
             <div className="shell__user-text">
-              <span className="shell__user-name">{user?.username ?? "signed out"}</span>
+              <span className="shell__user-name">
+                {user?.username ?? "signed out"}
+              </span>
               <span className="shell__user-role">{user?.role ?? "—"}</span>
             </div>
             <Button
@@ -161,7 +205,10 @@ export function AppFrame({ children }: AppFrameProps) {
             aria-pressed={sidebarOpen}
             aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
           >
-            <Icon name={sidebarOpen ? "chevron-left" : "chevron-right"} size={14} />
+            <Icon
+              name={sidebarOpen ? "chevron-left" : "chevron-right"}
+              size={14}
+            />
           </Button>
 
           <Breadcrumbs items={breadcrumbItems} />
@@ -174,38 +221,56 @@ export function AppFrame({ children }: AppFrameProps) {
               hideLabel
               compact
               value={themeMode}
-              onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
+              onChange={(event) =>
+                setThemeMode(event.target.value as ThemeMode)
+              }
               options={[
                 { label: "System", value: "system" },
                 { label: "Dark", value: "dark" },
-                { label: "Light", value: "light" }
+                { label: "Light", value: "light" },
               ]}
             />
           </div>
-          <span className="badge badge--live">live</span>
           <span className="badge">sqlite · dev</span>
           <span className="badge">v0.1.0</span>
         </header>
 
-        <div className="shell__page">
-          <header className="shell__page-header">
-            <div className="shell__page-heading">
-              <h1 className="shell__page-title">{currentTitle}</h1>
-              <p className="shell__page-subtitle">
-                Phase 2 · Step 2.2 · Data Explorer
-              </p>
-            </div>
-            <div className="shell__page-actions">
-              <Button leadingIcon={<Icon name="activity" size={14} />}>
-                View logs
-              </Button>
-              <Button variant="primary" leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}>
-                New
-              </Button>
-            </div>
-          </header>
+        <div
+          className={
+            hidePageHeader ? "shell__page shell__page--immersive" : "shell__page"
+          }
+        >
+          {!hidePageHeader ? (
+            <header className="shell__page-header">
+              <div className="shell__page-heading">
+                <h1 className="shell__page-title">{currentTitle}</h1>
+                {currentSubtitle ? (
+                  <p className="shell__page-subtitle">{currentSubtitle}</p>
+                ) : null}
+              </div>
+              <div className="shell__page-actions">
+                <Button leadingIcon={<Icon name="activity" size={14} />}>
+                  View logs
+                </Button>
+                <Button
+                  variant="primary"
+                  leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
+                >
+                  New
+                </Button>
+              </div>
+            </header>
+          ) : null}
 
-          <div className="shell__page-body">{children}</div>
+          <div
+            className={
+              hidePageHeader
+                ? "shell__page-body shell__page-body--immersive"
+                : "shell__page-body"
+            }
+          >
+            {children}
+          </div>
         </div>
       </main>
 

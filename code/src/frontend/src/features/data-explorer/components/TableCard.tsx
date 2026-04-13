@@ -9,7 +9,9 @@ type TableCardProps = {
 export function TableCard({ table }: TableCardProps) {
   const columnCount = table.columns.length;
   const pkColumns = table.columns.filter((c) => c.primaryKey);
-  const fkColumns = table.columns.filter((c) => c.type === "relation" || c.references);
+  const fkColumns = table.columns.filter(
+    (c) => c.type === "relation" || c.references,
+  );
   const displayName = table.displayName ?? table.name;
 
   return (

@@ -73,8 +73,10 @@ describe("App scaffold", () => {
 
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Breadcrumb" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: "Tables" })).toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "orders" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /orders/i })).not.toBeInTheDocument();
   });
 
   it("keeps the login route outside the main shell navigation", () => {

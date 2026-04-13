@@ -71,6 +71,40 @@ public sealed class SearchEndpointTests
     }
 
     [Fact]
+    public async Task Search_MultiTerm_IsOrderInsensitiveAndFlexible()
+    {
+        await using var host = await CreateHostAsync(TextSchema);
+        await SeedAsync(host, "products", new { name = "Alpha", description = "Ignore me", category = "active" });
+        await SeedAsync(host, "products", new { name = "Customer", description = "James Markus Lastname", category = "active" });
+        await SeedAsync(host, "products", new { name = "Customer 3", description = "James Other", category = "active" });
+
+        using var numericFirstResponse = await host.Client.GetAsync("/api/v1/data/products?search=2 customer");
+        var numericFirstJson = await numericFirstResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, numericFirstJson.GetProperty("data").GetArrayLength());
+        Assert.Equal("Customer", numericFirstJson.GetProperty("data")[0].GetProperty("name").GetString());
+
+        using var reorderedResponse = await host.Client.GetAsync("/api/v1/data/products?search=lastname james");
+        var reorderedJson = await reorderedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(1, reorderedJson.GetProperty("data").GetArrayLength());
+        Assert.Equal("Customer", reorderedJson.GetProperty("data")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task Search_IgnoresNumericSeparators_InUserInput()
+    {
+        await using var host = await CreateHostAsync(TextSchema);
+        await SeedAsync(host, "products", new { name = "Version 10.5", description = "Release 10.5", category = "stable", price = 10.5 });
+
+        foreach (var term in new[] { "10.5", "10,5", "10:5", "10/5" })
+        {
+            using var response = await host.Client.GetAsync($"/api/v1/data/products?search={Uri.EscapeDataString(term)}");
+            var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(1, json.GetProperty("data").GetArrayLength());
+            Assert.Equal("Version 10.5", json.GetProperty("data")[0].GetProperty("name").GetString());
+        }
+    }
+
+    [Fact]
     public async Task Search_CombinesWithFilter_AndSemantics()
     {
         await using var host = await CreateHostAsync(TextSchema);

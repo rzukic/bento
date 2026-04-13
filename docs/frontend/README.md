@@ -10,6 +10,7 @@ Current implementation status:
 - the shared API client and schema snapshot store are live
 - the first reusable UI primitive layer now exists for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs
 - light/dark/system theme switching is available through the shared app store and shell controls
+- Phase 2 Step 2.2 now ships a real Data Explorer read path at `/data` and `/data/:tableId`
 
 ---
 
@@ -23,6 +24,7 @@ src/frontend/
 │   ├── router.tsx        ← Shared browser route tree
 │   ├── routes/           ← Page-level route placeholders
 │   ├── components/       ← Shared UI components and layout pieces
+│   ├── features/         ← Feature modules like the Data Explorer
 │   ├── stores/           ← Zustand state stores
 │   ├── api/              ← API client functions
 │   ├── hooks/            ← Custom React hooks
@@ -53,8 +55,8 @@ const appRoutes = [
         element: <ShellLayout />,
         children: [
           { index: true, element: <HomePage /> },
-          { path: "data", element: <DataPage /> },
-          { path: "data/:tableId", element: <TablePage /> },
+          { path: "data", element: <DataExplorerPage /> },
+          { path: "data/:tableId", element: <TableDetailPage /> },
           { path: "model", element: <ModelPage /> },
           { path: "dashboards", element: <DashboardsPage /> },
           { path: "forms", element: <FormsPage /> },
@@ -70,8 +72,10 @@ const appRoutes = [
 Current route behavior:
 - `/login` is outside the main shell so public auth can evolve cleanly in `TASK-064`
 - the main app routes render inside a shared shell with sidebar navigation and breadcrumbs
+- `/data` now renders the schema-driven Data Explorer landing with live table discovery and summary chips
+- `/data/:tableId` now renders the live explorer detail route with the read-only grid, Airtable-style foldout controls, pagination, row selection, column visibility controls, and relation browsing
 - `/dashboards`, `/forms`, and `/ai` already exist as placeholders so later modules can plug into a stable IA without route churn
-- Step 2.2+ will replace the placeholder content with the real Data Explorer and Schema Designer experiences
+- the Schema Designer and later modules still remain placeholder shells beyond the shipped Data Explorer slice
 
 ---
 
@@ -105,6 +109,7 @@ Zustand is the selected global-state layer. Step 2.1 now includes three concrete
 - `appStore` for theme mode and shell/sidebar state
 - `authStore` for browser session lifecycle and refresh handling
 - `schemaStore` for the current schema snapshot cache used by the shell and upcoming modules
+- `explorerStore` for per-table Data Explorer view state, including query state, row loading, selection state, column visibility, reference/related context, and relation drilldowns
 
 ```ts
 // stores/appStore.ts
@@ -117,6 +122,33 @@ export const useAppStore = create<AppStoreState>((set) => ({
 ```
 
 Local component state (`useState`, `useReducer`) is used for UI-only state that doesn't need to be shared.
+
+---
+
+## Data Explorer
+
+Phase 2 Step 2.2 is now live as the first real end-user browser surface on top of the Phase 1 API.
+
+Current shipped behavior:
+- schema-driven table discovery at `/data`
+- live row browsing at `/data/:tableId`
+- Airtable-style foldout controls for search, multi-sort, typed filters, column visibility, and selection operations
+- server-backed search, multi-sort, typed filters, and pagination
+- schema-aware read renderers for booleans, temporal values, JSON, enums, and references
+- row selection with click, drag, shift-range, select-all, and context-menu actions
+- per-table column visibility with a dedicated `Columns` foldout and header-menu `Hide column`
+- reference navigation into linked records
+- related-record drilldowns derived from schema relations and the current selected rows
+
+Current non-goals for this slice:
+- inline editing
+- row creation/deletion
+- bulk operations
+- export
+- virtual scrolling
+- advanced column management beyond hide/show
+
+Those move into Step 2.3 and later Part 8 work.
 
 ---
 

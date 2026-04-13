@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { fetchTableRows } from "../api/data";
+import { fetchRelatedRows, fetchTableRows, type ExplorerDataSource } from "../api/data";
 import { ApiClientError } from "../api/client";
 import { registerLogoutHook } from "./authStore";
 import type {
@@ -20,6 +20,25 @@ export type TableViewState = {
   rows: Record<string, unknown>[];
   meta: ListMeta | null;
   error: string | null;
+  source: ExplorerDataSource;
+  hiddenColumnNames: string[];
+  selectedRowIds: string[];
+  context:
+    | {
+        kind: "reference";
+        rowId: number;
+        sourceTable: string;
+        sourceRowId: number;
+        sourceColumn: string;
+      }
+    | {
+        kind: "related";
+        parentTable: string;
+        parentRowIds: string[];
+        accessor: string;
+        filterColumn: string;
+      }
+    | null;
 };
 
 function freshTableView(): TableViewState {
@@ -28,7 +47,11 @@ function freshTableView(): TableViewState {
     query: { ...DEFAULT_QUERY },
     rows: [],
     meta: null,
-    error: null
+    error: null,
+    source: { kind: "table" },
+    hiddenColumnNames: [],
+    selectedRowIds: [],
+    context: null
   };
 }
 
@@ -63,6 +86,40 @@ type ExplorerStoreState = {
 
   /** Replace the filter array and refetch from page 1. */
   setFilters: (filters: FilterClause[]) => void;
+
+  /** Open a table focused on a single related/reference row. */
+  openRecordContext: (table: string, rowId: number, context: {
+    sourceTable: string;
+    sourceRowId: number;
+    sourceColumn: string;
+  }) => void;
+
+  /** Toggle a single selected record from the current table grid. */
+  toggleRowSelection: (table: string, rowId: string) => void;
+
+  /** Toggle all visible rows in the current table grid. */
+  toggleSelectAllVisible: (table: string, rowIds: string[]) => void;
+
+  /** Replace the current visible-row selection with an explicit set. */
+  setSelectedRows: (table: string, rowIds: string[]) => void;
+
+  /** Replace the hidden columns for a table. */
+  setHiddenColumns: (table: string, columnNames: string[]) => void;
+
+  /** Clear selection for one table or the current table. */
+  clearSelection: (table?: string) => void;
+
+  /** Open a related-records view backed by the current sub-resource API. */
+  openRelatedContext: (
+    table: string,
+    parentTable: string,
+    parentRowIds: string[],
+    accessor: string,
+    filterColumn: string
+  ) => void;
+
+  /** Clear the current table back to its normal base-table browsing state. */
+  clearContext: (table?: string, nextQuery?: Partial<ExplorerQuery>) => void;
 
   /** Full reset (e.g. on logout). */
   reset: () => void;
@@ -115,7 +172,15 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     }));
 
     try {
-      const result = await fetchTableRows(activeTable, query);
+      const result =
+        view.source.kind === "related"
+          ? await fetchRelatedRows(
+              activeTable,
+              view.source.filterColumn,
+              view.source.parentRowIds,
+              query
+            )
+          : await fetchTableRows(activeTable, query);
       set((state) => ({
         views: {
           ...state.views,
@@ -159,7 +224,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     set((state) => ({
       views: {
         ...state.views,
-        [activeTable]: { ...view, query: nextQuery }
+        [activeTable]: { ...view, query: nextQuery, selectedRowIds: [] }
       }
     }));
     void fetchRows();
@@ -174,7 +239,8 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         ...state.views,
         [activeTable]: {
           ...view,
-          query: { ...view.query, page }
+          query: { ...view.query, page },
+          selectedRowIds: []
         }
       }
     }));
@@ -191,6 +257,191 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
 
   setFilters: (filters) => {
     get().setQuery({ filters, page: 1 });
+  },
+
+  openRecordContext: (table, rowId, context) => {
+    set((state) => ({
+      activeTable: table,
+      views: {
+        ...state.views,
+        [table]: {
+          ...(state.views[table] ?? freshTableView()),
+          status: "idle",
+          rows: [],
+          meta: null,
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          context: {
+            kind: "reference",
+            rowId,
+            sourceTable: context.sourceTable,
+            sourceRowId: context.sourceRowId,
+            sourceColumn: context.sourceColumn
+          },
+          query: {
+            ...DEFAULT_QUERY,
+            filters: [{ column: "id", op: "eq", value: String(rowId) }]
+          }
+        }
+      }
+    }));
+  },
+
+  toggleRowSelection: (table, rowId) => {
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+      const selectedRowIds = view.selectedRowIds.includes(rowId)
+        ? view.selectedRowIds.filter((value) => value !== rowId)
+        : [...view.selectedRowIds, rowId];
+
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...view,
+            selectedRowIds
+          }
+        }
+      };
+    });
+  },
+
+  toggleSelectAllVisible: (table, rowIds) => {
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+      const normalizedRowIds = Array.from(new Set(rowIds.filter(Boolean)));
+      const allSelected =
+        normalizedRowIds.length > 0 &&
+        normalizedRowIds.every((rowId) => view.selectedRowIds.includes(rowId));
+
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...view,
+            selectedRowIds: allSelected ? [] : normalizedRowIds
+          }
+        }
+      };
+    });
+  },
+
+  setSelectedRows: (table, rowIds) => {
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...view,
+            selectedRowIds: Array.from(new Set(rowIds.filter(Boolean)))
+          }
+        }
+      };
+    });
+  },
+
+  setHiddenColumns: (table, columnNames) => {
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...view,
+            hiddenColumnNames: Array.from(new Set(columnNames.filter(Boolean)))
+          }
+        }
+      };
+    });
+  },
+
+  clearSelection: (table) => {
+    const targetTable = table ?? get().activeTable;
+    if (!targetTable) return;
+
+    set((state) => {
+      const view = state.views[targetTable] ?? freshTableView();
+      if (view.selectedRowIds.length === 0) return state;
+
+      return {
+        activeTable: targetTable,
+        views: {
+          ...state.views,
+          [targetTable]: {
+            ...view,
+            selectedRowIds: []
+          }
+        }
+      };
+    });
+  },
+
+  openRelatedContext: (table, parentTable, parentRowIds, accessor, filterColumn) => {
+    set((state) => ({
+      activeTable: table,
+      views: {
+        ...state.views,
+        [table]: {
+          ...(state.views[table] ?? freshTableView()),
+          status: "idle",
+          rows: [],
+          meta: null,
+          error: null,
+          source: {
+            kind: "related",
+            parentTable,
+            parentRowIds,
+            accessor,
+            filterColumn
+          },
+          selectedRowIds: [],
+          context: {
+            kind: "related",
+            parentTable,
+            parentRowIds,
+            accessor,
+            filterColumn
+          },
+          query: {
+            ...DEFAULT_QUERY
+          }
+        }
+      }
+    }));
+  },
+
+  clearContext: (table, nextQuery = {}) => {
+    const targetTable = table ?? get().activeTable;
+    if (!targetTable) return;
+
+    set((state) => ({
+      activeTable: targetTable,
+      views: {
+        ...state.views,
+        [targetTable]: {
+          ...(state.views[targetTable] ?? freshTableView()),
+          status: "idle",
+          rows: [],
+          meta: null,
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          context: null,
+          query: {
+            ...DEFAULT_QUERY,
+            ...nextQuery
+          }
+        }
+      }
+    }));
   },
 
   reset: () => {

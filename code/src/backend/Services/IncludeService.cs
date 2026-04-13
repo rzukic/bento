@@ -42,11 +42,13 @@ public sealed class IncludeService
 {
     private readonly QueryService _queryService;
     private readonly SchemaCache _schemaCache;
+    private readonly DatabaseConfig _dbConfig;
 
-    public IncludeService(QueryService queryService, SchemaCache schemaCache)
+    public IncludeService(QueryService queryService, SchemaCache schemaCache, DatabaseConfig dbConfig)
     {
         _queryService = queryService;
         _schemaCache = schemaCache;
+        _dbConfig = dbConfig;
     }
 
     /// <summary>
@@ -146,7 +148,7 @@ public sealed class IncludeService
             {
                 // From parent → children (e.g., customers/:id/customer_orders → orders)
                 var relatedQuery = scope.Db.Query(def.To).Where(def.Column!, parentId);
-                return await ExecutePaginatedQuery(relatedQuery, parameters);
+                return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
             }
             else
             {
@@ -168,7 +170,7 @@ public sealed class IncludeService
                 var parentQuery = scope.Db.Query(def.From)
                     .Where("id", fkValue);
 
-                return await ExecutePaginatedQuery(parentQuery, parameters);
+                return await ExecutePaginatedQuery(parentQuery, parameters, targetTable, _dbConfig.Provider);
             }
         }
         else // ManyToMany
@@ -196,7 +198,7 @@ public sealed class IncludeService
                 .Where($"{junctionTable}.{localJunctionCol}", parentId)
                 .Select($"{remoteTable}.*");
 
-            return await ExecutePaginatedQuery(relatedQuery, parameters);
+            return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
         }
     }
 
@@ -485,7 +487,9 @@ public sealed class IncludeService
 
     private static async Task<RelatedRowsResult> ExecutePaginatedQuery(
         SqlKata.Query query,
-        ListQueryParameters parameters)
+        ListQueryParameters parameters,
+        TableDef table,
+        DatabaseProvider provider)
     {
         // Apply filters
         CrudService.ApplyFiltersStatic(query, parameters.Filters);
@@ -494,13 +498,7 @@ public sealed class IncludeService
         var total = await query.Clone().CountAsync<long>();
 
         // Sort
-        foreach (var sort in parameters.Sorts)
-        {
-            if (sort.Descending)
-                query = query.OrderByDesc(sort.Column);
-            else
-                query = query.OrderBy(sort.Column);
-        }
+        query = CrudService.ApplySortingStatic(query, parameters.Sorts, table, provider);
 
         // Paginate
         query = query.ForPage(parameters.Page, parameters.PerPage);

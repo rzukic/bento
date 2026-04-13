@@ -13,6 +13,8 @@ import { SettingsPage } from "./routes/SettingsPage";
 
 export type AppRouteHandle = {
   title: string | ((params: Record<string, string | undefined>) => string);
+  subtitle?: string | ((params: Record<string, string | undefined>) => string);
+  hidePageHeader?: boolean;
   navLabel?: string;
   navGroup?: string;
   /** Optional parent breadcrumb for routes that are flat siblings but should appear nested. */
@@ -51,6 +53,7 @@ export const appRoutes: RouteObject[] = [
                 element: <DataExplorerPage />,
                 handle: {
                   title: "Data Explorer",
+                  subtitle: "Browse your tables and records.",
                   navLabel: "Data",
                   navGroup: "Workspace"
                 } satisfies AppRouteHandle
@@ -60,6 +63,7 @@ export const appRoutes: RouteObject[] = [
                 element: <TableDetailPage />,
                 handle: {
                   title: ({ tableId }) => tableId ?? "Table",
+                  hidePageHeader: true,
                   breadcrumbParent: { label: "Data Explorer", to: "/data" }
                 } satisfies AppRouteHandle
               },
@@ -68,6 +72,7 @@ export const appRoutes: RouteObject[] = [
                 element: <ModelPage />,
                 handle: {
                   title: "Model",
+                  subtitle: "Schema design and column tools will live here.",
                   navLabel: "Model",
                   navGroup: "Workspace"
                 } satisfies AppRouteHandle

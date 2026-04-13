@@ -81,6 +81,12 @@ describe("buildQueryString", () => {
     expect(qs).toContain("search=hello+world");
   });
 
+  it("preserves multi-word search terms for backend token matching", () => {
+    const query: ExplorerQuery = { ...DEFAULT_QUERY, search: "james lastname" };
+    const qs = buildQueryString(query);
+    expect(qs).toContain("search=james+lastname");
+  });
+
   it("encodes an equality filter as shorthand", () => {
     const query: ExplorerQuery = {
       ...DEFAULT_QUERY,

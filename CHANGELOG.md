@@ -14,6 +14,41 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 2 — Data Management
 
+### 2026-04-13 — Refine the Step 2.2 explorer into an Airtable-style workspace
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Refined the shipped Step 2.2 Data Explorer so the per-table experience now feels much closer to a serious day-to-day data workspace rather than an early technical browser. The table view now centers around selection, floating foldout tools, and user-controlled column visibility while staying on the same backend query contract and read-path scope.
+
+**Highlights:**
+- reshaped the per-table explorer into a full-width Airtable-style workspace with compact table tabs, slimmer grid rows, floating foldout controls, and improved header/context-menu layering
+- replaced single-record focus as the main table interaction with multi-row selection, select-all, drag/range selection, selection-driven related-record actions, and row context-menu actions
+- added first-pass column visibility controls through a shared `Columns` foldout plus `Hide column` in the column header menu, then synced the frontend/wiki/PM docs to the current UX
+### 2026-04-13 — Complete Step 2.2 Data Explorer read path
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Closed the first real browser data-exploration slice so Repere now has a usable end-user data browser on top of the shipped Phase 1 CRUD API. The step now ends with a schema-driven table explorer, live read-only grid, typed query controls, focus mode, and relation-aware browsing, plus synced docs that reflect the actual shipped contract instead of the original placeholder plan.
+
+**Highlights:**
+- `/data` and `/data/:tableId` now form a real schema-driven Data Explorer with table discovery, read rendering, search, multi-sort, typed filters, and pagination
+- the explorer supports focused-record browsing from the grid, reference jumps into linked rows, and related-record drilldowns derived from the current visible result set
+- closed TASK-067 through TASK-072, synced the frontend and Part 8 docs, and kept the frontend validation loop green with `npm run typecheck`, `npm run test`, and `npm run build`
+
+### 2026-04-12 — Add relation-aware Data Explorer navigation
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Added the first relation-aware browsing layer to the Data Explorer so users can now move through linked records instead of treating each table as an isolated grid. The new flow keeps the same explorer query model and controls while switching between base table browsing, focused referenced rows, and backend relation sub-resource drill-ins.
+
+**Highlights:**
+- Reference cells in the grid now open the referenced table in a focused-row context with clear UI explaining where the user came from
+- Focused rows expose schema-derived related-record actions that use the existing `/api/v1/data/{table}/{id}/{relationAccessor}` backend surface
+- Extended the explorer store/data client to support relation-backed views and verified the browser flow with new relation-navigation regressions plus a clean frontend build
+
 ### 2026-04-12 — Complete Step 2.1 frontend shell foundation
 
 > **Phase**: Phase 2 — Data Management

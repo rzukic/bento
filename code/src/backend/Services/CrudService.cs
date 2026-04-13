@@ -43,19 +43,13 @@ public sealed class CrudService
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
         ApplyFiltersStatic(baseQuery, parameters.Filters);
-        ApplySearchStatic(baseQuery, parameters.Search, table);
+        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
 
         // Apply sorting
-        foreach (var sort in parameters.Sorts)
-        {
-            if (sort.Descending)
-                baseQuery = baseQuery.OrderByDesc(sort.Column);
-            else
-                baseQuery = baseQuery.OrderBy(sort.Column);
-        }
+        baseQuery = ApplySortingStatic(baseQuery, parameters.Sorts, table, _dbConfig.Provider);
 
         // Apply field selection
         if (parameters.Fields is { Count: > 0 })
@@ -337,27 +331,151 @@ public sealed class CrudService
         return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
     }
 
-    internal static void ApplySearchStatic(SqlKata.Query query, string? search, TableDef table)
+    internal static void ApplySearchStatic(
+        SqlKata.Query query,
+        string? search,
+        TableDef table,
+        DatabaseProvider provider)
     {
         if (string.IsNullOrWhiteSpace(search)) return;
 
-        var textColumns = table.Columns
-            .Where(c => c.Type == ColumnType.Text)
+        var hasTextLikeColumns = table.Columns.Any(c =>
+            c.Type is ColumnType.Text or ColumnType.Enum or ColumnType.File or ColumnType.Date or ColumnType.DateTime);
+
+        if (!hasTextLikeColumns) return;
+
+        var searchableColumns = table.Columns
+            .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
             .Select(c => c.Name)
             .ToList();
 
-        if (textColumns.Count == 0) return;
+        if (searchableColumns.Count == 0) return;
 
-        var pattern = $"%{search}%";
-        query.Where(q =>
+        var terms = ExtractSearchTerms(search);
+
+        if (terms.Count == 0) return;
+
+        foreach (var term in terms)
         {
-            q = q.WhereLike(textColumns[0], pattern);
-            for (int i = 1; i < textColumns.Count; i++)
+            var pattern = $"%{term}%";
+            query.Where(q =>
             {
-                q = q.OrWhereLike(textColumns[i], pattern);
+                q = q.WhereRaw(BuildSearchClause(searchableColumns[0], provider), pattern);
+                for (int i = 1; i < searchableColumns.Count; i++)
+                {
+                    q = q.OrWhereRaw(BuildSearchClause(searchableColumns[i], provider), pattern);
+                }
+                return q;
+            });
+        }
+    }
+
+    private static string BuildSearchClause(string columnName, DatabaseProvider provider)
+    {
+        var quotedColumn = QuoteIdentifier(columnName);
+        return provider == DatabaseProvider.Postgres
+            ? $"CAST({quotedColumn} AS TEXT) ILIKE ?"
+            : $"CAST({quotedColumn} AS TEXT) LIKE ?";
+    }
+
+    private static List<string> ExtractSearchTerms(string search)
+    {
+        var terms = new List<string>();
+        var buffer = new List<char>(search.Length);
+
+        foreach (var ch in search)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                buffer.Add(ch);
+                continue;
             }
-            return q;
-        });
+
+            FlushToken(buffer, terms);
+        }
+
+        FlushToken(buffer, terms);
+        return terms
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void FlushToken(List<char> buffer, List<string> terms)
+    {
+        if (buffer.Count == 0) return;
+        terms.Add(new string(buffer.ToArray()));
+        buffer.Clear();
+    }
+
+    private static string QuoteIdentifier(string identifier) => $"\"{identifier.Replace("\"", "\"\"")}\"";
+
+    internal static Query ApplySortingStatic(
+        Query query,
+        IReadOnlyList<SortClause> sorts,
+        TableDef table,
+        DatabaseProvider provider)
+    {
+        if (sorts.Count == 0)
+            return query;
+
+        var columnLookup = table.Columns.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sort in sorts)
+        {
+            if (!columnLookup.TryGetValue(sort.Column, out var column))
+            {
+                query = sort.Descending ? query.OrderByDesc(sort.Column) : query.OrderBy(sort.Column);
+                continue;
+            }
+
+            var rawExpression = BuildSortExpression(column, provider);
+            if (rawExpression is null)
+            {
+                query = sort.Descending ? query.OrderByDesc(sort.Column) : query.OrderBy(sort.Column);
+                continue;
+            }
+
+            query = query.OrderByRaw($"{rawExpression} {(sort.Descending ? "DESC" : "ASC")}");
+        }
+
+        return query;
+    }
+
+    private static string? BuildSortExpression(ColumnDef column, DatabaseProvider provider)
+    {
+        if (provider != DatabaseProvider.Sqlite)
+            return null;
+
+        if (column.Type is not ColumnType.Date and not ColumnType.DateTime)
+            return null;
+
+        return BuildSqliteTemporalSortExpression(QuoteIdentifier(column.Name));
+    }
+
+    private static string BuildSqliteTemporalSortExpression(string quotedColumn)
+    {
+        var remainderAfterYear = $"substr({quotedColumn}, 6)";
+        var monthSeparatorIndex = $"instr({remainderAfterYear}, '-')";
+        var monthText = $"substr({remainderAfterYear}, 1, {monthSeparatorIndex} - 1)";
+        var dayAndTime = $"substr({remainderAfterYear}, {monthSeparatorIndex} + 1)";
+        var dayTimeSeparatorIndex =
+            $"CASE WHEN instr({dayAndTime}, 'T') > 0 THEN instr({dayAndTime}, 'T') " +
+            $"WHEN instr({dayAndTime}, ' ') > 0 THEN instr({dayAndTime}, ' ') ELSE 0 END";
+        var dayText =
+            $"CASE WHEN {dayTimeSeparatorIndex} > 0 THEN substr({dayAndTime}, 1, {dayTimeSeparatorIndex} - 1) " +
+            $"ELSE {dayAndTime} END";
+        var timeText =
+            $"CASE WHEN {dayTimeSeparatorIndex} > 0 THEN substr({dayAndTime}, {dayTimeSeparatorIndex}) " +
+            "ELSE '' END";
+
+        var normalized =
+            $"printf('%04d-%02d-%02d%s', " +
+            $"CAST(substr({quotedColumn}, 1, 4) AS INTEGER), " +
+            $"CAST({monthText} AS INTEGER), " +
+            $"CAST({dayText} AS INTEGER), " +
+            $"{timeText})";
+
+        return $"CASE WHEN {quotedColumn} IS NULL OR {quotedColumn} = '' THEN NULL ELSE {normalized} END";
     }
 
     internal static void ApplyFiltersStatic(SqlKata.Query query, IReadOnlyList<FilterClause> filters)

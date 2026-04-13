@@ -1,6 +1,16 @@
 import { apiClient } from "./client";
 import type { ExplorerQuery, ListResponse } from "../types/explorer";
 
+export type ExplorerDataSource =
+  | { kind: "table" }
+  | {
+      kind: "related";
+      parentTable: string;
+      parentRowIds: string[];
+      accessor: string;
+      filterColumn: string;
+    };
+
 /**
  * Serialise an {@link ExplorerQuery} into the URL search-parameter string
  * the backend expects. The encoding matches the `QueryParameterParser` on
@@ -23,15 +33,13 @@ export function buildQueryString(query: ExplorerQuery): string {
   }
 
   if (query.search) {
-    params.set("search", query.search);
+    params.set("search", query.search.trim());
   }
 
   for (const f of query.filters) {
     if (f.op === "null" || f.op === "notnull") {
-      // Nullary operators — the value is the operator itself.
       params.set(`filter[${f.column}][${f.op}]`, "");
     } else if (f.op === "eq") {
-      // Shorthand for equals — `filter[col]=value`.
       params.set(`filter[${f.column}]`, f.value ?? "");
     } else {
       params.set(`filter[${f.column}][${f.op}]`, f.value ?? "");
@@ -41,19 +49,29 @@ export function buildQueryString(query: ExplorerQuery): string {
   return params.toString();
 }
 
-/**
- * Fetch a paginated list of rows for a table.
- *
- * ```ts
- * const result = await fetchTableRows("orders", { page: 1, perPage: 25, sort: [], search: "", filters: [] });
- * result.data   // row objects
- * result.meta   // { page, per_page, total, total_pages }
- * ```
- */
-export function fetchTableRows(
+export function fetchTableRows(table: string, query: ExplorerQuery): Promise<ListResponse> {
+  const qs = buildQueryString(query);
+  return apiClient.get<ListResponse>(`/data/${encodeURIComponent(table)}?${qs}`);
+}
+
+export function fetchRelatedRows(
   table: string,
+  filterColumn: string,
+  parentRowIds: string[],
   query: ExplorerQuery
 ): Promise<ListResponse> {
-  const qs = buildQueryString(query);
+  const relationFilterValue = parentRowIds.join(",");
+  const relationQuery: ExplorerQuery = {
+    ...query,
+    filters: [
+      {
+        column: filterColumn,
+        op: parentRowIds.length > 1 ? "in" : "eq",
+        value: relationFilterValue
+      },
+      ...query.filters
+    ]
+  };
+  const qs = buildQueryString(relationQuery);
   return apiClient.get<ListResponse>(`/data/${encodeURIComponent(table)}?${qs}`);
 }
