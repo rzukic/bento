@@ -648,10 +648,10 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     align-items: center;
-    padding-right: 3rem;
-    padding-left: 0.75rem;
-    padding-bottom: 0.75rem;
+    padding: 0.75rem;
+    padding-top: 0;
     background: var(--surface);
+    overflow: visible;
 }
 
 .data-controls__chip {
@@ -661,7 +661,7 @@
     min-height: 1.75rem;
     padding: 0 0.65rem;
     border-radius: 999px;
-    background: var(--surface);
+    background: var(--surface-raised);
     border: 1px solid var(--border);
     color: var(--text-2);
     font-size: var(--fs-xs);
@@ -671,6 +671,13 @@
 
 .data-controls__chip--editable {
     position: relative;
+    isolation: isolate;
+    overflow: hidden;
+}
+
+.data-controls__chip--editable:hover,
+.data-controls__chip--editable:focus-within {
+    z-index: 1;
 }
 
 .data-controls__chip--filter {
@@ -682,24 +689,33 @@
 }
 
 .data-controls__chip-actions {
+    position: absolute;
+    inset: 0;
     display: inline-flex;
     align-items: center;
-    gap: 0.15rem;
-    max-width: 0;
-    overflow: hidden;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: auto 0.35rem;
+    border-radius: inherit;
     opacity: 0;
-    transform: translateX(2px);
+    pointer-events: none;
+    transform: translateY(-20%);
+
     transition:
-        max-width var(--dur) var(--ease),
         opacity var(--dur) var(--ease),
-        transform var(--dur) var(--ease);
+        transform var(--dur) var(--ease),
+        backdrop-filter var(--dur) var(--ease);
+
+    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
 }
 
 .data-controls__chip--editable:hover .data-controls__chip-actions,
 .data-controls__chip--editable:focus-within .data-controls__chip-actions {
-    max-width: 3rem;
     opacity: 1;
-    transform: translateX(0);
+    pointer-events: auto;
+    transform: translateY(0);
 }
 
 .data-controls__chip-action {
@@ -712,12 +728,14 @@
     border: 0;
     border-radius: 999px;
     background: transparent;
-    color: var(--text-4);
+    color: var(--text-3);
 }
 
-.data-controls__chip-action:hover {
+.data-controls__chip-action:hover,
+.data-controls__chip-action:focus-visible {
     color: var(--text);
-    background: color-mix(in srgb, var(--surface) 72%, transparent);
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+    outline: none;
 }
 
 .data-pagination {
