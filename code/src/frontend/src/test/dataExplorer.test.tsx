@@ -62,6 +62,10 @@ function seedExplorerRows(table: string, rows: Record<string, unknown>[]) {
         source: { kind: "table" },
         selectedRowIds: [],
         context: null,
+        savedViews: [],
+        savedViewsStatus: "ready" as const,
+        activeViewId: null,
+        autoSave: false,
       },
     },
   }));
@@ -273,6 +277,10 @@ describe("Table detail (/data/:tableId)", () => {
           source: { kind: "table" },
           selectedRowIds: [],
           context: null,
+          savedViews: [],
+          savedViewsStatus: "ready" as const,
+          activeViewId: null,
+          autoSave: false,
         },
       },
     }));
@@ -1454,7 +1462,7 @@ describe("Table detail (/data/:tableId)", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/page 1 of 1/i)).toBeInTheDocument();
     expect(screen.getByText(/showing 1-1 of 1/i)).toBeInTheDocument();
-    expect(screen.getByText(/1 row/i)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /all records/i })).toBeInTheDocument();
   });
 
   it("opens the filter panel for a column from the header context menu", async () => {

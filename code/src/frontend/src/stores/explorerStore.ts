@@ -1,9 +1,16 @@
 import { create } from "zustand";
 import { fetchRelatedRows, fetchTableRows, type ExplorerDataSource } from "../api/data";
 import { ApiClientError } from "../api/client";
+import {
+  listViews,
+  createView,
+  updateView,
+  deleteView as deleteViewApi
+} from "../api/views";
 import { registerLogoutHook } from "./authStore";
 import type {
   ExplorerViewConfig,
+  ExplorerViewType,
   ExplorerQuery,
   FilterClause,
   ListMeta,
@@ -15,10 +22,12 @@ import {
   DEFAULT_QUERY,
   patchExplorerViewConfig
 } from "../types/explorer";
+import type { SavedView } from "../types/views";
 
 // ── Per-table view state ──────────────────────────────────────────────
 
 export type TableViewStatus = "idle" | "loading" | "ready" | "error";
+export type SavedViewsStatus = "idle" | "loading" | "ready" | "error";
 
 export type TableViewState = {
   status: TableViewStatus;
@@ -47,6 +56,11 @@ export type TableViewState = {
         filterColumn?: string;
       }
     | null;
+  // ── Saved-views state ──
+  savedViews: SavedView[];
+  savedViewsStatus: SavedViewsStatus;
+  activeViewId: number | null;  // null = "All Records" default
+  autoSave: boolean;
 };
 
 function cloneExplorerViewConfig(config: ExplorerViewConfig): ExplorerViewConfig {
@@ -70,7 +84,11 @@ export function hydrateTableViewFromConfig(
     error: null,
     source: { kind: "table" },
     selectedRowIds: [],
-    context: null
+    context: null,
+    savedViews: [],
+    savedViewsStatus: "idle",
+    activeViewId: null,
+    autoSave: false
   };
 }
 
@@ -85,6 +103,31 @@ export function getExplorerQueryForView(view: TableViewState): ExplorerQuery {
   });
 }
 
+// ── Auto-save debounce ─────────────────────────────────────────────────────
+// Module-level timer so it survives store re-renders without polluting state.
+
+let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleAutoSave(): void {
+  if (_autoSaveTimer !== null) clearTimeout(_autoSaveTimer);
+  _autoSaveTimer = setTimeout(() => {
+    _autoSaveTimer = null;
+    const store = useExplorerStore.getState();
+    const { activeTable } = store;
+    if (!activeTable) return;
+    const view = store.views[activeTable];
+    if (!view?.autoSave || view.activeViewId === null) return;
+    void store.updateActiveViewConfig();
+  }, 500);
+}
+
+function cancelAutoSave(): void {
+  if (_autoSaveTimer !== null) {
+    clearTimeout(_autoSaveTimer);
+    _autoSaveTimer = null;
+  }
+}
+
 // ── Store shape ───────────────────────────────────────────────────────
 
 type ExplorerStoreState = {
@@ -94,7 +137,7 @@ type ExplorerStoreState = {
   /** Cached view state per table name. Survives in-app navigation. */
   views: Record<string, TableViewState>;
 
-  // ── Actions ──
+  // ── Row-fetch actions ──
 
   /** Set the active table and ensure a view entry exists. */
   setActiveTable: (table: string) => void;
@@ -116,6 +159,8 @@ type ExplorerStoreState = {
 
   /** Replace the filter array and refetch from page 1. */
   setFilters: (filters: FilterClause[]) => void;
+
+  // ── Context/selection actions ──
 
   /** Open a table focused on a single related/reference row. */
   openRecordContext: (table: string, rowId: number, context: {
@@ -159,6 +204,35 @@ type ExplorerStoreState = {
 
   /** Clear the current table back to its normal base-table browsing state. */
   clearContext: (table?: string, nextQuery?: Partial<ExplorerQuery>) => void;
+
+  // ── Saved-views actions ──
+
+  /** Load saved views from the backend for a table. Called on mount. */
+  loadSavedViews: (tableId: string) => Promise<void>;
+
+  /**
+   * Switch to a saved view (by id) or to "All Records" (null).
+   * Hydrates config, resets runtime state, and fetches rows.
+   */
+  switchView: (viewId: number | null) => void;
+
+  /** Save the current config as a new named view and make it active. */
+  saveCurrentAsView: (name: string, type: ExplorerViewType, isShared: boolean) => Promise<void>;
+
+  /** Push the current config back to the active saved view (used by auto-save). */
+  updateActiveViewConfig: () => Promise<void>;
+
+  /** Rename a saved view (owner only). */
+  renameView: (id: number, name: string) => Promise<void>;
+
+  /** Toggle the is_shared flag on a saved view (owner only). */
+  toggleViewShared: (id: number) => Promise<void>;
+
+  /** Delete a saved view. Falls back to "All Records" if it was active. */
+  deleteView: (id: number) => Promise<void>;
+
+  /** Enable or disable auto-save for the active table's active view. */
+  setAutoSave: (enabled: boolean) => void;
 
   /** Full reset (e.g. on logout). */
   reset: () => void;
@@ -288,14 +362,17 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
 
   setSort: (sort) => {
     get().setQuery({ sort, page: 1 });
+    scheduleAutoSave();
   },
 
   setSearch: (search) => {
     get().setQuery({ search, page: 1 });
+    scheduleAutoSave();
   },
 
   setFilters: (filters) => {
     get().setQuery({ filters, page: 1 });
+    scheduleAutoSave();
   },
 
   openRecordContext: (table, rowId, context) => {
@@ -408,6 +485,8 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         }
       };
     });
+    // Only schedule auto-save if this is the active table
+    if (get().activeTable === table) scheduleAutoSave();
   },
 
   clearSelection: (table) => {
@@ -546,7 +625,241 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     }));
   },
 
+  // ── Saved-views actions ───────────────────────────────────────────────────
+
+  loadSavedViews: async (tableId) => {
+    set((state) => {
+      const view = state.views[tableId] ?? freshTableView();
+      return {
+        views: {
+          ...state.views,
+          [tableId]: { ...view, savedViewsStatus: "loading" }
+        }
+      };
+    });
+
+    try {
+      const views = await listViews(tableId);
+      set((state) => {
+        const view = state.views[tableId] ?? freshTableView();
+        return {
+          views: {
+            ...state.views,
+            [tableId]: { ...view, savedViews: views, savedViewsStatus: "ready" }
+          }
+        };
+      });
+    } catch {
+      set((state) => {
+        const view = state.views[tableId] ?? freshTableView();
+        return {
+          views: {
+            ...state.views,
+            [tableId]: { ...view, savedViewsStatus: "error" }
+          }
+        };
+      });
+    }
+  },
+
+  switchView: (viewId) => {
+    cancelAutoSave();
+
+    const { activeTable, views, fetchRows } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable] ?? freshTableView();
+
+    let newConfig: ExplorerViewConfig;
+    if (viewId === null) {
+      // "All Records" — reset to defaults
+      newConfig = cloneExplorerViewConfig(DEFAULT_EXPLORER_VIEW_CONFIG);
+    } else {
+      const saved = view.savedViews.find((v) => v.id === viewId);
+      if (!saved) return; // unknown id — ignore
+      newConfig = cloneExplorerViewConfig(saved.config);
+    }
+
+    set((state) => ({
+      views: {
+        ...state.views,
+        [activeTable]: {
+          ...view,
+          config: newConfig,
+          activeViewId: viewId,
+          page: DEFAULT_QUERY.page,
+          selectedRowIds: [],
+          context: null,
+          rows: [],
+          meta: null,
+          error: null,
+          status: "idle"
+        }
+      }
+    }));
+
+    void fetchRows();
+  },
+
+  saveCurrentAsView: async (name, type, isShared) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable] ?? freshTableView();
+    const config = extractExplorerViewConfig(view);
+
+    const created = await createView({
+      name,
+      table_name: activeTable,
+      type,
+      config,
+      is_shared: isShared
+    });
+
+    set((state) => {
+      const v = state.views[activeTable] ?? freshTableView();
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: [...v.savedViews, created],
+            activeViewId: created.id
+          }
+        }
+      };
+    });
+  },
+
+  updateActiveViewConfig: async () => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable];
+    if (!view || view.activeViewId === null) return;
+
+    const config = extractExplorerViewConfig(view);
+    const updated = await updateView(view.activeViewId, { config });
+
+    set((state) => {
+      const v = state.views[activeTable];
+      if (!v) return state;
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: v.savedViews.map((sv) =>
+              sv.id === updated.id ? updated : sv
+            )
+          }
+        }
+      };
+    });
+  },
+
+  renameView: async (id, name) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const updated = await updateView(id, { name });
+
+    set((state) => {
+      const v = state.views[activeTable];
+      if (!v) return state;
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: v.savedViews.map((sv) =>
+              sv.id === updated.id ? updated : sv
+            )
+          }
+        }
+      };
+    });
+  },
+
+  toggleViewShared: async (id) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable];
+    const target = view?.savedViews.find((sv) => sv.id === id);
+    if (!target) return;
+
+    const updated = await updateView(id, { is_shared: !target.is_shared });
+
+    set((state) => {
+      const v = state.views[activeTable];
+      if (!v) return state;
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: v.savedViews.map((sv) =>
+              sv.id === updated.id ? updated : sv
+            )
+          }
+        }
+      };
+    });
+  },
+
+  deleteView: async (id) => {
+    const { activeTable, views, switchView } = get();
+    if (!activeTable) return;
+
+    await deleteViewApi(id);
+
+    const wasActive = views[activeTable]?.activeViewId === id;
+
+    set((state) => {
+      const v = state.views[activeTable];
+      if (!v) return state;
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: v.savedViews.filter((sv) => sv.id !== id)
+          }
+        }
+      };
+    });
+
+    if (wasActive) {
+      switchView(null);
+    }
+  },
+
+  setAutoSave: (enabled) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    set((state) => {
+      const v = state.views[activeTable] ?? freshTableView();
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: { ...v, autoSave: enabled }
+        }
+      };
+    });
+
+    // Immediately persist if turning on with an active saved view
+    if (enabled) {
+      const view = views[activeTable];
+      if (view?.activeViewId !== null) {
+        void get().updateActiveViewConfig();
+      }
+    }
+  },
+
   reset: () => {
+    cancelAutoSave();
     set({ ...initialState });
   }
 }));
@@ -558,5 +871,6 @@ registerLogoutHook(() => {
 
 /** Test-only helper. */
 export function resetExplorerStoreForTest(): void {
+  cancelAutoSave();
   useExplorerStore.setState({ ...initialState });
 }

@@ -18,12 +18,11 @@ import type {
   SortClause,
   SortDir,
 } from "../../../types/explorer";
+import type { SavedView } from "../../../types/views";
 
 type DataQueryControlsProps = {
   table: ModelTable;
   query: ExplorerQuery;
-  total: number;
-  totalPages: number;
   disabled?: boolean;
   hiddenColumnNames?: string[];
   selectionPanel?: { content: ReactNode; count?: number } | null;
@@ -31,6 +30,12 @@ type DataQueryControlsProps = {
   panelResetKey?: string;
   filterShortcut?: { columnName: string; nonce: number } | null;
   sortShortcut?: { columnName: string; nonce: number } | null;
+  /** Saved views to show in the view selector. */
+  savedViews?: SavedView[];
+  /** The currently active saved view id, or null for "All Records". */
+  activeViewId?: number | null;
+  /** Called when the user selects a view (null = All Records). */
+  onSwitchView?: (viewId: number | null) => void;
   onSearch: (search: string) => void;
   onSortChange: (sorts: SortClause[]) => void;
   onPerPageChange: (perPage: number) => void;
@@ -525,8 +530,6 @@ export function DataPaginationBar({
 export function DataQueryControls({
   table,
   query,
-  total,
-  totalPages,
   disabled = false,
   hiddenColumnNames = [],
   selectionPanel = null,
@@ -534,6 +537,9 @@ export function DataQueryControls({
   panelResetKey,
   filterShortcut = null,
   sortShortcut = null,
+  savedViews = [],
+  activeViewId = null,
+  onSwitchView,
   onSearch,
   onSortChange,
   onPerPageChange,
@@ -879,7 +885,84 @@ export function DataQueryControls({
     <div className="data-controls" ref={rootRef}>
       <div className="data-controls__overlay-anchor">
         <div className="data-controls__bar">
+          <div
+            className="data-controls__view-tabs"
+            role="tablist"
+            aria-label="Views"
+          >
+            <Button
+              type="button"
+              role="tab"
+              aria-selected={activeViewId === null}
+              className={
+                activeViewId === null
+                  ? "data-controls__view-tab data-controls__view-tab--active"
+                  : "data-controls__view-tab"
+              }
+              onClick={() => onSwitchView?.(null)}
+            >
+              All Records
+            </Button>
+            {savedViews.map((sv) => (
+              <Button
+                key={sv.id}
+                type="button"
+                variant="ghost"
+                size="sm"
+                role="tab"
+                aria-selected={activeViewId === sv.id}
+                className={
+                  activeViewId === sv.id
+                    ? "data-controls__view-tab data-controls__view-tab--active"
+                    : "data-controls__view-tab"
+                }
+                onClick={() => onSwitchView?.(sv.id)}
+              >
+                {sv.name}
+              </Button>
+            ))}
+          </div>
+
           <div className="data-controls__menu">
+            {selectionPanel ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className={
+                  activePanel === "selection"
+                    ? "data-controls__menu-button data-controls__menu-button--active"
+                    : "data-controls__menu-button"
+                }
+                aria-label="Selection operations"
+                aria-expanded={activePanel === "selection"}
+                aria-controls="data-controls-selection-panel"
+                onClick={() =>
+                  setActivePanel((current) =>
+                    current === "selection" ? null : "selection",
+                  )
+                }
+              >
+                <span className="data-controls__menu-button-content">
+                  <Icon name="check" size={14} />
+                  <Icon
+                    name={
+                      activePanel === "selection"
+                        ? "chevron-down"
+                        : "chevron-right"
+                    }
+                    size={15}
+                  />
+                </span>
+                {(selectionPanel.count ?? 0) > 0 ? (
+                  <span
+                    className="data-controls__menu-count"
+                    aria-hidden="true"
+                  >
+                    {selectionPanel.count}
+                  </span>
+                ) : null}
+              </Button>
+            ) : null}
             <Button
               type="button"
               variant="ghost"
@@ -1009,50 +1092,7 @@ export function DataQueryControls({
                 </span>
               ) : null}
             </Button>
-            {selectionPanel ? (
-              <Button
-                type="button"
-                variant="ghost"
-                className={
-                  activePanel === "selection"
-                    ? "data-controls__menu-button data-controls__menu-button--active"
-                    : "data-controls__menu-button"
-                }
-                aria-label="Selection operations"
-                aria-expanded={activePanel === "selection"}
-                aria-controls="data-controls-selection-panel"
-                onClick={() =>
-                  setActivePanel((current) =>
-                    current === "selection" ? null : "selection",
-                  )
-                }
-              >
-                <span className="data-controls__menu-button-content">
-                  <Icon name="check" size={14} />
-                  <Icon
-                    name={
-                      activePanel === "selection"
-                        ? "chevron-down"
-                        : "chevron-right"
-                    }
-                    size={15}
-                  />
-                </span>
-                {(selectionPanel.count ?? 0) > 0 ? (
-                  <span
-                    className="data-controls__menu-count"
-                    aria-hidden="true"
-                  >
-                    {selectionPanel.count}
-                  </span>
-                ) : null}
-              </Button>
-            ) : null}
           </div>
-
-          <span className="data-controls__summary">
-            {total} row{total !== 1 ? "s" : ""}
-          </span>
         </div>
 
         {activePanel === "search" ? (

@@ -63,6 +63,8 @@ export function TableDetailPage() {
     (state) => state.openFilteredRelatedContext,
   );
   const clearContext = useExplorerStore((state) => state.clearContext);
+  const loadSavedViews = useExplorerStore((state) => state.loadSavedViews);
+  const switchView = useExplorerStore((state) => state.switchView);
   const view = useExplorerStore((state) =>
     tableId ? (state.views[tableId] ?? null) : null,
   );
@@ -79,6 +81,16 @@ export function TableDetailPage() {
     if (!tableId) return;
     setActiveTable(tableId);
   }, [tableId, setActiveTable]);
+
+  // Load saved views once per table (when savedViewsStatus is still idle).
+  // Declared before fetchRows so the views fetch is registered first in tests
+  // that track fetch call order via mock.calls.at(-1).
+  useEffect(() => {
+    if (!tableId) return;
+    const v = useExplorerStore.getState().views[tableId];
+    if (v && v.savedViewsStatus !== "idle") return;
+    void loadSavedViews(tableId);
+  }, [tableId, loadSavedViews, view?.savedViewsStatus]);
 
   // Fetch rows once the table is active and schema is ready, but only on
   // the first load (idle → loading).
@@ -534,9 +546,10 @@ export function TableDetailPage() {
           <DataQueryControls
             table={resolvedTable}
             query={query}
-            total={view.meta?.total ?? 0}
-            totalPages={totalPages}
             disabled={dataStatus === "loading" && view.rows.length === 0}
+            savedViews={view.savedViews}
+            activeViewId={view.activeViewId}
+            onSwitchView={switchView}
             hiddenColumnNames={hiddenColumnNames}
             selectionPanel={
               selectedRowIds.length > 0 && relationDrillIns.length > 0
