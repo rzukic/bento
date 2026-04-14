@@ -9,6 +9,7 @@ type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & 
   label: string;
   options: SelectOption[];
   hint?: string;
+  hintTitle?: string;
   message?: string | null;
   error?: string | null;
   hideLabel?: boolean;
@@ -19,6 +20,7 @@ export function SelectField({
   label,
   options,
   hint,
+  hintTitle,
   message,
   error,
   hideLabel = false,
@@ -36,7 +38,11 @@ export function SelectField({
         <span className={hideLabel ? "field__label field__label--sr-only" : "field__label"}>
           {label}
         </span>
-        {hint ? <span className="field__hint">{hint}</span> : null}
+        {hint ? (
+          <span className="field__hint" title={hintTitle}>
+            {hint}
+          </span>
+        ) : null}
       </span>
       <select
         id={selectId}

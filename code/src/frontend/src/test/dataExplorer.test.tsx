@@ -8,6 +8,7 @@ import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetExplorerStoreForTest, useExplorerStore } from "../stores/explorerStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
 import type { ModelSnapshot } from "../types/api";
+import { DEFAULT_EXPLORER_VIEW_CONFIG } from "../types/explorer";
 
 function seedAuthenticated() {
   useAuthStore.setState({
@@ -37,13 +38,9 @@ function seedExplorerRows(table: string, rows: Record<string, unknown>[]) {
       ...state.views,
       [table]: {
         status: "ready",
-        query: {
-          page: 1,
-          perPage: 25,
-          sort: [],
-          search: "",
-          filters: []
-        },
+        config: { ...DEFAULT_EXPLORER_VIEW_CONFIG },
+        page: 1,
+        perPage: 25,
         rows,
         meta: {
           page: 1,
@@ -53,7 +50,6 @@ function seedExplorerRows(table: string, rows: Record<string, unknown>[]) {
         },
         error: null,
         source: { kind: "table" },
-        hiddenColumnNames: [],
         selectedRowIds: [],
         context: null
       }
@@ -107,7 +103,15 @@ const sampleSnapshot: ModelSnapshot = {
     }
   ],
   relations: [
-    { name: "orders_customer", type: "many-to-one", fromTable: "orders", toTable: "customers" }
+    {
+      name: "customer_orders",
+      type: "1:N",
+      from: "customers",
+      to: "orders",
+      column: "customer_id",
+      resolvedFromAccessor: "customer_orders",
+      resolvedToAccessor: "customer"
+    }
   ]
 };
 
@@ -218,6 +222,40 @@ describe("Data Explorer landing (/data)", () => {
 });
 
 describe("Table detail (/data/:tableId)", () => {
+  it("shows a neutral loading spinner during initial fetch and never shows scaffold placeholder copy", () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    // Seed the view in loading state with no rows — simulates the first-load transition
+    // before the fetch response arrives. This is the state that previously showed the
+    // "Data grid coming soon / TASK-069 will add the read-only data grid here" placeholder.
+    useExplorerStore.setState((state) => ({
+      activeTable: "orders",
+      views: {
+        ...state.views,
+        orders: {
+          status: "loading",
+          config: { ...DEFAULT_EXPLORER_VIEW_CONFIG },
+          page: 1,
+          perPage: 25,
+          rows: [],
+          meta: null,
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          context: null,
+        },
+      },
+    }));
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    expect(screen.getByTestId("data-loading")).toBeInTheDocument();
+    expect(screen.getByText(/loading rows/i)).toBeInTheDocument();
+    expect(screen.queryByText(/data grid coming soon/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/task-069/i)).not.toBeInTheDocument();
+  });
+
   it("shows the table metadata without the old columns side panel", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -481,11 +519,185 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(await screen.findByText(/related records/i)).toBeInTheDocument();
-    expect(screen.getByText(/orders related to customers rows 7/i)).toBeInTheDocument();
-    expect(screen.getByText(/using relation accessor customer_orders/i)).toBeInTheDocument();
+    expect(screen.getByText(/orders related to customers row 7/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/using the normal filter flow on customer_id via customer_orders/i)
+    ).toBeInTheDocument();
   });
 
-  it("uses all selected row candidates when opening related records", async () => {
+  it("uses the resolved relation accessor when opening related records", async () => {
+    seedAuthenticated();
+    seedSchema({
+      ...sampleSnapshot,
+      relations: sampleSnapshot.relations?.map((relation) =>
+        relation.name === "customer_orders"
+          ? {
+              ...relation,
+              resolvedFromAccessor: "vip_orders"
+            }
+          : relation
+      )
+    });
+    useExplorerStore.getState().openRecordContext("customers", 7, {
+      sourceTable: "orders",
+      sourceRowId: 101,
+      sourceColumn: "customer_id"
+    });
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/v1/data/customers?")) {
+        return new Response(
+          JSON.stringify(
+            mockListResponse(
+              [
+                {
+                  id: 7,
+                  name: "Customer 7",
+                  email: "customer7@example.com"
+                }
+              ],
+              1
+            )
+          ),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      if (url.includes("/api/v1/data/orders?")) {
+        return new Response(
+          JSON.stringify(
+            mockListResponse(
+              [
+                {
+                  id: 101,
+                  customer_id: 7,
+                  total: 149.5,
+                  status: "pending",
+                  created_at: "2026-04-12T08:45:00Z"
+                }
+              ],
+              1
+            )
+          ),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByText(/focused record/i);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 7/i }));
+    await user.click(screen.getByRole("button", { name: /selection operations/i }));
+    await user.click(screen.getByRole("button", { name: /^orders$/i }));
+
+    await waitFor(() => {
+      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("/api/v1/data/orders?");
+      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("filter%5Bcustomer_id%5D=7");
+    });
+
+    expect(await screen.findByText(/using the normal filter flow on customer_id via vip_orders/i)).toBeInTheDocument();
+  });
+
+  it("surfaces many-to-many relation actions from schema relation metadata", async () => {
+    seedAuthenticated();
+    seedSchema({
+      version: 1,
+      tables: [
+        {
+          name: "products",
+          displayName: "Products",
+          columns: [
+            { name: "id", type: "int64", primaryKey: true },
+            { name: "title", type: "string" }
+          ]
+        },
+        {
+          name: "tags",
+          displayName: "Tags",
+          columns: [
+            { name: "id", type: "int64", primaryKey: true },
+            { name: "label", type: "string" }
+          ]
+        }
+      ],
+      relations: [
+        {
+          name: "product_tags",
+          type: "N:M",
+          from: "products",
+          to: "tags",
+          resolvedFromAccessor: "tags",
+          resolvedToAccessor: "products",
+          resolvedJunctionTableName: "_jt_products_tags"
+        }
+      ]
+    });
+    seedExplorerRows("products", [
+      {
+        id: 1,
+        title: "Notebook"
+      }
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/v1/data/products/1/tags?")) {
+        return new Response(
+          JSON.stringify(
+            mockListResponse(
+              [
+                { id: 10, label: "office" },
+                { id: 11, label: "paper" }
+              ],
+              2
+            )
+          ),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/products"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+    await user.click(screen.getByRole("button", { name: /selection operations/i }));
+    await user.click(screen.getByRole("button", { name: /^tags$/i }));
+
+    await waitFor(() => {
+      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("/api/v1/data/products/1/tags?");
+    });
+
+    expect(await screen.findByText(/tags related to products row 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/using relation accessor tags through the backend relation endpoint/i)).toBeInTheDocument();
+  });
+
+  it("uses a normal one-of filter when opening related records from multiple selected rows", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
     seedExplorerRows("customers", [
@@ -509,20 +721,8 @@ describe("Table detail (/data/:tableId)", () => {
           JSON.stringify(
             mockListResponse(
               [
-                {
-                  id: 101,
-                  customer_id: 1,
-                  total: 149.5,
-                  status: "pending",
-                  created_at: "2026-04-12T08:45:00Z"
-                },
-                {
-                  id: 102,
-                  customer_id: 2,
-                  total: 89,
-                  status: "shipped",
-                  created_at: "2026-04-13T10:15:00Z"
-                }
+                { id: 101, customer_id: 1, total: 149.5, status: "pending", created_at: "2026-04-12T08:45:00Z" },
+                { id: 102, customer_id: 2, total: 89, status: "shipped", created_at: "2026-04-13T10:15:00Z" }
               ],
               2
             )
@@ -555,7 +755,149 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(await screen.findByText(/orders related to customers rows 1, 2/i)).toBeInTheDocument();
-    expect(screen.getByText(/across 2 candidates/i)).toBeInTheDocument();
+    expect(screen.getByText("customer_id one of 1, 2")).toBeInTheDocument();
+    expect(
+      screen.getByText(/using the normal filter flow on customer_id via customer_orders/i)
+    ).toBeInTheDocument();
+  });
+
+  it("clears the related-record banner when the query changes", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      {
+        id: 1,
+        name: "Customer 1",
+        email: "customer1@example.com"
+      },
+      {
+        id: 2,
+        name: "Customer 2",
+        email: "customer2@example.com"
+      }
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (url.includes("/api/v1/data/orders?")) {
+        return new Response(
+          JSON.stringify(
+            mockListResponse(
+              [
+                { id: 101, customer_id: 1, total: 149.5, status: "pending", created_at: "2026-04-12T08:45:00Z" },
+                { id: 102, customer_id: 2, total: 89, status: "shipped", created_at: "2026-04-13T10:15:00Z" }
+              ],
+              2
+            )
+          ),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" }
+          }
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select all visible rows/i }));
+    await user.click(screen.getByRole("button", { name: /selection operations/i }));
+    await user.click(screen.getByRole("button", { name: /^orders$/i }));
+
+    expect(await screen.findByText(/related records/i)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^search$/i }));
+    await user.type(screen.getByLabelText(/search rows/i), "pending");
+
+    await waitFor(() => {
+      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("search=pending");
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/related records/i)).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps related selection actions for schemas that only expose FK references", async () => {
+    seedAuthenticated();
+    seedSchema({
+      ...sampleSnapshot,
+      relations: []
+    });
+    seedExplorerRows("customers", [
+      {
+        id: 1,
+        name: "Customer 1",
+        email: "customer1@example.com"
+      }
+    ]);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+
+    expect(screen.getByRole("button", { name: /selection operations/i })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /selection operations/i }));
+    expect(screen.getByRole("button", { name: /^orders$/i })).toBeInTheDocument();
+  });
+
+  it("keeps many-to-many related actions single-row because they need the relation endpoint", async () => {
+    seedAuthenticated();
+    seedSchema({
+      version: 1,
+      tables: [
+        {
+          name: "products",
+          displayName: "Products",
+          columns: [
+            { name: "id", type: "int64", primaryKey: true },
+            { name: "title", type: "string" }
+          ]
+        },
+        {
+          name: "tags",
+          displayName: "Tags",
+          columns: [
+            { name: "id", type: "int64", primaryKey: true },
+            { name: "label", type: "string" }
+          ]
+        }
+      ],
+      relations: [
+        {
+          name: "product_tags",
+          type: "N:M",
+          from: "products",
+          to: "tags",
+          resolvedFromAccessor: "tags",
+          resolvedToAccessor: "products",
+          resolvedJunctionTableName: "_jt_products_tags"
+        }
+      ]
+    });
+    seedExplorerRows("products", [
+      { id: 1, title: "Notebook" },
+      { id: 2, title: "Marker" }
+    ]);
+
+    const router = createTestRouter(["/data/products"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select all visible rows/i }));
+    await user.click(screen.getByRole("button", { name: /selection operations/i }));
+
+    expect(screen.getByRole("button", { name: /^tags$/i })).toBeDisabled();
   });
 
   it("selects rows, shows selection operations, and clears selection when filters change", async () => {
@@ -1062,6 +1404,63 @@ describe("Table detail (/data/:tableId)", () => {
     ]);
   });
 
+  it("supports one-of filters for foreign-key and primary-key columns", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z"
+      }
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^filter/i }));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /filter column/i }), "customer_id");
+    const relationOperatorLabels = within(screen.getByRole("combobox", { name: /operator/i }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(relationOperatorLabels).toContain("One of (in)");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: /filter column/i }), "id");
+    const primaryKeyOperatorLabels = within(screen.getByRole("combobox", { name: /operator/i }))
+      .getAllByRole("option")
+      .map((option) => option.textContent);
+    expect(primaryKeyOperatorLabels).toContain("One of (in)");
+  });
+
+  it("shows an info hint for comma-separated key one-of filters", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z"
+      }
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^filter/i }));
+    await user.selectOptions(screen.getByRole("combobox", { name: /filter column/i }), "customer_id");
+    await user.selectOptions(screen.getByRole("combobox", { name: /operator/i }), "in");
+
+    expect(screen.getByText("(i)")).toBeInTheDocument();
+    expect(screen.getByTitle("Use , to separate values")).toBeInTheDocument();
+  });
+
   it("supports enum one-of filters with multi-select values", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -1267,6 +1666,71 @@ describe("Table detail (/data/:tableId)", () => {
 
     expect(screen.queryByText(/search: Customer/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/sort: status desc/i)).not.toBeInTheDocument();
+  });
+
+  it("closes an open foldout when clicking outside the controls", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z"
+      }
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("table");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^filter/i }));
+    expect(screen.getByRole("button", { name: /^filter/i })).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(document.body);
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^filter/i })).toHaveAttribute("aria-expanded", "false");
+    });
+  });
+
+  it("closes an open foldout when switching to another table tab", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z"
+      }
+    ]);
+    seedExplorerRows("customers", [
+      {
+        id: 7,
+        name: "Customer 7",
+        email: "customer7@example.com"
+      }
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("table");
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /^filter/i }));
+    expect(screen.getByRole("button", { name: /^filter/i })).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(screen.getByRole("link", { name: /^customers$/i }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /^filter/i })).toHaveAttribute("aria-expanded", "false");
+    });
   });
 
   it("shows numeric comparison operators for integer and float schema aliases", async () => {

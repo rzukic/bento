@@ -64,6 +64,7 @@ type FilterOperatorOption = { label: string; value: FilterOp };
 const defaultFilterOperatorOptions: FilterOperatorOption[] = [
   { label: "Equals (=)", value: "eq" },
   { label: "Does not equal (!=)", value: "neq" },
+  { label: "One of (in)", value: "in" },
   { label: "Contains (~)", value: "like" },
   { label: "Greater than (>)", value: "gt" },
   { label: "Greater or equal (>=)", value: "gte" },
@@ -111,6 +112,11 @@ function normalizeColumnType(type: string | undefined): string {
 function getColumnFilterOptions(column: ModelColumn | undefined) {
   if (!column) return defaultFilterOperatorOptions;
   const normalizedType = normalizeColumnType(column.type);
+  const supportsOneOf =
+    normalizedType === "enum" ||
+    normalizedType === "relation" ||
+    !!column.references ||
+    !!column.primaryKey;
 
   if (normalizedType === "enum") {
     return [
@@ -130,9 +136,17 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
 
   if (numericColumnTypes.has(normalizedType)) {
     return defaultFilterOperatorOptions.filter((option) =>
-      ["eq", "neq", "gt", "gte", "lt", "lte", "null", "notnull"].includes(
-        option.value,
-      ),
+      [
+        "eq",
+        "neq",
+        "gt",
+        "gte",
+        "lt",
+        "lte",
+        ...(supportsOneOf ? ["in"] : []),
+        "null",
+        "notnull",
+      ].includes(option.value),
     );
   }
 
@@ -152,16 +166,26 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
 
   if (textLikeColumnTypes.has(normalizedType)) {
     return defaultFilterOperatorOptions.filter((option) =>
-      ["eq", "neq", "like", "null", "notnull"].includes(option.value),
+      [
+        "eq",
+        "neq",
+        ...(supportsOneOf ? ["in"] : []),
+        "like",
+        "null",
+        "notnull",
+      ].includes(option.value),
     );
   }
 
   return defaultFilterOperatorOptions.filter((option) =>
-    ["eq", "neq", "null", "notnull"].includes(option.value),
+    ["eq", "neq", ...(supportsOneOf ? ["in"] : []), "null", "notnull"].includes(
+      option.value,
+    ),
   );
 }
 
-function getFilterValueLabel(column: ModelColumn | undefined) {
+function getFilterValueLabel(column: ModelColumn | undefined, op: FilterOp) {
+  if (op === "in") return "Values";
   const normalizedType = normalizeColumnType(column?.type);
   if (normalizedType === "enum") return "Select value";
   if (normalizedType === "boolean") return "Choose value";
@@ -170,7 +194,11 @@ function getFilterValueLabel(column: ModelColumn | undefined) {
   return "Value";
 }
 
-function getFilterValuePlaceholder(column: ModelColumn | undefined) {
+function getFilterValuePlaceholder(
+  column: ModelColumn | undefined,
+  op: FilterOp,
+) {
+  if (op === "in") return "Comma-separated values";
   const normalizedType = normalizeColumnType(column?.type);
   if (normalizedType === "enum") return undefined;
   if (normalizedType === "boolean") return undefined;
@@ -514,6 +542,7 @@ export function DataQueryControls({
   onHiddenColumnsChange,
   onResetView,
 }: DataQueryControlsProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const [searchDraft, setSearchDraft] = useState(query.search);
   const [sortDrafts, setSortDrafts] = useState<SortDraftClause[]>(
     query.sort.length > 0
@@ -534,13 +563,28 @@ export function DataQueryControls({
 
   useEffect(() => {
     if (panelResetKey === undefined) return;
-    setActivePanel(suppressAutoPanel ? null : getInitialPanel(query));
-  }, [panelResetKey, suppressAutoPanel]);
+    setActivePanel(null);
+  }, [panelResetKey]);
 
   useEffect(() => {
     if (selectionPanel || activePanel !== "selection") return;
     setActivePanel(null);
   }, [activePanel, selectionPanel]);
+
+  useEffect(() => {
+    if (!activePanel) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!rootRef.current?.contains(event.target as Node)) {
+        setActivePanel(null);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [activePanel]);
 
   useEffect(() => {
     setSearchDraft(query.search);
@@ -832,7 +876,7 @@ export function DataQueryControls({
     query.perPage !== 25;
 
   return (
-    <div className="data-controls">
+    <div className="data-controls" ref={rootRef}>
       <div className="data-controls__overlay-anchor">
         <div className="data-controls__bar">
           <div className="data-controls__menu">
@@ -1187,7 +1231,7 @@ export function DataQueryControls({
                     label={
                       filterOp === "in"
                         ? "Choose values"
-                        : getFilterValueLabel(selectedFilterColumn)
+                        : getFilterValueLabel(selectedFilterColumn, filterOp)
                     }
                     placeholder={
                       filterOp === "in"
@@ -1214,7 +1258,7 @@ export function DataQueryControls({
                   />
                 ) : selectedFilterColumnType === "boolean" ? (
                   <SelectField
-                    label={getFilterValueLabel(selectedFilterColumn)}
+                    label={getFilterValueLabel(selectedFilterColumn, filterOp)}
                     name="filter-value"
                     value={filterValue}
                     onChange={(event) => setFilterValue(event.target.value)}
@@ -1227,7 +1271,8 @@ export function DataQueryControls({
                   />
                 ) : (
                   <TextField
-                    label={getFilterValueLabel(selectedFilterColumn)}
+                    label={getFilterValueLabel(selectedFilterColumn, filterOp)}
+                    hint={filterOp === "in" ? "use , to separate" : undefined}
                     name="filter-value"
                     type={
                       selectedFilterColumnType === "date"
@@ -1241,6 +1286,7 @@ export function DataQueryControls({
                     }
                     placeholder={getFilterValuePlaceholder(
                       selectedFilterColumn,
+                      filterOp,
                     )}
                     value={filterValue}
                     onChange={(event) => setFilterValue(event.target.value)}

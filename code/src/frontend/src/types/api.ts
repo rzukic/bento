@@ -73,6 +73,16 @@ export type ModelTable = {
 export type ModelRelation = {
   name: string;
   type?: string;
+  from?: string;
+  to?: string;
+  fromAccessor?: string | null;
+  toAccessor?: string | null;
+  column?: string | null;
+  fromColumn?: string | null;
+  toColumn?: string | null;
+  resolvedFromAccessor?: string | null;
+  resolvedToAccessor?: string | null;
+  resolvedJunctionTableName?: string | null;
   fromTable?: string;
   toTable?: string;
   [key: string]: unknown;

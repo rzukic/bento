@@ -38,6 +38,30 @@ public sealed class AdminSchemaTests
         }
         """;
 
+    private const string ManyToManySchema = """
+        {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                },
+                {
+                    "name": "tags",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "label", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags" }
+            ]
+        }
+        """;
+
     // ── GET /admin/schema ──
 
     [Fact]
@@ -71,6 +95,25 @@ public sealed class AdminSchemaTests
         Assert.True(json.GetProperty("version").GetInt32() >= 1);
         Assert.Equal(1, json.GetProperty("tables").GetArrayLength());
         Assert.Equal("widgets", json.GetProperty("tables")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public async Task GetSchema_IncludesResolvedRelationAccessors()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/schema");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var relation = Assert.Single(json.GetProperty("relations").EnumerateArray());
+        Assert.Equal("product_tags", relation.GetProperty("name").GetString());
+        Assert.Equal("tags", relation.GetProperty("resolvedFromAccessor").GetString());
+        Assert.Equal("products", relation.GetProperty("resolvedToAccessor").GetString());
+        Assert.Equal("_jt_products_tags", relation.GetProperty("resolvedJunctionTableName").GetString());
     }
 
     // ── PUT /admin/schema ──

@@ -6,7 +6,10 @@ import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
-import { useExplorerStore } from "../../stores/explorerStore";
+import {
+  getExplorerQueryForView,
+  useExplorerStore,
+} from "../../stores/explorerStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import {
   DEFAULT_QUERY,
@@ -41,13 +44,24 @@ export function TableDetailPage() {
   const setSearch = useExplorerStore((state) => state.setSearch);
   const setFilters = useExplorerStore((state) => state.setFilters);
   const setQuery = useExplorerStore((state) => state.setQuery);
-  const openRecordContext = useExplorerStore((state) => state.openRecordContext);
-  const toggleRowSelection = useExplorerStore((state) => state.toggleRowSelection);
-  const toggleSelectAllVisible = useExplorerStore((state) => state.toggleSelectAllVisible);
+  const openRecordContext = useExplorerStore(
+    (state) => state.openRecordContext,
+  );
+  const toggleRowSelection = useExplorerStore(
+    (state) => state.toggleRowSelection,
+  );
+  const toggleSelectAllVisible = useExplorerStore(
+    (state) => state.toggleSelectAllVisible,
+  );
   const setSelectedRows = useExplorerStore((state) => state.setSelectedRows);
   const setHiddenColumns = useExplorerStore((state) => state.setHiddenColumns);
   const clearSelection = useExplorerStore((state) => state.clearSelection);
-  const openRelatedContext = useExplorerStore((state) => state.openRelatedContext);
+  const openRelatedContext = useExplorerStore(
+    (state) => state.openRelatedContext,
+  );
+  const openFilteredRelatedContext = useExplorerStore(
+    (state) => state.openFilteredRelatedContext,
+  );
   const clearContext = useExplorerStore((state) => state.clearContext);
   const view = useExplorerStore((state) =>
     tableId ? (state.views[tableId] ?? null) : null,
@@ -93,18 +107,18 @@ export function TableDetailPage() {
   }, [schemaReady, snapshot, tableId]);
   const relationDrillIns = useMemo(
     () => (snapshot && table ? getRelatedDrillIns(snapshot, table) : []),
-    [snapshot, table]
+    [snapshot, table],
   );
   const hiddenColumnNames = useMemo(
     () =>
       !table
         ? []
-        : (view?.hiddenColumnNames ?? []).filter((columnName) =>
+        : (view?.config.hiddenColumnNames ?? []).filter((columnName) =>
             table.columns.some(
               (column) => !column.primaryKey && column.name === columnName,
             ),
           ),
-    [table, view?.hiddenColumnNames],
+    [table, view?.config.hiddenColumnNames],
   );
   const visibleTable = useMemo(
     () =>
@@ -113,7 +127,8 @@ export function TableDetailPage() {
         : {
             ...table,
             columns: table.columns.filter(
-              (column) => column.primaryKey || !hiddenColumnNames.includes(column.name),
+              (column) =>
+                column.primaryKey || !hiddenColumnNames.includes(column.name),
             ),
           },
     [hiddenColumnNames, table],
@@ -128,6 +143,19 @@ export function TableDetailPage() {
         )
         .map((value) => String(value)) ?? [],
     [view?.rows],
+  );
+  const dataStatus = view?.status ?? "idle";
+  const dataError = view?.error ?? null;
+  const query = view ? getExplorerQueryForView(view) : DEFAULT_QUERY;
+  const totalPages = view?.meta?.total_pages ?? 1;
+  const selectedRowIds = view?.selectedRowIds ?? [];
+  const context = view?.context ?? null;
+  const selectedRows = useMemo(
+    () =>
+      view?.rows.filter((row) =>
+        selectedRowIds.includes(String(row.id ?? "")),
+      ) ?? [],
+    [selectedRowIds, view?.rows],
   );
 
   // Loading schema
@@ -194,29 +222,44 @@ export function TableDetailPage() {
   // Table found — render detail
   const displayName = resolvedTable.displayName ?? resolvedTable.name;
 
-  const dataStatus = view?.status ?? "idle";
-  const dataError = view?.error ?? null;
-  const query = view?.query ?? DEFAULT_QUERY;
-  const totalPages = view?.meta?.total_pages ?? 1;
-  const selectedRowIds = view?.selectedRowIds ?? [];
-  const context = view?.context ?? null;
-
   function handleSortChange(sortClauses: SortClause[]) {
+    if (context) {
+      clearContext(resolvedTable.name, {
+        search: query.search,
+        sort: sortClauses,
+        perPage: query.perPage,
+        filters: query.filters,
+        page: 1,
+      });
+      void fetchRows();
+      return;
+    }
     setSort(sortClauses);
   }
 
   function handlePerPageChange(perPage: number) {
+    if (context) {
+      clearContext(resolvedTable.name, {
+        search: query.search,
+        sort: query.sort,
+        perPage,
+        filters: query.filters,
+        page: 1,
+      });
+      void fetchRows();
+      return;
+    }
     setQuery({ perPage, page: 1 });
   }
 
   function handleFiltersChange(filters: FilterClause[]) {
-    if (context?.kind === "reference") {
+    if (context) {
       clearContext(resolvedTable.name, {
         search: query.search,
         sort: query.sort,
         perPage: query.perPage,
         filters,
-        page: 1
+        page: 1,
       });
       void fetchRows();
       return;
@@ -224,7 +267,42 @@ export function TableDetailPage() {
     setFilters(filters);
   }
 
+  function handleSearchChange(search: string) {
+    if (context) {
+      clearContext(resolvedTable.name, {
+        search,
+        sort: query.sort,
+        perPage: query.perPage,
+        filters: query.filters,
+        page: 1,
+      });
+      void fetchRows();
+      return;
+    }
+    setSearch(search);
+  }
+
+  function handlePageChange(page: number) {
+    if (context) {
+      clearContext(resolvedTable.name, {
+        search: query.search,
+        sort: query.sort,
+        perPage: query.perPage,
+        filters: query.filters,
+        page,
+      });
+      void fetchRows();
+      return;
+    }
+    setPage(page);
+  }
+
   function handleResetView() {
+    if (context) {
+      clearContext(resolvedTable.name, { ...DEFAULT_QUERY });
+      void fetchRows();
+      return;
+    }
     setQuery({
       page: 1,
       perPage: DEFAULT_QUERY.perPage,
@@ -245,33 +323,77 @@ export function TableDetailPage() {
   function handleNavigateReference(
     column: ModelColumn,
     value: unknown,
-    row: Record<string, unknown>
+    row: Record<string, unknown>,
   ) {
-    const targetTable = getReferencedTableName(column);
+    if (!snapshot) return;
+
+    const targetTable = getReferencedTableName(snapshot, resolvedTable, column);
     const targetRowId = Number(value);
     const sourceRowId = Number(row.id);
-    if (!targetTable || Number.isNaN(targetRowId) || Number.isNaN(sourceRowId)) {
+    if (
+      !targetTable ||
+      Number.isNaN(targetRowId) ||
+      Number.isNaN(sourceRowId)
+    ) {
       return;
     }
 
     openRecordContext(targetTable, targetRowId, {
       sourceTable: resolvedTable.name,
       sourceRowId,
-      sourceColumn: column.displayName ?? column.name
+      sourceColumn: column.displayName ?? column.name,
     });
     navigate(`/data/${targetTable}`);
   }
 
-  function handleOpenRelated(accessor: string, targetTable: string) {
-    const drillIn = relationDrillIns.find((item) => item.accessor === accessor);
+  function handleOpenRelated(drillInAccessor: string, targetTable: string) {
+    const drillIn = relationDrillIns.find(
+      (item) => item.accessor === drillInAccessor,
+    );
     if (!drillIn || selectedRowIds.length === 0) return;
+
+    if (drillIn.mode === "filter" && drillIn.filterColumn) {
+      const filterValues = drillIn.valueColumn
+        ? selectedRows
+            .map((row) => row[drillIn.valueColumn!])
+            .filter(
+              (value): value is string | number =>
+                value !== null && value !== undefined && value !== "",
+            )
+            .map((value) => String(value))
+        : selectedRowIds;
+      const uniqueValues = Array.from(new Set(filterValues));
+      if (uniqueValues.length === 0) return;
+
+      openFilteredRelatedContext(
+        targetTable,
+        resolvedTable.name,
+        selectedRowIds,
+        drillInAccessor,
+        drillIn.filterColumn,
+        [
+          uniqueValues.length === 1
+            ? { column: drillIn.filterColumn, op: "eq", value: uniqueValues[0] }
+            : {
+                column: drillIn.filterColumn,
+                op: "in",
+                value: uniqueValues.join(","),
+              },
+        ],
+      );
+      navigate(`/data/${targetTable}`);
+      return;
+    }
+
+    if (selectedRowIds.length !== 1) return;
+    const [parentRowId] = selectedRowIds;
+    if (!parentRowId) return;
 
     openRelatedContext(
       targetTable,
       resolvedTable.name,
-      selectedRowIds,
-      accessor,
-      drillIn.filterColumn,
+      parentRowId,
+      drillInAccessor,
     );
     navigate(`/data/${targetTable}`);
   }
@@ -320,7 +442,17 @@ export function TableDetailPage() {
   const selectionActionItems = relationDrillIns.map((drillIn) => ({
     id: drillIn.accessor,
     label: drillIn.label,
-    disabled: selectedRowIds.length === 0,
+    disabled:
+      selectedRowIds.length === 0 ||
+      (drillIn.mode === "endpoint" && selectedRowIds.length !== 1) ||
+      (drillIn.mode === "filter" &&
+        !!drillIn.valueColumn &&
+        selectedRows.every(
+          (row) =>
+            row[drillIn.valueColumn!] === null ||
+            row[drillIn.valueColumn!] === undefined ||
+            row[drillIn.valueColumn!] === "",
+        )),
     onSelect: () => handleOpenRelated(drillIn.accessor, drillIn.targetTable),
   }));
 
@@ -346,41 +478,56 @@ export function TableDetailPage() {
 
       {/* Data panel */}
       {view && dataStatus !== "idle" ? (
-        <section className="table-detail__workspace" aria-label={`${displayName} data grid`}>
+        <section
+          className="table-detail__workspace"
+          aria-label={`${displayName} data grid`}
+        >
           {context ? (
-            <div className="explorer-context">
-              <div className="explorer-context__summary">
-                {context.kind === "reference" ? (
-                  <>
-                    <span className="explorer-context__eyebrow">Focused record</span>
-                    <span className="explorer-context__title">
-                      {displayName} row #{context.rowId}
-                    </span>
-                    <span className="explorer-context__description">
-                      Opened from {context.sourceTable} #{context.sourceRowId} via {context.sourceColumn}.
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="explorer-context__eyebrow">Related records</span>
-                    <span className="explorer-context__title">
-                      {displayName} related to {context.parentTable} rows{" "}
-                      {context.parentRowIds.slice(0, 3).join(", ")}
-                      {context.parentRowIds.length > 3
-                        ? ` +${context.parentRowIds.length - 3} more`
-                        : ""}
-                    </span>
-                    <span className="explorer-context__description">
-                      Using relation accessor {context.accessor} across{" "}
-                      {context.parentRowIds.length} candidate
-                      {context.parentRowIds.length !== 1 ? "s" : ""}.
-                    </span>
-                  </>
-                )}
+            <div className="explorer-context__wrapper">
+              <div className="explorer-context">
+                <div className="explorer-context__summary">
+                  {context.kind === "reference" ? (
+                    <>
+                      <span className="explorer-context__eyebrow">
+                        <Icon name="arrow-right" size={12} strokeWidth={1.5} />
+                        Focused record
+                      </span>
+                      <span className="explorer-context__title">
+                        {displayName} row #{context.rowId}
+                      </span>
+                      <span className="explorer-context__description">
+                        Opened from {context.sourceTable} #{context.sourceRowId}{" "}
+                        via {context.sourceColumn}.
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="explorer-context__eyebrow">
+                        <Icon name="arrow-right" size={12} strokeWidth={1.5} />
+                        Related records
+                      </span>
+                      <span className="explorer-context__title">
+                        {displayName} related to {context.parentTable}{" "}
+                        {context.parentRowIds.length === 1 ? "row" : "rows"}{" "}
+                        {context.parentRowIds.join(", ")}
+                      </span>
+                      <span className="explorer-context__description">
+                        {context.via === "filter"
+                          ? `Using the normal filter flow on ${context.filterColumn ?? "the related field"} via ${context.accessor}.`
+                          : `Using relation accessor ${context.accessor} through the backend relation endpoint.`}
+                      </span>
+                    </>
+                  )}
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleClearContext}
+                >
+                  Show all {displayName}
+                </Button>
               </div>
-              <Button type="button" variant="ghost" size="sm" onClick={handleClearContext}>
-                Show all {displayName}
-              </Button>
             </div>
           ) : null}
 
@@ -397,10 +544,13 @@ export function TableDetailPage() {
                     count: selectedRowIds.length,
                     content: (
                       <div className="explorer-related">
-                        <span className="explorer-related__label">Selection operations</span>
+                        <span className="explorer-related__label">
+                          Selection operations
+                        </span>
                         <span className="explorer-context__description">
-                          Open related rows from the {selectedRowIds.length} selected row
-                          {selectedRowIds.length !== 1 ? "s" : ""}.
+                          {selectedRowIds.length === 1
+                            ? "Open related rows from the selected row."
+                            : "Open related rows from the current selection when that relation supports normal table filters."}
                         </span>
                         <div className="explorer-related__actions">
                           <Button
@@ -418,14 +568,28 @@ export function TableDetailPage() {
                               variant="ghost"
                               size="sm"
                               title={drillIn.description}
-                              disabled={selectedRowIds.length === 0}
+                              disabled={
+                                selectedRowIds.length === 0 ||
+                                (drillIn.mode === "endpoint" &&
+                                  selectedRowIds.length !== 1) ||
+                                (drillIn.mode === "filter" &&
+                                  !!drillIn.valueColumn &&
+                                  selectedRows.every(
+                                    (row) =>
+                                      row[drillIn.valueColumn!] === null ||
+                                      row[drillIn.valueColumn!] === undefined ||
+                                      row[drillIn.valueColumn!] === "",
+                                  ))
+                              }
                               onClick={() =>
                                 handleOpenRelated(
                                   drillIn.accessor,
                                   drillIn.targetTable,
                                 )
                               }
-                              trailingIcon={<Icon name="arrow-right" size={13} />}
+                              trailingIcon={
+                                <Icon name="arrow-right" size={13} />
+                              }
                             >
                               {drillIn.label}
                             </Button>
@@ -433,17 +597,17 @@ export function TableDetailPage() {
                         </div>
                       </div>
                     ),
-              }
+                  }
                 : null
             }
             suppressAutoPanel={context !== null}
             panelResetKey={`${resolvedTable.name}:${context?.kind ?? "base"}:${selectedRowIds.join(",") || "none"}`}
             filterShortcut={filterShortcut}
             sortShortcut={sortShortcut}
-            onSearch={setSearch}
+            onSearch={handleSearchChange}
             onSortChange={handleSortChange}
             onPerPageChange={handlePerPageChange}
-            onPageChange={setPage}
+            onPageChange={handlePageChange}
             onFiltersChange={handleFiltersChange}
             onHiddenColumnsChange={handleHiddenColumnsChange}
             onResetView={handleResetView}
@@ -546,19 +710,15 @@ export function TableDetailPage() {
                 disabled={dataStatus === "loading"}
                 placement="bottom"
                 onPerPageChange={handlePerPageChange}
-                onPageChange={setPage}
+                onPageChange={handlePageChange}
               />
             </>
           )}
         </section>
       ) : (
-        <Panel muted>
-          <EmptyState
-            icon="database"
-            title="Data grid coming soon"
-            description="TASK-069 will add the read-only data grid here, backed by the query client from TASK-068."
-          />
-        </Panel>
+        <div className="explorer-loading" data-testid="data-loading">
+          <Spinner label="Loading rows" />
+        </div>
       )}
     </div>
   );

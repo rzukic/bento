@@ -138,6 +138,10 @@
     flex-direction: column;
     gap: 0;
     min-width: 0;
+    border: 1px solid var(--border);
+    border-left: 0;
+    border-bottom: 0;
+    border-radius: 0;
 }
 
 .table-tabs {
@@ -145,7 +149,7 @@
     gap: 0;
     margin-top: 0.35rem;
     margin-bottom: -1px;
-    margin-left: 0.35rem;
+    padding-left: 0.35rem;
     padding-top: 1px;
     overflow-x: auto;
     overflow-y: hidden;
@@ -218,9 +222,14 @@
     gap: 1rem;
     padding: 0.85rem 0.95rem;
     border: 1px solid var(--border);
-    border-radius: 0;
+    border-radius: 0.5rem;
     background: color-mix(in srgb, var(--surface-raised) 78%, var(--surface));
+    margin: 0.75rem;
     margin-bottom: 0;
+}
+
+.explorer-context__wrapper {
+    background: var(--surface);
 }
 
 .explorer-context__summary {
@@ -283,10 +292,6 @@
     justify-content: space-between;
     gap: 1rem;
     padding: 0.75rem 0.85rem;
-    border: 1px solid var(--border);
-    border-left: 0;
-    border-bottom: 0;
-    border-radius: 0;
     background: var(--surface);
     margin-top: 0;
 }
@@ -644,7 +649,8 @@
     gap: 0.5rem;
     align-items: center;
     padding-right: 3rem;
-    padding: 0.2rem;
+    padding-left: 0.75rem;
+    padding-bottom: 0.75rem;
     background: var(--surface);
 }
 

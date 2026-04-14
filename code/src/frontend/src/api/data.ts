@@ -6,9 +6,8 @@ export type ExplorerDataSource =
   | {
       kind: "related";
       parentTable: string;
-      parentRowIds: string[];
       accessor: string;
-      filterColumn: string;
+      parentRowId: string;
     };
 
 /**
@@ -55,23 +54,13 @@ export function fetchTableRows(table: string, query: ExplorerQuery): Promise<Lis
 }
 
 export function fetchRelatedRows(
-  table: string,
-  filterColumn: string,
-  parentRowIds: string[],
+  parentTable: string,
+  parentRowId: string,
+  accessor: string,
   query: ExplorerQuery
 ): Promise<ListResponse> {
-  const relationFilterValue = parentRowIds.join(",");
-  const relationQuery: ExplorerQuery = {
-    ...query,
-    filters: [
-      {
-        column: filterColumn,
-        op: parentRowIds.length > 1 ? "in" : "eq",
-        value: relationFilterValue
-      },
-      ...query.filters
-    ]
-  };
-  const qs = buildQueryString(relationQuery);
-  return apiClient.get<ListResponse>(`/data/${encodeURIComponent(table)}?${qs}`);
+  const qs = buildQueryString(query);
+  return apiClient.get<ListResponse>(
+    `/data/${encodeURIComponent(parentTable)}/${encodeURIComponent(parentRowId)}/${encodeURIComponent(accessor)}?${qs}`
+  );
 }

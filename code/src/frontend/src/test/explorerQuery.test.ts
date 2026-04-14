@@ -2,10 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildQueryString } from "../api/data";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import {
+  extractExplorerViewConfig,
+  getExplorerQueryForView,
+  hydrateTableViewFromConfig,
   resetExplorerStoreForTest,
   useExplorerStore
 } from "../stores/explorerStore";
-import { DEFAULT_QUERY } from "../types/explorer";
+import {
+  DEFAULT_EXPLORER_VIEW_CONFIG,
+  DEFAULT_QUERY
+} from "../types/explorer";
 import type { ExplorerQuery, ListResponse } from "../types/explorer";
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -130,7 +136,8 @@ describe("explorerStore", () => {
     expect(state.activeTable).toBe("orders");
     expect(state.views.orders).toBeDefined();
     expect(state.views.orders.status).toBe("idle");
-    expect(state.views.orders.query).toEqual(DEFAULT_QUERY);
+    expect(state.views.orders.config).toEqual(DEFAULT_EXPLORER_VIEW_CONFIG);
+    expect(getExplorerQueryForView(state.views.orders)).toEqual(DEFAULT_QUERY);
   });
 
   it("preserves existing view state when switching back to a table", () => {
@@ -142,7 +149,7 @@ describe("explorerStore", () => {
         ...s.views,
         orders: {
           ...s.views.orders,
-          query: { ...s.views.orders.query, page: 3 }
+          page: 3
         }
       }
     }));
@@ -153,7 +160,7 @@ describe("explorerStore", () => {
 
     // Switch back — orders retains page 3
     useExplorerStore.getState().setActiveTable("orders");
-    expect(useExplorerStore.getState().views.orders.query.page).toBe(3);
+    expect(useExplorerStore.getState().views.orders.page).toBe(3);
   });
 
   it("fetches rows and populates the view on success", async () => {
@@ -184,6 +191,83 @@ describe("explorerStore", () => {
     expect(view.rows).toHaveLength(2);
     expect(view.meta?.total).toBe(42);
     expect(view.meta?.total_pages).toBe(2);
+  });
+
+  it("fetches related rows through the backend relation sub-resource endpoint", async () => {
+    seedAuthenticated();
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      new Response(JSON.stringify(mockListResponse([{ id: 101, total: 149.5 }], 1)), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    useExplorerStore.getState().openRelatedContext(
+      "orders",
+      "customers",
+      "7",
+      "customer_orders"
+    );
+    await useExplorerStore.getState().fetchRows();
+
+    expect(String(fetchMock.mock.calls.at(0)?.[0])).toContain(
+      "/api/v1/data/customers/7/customer_orders?page=1&per_page=25"
+    );
+
+    const view = useExplorerStore.getState().views.orders;
+    expect(view.status).toBe("ready");
+    expect(view.context).toEqual({
+      kind: "related",
+      parentTable: "customers",
+      parentRowIds: ["7"],
+      accessor: "customer_orders",
+      via: "endpoint"
+    });
+    expect(view.config.type).toBe("table");
+  });
+
+  it("opens filter-backed related rows as a normal table query", async () => {
+    seedAuthenticated();
+
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) =>
+      new Response(JSON.stringify(mockListResponse([{ id: 101, total: 149.5 }], 1)), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      })
+    );
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    useExplorerStore.getState().openFilteredRelatedContext(
+      "orders",
+      "customers",
+      ["7", "8"],
+      "customer_orders",
+      "customer_id",
+      [{ column: "customer_id", op: "in", value: "7,8" }]
+    );
+    await useExplorerStore.getState().fetchRows();
+
+    const requestUrl = String(fetchMock.mock.calls.at(0)?.[0]);
+    expect(requestUrl).toContain("/api/v1/data/orders?");
+    expect(requestUrl).toContain("filter%5Bcustomer_id%5D%5Bin%5D=7%2C8");
+
+    const view = useExplorerStore.getState().views.orders;
+    expect(view.status).toBe("ready");
+    expect(view.context).toEqual({
+      kind: "related",
+      parentTable: "customers",
+      parentRowIds: ["7", "8"],
+      accessor: "customer_orders",
+      via: "filter",
+      filterColumn: "customer_id"
+    });
+    expect(view.config.filters).toEqual([
+      { column: "customer_id", op: "in", value: "7,8" }
+    ]);
   });
 
   it("captures errors when the fetch fails", async () => {
@@ -228,8 +312,8 @@ describe("explorerStore", () => {
         ...s.views,
         orders: {
           ...s.views.orders,
-          query: {
-            ...s.views.orders.query,
+          config: {
+            ...s.views.orders.config,
             sort: [{ column: "name", dir: "asc" }]
           }
         }
@@ -245,8 +329,8 @@ describe("explorerStore", () => {
     });
 
     const view = useExplorerStore.getState().views.orders;
-    expect(view.query.page).toBe(2);
-    expect(view.query.sort).toEqual([{ column: "name", dir: "asc" }]);
+    expect(view.page).toBe(2);
+    expect(view.config.sort).toEqual([{ column: "name", dir: "asc" }]);
   });
 
   it("setSearch resets page to 1 and fetches", async () => {
@@ -270,7 +354,7 @@ describe("explorerStore", () => {
         ...s.views,
         orders: {
           ...s.views.orders,
-          query: { ...s.views.orders.query, page: 3 }
+          page: 3
         }
       }
     }));
@@ -283,8 +367,92 @@ describe("explorerStore", () => {
     });
 
     const view = useExplorerStore.getState().views.orders;
-    expect(view.query.search).toBe("hello");
-    expect(view.query.page).toBe(1);
+    expect(view.config.search).toBe("hello");
+    expect(view.page).toBe(1);
+  });
+
+  it("extracts only the durable config for saved views", () => {
+    useExplorerStore.getState().setActiveTable("orders");
+    useExplorerStore.setState((s) => ({
+      views: {
+        ...s.views,
+        orders: {
+          ...s.views.orders,
+          status: "ready",
+          config: {
+            type: "table",
+            search: "alpha",
+            sort: [{ column: "name", dir: "asc" }],
+            filters: [{ column: "status", op: "eq", value: "active" }],
+            hiddenColumnNames: ["internal_notes"],
+            columnOrder: ["id", "name", "status"]
+          },
+          page: 4,
+          perPage: 100,
+          rows: [{ id: 1 }],
+          meta: { page: 4, per_page: 100, total: 1, total_pages: 1 },
+          error: "boom",
+          selectedRowIds: ["1"],
+          context: {
+            kind: "reference",
+            rowId: 1,
+            sourceTable: "customers",
+            sourceRowId: 7,
+            sourceColumn: "customer_id"
+          }
+        }
+      }
+    }));
+
+    const config = extractExplorerViewConfig(useExplorerStore.getState().views.orders);
+    expect(config).toEqual({
+      type: "table",
+      search: "alpha",
+      sort: [{ column: "name", dir: "asc" }],
+      filters: [{ column: "status", op: "eq", value: "active" }],
+      hiddenColumnNames: ["internal_notes"],
+      columnOrder: ["id", "name", "status"]
+    });
+  });
+
+  it("hydrates runtime state from saved-view config without leaking runtime fields", () => {
+    const hydrated = hydrateTableViewFromConfig({
+      type: "kanban",
+      search: "alpha",
+      sort: [{ column: "created_at", dir: "desc" }],
+      filters: [{ column: "status", op: "in", value: "pending,shipped" }],
+      hiddenColumnNames: ["internal_notes"],
+      columnOrder: ["id", "status", "created_at"],
+      kanbanColumn: "status",
+      cardFieldNames: ["total", "customer_id"]
+    });
+
+    expect(hydrated.config).toEqual({
+      type: "kanban",
+      search: "alpha",
+      sort: [{ column: "created_at", dir: "desc" }],
+      filters: [{ column: "status", op: "in", value: "pending,shipped" }],
+      hiddenColumnNames: ["internal_notes"],
+      columnOrder: ["id", "status", "created_at"],
+      kanbanColumn: "status",
+      cardFieldNames: ["total", "customer_id"]
+    });
+    expect(hydrated.status).toBe("idle");
+    expect(hydrated.page).toBe(1);
+    expect(hydrated.perPage).toBe(25);
+    expect(hydrated.rows).toEqual([]);
+    expect(hydrated.meta).toBeNull();
+    expect(hydrated.error).toBeNull();
+    expect(hydrated.selectedRowIds).toEqual([]);
+    expect(hydrated.context).toBeNull();
+    expect(hydrated.source).toEqual({ kind: "table" });
+    expect(getExplorerQueryForView(hydrated)).toEqual({
+      page: 1,
+      perPage: 25,
+      search: "alpha",
+      sort: [{ column: "created_at", dir: "desc" }],
+      filters: [{ column: "status", op: "in", value: "pending,shipped" }]
+    });
   });
 
   it("is reset on logout", () => {

@@ -1,11 +1,4 @@
-import { PlaceholderCard } from "../components/common/PlaceholderCard";
-
-export function DataPage() {
-  return (
-    <PlaceholderCard
-      title="Data Explorer placeholder"
-      description="This route now sits inside the real shared shell. Step 2.2 will replace this placeholder with the first browser-based table explorer."
-      bullets={["Stable route: /data", "Stable detail route: /data/:tableId"]}
-    />
-  );
-}
+// This file is not used by the router. The /data route uses DataExplorerPage
+// from features/data-explorer, and /data/:tableId uses TableDetailPage.
+// Kept as a stub so the file does not silently disappear from the tree.
+export {};

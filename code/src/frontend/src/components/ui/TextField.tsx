@@ -3,6 +3,7 @@ import type { InputHTMLAttributes } from "react";
 type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   label: string;
   hint?: string;
+  hintTitle?: string;
   message?: string | null;
   error?: string | null;
   hideLabel?: boolean;
@@ -12,6 +13,7 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
 export function TextField({
   label,
   hint,
+  hintTitle,
   message,
   error,
   hideLabel = false,
@@ -29,7 +31,11 @@ export function TextField({
         <span className={hideLabel ? "field__label field__label--sr-only" : "field__label"}>
           {label}
         </span>
-        {hint ? <span className="field__hint">{hint}</span> : null}
+        {hint ? (
+          <span className="field__hint" title={hintTitle}>
+            {hint}
+          </span>
+        ) : null}
       </span>
       <input
         id={inputId}

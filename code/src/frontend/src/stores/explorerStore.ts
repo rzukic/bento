@@ -3,12 +3,18 @@ import { fetchRelatedRows, fetchTableRows, type ExplorerDataSource } from "../ap
 import { ApiClientError } from "../api/client";
 import { registerLogoutHook } from "./authStore";
 import type {
+  ExplorerViewConfig,
   ExplorerQuery,
   FilterClause,
   ListMeta,
   SortClause
 } from "../types/explorer";
-import { DEFAULT_QUERY } from "../types/explorer";
+import {
+  buildExplorerQuery,
+  DEFAULT_EXPLORER_VIEW_CONFIG,
+  DEFAULT_QUERY,
+  patchExplorerViewConfig
+} from "../types/explorer";
 
 // ── Per-table view state ──────────────────────────────────────────────
 
@@ -16,12 +22,13 @@ export type TableViewStatus = "idle" | "loading" | "ready" | "error";
 
 export type TableViewState = {
   status: TableViewStatus;
-  query: ExplorerQuery;
+  config: ExplorerViewConfig;
+  page: number;
+  perPage: number;
   rows: Record<string, unknown>[];
   meta: ListMeta | null;
   error: string | null;
   source: ExplorerDataSource;
-  hiddenColumnNames: string[];
   selectedRowIds: string[];
   context:
     | {
@@ -36,23 +43,46 @@ export type TableViewState = {
         parentTable: string;
         parentRowIds: string[];
         accessor: string;
-        filterColumn: string;
+        via: "filter" | "endpoint";
+        filterColumn?: string;
       }
     | null;
 };
 
-function freshTableView(): TableViewState {
+function cloneExplorerViewConfig(config: ExplorerViewConfig): ExplorerViewConfig {
+  return patchExplorerViewConfig(config, {});
+}
+
+export function extractExplorerViewConfig(view: TableViewState): ExplorerViewConfig {
+  return cloneExplorerViewConfig(view.config);
+}
+
+export function hydrateTableViewFromConfig(
+  config: ExplorerViewConfig
+): TableViewState {
   return {
     status: "idle",
-    query: { ...DEFAULT_QUERY },
+    config: cloneExplorerViewConfig(config),
+    page: DEFAULT_QUERY.page,
+    perPage: DEFAULT_QUERY.perPage,
     rows: [],
     meta: null,
     error: null,
     source: { kind: "table" },
-    hiddenColumnNames: [],
     selectedRowIds: [],
     context: null
   };
+}
+
+function freshTableView(): TableViewState {
+  return hydrateTableViewFromConfig(DEFAULT_EXPLORER_VIEW_CONFIG);
+}
+
+export function getExplorerQueryForView(view: TableViewState): ExplorerQuery {
+  return buildExplorerQuery(view.config, {
+    page: view.page,
+    perPage: view.perPage
+  });
 }
 
 // ── Store shape ───────────────────────────────────────────────────────
@@ -113,9 +143,18 @@ type ExplorerStoreState = {
   openRelatedContext: (
     table: string,
     parentTable: string,
+    parentRowId: string,
+    accessor: string
+  ) => void;
+
+  /** Open related records as a normal filtered table view. */
+  openFilteredRelatedContext: (
+    table: string,
+    parentTable: string,
     parentRowIds: string[],
     accessor: string,
-    filterColumn: string
+    filterColumn: string,
+    filters: FilterClause[]
   ) => void;
 
   /** Clear the current table back to its normal base-table browsing state. */
@@ -161,7 +200,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     if (!activeTable) return;
 
     const view = views[activeTable] ?? freshTableView();
-    const query = view.query;
+    const query = getExplorerQueryForView(view);
 
     // Mark loading
     set((state) => ({
@@ -175,9 +214,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       const result =
         view.source.kind === "related"
           ? await fetchRelatedRows(
-              activeTable,
-              view.source.filterColumn,
-              view.source.parentRowIds,
+              view.source.parentTable,
+              view.source.parentRowId,
+              view.source.accessor,
               query
             )
           : await fetchTableRows(activeTable, query);
@@ -215,16 +254,16 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const { activeTable, views, fetchRows } = get();
     if (!activeTable) return;
     const view = views[activeTable] ?? freshTableView();
-    const nextQuery: ExplorerQuery = {
-      ...view.query,
-      ...patch,
-      // Any query change other than page alone resets to page 1.
-      page: patch.page ?? 1
-    };
     set((state) => ({
       views: {
         ...state.views,
-        [activeTable]: { ...view, query: nextQuery, selectedRowIds: [] }
+        [activeTable]: {
+          ...view,
+          config: patchExplorerViewConfig(view.config, patch),
+          page: patch.page ?? 1,
+          perPage: patch.perPage ?? view.perPage,
+          selectedRowIds: []
+        }
       }
     }));
     void fetchRows();
@@ -239,7 +278,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         ...state.views,
         [activeTable]: {
           ...view,
-          query: { ...view.query, page },
+          page,
           selectedRowIds: []
         }
       }
@@ -279,10 +318,16 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
             sourceRowId: context.sourceRowId,
             sourceColumn: context.sourceColumn
           },
-          query: {
-            ...DEFAULT_QUERY,
-            filters: [{ column: "id", op: "eq", value: String(rowId) }]
-          }
+          config: patchExplorerViewConfig(
+            state.views[table]?.config ?? DEFAULT_EXPLORER_VIEW_CONFIG,
+            {
+              search: DEFAULT_QUERY.search,
+              sort: DEFAULT_QUERY.sort,
+              filters: [{ column: "id", op: "eq", value: String(rowId) }]
+            }
+          ),
+          page: DEFAULT_QUERY.page,
+          perPage: DEFAULT_QUERY.perPage
         }
       }
     }));
@@ -356,7 +401,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           ...state.views,
           [table]: {
             ...view,
-            hiddenColumnNames: Array.from(new Set(columnNames.filter(Boolean)))
+            config: patchExplorerViewConfig(view.config, {
+              hiddenColumnNames: Array.from(new Set(columnNames.filter(Boolean)))
+            })
           }
         }
       };
@@ -384,7 +431,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     });
   },
 
-  openRelatedContext: (table, parentTable, parentRowIds, accessor, filterColumn) => {
+  openRelatedContext: (table, parentTable, parentRowId, accessor) => {
     set((state) => ({
       activeTable: table,
       views: {
@@ -398,21 +445,70 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           source: {
             kind: "related",
             parentTable,
-            parentRowIds,
+            parentRowId,
             accessor,
-            filterColumn
           },
+          selectedRowIds: [],
+          context: {
+            kind: "related",
+            parentTable,
+            parentRowIds: [parentRowId],
+            accessor,
+            via: "endpoint"
+          },
+          config: patchExplorerViewConfig(
+            state.views[table]?.config ?? DEFAULT_EXPLORER_VIEW_CONFIG,
+            {
+              search: DEFAULT_QUERY.search,
+              sort: DEFAULT_QUERY.sort,
+              filters: DEFAULT_QUERY.filters
+            }
+          ),
+          page: DEFAULT_QUERY.page,
+          perPage: DEFAULT_QUERY.perPage
+        }
+      }
+    }));
+  },
+
+  openFilteredRelatedContext: (
+    table,
+    parentTable,
+    parentRowIds,
+    accessor,
+    filterColumn,
+    filters
+  ) => {
+    set((state) => ({
+      activeTable: table,
+      views: {
+        ...state.views,
+        [table]: {
+          ...(state.views[table] ?? freshTableView()),
+          status: "idle",
+          rows: [],
+          meta: null,
+          error: null,
+          source: { kind: "table" },
           selectedRowIds: [],
           context: {
             kind: "related",
             parentTable,
             parentRowIds,
             accessor,
+            via: "filter",
             filterColumn
           },
-          query: {
-            ...DEFAULT_QUERY
-          }
+          config: patchExplorerViewConfig(
+            state.views[table]?.config ?? DEFAULT_EXPLORER_VIEW_CONFIG,
+            {
+              search: DEFAULT_QUERY.search,
+              sort: DEFAULT_QUERY.sort,
+              filters
+            }
+          ),
+          page: DEFAULT_QUERY.page,
+          perPage: DEFAULT_QUERY.perPage
         }
       }
     }));
@@ -435,10 +531,16 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           source: { kind: "table" },
           selectedRowIds: [],
           context: null,
-          query: {
-            ...DEFAULT_QUERY,
-            ...nextQuery
-          }
+          config: patchExplorerViewConfig(
+            state.views[targetTable]?.config ?? DEFAULT_EXPLORER_VIEW_CONFIG,
+            {
+              search: nextQuery.search ?? DEFAULT_QUERY.search,
+              sort: nextQuery.sort ?? DEFAULT_QUERY.sort,
+              filters: nextQuery.filters ?? DEFAULT_QUERY.filters
+            }
+          ),
+          page: nextQuery.page ?? DEFAULT_QUERY.page,
+          perPage: nextQuery.perPage ?? DEFAULT_QUERY.perPage
         }
       }
     }));

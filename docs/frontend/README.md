@@ -138,7 +138,7 @@ Current shipped behavior:
 - row selection with click, drag, shift-range, select-all, and context-menu actions
 - per-table column visibility with a dedicated `Columns` foldout and header-menu `Hide column`
 - reference navigation into linked records
-- related-record drilldowns derived from schema relations and the current selected rows
+- selection-driven related-record drilldowns that open the backend relation endpoint for exactly one selected parent row using resolved relation metadata from the admin schema snapshot
 
 Current non-goals for this slice:
 - inline editing

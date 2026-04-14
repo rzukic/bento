@@ -34,6 +34,31 @@ export type FilterClause = {
   value?: string;
 };
 
+export type ExplorerViewType = "table" | "kanban";
+
+type ExplorerBaseViewConfig = {
+  type: ExplorerViewType;
+  search: string;
+  sort: SortClause[];
+  filters: FilterClause[];
+  hiddenColumnNames: string[];
+  columnOrder: string[];
+};
+
+export type TableExplorerViewConfig = ExplorerBaseViewConfig & {
+  type: "table";
+};
+
+export type KanbanExplorerViewConfig = ExplorerBaseViewConfig & {
+  type: "kanban";
+  kanbanColumn: string | null;
+  cardFieldNames: string[];
+};
+
+export type ExplorerViewConfig =
+  | TableExplorerViewConfig
+  | KanbanExplorerViewConfig;
+
 /**
  * The complete query state for a single table view. Every field maps
  * directly to a backend query parameter.
@@ -68,3 +93,58 @@ export const DEFAULT_QUERY: ExplorerQuery = {
   search: "",
   filters: []
 };
+
+export const DEFAULT_EXPLORER_VIEW_CONFIG: TableExplorerViewConfig = {
+  type: "table",
+  search: "",
+  sort: [],
+  filters: [],
+  hiddenColumnNames: [],
+  columnOrder: []
+};
+
+export function buildExplorerQuery(
+  config: ExplorerViewConfig,
+  options?: { page?: number; perPage?: number }
+): ExplorerQuery {
+  return {
+    page: options?.page ?? DEFAULT_QUERY.page,
+    perPage: options?.perPage ?? DEFAULT_QUERY.perPage,
+    search: config.search,
+    sort: [...config.sort],
+    filters: config.filters.map((filter) => ({ ...filter }))
+  };
+}
+
+export function patchExplorerViewConfig(
+  config: ExplorerViewConfig,
+  patch: Partial<Pick<ExplorerQuery, "search" | "sort" | "filters">> &
+    Partial<Pick<ExplorerBaseViewConfig, "hiddenColumnNames" | "columnOrder">>
+): ExplorerViewConfig {
+  const nextBase: ExplorerBaseViewConfig = {
+    ...config,
+    search: patch.search ?? config.search,
+    sort: patch.sort ? patch.sort.map((sort) => ({ ...sort })) : [...config.sort],
+    filters: patch.filters
+      ? patch.filters.map((filter) => ({ ...filter }))
+      : config.filters.map((filter) => ({ ...filter })),
+    hiddenColumnNames: patch.hiddenColumnNames
+      ? [...patch.hiddenColumnNames]
+      : [...config.hiddenColumnNames],
+    columnOrder: patch.columnOrder ? [...patch.columnOrder] : [...config.columnOrder]
+  };
+
+  if (config.type === "kanban") {
+    return {
+      ...nextBase,
+      type: "kanban",
+      kanbanColumn: config.kanbanColumn,
+      cardFieldNames: [...config.cardFieldNames]
+    };
+  }
+
+  return {
+    ...nextBase,
+    type: "table"
+  };
+}

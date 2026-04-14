@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Repere.Api.Authorization;
 using Repere.Api.Db.Schema;
@@ -65,7 +66,7 @@ public sealed class AdminController : ControllerBase
         var model = await _modelJsonStore.GetCurrentAsync();
         model ??= new ModelJson { Version = 0 };
 
-        var json = ModelJsonSerializer.Serialize(model);
+        var json = BuildSchemaSnapshotJson(model);
         return Content(json, "application/json");
     }
 
@@ -233,5 +234,35 @@ public sealed class AdminController : ControllerBase
             Uptime: result.Uptime,
             Version: result.Version,
             Error: result.Error);
+    }
+
+    private static string BuildSchemaSnapshotJson(ModelJson model)
+    {
+        var serialized = ModelJsonSerializer.Serialize(model);
+        var root = JsonNode.Parse(serialized)?.AsObject()
+            ?? throw new InvalidOperationException("Failed to parse schema snapshot JSON.");
+
+        if (root["relations"] is not JsonArray relationsArray || relationsArray.Count == 0)
+            return root.ToJsonString();
+
+        var resolvedRelations = new RelationResolver().Resolve(model).Relations;
+        var count = Math.Min(relationsArray.Count, resolvedRelations.Count);
+
+        for (var index = 0; index < count; index++)
+        {
+            if (relationsArray[index] is not JsonObject relationObject)
+                continue;
+
+            var resolvedRelation = resolvedRelations[index];
+            relationObject["resolvedFromAccessor"] = resolvedRelation.FromAccessor;
+            relationObject["resolvedToAccessor"] = resolvedRelation.ToAccessor;
+
+            if (!string.IsNullOrWhiteSpace(resolvedRelation.JunctionTableName))
+            {
+                relationObject["resolvedJunctionTableName"] = resolvedRelation.JunctionTableName;
+            }
+        }
+
+        return root.ToJsonString();
     }
 }
