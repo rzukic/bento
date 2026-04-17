@@ -300,6 +300,7 @@ export function Icon({ name, size = 16, strokeWidth = 1.75, ...rest }: IconProps
       strokeLinejoin="round"
       aria-hidden="true"
       focusable="false"
+      pointerEvents="none"
       {...rest}
     >
       {paths[name]}

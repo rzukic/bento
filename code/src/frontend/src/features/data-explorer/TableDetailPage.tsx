@@ -607,7 +607,7 @@ export function TableDetailPage() {
             savedViews={view.savedViews}
             activeViewId={view.activeViewId}
             onSwitchView={switchView}
-            onSaveCurrentAsView={(name) => saveCurrentAsView(name, view.config.type, false)}
+            onSaveCurrentAsView={(name, type) => saveCurrentAsView(name, type, false)}
             onUpdateActiveViewConfig={updateActiveViewConfig}
             onRenameView={renameView}
             onToggleViewShared={toggleViewShared}

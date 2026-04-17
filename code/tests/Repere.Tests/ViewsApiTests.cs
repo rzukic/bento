@@ -117,6 +117,7 @@ public sealed class ViewsApiTests
         Assert.Equal("items", body.GetProperty("table_name").GetString());
         Assert.Equal("table", body.GetProperty("type").GetString());
         Assert.Equal(JsonValueKind.Object, body.GetProperty("config").ValueKind);
+        Assert.Equal("table", body.GetProperty("config").GetProperty("type").GetString());
         Assert.False(body.GetProperty("is_shared").GetBoolean());
         Assert.True(body.GetProperty("id").GetInt32() > 0);
         Assert.True(body.GetProperty("owner_user_id").GetInt32() > 0);
@@ -192,6 +193,18 @@ public sealed class ViewsApiTests
     }
 
     [Fact]
+    public async Task Create_ConfigTypeMismatch_Returns400()
+    {
+        await using var host = await CreateHostAsync();
+        var token = await RegisterAndLoginAsync(host.Client, "alice", "password");
+
+        using var resp = await SendAsync(host.Client, HttpMethod.Post, "/api/v1/views", token,
+            new { name = "View", table_name = "items", type = "table", config = new { type = "kanban" }, is_shared = false });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task Create_Unauthenticated_Returns401()
     {
         await using var host = await CreateHostAsync();
@@ -218,6 +231,21 @@ public sealed class ViewsApiTests
         var body = await resp.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("Renamed", body.GetProperty("name").GetString());
         Assert.True(body.GetProperty("is_shared").GetBoolean());
+        Assert.Equal("table", body.GetProperty("type").GetString());
+        Assert.Equal("table", body.GetProperty("config").GetProperty("type").GetString());
+    }
+
+    [Fact]
+    public async Task Update_ConfigTypeMismatch_Returns400()
+    {
+        await using var host = await CreateHostAsync();
+        var token = await RegisterAndLoginAsync(host.Client, "alice", "password");
+        var viewId = await CreateViewAsync(host.Client, token, "Original Name");
+
+        using var resp = await SendAsync(host.Client, HttpMethod.Put, $"/api/v1/views/{viewId}", token,
+            new { config = new { type = "kanban" } });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
     [Fact]

@@ -7,6 +7,7 @@ import {
   updateView,
   deleteView as deleteViewApi
 } from "../api/views";
+import { updateExplorerTablePreferences } from "../api/explorerPreferences";
 import { registerLogoutHook, useAuthStore } from "./authStore";
 import type {
   ExplorerViewConfig,
@@ -136,17 +137,27 @@ export function getExplorerQueryForView(view: TableViewState): ExplorerQuery {
 // Module-level timer so it survives store re-renders without polluting state.
 
 let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let _autoSaveTarget: { tableId: string; viewId: number } | null = null;
 
 function scheduleAutoSave(): void {
   if (_autoSaveTimer !== null) clearTimeout(_autoSaveTimer);
+  const store = useExplorerStore.getState();
+  const { activeTable } = store;
+  if (!activeTable) return;
+  const view = store.views[activeTable];
+  if (!view || view.activeViewId === null) return;
+  // Capture the table/view that scheduled the save. This prevents quick
+  // navigation between tables from persisting the wrong view.
+  _autoSaveTarget = { tableId: activeTable, viewId: view.activeViewId };
   _autoSaveTimer = setTimeout(() => {
     _autoSaveTimer = null;
-    const store = useExplorerStore.getState();
-    const { activeTable } = store;
-    if (!activeTable) return;
-    const view = store.views[activeTable];
-    if (!view?.autoSave || view.activeViewId === null) return;
-    void store.updateActiveViewConfig();
+    const target = _autoSaveTarget;
+    _autoSaveTarget = null;
+    if (!target) return;
+    const latest = useExplorerStore.getState();
+    const view = latest.views[target.tableId];
+    if (!view?.autoSave) return;
+    void latest.updateViewConfigFor(target.tableId, target.viewId);
   }, 500);
 }
 
@@ -155,6 +166,7 @@ function cancelAutoSave(): void {
     clearTimeout(_autoSaveTimer);
     _autoSaveTimer = null;
   }
+  _autoSaveTarget = null;
 }
 
 // ── Store shape ───────────────────────────────────────────────────────
@@ -251,6 +263,9 @@ type ExplorerStoreState = {
   /** Push the current config back to the active saved view (used by auto-save). */
   updateActiveViewConfig: () => Promise<void>;
 
+  /** Push the config back to a specific table's active saved view (used by auto-save). */
+  updateViewConfigFor: (tableId: string, viewId: number) => Promise<void>;
+
   /** Rename a saved view (owner only). */
   renameView: (id: number, name: string) => Promise<void>;
 
@@ -275,7 +290,7 @@ type ExplorerStoreState = {
 
   /**
    * Mark a saved view as the default for the active table (or pass null
-   * to clear). Currently persisted in localStorage only — no backend yet.
+   * to clear). Persisted per-user in the backend so it works across browsers.
    */
   setDefaultView: (id: number | null) => Promise<void>;
 
@@ -320,33 +335,10 @@ function currentUserOwns(view: SavedView | undefined): boolean {
 
 // ── Store ─────────────────────────────────────────────────────────────
 
-const DEFAULT_VIEWS_STORAGE_KEY = "repere.explorer.defaultViewIdByTable";
-
-function loadDefaultViewMap(): Record<string, number | null> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = window.localStorage.getItem(DEFAULT_VIEWS_STORAGE_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
-}
-
-function persistDefaultViewMap(map: Record<string, number | null>): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(DEFAULT_VIEWS_STORAGE_KEY, JSON.stringify(map));
-  } catch {
-    /* ignore */
-  }
-}
-
 const initialState = {
   activeTable: null as string | null,
   views: {} as Record<string, TableViewState>,
-  defaultViewIdByTable: loadDefaultViewMap()
+  defaultViewIdByTable: {} as Record<string, number | null>
 };
 
 export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
@@ -733,13 +725,16 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     });
 
     try {
-      const views = await listViews(tableId);
+      const result = await listViews(tableId);
+      const views = result.data ?? [];
+      const prefs = result.preferences ?? { default_view_id: null, auto_save: false };
       set((state) => {
         const view = state.views[tableId] ?? freshTableView();
         return {
+          defaultViewIdByTable: { ...state.defaultViewIdByTable, [tableId]: prefs.default_view_id },
           views: {
             ...state.views,
-            [tableId]: { ...view, savedViews: views, savedViewsStatus: "ready" }
+            [tableId]: { ...view, savedViews: views, savedViewsStatus: "ready", autoSave: prefs.auto_save }
           }
         };
       });
@@ -829,7 +824,11 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           [activeTable]: {
             ...v,
             savedViews: [...v.savedViews, created],
-            activeViewId: created.id
+            activeViewId: created.id,
+            // If the user created a view with a different type than the
+            // current runtime config (now possible via the create modal),
+            // re-hydrate the runtime config to match the created view.
+            config: cloneExplorerViewConfig(created.config),
           }
         }
       };
@@ -843,19 +842,28 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const view = views[activeTable];
     if (!view || view.activeViewId === null) return;
 
-    const target = view.savedViews.find((sv) => sv.id === view.activeViewId);
+    await get().updateViewConfigFor(activeTable, view.activeViewId);
+  },
+
+  updateViewConfigFor: async (tableId, viewId) => {
+    const { views } = get();
+    const view = views[tableId];
+    if (!view) return;
+    if (view.activeViewId !== viewId) return;
+
+    const target = view.savedViews.find((sv) => sv.id === viewId);
     if (!currentUserOwns(target)) return;
 
     const config = extractExplorerViewConfig(view);
-    const updated = await updateView(view.activeViewId, { config });
+    const updated = await updateView(viewId, { config });
 
     set((state) => {
-      const v = state.views[activeTable];
+      const v = state.views[tableId];
       if (!v) return state;
       return {
         views: {
           ...state.views,
-          [activeTable]: {
+          [tableId]: {
             ...v,
             savedViews: v.savedViews.map((sv) =>
               sv.id === updated.id ? updated : sv
@@ -1036,9 +1044,15 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     if (!activeTable) return;
     set((state) => {
       const next = { ...state.defaultViewIdByTable, [activeTable]: id };
-      persistDefaultViewMap(next);
       return { defaultViewIdByTable: next };
     });
+
+    // Persist per-user so the default follows the account across browsers.
+    try {
+      await updateExplorerTablePreferences(activeTable, { default_view_id: id });
+    } catch {
+      // If the backend can't be reached, keep the in-memory preference.
+    }
   },
 
   setAutoSave: (enabled) => {
@@ -1061,6 +1075,11 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           [activeTable]: { ...v, autoSave: enabled }
         }
       };
+    });
+
+    // Persist per-user so the toggle survives refreshes and other browsers.
+    void updateExplorerTablePreferences(activeTable, { auto_save: enabled }).catch(() => {
+      /* ignore */
     });
 
     // Immediately persist if turning on with an active saved view

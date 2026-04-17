@@ -1,11 +1,20 @@
 import { apiClient } from "./client";
 import type { SavedView, CreateViewPayload, UpdateViewPayload } from "../types/views";
 
+export type ExplorerTablePreferences = {
+  default_view_id: number | null;
+  auto_save: boolean;
+};
+
+export type ListViewsResponse = {
+  data: SavedView[];
+  preferences?: ExplorerTablePreferences;
+};
+
 /** GET /api/v1/views/{tableId} — own views + shared views from others */
-export function listViews(tableId: string): Promise<SavedView[]> {
+export function listViews(tableId: string): Promise<ListViewsResponse> {
   return apiClient
-    .get<{ data: SavedView[] }>(`/views/${encodeURIComponent(tableId)}`)
-    .then((res) => res.data);
+    .get<ListViewsResponse>(`/views/${encodeURIComponent(tableId)}`);
 }
 
 /** POST /api/v1/views — create a new view owned by the current user */

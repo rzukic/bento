@@ -40,7 +40,7 @@ type DataQueryControlsProps = {
   /** Called when the user selects a view (null = All Records). */
   onSwitchView?: (viewId: number | null) => void;
   /** Save the current config as a brand-new named view. */
-  onSaveCurrentAsView?: (name: string) => Promise<void>;
+  onSaveCurrentAsView?: (name: string, type: ExplorerViewType) => Promise<void>;
   /** Persist config changes back to the currently active saved view. */
   onUpdateActiveViewConfig?: () => Promise<void>;
   /** Rename a saved view. */
@@ -654,6 +654,7 @@ export function DataQueryControls({
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
   const [createViewOpen, setCreateViewOpen] = useState(false);
   const [createViewName, setCreateViewName] = useState("");
+  const [createViewTypeDraft, setCreateViewTypeDraft] = useState<ExplorerViewType>("table");
   const [createViewSaving, setCreateViewSaving] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
@@ -1054,7 +1055,7 @@ export function DataQueryControls({
     if (!name) return;
     setCreateViewSaving(true);
     try {
-      await onSaveCurrentAsView?.(name);
+      await onSaveCurrentAsView?.(name, createViewTypeDraft);
       setCreateViewOpen(false);
       setCreateViewName("");
     } finally {
@@ -1244,6 +1245,9 @@ export function DataQueryControls({
                     onClick={() => {
                       setViewDropdownOpen(false);
                       setCreateViewName("");
+                      setCreateViewTypeDraft(
+                        viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
+                      );
                       setCreateViewOpen(true);
                     }}
                   >
@@ -1299,6 +1303,9 @@ export function DataQueryControls({
                 size="sm"
                 onClick={() => {
                   setCreateViewName("");
+                  setCreateViewTypeDraft(
+                    viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
+                  );
                   setCreateViewOpen(true);
                 }}
               >
@@ -1948,6 +1955,48 @@ export function DataQueryControls({
                 placeholder="e.g. Open orders"
                 autoFocus
               />
+
+              <div className="view-modal__field">
+                <span className="view-modal__field-label">View type</span>
+                <div
+                  className="view-modal__segmented"
+                  role="radiogroup"
+                  aria-label="View type"
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={createViewTypeDraft === "table"}
+                    className={
+                      createViewTypeDraft === "table"
+                        ? "view-modal__segmented-btn view-modal__segmented-btn--on"
+                        : "view-modal__segmented-btn"
+                    }
+                    onClick={() => setCreateViewTypeDraft("table")}
+                  >
+                    Table
+                  </button>
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={createViewTypeDraft === "kanban"}
+                    disabled={!hasEnumColumns && createViewTypeDraft !== "kanban"}
+                    title={
+                      !hasEnumColumns ? "Kanban requires at least one enum column" : undefined
+                    }
+                    className={
+                      createViewTypeDraft === "kanban"
+                        ? "view-modal__segmented-btn view-modal__segmented-btn--on"
+                        : "view-modal__segmented-btn"
+                    }
+                    onClick={() => {
+                      if (hasEnumColumns) setCreateViewTypeDraft("kanban");
+                    }}
+                  >
+                    Kanban
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="view-modal__footer">
               <Button

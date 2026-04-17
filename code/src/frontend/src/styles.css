@@ -25,10 +25,10 @@
     --text-4: #52525b;
 
     /* Accent — used extremely sparingly */
-    --accent: #c6f02f; /* hazard lime, only for primary CTAs + live marker */
-    --accent-deep: #a3c928;
-    --accent-ink: #0b0b0c; /* text that sits on the accent */
-    --accent-soft: rgba(198, 240, 47, 0.12);
+    --accent: #3b82f6; /* blue-500, only for primary CTAs + live marker */
+    --accent-deep: #2563eb;
+    --accent-ink: #ffffff; /* text that sits on the accent */
+    --accent-soft: rgba(59, 130, 246, 0.14);
 
     /* Semantic */
     --success: #4ade80;
@@ -93,10 +93,10 @@
     --text-3: #627165;
     --text-4: #809082;
 
-    --accent: #8bb000;
-    --accent-deep: #6f9000;
-    --accent-ink: #0f140c;
-    --accent-soft: rgba(139, 176, 0, 0.12);
+    --accent: #2563eb;
+    --accent-deep: #1d4ed8;
+    --accent-ink: #ffffff;
+    --accent-soft: rgba(37, 99, 235, 0.12);
 
     --success: #1f8f55;
     --warning: #b97800;
@@ -251,12 +251,12 @@ textarea:disabled {
 
 .badge--live {
     color: var(--accent);
-    border-color: rgba(198, 240, 47, 0.35);
+    border-color: color-mix(in srgb, var(--accent) 35%, transparent);
     background: var(--accent-soft);
 }
 .badge--live::before {
     background: var(--accent);
-    box-shadow: 0 0 0 2px rgba(198, 240, 47, 0.2);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
     animation: pulse 2s var(--ease) infinite;
 }
 
@@ -306,8 +306,8 @@ textarea:disabled {
 }
 
 .btn--primary:hover {
-    background: #d0ff4a;
-    border-color: #d0ff4a;
+    background: var(--accent-deep);
+    border-color: var(--accent-deep);
 }
 
 .btn--ghost {

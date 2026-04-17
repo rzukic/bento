@@ -346,6 +346,8 @@
 .shell__page--immersive {
   padding: 0;
   max-width: none;
+  flex: 1;
+  min-height: 0;
 }
 
 .shell__page-header {
@@ -393,6 +395,8 @@
 
 .shell__page-body--immersive {
   gap: 0;
+  flex: 1;
+  min-height: 0;
 }
 
 /* -------------------------------------------------------------------------

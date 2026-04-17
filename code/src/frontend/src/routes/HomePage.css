@@ -173,7 +173,7 @@
 
 .home-quick__item:hover .home-quick__icon {
   color: var(--accent);
-  border-color: rgba(198, 240, 47, 0.35);
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .home-quick__label {

@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Text;
 using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
@@ -55,7 +56,38 @@ public sealed class ViewsController : ControllerBase
             """,
             new { TableName = tableId, UserId = userId });
 
-        return Ok(new { data = views.Select(MapToResponse) });
+        var pref = await conn.QuerySingleOrDefaultAsync<UserTableExplorerPreferences>(
+            $"""
+            SELECT
+                user_id         AS UserId,
+                table_name      AS TableName,
+                default_view_id AS DefaultViewId,
+                auto_save       AS AutoSave,
+                created_at      AS CreatedAt,
+                updated_at      AS UpdatedAt
+            FROM {PreferencesTable}
+            WHERE user_id = @UserId
+              AND table_name = @TableName
+            """,
+            new { UserId = userId, TableName = tableId });
+
+        // Ensure we never report a default_view_id that isn't currently visible
+        // to the user (e.g. deleted view on SQLite where FK constraints may be off).
+        var defaultViewId = pref?.DefaultViewId;
+        if (defaultViewId is not null && !views.Any(v => v.Id == defaultViewId.Value))
+        {
+            defaultViewId = null;
+        }
+
+        return Ok(new
+        {
+            data = views.Select(MapToResponse),
+            preferences = new
+            {
+                default_view_id = defaultViewId,
+                auto_save = pref?.AutoSave ?? false
+            }
+        });
     }
 
     /// <summary>
@@ -69,8 +101,8 @@ public sealed class ViewsController : ControllerBase
         // Validate type
         var type = ValidateType(request.Type);
 
-        // Validate config is a JSON object
-        var configJson = ValidateConfig(request.Config);
+        // Validate config is a JSON object and normalize to include config.type
+        var configJson = NormalizeConfig(type, request.Config);
 
         // Validate table exists in the current schema (lenient — POST only)
         var tableNames = _schemaCache.GetTableNames();
@@ -125,7 +157,9 @@ public sealed class ViewsController : ControllerBase
 
         var newName     = request.Name is not null ? request.Name.Trim() : existing.Name;
         var newType     = request.Type is not null ? ValidateType(request.Type) : existing.Type;
-        var newConfig   = request.Config.HasValue ? ValidateConfig(request.Config) : existing.Config;
+        var newConfig   = request.Config.HasValue
+            ? NormalizeConfig(newType, request.Config)
+            : NormalizeConfigString(newType, existing.Config);
         var newIsShared = request.IsShared ?? existing.IsShared;
         var now         = UtcNowIso();
 
@@ -174,6 +208,11 @@ public sealed class ViewsController : ControllerBase
     private string ViewsTable =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.system_views" : "system_views";
 
+    private string PreferencesTable =>
+        _systemPool.Provider == DatabaseProvider.Postgres
+            ? "_system.user_table_explorer_preferences"
+            : "user_table_explorer_preferences";
+
     private int RequireUserId()
     {
         var userId = HttpContext.User.GetUserId();
@@ -191,7 +230,7 @@ public sealed class ViewsController : ControllerBase
         return type;
     }
 
-    private static string ValidateConfig(JsonElement? config)
+    private static string NormalizeConfig(string type, JsonElement? config)
     {
         if (config is null || config.Value.ValueKind == JsonValueKind.Undefined)
             throw new ApiValidationException("config is required.");
@@ -201,7 +240,81 @@ public sealed class ViewsController : ControllerBase
                 "config must be a JSON object.",
                 new Dictionary<string, object?> { ["field"] = "config" });
 
-        return config.Value.GetRawText();
+        return NormalizeConfigObject(type, config.Value);
+    }
+
+    private static string NormalizeConfigString(string type, string configJson)
+    {
+        if (string.IsNullOrWhiteSpace(configJson))
+        {
+            return NormalizeConfigObject(type, JsonSerializer.Deserialize<JsonElement>("{}"));
+        }
+
+        try
+        {
+            var element = JsonSerializer.Deserialize<JsonElement>(configJson);
+            if (element.ValueKind != JsonValueKind.Object)
+            {
+                return NormalizeConfigObject(type, JsonSerializer.Deserialize<JsonElement>("{}"));
+            }
+            return NormalizeConfigObject(type, element, originalJson: configJson);
+        }
+        catch
+        {
+            return NormalizeConfigObject(type, JsonSerializer.Deserialize<JsonElement>("{}"));
+        }
+    }
+
+    private static string NormalizeConfigObject(string type, JsonElement configObject, string? originalJson = null)
+    {
+        string? configType = null;
+        var hasType = false;
+
+        foreach (var prop in configObject.EnumerateObject())
+        {
+            if (!prop.NameEquals("type")) continue;
+            hasType = true;
+            if (prop.Value.ValueKind != JsonValueKind.String)
+            {
+                throw new ApiValidationException(
+                    "config.type must be a string.",
+                    new Dictionary<string, object?> { ["field"] = "config.type" });
+            }
+            configType = prop.Value.GetString();
+            break;
+        }
+
+        if (hasType && !string.Equals(configType, type, StringComparison.Ordinal))
+        {
+            throw new ApiValidationException(
+                $"config.type must match type ('{type}').",
+                new Dictionary<string, object?> { ["field"] = "config.type" });
+        }
+
+        // Fast path: config already contains the correct type and we don't need
+        // to rewrite it. Keeps JSON stable when possible.
+        if (hasType && originalJson is not null)
+        {
+            return originalJson;
+        }
+
+        using var stream = new MemoryStream();
+        using var writer = new Utf8JsonWriter(stream);
+        writer.WriteStartObject();
+
+        // Always emit type first for readability and to guarantee presence.
+        writer.WriteString("type", type);
+
+        foreach (var prop in configObject.EnumerateObject())
+        {
+            if (prop.NameEquals("type")) continue;
+            writer.WritePropertyName(prop.Name);
+            prop.Value.WriteTo(writer);
+        }
+
+        writer.WriteEndObject();
+        writer.Flush();
+        return Encoding.UTF8.GetString(stream.ToArray());
     }
 
     private static string UtcNowIso() =>

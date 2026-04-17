@@ -10,14 +10,39 @@ type AppStoreState = {
   toggleSidebar: () => void;
 };
 
+const THEME_MODE_STORAGE_KEY = "repere.app.themeMode";
+
+function loadPersistedThemeMode(): ThemeMode {
+  if (typeof window === "undefined") return "system";
+  try {
+    const raw = window.localStorage.getItem(THEME_MODE_STORAGE_KEY);
+    if (raw === "light" || raw === "dark" || raw === "system") return raw;
+  } catch {
+    /* ignore */
+  }
+  return "system";
+}
+
+function persistThemeMode(mode: ThemeMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(THEME_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
+
 const initialAppStoreState = {
-  themeMode: "system" as ThemeMode,
+  themeMode: loadPersistedThemeMode(),
   sidebarOpen: true
 };
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
   ...initialAppStoreState,
-  setThemeMode: (themeMode) => set({ themeMode }),
+  setThemeMode: (themeMode) => {
+    persistThemeMode(themeMode);
+    set({ themeMode });
+  },
   setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
   toggleSidebar: () => set({ sidebarOpen: !get().sidebarOpen })
 }));

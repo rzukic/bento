@@ -334,6 +334,117 @@ describe("View selector bar", () => {
     });
   });
 
+  it("can create a kanban view from the New view dialog when enum columns exist", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedOrdersView(sampleRows, {
+      config: {
+        ...DEFAULT_EXPLORER_VIEW_CONFIG,
+        sort: [{ column: "total", dir: "asc" }],
+      },
+    });
+
+    const newView: SavedView = {
+      id: 43,
+      name: "Orders Board",
+      table_name: "orders",
+      owner_user_id: 1,
+      type: "kanban",
+      config: {
+        ...DEFAULT_EXPLORER_VIEW_CONFIG,
+        type: "kanban",
+        kanbanColumn: null,
+        cardFieldNames: [],
+        hiddenLaneValues: [],
+      },
+      is_shared: false,
+      created_at: "2026-04-16T12:00:00Z",
+      updated_at: "2026-04-16T12:00:00Z",
+    };
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(typeof input === "string" ? input : input.toString());
+      if (url.includes("/api/v1/views")) return mockOkResponse(newView);
+      if (url.includes("/api/v1/data/orders")) return mockDataResponse();
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RouterProvider router={createTestRouter(["/data/orders"])} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /save to new view/i }));
+
+    const dialog = screen.getByRole("dialog");
+    await user.type(within(dialog).getByRole("textbox", { name: /view name/i }), "Orders Board");
+    await user.click(within(dialog).getByRole("radio", { name: /kanban/i }));
+    await user.click(within(dialog).getByRole("button", { name: /create view/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /current view: orders board/i }),
+      ).toBeInTheDocument();
+    });
+
+    // Since kanbanColumn is null, the kanban config panel should be auto-opened.
+    expect(screen.getByText(/kanban view not configured/i)).toBeInTheDocument();
+  });
+
+  it("disables kanban in the New view dialog when the table has no enum columns", async () => {
+    const noEnumSnapshot: ModelSnapshot = {
+      version: 1,
+      tables: [
+        {
+          name: "items",
+          columns: [
+            { name: "id", type: "int64", primaryKey: true },
+            { name: "title", type: "string" },
+          ],
+        },
+      ],
+      relations: [],
+    };
+
+    seedAuthenticated();
+    seedSchema(noEnumSnapshot);
+    useExplorerStore.setState((state) => ({
+      activeTable: "items",
+      views: {
+        ...state.views,
+        items: {
+          status: "ready",
+          config: { ...DEFAULT_EXPLORER_VIEW_CONFIG },
+          page: 1,
+          perPage: 25,
+          rows: [{ id: 1, title: "One" } as any],
+          meta: { page: 1, per_page: 25, total: 1, total_pages: 1 },
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          context: null,
+          savedViews: [],
+          savedViewsStatus: "ready" as const,
+          activeViewId: null,
+          autoSave: false,
+        },
+      },
+    }));
+
+    const fetchMock = vi.fn(async () => mockDataResponse([{ id: 1, title: "One" } as any]));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<RouterProvider router={createTestRouter(["/data/items"])} />);
+
+    const user = userEvent.setup();
+    // Create modal is reachable via the view dropdown "New view".
+    await user.click(screen.getByRole("button", { name: /current view: all records/i }));
+    await user.click(screen.getByRole("option", { name: /new view/i }));
+
+    const dialog = screen.getByRole("dialog");
+    const kanbanRadio = within(dialog).getByRole("radio", { name: /kanban/i });
+    expect(kanbanRadio).toBeDisabled();
+  });
+
   it("deleting the active view falls back to 'All Records'", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -390,6 +501,119 @@ describe("View selector bar", () => {
     // Owner-only "Save" button is replaced by "Duplicate as my view" for shared views
     expect(within(dialog).queryByRole("button", { name: /^save$/i })).not.toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: /duplicate as my view/i })).toBeInTheDocument();
+  });
+});
+
+// ── Auto-save ───────────────────────────────────────────────────────────────
+
+describe("Saved view auto-save", () => {
+  it("persists the view that scheduled the save even if activeTable changes before the debounce fires", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      seedOrdersView(sampleRows, { savedViews: [savedView1], activeViewId: savedView1.id });
+
+      // Enable auto-save for the active saved view.
+      useExplorerStore.setState((state) => ({
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView1.id}`) && method === "PUT") {
+          return mockOkResponse({
+            ...savedView1,
+            config: {
+              ...savedView1.config,
+              search: "urgent",
+            },
+            updated_at: "2026-04-17T12:00:00Z",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      // Trigger a config change that schedules an auto-save.
+      useExplorerStore.getState().setSearch("urgent");
+
+      // Simulate quick navigation to another table before the debounce fires.
+      useExplorerStore.getState().setActiveTable("customers");
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView1.id}`) && m === "PUT";
+        }),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not auto-save after switching away from a saved view before the debounce fires", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      seedOrdersView(sampleRows, { savedViews: [savedView1], activeViewId: savedView1.id });
+
+      useExplorerStore.setState((state) => ({
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView1.id}`) && method === "PUT") {
+          return mockOkResponse(savedView1);
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      useExplorerStore.getState().setSearch("urgent");
+
+      // Switching views cancels any pending auto-save.
+      useExplorerStore.getState().switchView(null);
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView1.id}`) && m === "PUT";
+        }),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
