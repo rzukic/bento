@@ -96,6 +96,9 @@ public sealed class UpdateViewRequest
     [JsonPropertyName("name")]
     public string? Name { get; init; }
 
+    [JsonPropertyName("type")]
+    public string? Type { get; init; }
+
     [JsonPropertyName("config")]
     public JsonElement? Config { get; init; }
 

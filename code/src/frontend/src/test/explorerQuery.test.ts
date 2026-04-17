@@ -424,7 +424,8 @@ describe("explorerStore", () => {
       hiddenColumnNames: ["internal_notes"],
       columnOrder: ["id", "status", "created_at"],
       kanbanColumn: "status",
-      cardFieldNames: ["total", "customer_id"]
+      cardFieldNames: ["total", "customer_id"],
+      hiddenLaneValues: []
     });
 
     expect(hydrated.config).toEqual({
@@ -435,7 +436,8 @@ describe("explorerStore", () => {
       hiddenColumnNames: ["internal_notes"],
       columnOrder: ["id", "status", "created_at"],
       kanbanColumn: "status",
-      cardFieldNames: ["total", "customer_id"]
+      cardFieldNames: ["total", "customer_id"],
+      hiddenLaneValues: []
     });
     expect(hydrated.status).toBe("idle");
     expect(hydrated.page).toBe(1);

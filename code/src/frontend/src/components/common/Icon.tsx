@@ -34,7 +34,12 @@ export type IconName =
   | "calendar"
   | "clock"
   | "braces"
-  | "toggle-left";
+  | "toggle-left"
+  | "toggle-right"
+  | "share"
+  | "star"
+  | "copy"
+  | "trash";
 
 type IconProps = SVGProps<SVGSVGElement> & {
   name: IconName;
@@ -243,6 +248,41 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <rect x="3" y="7" width="18" height="10" rx="5" />
       <circle cx="8" cy="12" r="3" />
+    </>
+  ),
+  "toggle-right": (
+    <>
+      <rect x="3" y="7" width="18" height="10" rx="5" />
+      <circle cx="16" cy="12" r="3" />
+    </>
+  ),
+  share: (
+    <>
+      <circle cx="18" cy="5" r="3" />
+      <circle cx="6" cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <path d="m8.59 13.51 6.83 3.98" />
+      <path d="m15.41 6.51-6.82 3.98" />
+    </>
+  ),
+  star: (
+    <>
+      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+    </>
+  ),
+  copy: (
+    <>
+      <rect x="9" y="9" width="13" height="13" rx="2" />
+      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M3 6h18" />
+      <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+      <path d="M10 11v6" />
+      <path d="M14 11v6" />
     </>
   )
 };

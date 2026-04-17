@@ -375,6 +375,91 @@ describe("Table detail (/data/:tableId)", () => {
     expect(within(table).getAllByText("102").length).toBeGreaterThan(0);
   });
 
+  it("shows save actions immediately after kanban config changes", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+
+    const kanbanConfig = {
+      ...DEFAULT_EXPLORER_VIEW_CONFIG,
+      type: "kanban" as const,
+      kanbanColumn: "status",
+      cardFieldNames: [],
+      hiddenLaneValues: [],
+    };
+
+    useExplorerStore.setState((state) => ({
+      activeTable: "orders",
+      views: {
+        ...state.views,
+        orders: {
+          status: "ready",
+          config: kanbanConfig,
+          page: 1,
+          perPage: 25,
+          rows: [
+            {
+              id: 101,
+              customer_id: 7,
+              total: 149.5,
+              status: "pending",
+              created_at: "2026-04-12T08:45:00Z",
+            },
+          ],
+          meta: {
+            page: 1,
+            per_page: 25,
+            total: 1,
+            total_pages: 1,
+          },
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          context: null,
+          savedViews: [
+            {
+              id: 12,
+              name: "Delivery board",
+              table_name: "orders",
+              owner_user_id: 1,
+              type: "kanban",
+              config: kanbanConfig,
+              is_shared: false,
+              created_at: "2026-04-16T08:00:00Z",
+              updated_at: "2026-04-16T08:00:00Z",
+            },
+          ],
+          savedViewsStatus: "ready" as const,
+          activeViewId: 12,
+          autoSave: false,
+        },
+      },
+    }));
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    expect(
+      screen.queryByRole("button", { name: /save changes/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /save to new view/i }),
+    ).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /configure kanban/i }));
+    await user.click(screen.getByRole("button", { name: /^total$/i }));
+    await user.click(screen.getByRole("button", { name: /^apply$/i }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /save changes/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: /save to new view/i }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("lets columns be hidden from a dedicated columns foldout while keeping the pk locked visible", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -1462,7 +1547,9 @@ describe("Table detail (/data/:tableId)", () => {
     ).toBeInTheDocument();
     expect(screen.getByText(/page 1 of 1/i)).toBeInTheDocument();
     expect(screen.getByText(/showing 1-1 of 1/i)).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: /all records/i })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /all records/i }),
+    ).toBeInTheDocument();
   });
 
   it("opens the filter panel for a column from the header context menu", async () => {
@@ -1987,7 +2074,7 @@ describe("Table detail (/data/:tableId)", () => {
       expect(String(lastCall[0])).not.toContain("search=Customer");
     });
 
-    await user.hover(sortChip);
+    await user.hover(sortChip as Element);
     await user.click(
       screen.getByRole("button", { name: /remove sort: status desc/i }),
     );

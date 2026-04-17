@@ -24,5 +24,5 @@ export type CreateViewPayload = {
   is_shared: boolean;
 };
 
-/** Only name, config, and is_shared are mutable after creation. */
-export type UpdateViewPayload = Partial<Pick<SavedView, "name" | "config" | "is_shared">>;
+/** Only name, type, config, and is_shared are mutable after creation. */
+export type UpdateViewPayload = Partial<Pick<SavedView, "name" | "type" | "config" | "is_shared">>;

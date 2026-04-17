@@ -7,7 +7,7 @@ import {
   updateView,
   deleteView as deleteViewApi
 } from "../api/views";
-import { registerLogoutHook } from "./authStore";
+import { registerLogoutHook, useAuthStore } from "./authStore";
 import type {
   ExplorerViewConfig,
   ExplorerViewType,
@@ -65,6 +65,35 @@ export type TableViewState = {
 
 function cloneExplorerViewConfig(config: ExplorerViewConfig): ExplorerViewConfig {
   return patchExplorerViewConfig(config, {});
+}
+
+/**
+ * Rebuild a config to match a target type. When saved.type and config.type
+ * disagree (e.g. a view was saved while the in-memory config happened to
+ * belong to a different type), this forces the config shape to the correct
+ * type, preserving the shared base fields.
+ */
+function rebuildConfigForType(
+  config: ExplorerViewConfig,
+  type: ExplorerViewType
+): ExplorerViewConfig {
+  const base = {
+    search: config.search,
+    sort: config.sort.map((s) => ({ ...s })),
+    filters: config.filters.map((f) => ({ ...f })),
+    hiddenColumnNames: [...config.hiddenColumnNames],
+    columnOrder: [...config.columnOrder]
+  };
+  if (type === "kanban") {
+    return {
+      ...base,
+      type: "kanban",
+      kanbanColumn: config.type === "kanban" ? config.kanbanColumn : null,
+      cardFieldNames: config.type === "kanban" ? [...config.cardFieldNames] : [],
+      hiddenLaneValues: config.type === "kanban" ? [...(config.hiddenLaneValues ?? [])] : []
+    };
+  }
+  return { ...base, type: "table" };
 }
 
 export function extractExplorerViewConfig(view: TableViewState): ExplorerViewConfig {
@@ -231,8 +260,37 @@ type ExplorerStoreState = {
   /** Delete a saved view. Falls back to "All Records" if it was active. */
   deleteView: (id: number) => Promise<void>;
 
+  /**
+   * Change a saved view's type (table ↔ kanban). Updates the config shape
+   * in-place and PUTs the new config to the backend.
+   */
+  changeViewType: (id: number, type: ExplorerViewType) => Promise<void>;
+
+  /**
+   * Create an owned copy of a shared view (typically one owned by another
+   * user). The duplicate is private (is_shared: false), inherits type and
+   * config, and becomes the active view. The caller supplies the new name.
+   */
+  duplicateView: (id: number, name: string) => Promise<void>;
+
+  /**
+   * Mark a saved view as the default for the active table (or pass null
+   * to clear). Currently persisted in localStorage only — no backend yet.
+   */
+  setDefaultView: (id: number | null) => Promise<void>;
+
+  /** Id of the default view per table (null = "All Records"). */
+  defaultViewIdByTable: Record<string, number | null>;
+
   /** Enable or disable auto-save for the active table's active view. */
   setAutoSave: (enabled: boolean) => void;
+
+  /**
+   * Update the kanban-specific config (grouping column and secondary card
+   * fields) on the current active view. No-op if the active view config is
+   * not a kanban view. Triggers auto-save if enabled.
+   */
+  setKanbanConfig: (patch: { kanbanColumn?: string | null; cardFieldNames?: string[]; hiddenLaneValues?: string[] }) => void;
 
   /** Full reset (e.g. on logout). */
   reset: () => void;
@@ -248,11 +306,47 @@ function getView(
   return views[table] ?? null;
 }
 
+/**
+ * Returns true if the current authenticated user owns the given view.
+ * Used to gate destructive / mutating actions so users can't rename or
+ * delete someone else's shared view.
+ */
+function currentUserOwns(view: SavedView | undefined): boolean {
+  if (!view) return false;
+  const user = useAuthStore.getState().user;
+  if (!user) return false;
+  return view.owner_user_id === user.id;
+}
+
 // ── Store ─────────────────────────────────────────────────────────────
+
+const DEFAULT_VIEWS_STORAGE_KEY = "repere.explorer.defaultViewIdByTable";
+
+function loadDefaultViewMap(): Record<string, number | null> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(DEFAULT_VIEWS_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function persistDefaultViewMap(map: Record<string, number | null>): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(DEFAULT_VIEWS_STORAGE_KEY, JSON.stringify(map));
+  } catch {
+    /* ignore */
+  }
+}
 
 const initialState = {
   activeTable: null as string | null,
-  views: {} as Record<string, TableViewState>
+  views: {} as Record<string, TableViewState>,
+  defaultViewIdByTable: loadDefaultViewMap()
 };
 
 export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
@@ -677,7 +771,13 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     } else {
       const saved = view.savedViews.find((v) => v.id === viewId);
       if (!saved) return; // unknown id — ignore
+      // Clone the saved config and force config.type to match the
+      // saved view's top-level type — they can drift if the config was
+      // saved while on a different view type.
       newConfig = cloneExplorerViewConfig(saved.config);
+      if (newConfig.type !== saved.type) {
+        newConfig = rebuildConfigForType(newConfig, saved.type);
+      }
     }
 
     set((state) => ({
@@ -706,7 +806,12 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     if (!activeTable) return;
 
     const view = views[activeTable] ?? freshTableView();
-    const config = extractExplorerViewConfig(view);
+    let config = extractExplorerViewConfig(view);
+    // Ensure config.type matches the requested type so the
+    // persisted config JSON and the saved-view type agree.
+    if (config.type !== type) {
+      config = rebuildConfigForType(config, type);
+    }
 
     const created = await createView({
       name,
@@ -738,6 +843,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const view = views[activeTable];
     if (!view || view.activeViewId === null) return;
 
+    const target = view.savedViews.find((sv) => sv.id === view.activeViewId);
+    if (!currentUserOwns(target)) return;
+
     const config = extractExplorerViewConfig(view);
     const updated = await updateView(view.activeViewId, { config });
 
@@ -761,6 +869,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
   renameView: async (id, name) => {
     const { activeTable, views } = get();
     if (!activeTable) return;
+
+    const target = views[activeTable]?.savedViews.find((sv) => sv.id === id);
+    if (!currentUserOwns(target)) return;
 
     const updated = await updateView(id, { name });
 
@@ -788,6 +899,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const view = views[activeTable];
     const target = view?.savedViews.find((sv) => sv.id === id);
     if (!target) return;
+    if (!currentUserOwns(target)) return;
 
     const updated = await updateView(id, { is_shared: !target.is_shared });
 
@@ -812,6 +924,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const { activeTable, views, switchView } = get();
     if (!activeTable) return;
 
+    const target = views[activeTable]?.savedViews.find((sv) => sv.id === id);
+    if (!currentUserOwns(target)) return;
+
     await deleteViewApi(id);
 
     const wasActive = views[activeTable]?.activeViewId === id;
@@ -835,9 +950,108 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     }
   },
 
+  changeViewType: async (id, type) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable];
+    const target = view?.savedViews.find((sv) => sv.id === id);
+    if (!target) return;
+    if (!currentUserOwns(target)) return;
+
+    // Re-shape the config for the new type. patchExplorerViewConfig can't
+    // change the type itself, so we build the new config by hand.
+    const base = {
+      search: target.config.search,
+      sort: target.config.sort.map((s) => ({ ...s })),
+      filters: target.config.filters.map((f) => ({ ...f })),
+      hiddenColumnNames: [...target.config.hiddenColumnNames],
+      columnOrder: [...target.config.columnOrder]
+    };
+    const nextConfig: ExplorerViewConfig =
+      type === "kanban"
+        ? { ...base, type: "kanban", kanbanColumn: null, cardFieldNames: [], hiddenLaneValues: [] }
+        : { ...base, type: "table" };
+
+    const updated = await updateView(id, { type, config: nextConfig });
+
+    set((state) => {
+      const v = state.views[activeTable];
+      if (!v) return state;
+      const nextSavedViews = v.savedViews.map((sv) =>
+        sv.id === updated.id ? updated : sv
+      );
+      // If this is the active view, re-hydrate its config so the UI reflects
+      // the new type without a full re-switch.
+      const nextView =
+        v.activeViewId === id
+          ? { ...v, savedViews: nextSavedViews, config: cloneExplorerViewConfig(updated.config) }
+          : { ...v, savedViews: nextSavedViews };
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: nextView
+        }
+      };
+    });
+  },
+
+  duplicateView: async (id, name) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+
+    const view = views[activeTable];
+    const source = view?.savedViews.find((sv) => sv.id === id);
+    if (!source) return;
+
+    // Clone the source config so edits to the copy don't bleed back.
+    const configCopy = cloneExplorerViewConfig(source.config);
+
+    const created = await createView({
+      name,
+      table_name: activeTable,
+      type: source.type,
+      config: configCopy,
+      is_shared: false
+    });
+
+    set((state) => {
+      const v = state.views[activeTable] ?? freshTableView();
+      return {
+        views: {
+          ...state.views,
+          [activeTable]: {
+            ...v,
+            savedViews: [...v.savedViews, created],
+            config: cloneExplorerViewConfig(created.config),
+            activeViewId: created.id
+          }
+        }
+      };
+    });
+  },
+
+  setDefaultView: async (id) => {
+    const { activeTable } = get();
+    if (!activeTable) return;
+    set((state) => {
+      const next = { ...state.defaultViewIdByTable, [activeTable]: id };
+      persistDefaultViewMap(next);
+      return { defaultViewIdByTable: next };
+    });
+  },
+
   setAutoSave: (enabled) => {
     const { activeTable, views } = get();
     if (!activeTable) return;
+
+    // Only allow enabling auto-save on views the current user owns. Turning
+    // it off is always allowed (safety release valve).
+    if (enabled) {
+      const v = views[activeTable];
+      const target = v?.savedViews.find((sv) => sv.id === v.activeViewId);
+      if (!currentUserOwns(target)) return;
+    }
 
     set((state) => {
       const v = state.views[activeTable] ?? freshTableView();
@@ -856,6 +1070,37 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         void get().updateActiveViewConfig();
       }
     }
+  },
+
+  setKanbanConfig: (patch) => {
+    const { activeTable, views } = get();
+    if (!activeTable) return;
+    const view = views[activeTable];
+    if (!view) return;
+    if (view.config.type !== "kanban") return;
+
+    const nextConfig: ExplorerViewConfig = {
+      ...view.config,
+      kanbanColumn:
+        patch.kanbanColumn !== undefined
+          ? patch.kanbanColumn
+          : view.config.kanbanColumn,
+      cardFieldNames: patch.cardFieldNames
+        ? [...patch.cardFieldNames].slice(0, 3)
+        : [...view.config.cardFieldNames],
+      hiddenLaneValues: patch.hiddenLaneValues
+        ? [...patch.hiddenLaneValues]
+        : [...(view.config.hiddenLaneValues ?? [])]
+    };
+
+    set((state) => ({
+      views: {
+        ...state.views,
+        [activeTable]: { ...view, config: nextConfig }
+      }
+    }));
+
+    scheduleAutoSave();
   },
 
   reset: () => {

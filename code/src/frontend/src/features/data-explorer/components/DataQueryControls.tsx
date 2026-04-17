@@ -1,4 +1,4 @@
-import {
+import React, {
   useEffect,
   useMemo,
   useRef,
@@ -13,11 +13,14 @@ import { TextField } from "../../../components/ui/TextField";
 import type { ModelColumn, ModelTable } from "../../../types/api";
 import type {
   ExplorerQuery,
+  ExplorerViewConfig,
+  ExplorerViewType,
   FilterClause,
   FilterOp,
   SortClause,
   SortDir,
 } from "../../../types/explorer";
+import { DEFAULT_EXPLORER_VIEW_CONFIG } from "../../../types/explorer";
 import type { SavedView } from "../../../types/views";
 
 type DataQueryControlsProps = {
@@ -36,6 +39,32 @@ type DataQueryControlsProps = {
   activeViewId?: number | null;
   /** Called when the user selects a view (null = All Records). */
   onSwitchView?: (viewId: number | null) => void;
+  /** Save the current config as a brand-new named view. */
+  onSaveCurrentAsView?: (name: string) => Promise<void>;
+  /** Persist config changes back to the currently active saved view. */
+  onUpdateActiveViewConfig?: () => Promise<void>;
+  /** Rename a saved view. */
+  onRenameView?: (id: number, name: string) => Promise<void>;
+  /** Toggle the is_shared flag on a saved view. */
+  onToggleViewShared?: (id: number) => Promise<void>;
+  /** Delete a saved view. */
+  onDeleteView?: (id: number) => Promise<void>;
+  /** Change the view type (table ↔ kanban). */
+  onChangeViewType?: (id: number, type: ExplorerViewType) => Promise<void>;
+  /** The id of the view marked as default for this table, if any. */
+  defaultViewId?: number | null;
+  /** Mark a saved view (or null for "All Records") as the default. */
+  onSetDefaultView?: (id: number | null) => Promise<void>;
+  /** Create an owned copy of a shared view owned by someone else. */
+  onDuplicateView?: (id: number, name: string) => Promise<void>;
+  /** The current user's id — used to gate owner-only actions in the UI. */
+  currentUserId?: number | null;
+  /** Whether auto-save is on for the active view. */
+  autoSave?: boolean;
+  /** Toggle auto-save on the active view. */
+  onSetAutoSave?: (enabled: boolean) => void;
+  /** The full current persisted view config for dirty-state comparison. */
+  currentViewConfig?: ExplorerViewConfig | null;
   onSearch: (search: string) => void;
   onSortChange: (sorts: SortClause[]) => void;
   onPerPageChange: (perPage: number) => void;
@@ -43,6 +72,10 @@ type DataQueryControlsProps = {
   onFiltersChange: (filters: FilterClause[]) => void;
   onHiddenColumnsChange: (columnNames: string[]) => void;
   onResetView: () => void;
+  /** The current active view type — used to show the configure button for kanban. */
+  viewType?: ExplorerViewType;
+  /** Open the kanban configuration panel. */
+  onConfigureKanban?: () => void;
 };
 
 type DataPaginationBarProps = {
@@ -210,6 +243,38 @@ function getFilterValuePlaceholder(
   if (normalizedType === "date") return undefined;
   if (normalizedType === "datetime") return undefined;
   return "Value";
+}
+
+function normalizeViewConfigForComparison(config: ExplorerViewConfig) {
+  const base = {
+    type: config.type,
+    search: config.search,
+    sort: config.sort.map((sort) => ({ ...sort })),
+    filters: config.filters.map((filter) => ({ ...filter })),
+    hiddenColumnNames: [...config.hiddenColumnNames].sort(),
+    columnOrder: [...config.columnOrder],
+  };
+
+  if (config.type === "kanban") {
+    return {
+      ...base,
+      kanbanColumn: config.kanbanColumn,
+      cardFieldNames: [...config.cardFieldNames],
+      hiddenLaneValues: [...(config.hiddenLaneValues ?? [])].sort(),
+    };
+  }
+
+  return base;
+}
+
+function areViewConfigsEquivalent(
+  left: ExplorerViewConfig,
+  right: ExplorerViewConfig,
+): boolean {
+  return (
+    JSON.stringify(normalizeViewConfigForComparison(left)) ===
+    JSON.stringify(normalizeViewConfigForComparison(right))
+  );
 }
 
 function getSortDirectionOptions(
@@ -540,6 +605,19 @@ export function DataQueryControls({
   savedViews = [],
   activeViewId = null,
   onSwitchView,
+  onSaveCurrentAsView,
+  onUpdateActiveViewConfig,
+  onRenameView,
+  onToggleViewShared,
+  onDeleteView,
+  onChangeViewType,
+  defaultViewId = null,
+  onSetDefaultView,
+  onDuplicateView,
+  currentUserId = null,
+  autoSave = false,
+  onSetAutoSave,
+  currentViewConfig = null,
   onSearch,
   onSortChange,
   onPerPageChange,
@@ -547,8 +625,13 @@ export function DataQueryControls({
   onFiltersChange,
   onHiddenColumnsChange,
   onResetView,
+  viewType = "table",
+  onConfigureKanban,
 }: DataQueryControlsProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const viewDropdownRef = useRef<HTMLDivElement | null>(null);
+
+  // ── Query controls state ──
   const [searchDraft, setSearchDraft] = useState(query.search);
   const [sortDrafts, setSortDrafts] = useState<SortDraftClause[]>(
     query.sort.length > 0
@@ -566,6 +649,18 @@ export function DataQueryControls({
   const [activePanel, setActivePanel] = useState<UtilityPanel>(() =>
     suppressAutoPanel ? null : getInitialPanel(query),
   );
+
+  // ── View selector state ──
+  const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
+  const [createViewOpen, setCreateViewOpen] = useState(false);
+  const [createViewName, setCreateViewName] = useState("");
+  const [createViewSaving, setCreateViewSaving] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [renameSaving, setRenameSaving] = useState(false);
+  const [viewTypeDraft, setViewTypeDraft] = useState<ExplorerViewType>("table");
+  const [deletingView, setDeletingView] = useState(false);
+  const [duplicatingView, setDuplicatingView] = useState(false);
 
   useEffect(() => {
     if (panelResetKey === undefined) return;
@@ -591,6 +686,22 @@ export function DataQueryControls({
       window.removeEventListener("pointerdown", handlePointerDown);
     };
   }, [activePanel]);
+
+  // Close view dropdown on outside click
+  useEffect(() => {
+    if (!viewDropdownOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!viewDropdownRef.current?.contains(event.target as Node)) {
+        setViewDropdownOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [viewDropdownOpen]);
 
   useEffect(() => {
     setSearchDraft(query.search);
@@ -881,48 +992,320 @@ export function DataQueryControls({
     query.filters.length > 0 ||
     query.perPage !== 25;
 
+  const activeView = useMemo(
+    () =>
+      activeViewId !== null
+        ? savedViews.find((sv) => sv.id === activeViewId) ?? null
+        : null,
+    [savedViews, activeViewId],
+  );
+
+  const hasViewModifications = useMemo(() => {
+    if (activeView) {
+      return currentViewConfig
+        ? !areViewConfigsEquivalent(currentViewConfig, activeView.config)
+        : false;
+    }
+
+    const hasConfigChanges = currentViewConfig
+      ? !areViewConfigsEquivalent(
+          currentViewConfig,
+          DEFAULT_EXPLORER_VIEW_CONFIG,
+        )
+      : !!query.search || query.sort.length > 0 || query.filters.length > 0;
+
+    return hasConfigChanges || query.perPage !== 25;
+  }, [activeView, currentViewConfig, query.perPage, query.search, query.sort, query.filters]);
+
+  const currentViewName = activeView?.name ?? "All Records";
+
+  /** Does the current user own the active saved view? (false for All Records or others' shared views) */
+  const ownsActiveView = useMemo(() => {
+    if (!activeView || currentUserId === null) return false;
+    return activeView.owner_user_id === currentUserId;
+  }, [activeView, currentUserId]);
+
+  /** Saved views sorted: own views first, then shared views from other users. */
+  const sortedSavedViews = useMemo(() => {
+    if (currentUserId === null) return savedViews;
+    const own: SavedView[] = [];
+    const shared: SavedView[] = [];
+    for (const sv of savedViews) {
+      if (sv.owner_user_id === currentUserId) own.push(sv);
+      else shared.push(sv);
+    }
+    return [...own, ...shared];
+  }, [savedViews, currentUserId]);
+
+  const hasEnumColumns = useMemo(
+    () =>
+      table.columns.some(
+        (c) => (c.type ?? "").toLowerCase() === "enum",
+      ),
+    [table.columns],
+  );
+
+  async function handleSaveChanges() {
+    await onUpdateActiveViewConfig?.();
+  }
+
+  async function handleCreateView() {
+    const name = createViewName.trim();
+    if (!name) return;
+    setCreateViewSaving(true);
+    try {
+      await onSaveCurrentAsView?.(name);
+      setCreateViewOpen(false);
+      setCreateViewName("");
+    } finally {
+      setCreateViewSaving(false);
+    }
+  }
+
+  async function handleRenameView() {
+    const name = renameDraft.trim();
+    if (!name || activeViewId === null) return;
+    setRenameSaving(true);
+    try {
+      await onRenameView?.(activeViewId, name);
+      if (viewTypeDraft !== activeView?.type) {
+        await onChangeViewType?.(activeViewId, viewTypeDraft);
+      }
+      setSettingsOpen(false);
+    } finally {
+      setRenameSaving(false);
+    }
+  }
+
+  async function handleDeleteView() {
+    if (activeViewId === null) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        `Delete view "${activeView?.name ?? ""}"? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    setDeletingView(true);
+    try {
+      await onDeleteView?.(activeViewId);
+      setSettingsOpen(false);
+    } finally {
+      setDeletingView(false);
+    }
+  }
+
+  async function handleDuplicateView() {
+    if (activeViewId === null || !activeView) return;
+    const suggested = `${activeView.name} (copy)`;
+    const name =
+      typeof window !== "undefined"
+        ? (window.prompt("Name for the duplicated view:", suggested) ?? "").trim()
+        : suggested;
+    if (!name) return;
+    setDuplicatingView(true);
+    try {
+      await onDuplicateView?.(activeViewId, name);
+      setSettingsOpen(false);
+    } finally {
+      setDuplicatingView(false);
+    }
+  }
+
+  function handleCreateViewKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && createViewName.trim()) {
+      void handleCreateView();
+    } else if (event.key === "Escape") {
+      setCreateViewOpen(false);
+    }
+  }
+
+  function handleRenameKeyDown(event: React.KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter" && renameDraft.trim()) {
+      void handleRenameView();
+    } else if (event.key === "Escape") {
+      setSettingsOpen(false);
+    }
+  }
+
   return (
     <div className="data-controls" ref={rootRef}>
       <div className="data-controls__overlay-anchor">
         <div className="data-controls__bar">
-          <div
-            className="data-controls__view-tabs"
-            role="tablist"
-            aria-label="Views"
-          >
-            <Button
+          {/* LEFT — view selector dropdown, settings, save actions */}
+          <div className="data-controls__view-selector">
+            {/* Dropdown */}
+            <div className="data-controls__view-dropdown" ref={viewDropdownRef}>
+              <button
+                type="button"
+                className="data-controls__view-current"
+                aria-haspopup="listbox"
+                aria-expanded={viewDropdownOpen}
+                aria-label={`Current view: ${currentViewName}`}
+                onClick={() => setViewDropdownOpen((open) => !open)}
+              >
+                <span className="data-controls__view-current-label">
+                  {currentViewName}
+                </span>
+                <Icon name="chevron-down" size={11} />
+              </button>
+
+              {viewDropdownOpen ? (
+                <div
+                  className="data-controls__view-menu"
+                  role="listbox"
+                  aria-label="Available views"
+                >
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={activeViewId === null}
+                    className={
+                      activeViewId === null
+                        ? "data-controls__view-option data-controls__view-option--active"
+                        : "data-controls__view-option"
+                    }
+                    onClick={() => {
+                      onSwitchView?.(null);
+                      setViewDropdownOpen(false);
+                    }}
+                  >
+                    <span className="data-controls__view-option-check">
+                      {activeViewId === null ? (
+                        <Icon name="check" size={12} />
+                      ) : null}
+                    </span>
+                    <span className="data-controls__view-option-label">
+                      All Records
+                    </span>
+                  </button>
+
+                  {sortedSavedViews.map((sv) => {
+                    const isOwn =
+                      currentUserId !== null &&
+                      sv.owner_user_id === currentUserId;
+                    const isShared = !isOwn;
+                    return (
+                      <button
+                        key={sv.id}
+                        type="button"
+                        role="option"
+                        aria-selected={activeViewId === sv.id}
+                        className={
+                          activeViewId === sv.id
+                            ? "data-controls__view-option data-controls__view-option--active"
+                            : "data-controls__view-option"
+                        }
+                        onClick={() => {
+                          onSwitchView?.(sv.id);
+                          setViewDropdownOpen(false);
+                        }}
+                      >
+                        <span className="data-controls__view-option-check">
+                          {activeViewId === sv.id ? (
+                            <Icon name="check" size={12} />
+                          ) : null}
+                        </span>
+                        <span className="data-controls__view-option-label">
+                          {sv.name}
+                        </span>
+                        {isShared ? (
+                          <span
+                            className="data-controls__view-option-shared"
+                            title="Shared by another user"
+                            aria-label="Shared view"
+                          >
+                            <Icon name="share" size={11} />
+                          </span>
+                        ) : null}
+                        {defaultViewId === sv.id ? (
+                          <span
+                            className="data-controls__view-option-default"
+                            title="Default view"
+                            aria-label="Default view"
+                          >
+                            <Icon name="star" size={11} />
+                          </span>
+                        ) : null}
+                      </button>
+                    );
+                  })}
+
+                  <div
+                    className="data-controls__view-separator"
+                    role="separator"
+                  />
+
+                  <button
+                    type="button"
+                    role="option"
+                    className="data-controls__view-option data-controls__view-option--new"
+                    onClick={() => {
+                      setViewDropdownOpen(false);
+                      setCreateViewName("");
+                      setCreateViewOpen(true);
+                    }}
+                  >
+                    <span className="data-controls__view-option-check">
+                      <Icon name="plus" size={12} />
+                    </span>
+                    <span className="data-controls__view-option-label">
+                      New view
+                    </span>
+                  </button>
+                </div>
+              ) : null}
+            </div>
+
+            {/* Settings icon — always visible; disabled on "All Records" */}
+            <button
               type="button"
-              role="tab"
-              aria-selected={activeViewId === null}
-              className={
-                activeViewId === null
-                  ? "data-controls__view-tab data-controls__view-tab--active"
-                  : "data-controls__view-tab"
+              className="data-controls__view-settings"
+              title={
+                activeViewId !== null
+                  ? "View settings"
+                  : "Select a saved view to edit settings"
               }
-              onClick={() => onSwitchView?.(null)}
+              aria-label="View settings"
+              disabled={activeViewId === null}
+              onClick={() => {
+                if (!activeView) return;
+                setRenameDraft(activeView.name);
+                setViewTypeDraft(activeView.type);
+                setSettingsOpen(true);
+              }}
             >
-              All Records
-            </Button>
-            {savedViews.map((sv) => (
+              <Icon name="settings" size={13} />
+            </button>
+
+            {/* Save changes — only when on a saved view with unsaved modifications */}
+            {hasViewModifications && activeViewId !== null ? (
               <Button
-                key={sv.id}
                 type="button"
                 variant="ghost"
                 size="sm"
-                role="tab"
-                aria-selected={activeViewId === sv.id}
-                className={
-                  activeViewId === sv.id
-                    ? "data-controls__view-tab data-controls__view-tab--active"
-                    : "data-controls__view-tab"
-                }
-                onClick={() => onSwitchView?.(sv.id)}
+                onClick={() => void handleSaveChanges()}
               >
-                {sv.name}
+                Save changes
               </Button>
-            ))}
-          </div>
+            ) : null}
 
+            {/* Save to new view — whenever there are unsaved modifications */}
+            {hasViewModifications ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setCreateViewName("");
+                  setCreateViewOpen(true);
+                }}
+              >
+                Save to new view
+              </Button>
+            ) : null}
+          </div>
           <div className="data-controls__menu">
             {selectionPanel ? (
               <Button
@@ -982,12 +1365,7 @@ export function DataQueryControls({
             >
               <span className="data-controls__menu-button-content">
                 <Icon name="search" size={14} />
-                <Icon
-                  name={
-                    activePanel === "search" ? "chevron-down" : "chevron-right"
-                  }
-                  size={15}
-                />
+                <span className="data-controls__menu-button-label">Search</span>
               </span>
               {query.search ? (
                 <span
@@ -1015,12 +1393,7 @@ export function DataQueryControls({
             >
               <span className="data-controls__menu-button-content">
                 <Icon name="arrow-up-down" size={14} />
-                <Icon
-                  name={
-                    activePanel === "sort" ? "chevron-down" : "chevron-right"
-                  }
-                  size={15}
-                />
+                <span className="data-controls__menu-button-label">Sort</span>
               </span>
               {query.sort.length > 0 ? (
                 <span className="data-controls__menu-count" aria-hidden="true">
@@ -1028,38 +1401,48 @@ export function DataQueryControls({
                 </span>
               ) : null}
             </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className={
-                activePanel === "columns"
-                  ? "data-controls__menu-button data-controls__menu-button--active"
-                  : "data-controls__menu-button"
-              }
-              aria-label="Columns"
-              aria-expanded={activePanel === "columns"}
-              aria-controls="data-controls-columns-panel"
-              onClick={() =>
-                setActivePanel((current) =>
-                  current === "columns" ? null : "columns",
-                )
-              }
-            >
-              <span className="data-controls__menu-button-content">
-                <Icon name="columns" size={14} />
-                <Icon
-                  name={
-                    activePanel === "columns" ? "chevron-down" : "chevron-right"
-                  }
-                  size={15}
-                />
-              </span>
-              {hiddenColumnNames.length > 0 ? (
-                <span className="data-controls__menu-count" aria-hidden="true">
-                  {hiddenColumnNames.length}
+            {viewType === "kanban" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="data-controls__menu-button"
+                aria-label="Configure kanban"
+                onClick={() => onConfigureKanban?.()}
+              >
+                <span className="data-controls__menu-button-content">
+                  <Icon name="columns" size={14} />
+                  <span className="data-controls__menu-button-label">Configure</span>
                 </span>
-              ) : null}
-            </Button>
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="ghost"
+                className={
+                  activePanel === "columns"
+                    ? "data-controls__menu-button data-controls__menu-button--active"
+                    : "data-controls__menu-button"
+                }
+                aria-label="Columns"
+                aria-expanded={activePanel === "columns"}
+                aria-controls="data-controls-columns-panel"
+                onClick={() =>
+                  setActivePanel((current) =>
+                    current === "columns" ? null : "columns",
+                  )
+                }
+              >
+                <span className="data-controls__menu-button-content">
+                  <Icon name="columns" size={14} />
+                  <span className="data-controls__menu-button-label">Columns</span>
+                </span>
+                {hiddenColumnNames.length > 0 ? (
+                  <span className="data-controls__menu-count" aria-hidden="true">
+                    {hiddenColumnNames.length}
+                  </span>
+                ) : null}
+              </Button>
+            )}
             <Button
               type="button"
               variant="ghost"
@@ -1079,12 +1462,7 @@ export function DataQueryControls({
             >
               <span className="data-controls__menu-button-content">
                 <Icon name="funnel" size={14} />
-                <Icon
-                  name={
-                    activePanel === "filter" ? "chevron-down" : "chevron-right"
-                  }
-                  size={15}
-                />
+                <span className="data-controls__menu-button-label">Filter</span>
               </span>
               {query.filters.length > 0 ? (
                 <span className="data-controls__menu-count" aria-hidden="true">
@@ -1435,97 +1813,407 @@ export function DataQueryControls({
         ) : null}
       </div>
 
+      {/* ── Active-query chips bar ── */}
       {showActiveChips ? (
         <div className="data-controls__active">
-          {searchLabel ? (
-            <span className="data-controls__chip data-controls__chip--editable">
-              <span className="data-controls__chip-label">{searchLabel}</span>
-              <span className="data-controls__chip-actions">
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={handleStartEditingSearch}
-                  aria-label={`Edit ${searchLabel}`}
-                  title="Edit search"
-                >
-                  <Icon name="pencil" size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={handleClearSearch}
-                  aria-label={`Remove ${searchLabel}`}
-                  title="Remove search"
-                >
-                  <Icon name="x" size={12} />
-                </button>
+          <div className="data-controls__chips">
+            {searchLabel ? (
+              <span className="data-controls__chip data-controls__chip--editable">
+                <span className="data-controls__chip-label">{searchLabel}</span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleStartEditingSearch}
+                    aria-label={`Edit ${searchLabel}`}
+                    title="Edit search"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleClearSearch}
+                    aria-label={`Remove ${searchLabel}`}
+                    title="Remove search"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
               </span>
-            </span>
-          ) : null}
-          {sortLabel ? (
-            <span className="data-controls__chip data-controls__chip--editable">
-              <span className="data-controls__chip-label">{sortLabel}</span>
-              <span className="data-controls__chip-actions">
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={handleStartEditingSort}
-                  aria-label={`Edit ${sortLabel}`}
-                  title="Edit sort"
-                >
-                  <Icon name="pencil" size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={handleClearSort}
-                  aria-label={`Remove ${sortLabel}`}
-                  title="Remove sort"
-                >
-                  <Icon name="x" size={12} />
-                </button>
+            ) : null}
+            {sortLabel ? (
+              <span className="data-controls__chip data-controls__chip--editable">
+                <span className="data-controls__chip-label">{sortLabel}</span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleStartEditingSort}
+                    aria-label={`Edit ${sortLabel}`}
+                    title="Edit sort"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleClearSort}
+                    aria-label={`Remove ${sortLabel}`}
+                    title="Remove sort"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
               </span>
-            </span>
-          ) : null}
-          {query.filters.map((filter, index) => (
-            <span
-              key={`${filter.column}-${filter.op}-${filter.value ?? "null"}-${index}`}
-              className="data-controls__chip data-controls__chip--filter data-controls__chip--editable"
+            ) : null}
+            {query.filters.map((filter, index) => (
+              <span
+                key={`${filter.column}-${filter.op}-${filter.value ?? "null"}-${index}`}
+                className="data-controls__chip data-controls__chip--filter data-controls__chip--editable"
+              >
+                <span className="data-controls__chip-label">
+                  {formatFilterChip(filter)}
+                </span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={() => handleStartEditingFilter(index)}
+                    aria-label={`Edit filter ${formatFilterChip(filter)}`}
+                    title="Edit filter"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={() => handleRemoveFilter(index)}
+                    aria-label={`Remove filter ${formatFilterChip(filter)}`}
+                    title="Remove filter"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              </span>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onResetView}
+              disabled={disabled}
             >
-              <span className="data-controls__chip-label">
-                {formatFilterChip(filter)}
-              </span>
-              <span className="data-controls__chip-actions">
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={() => handleStartEditingFilter(index)}
-                  aria-label={`Edit filter ${formatFilterChip(filter)}`}
-                  title="Edit filter"
-                >
-                  <Icon name="pencil" size={12} />
-                </button>
-                <button
-                  type="button"
-                  className="data-controls__chip-action"
-                  onClick={() => handleRemoveFilter(index)}
-                  aria-label={`Remove filter ${formatFilterChip(filter)}`}
-                  title="Remove filter"
-                >
-                  <Icon name="x" size={12} />
-                </button>
-              </span>
-            </span>
-          ))}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onResetView}
-            disabled={disabled}
+              Reset view
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── Create / save-as-new view modal ── */}
+      {createViewOpen ? (
+        <div
+          className="view-modal-overlay"
+          role="presentation"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setCreateViewOpen(false);
+          }}
+        >
+          <div
+            className="view-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="create-view-title"
           >
-            Reset view
-          </Button>
+            <div className="view-modal__header">
+              <h2 className="view-modal__title" id="create-view-title">
+                New view
+              </h2>
+              <button
+                type="button"
+                className="view-modal__close"
+                aria-label="Close"
+                onClick={() => setCreateViewOpen(false)}
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div className="view-modal__body">
+              <TextField
+                label="View name"
+                name="create-view-name"
+                value={createViewName}
+                onChange={(e) => setCreateViewName(e.target.value)}
+                onKeyDown={handleCreateViewKeyDown}
+                placeholder="e.g. Open orders"
+                autoFocus
+              />
+            </div>
+            <div className="view-modal__footer">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setCreateViewOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={!createViewName.trim() || createViewSaving}
+                onClick={() => void handleCreateView()}
+              >
+                {createViewSaving ? "Saving…" : "Create view"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ── View settings modal ── */}
+      {settingsOpen && activeViewId !== null && activeView ? (
+        <div
+          className="view-modal-overlay"
+          role="presentation"
+          onPointerDown={(e) => {
+            if (e.target === e.currentTarget) setSettingsOpen(false);
+          }}
+        >
+          <div
+            className="view-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="settings-view-title"
+          >
+            <div className="view-modal__header">
+              <h2 className="view-modal__title" id="settings-view-title">
+                View settings
+              </h2>
+              <button
+                type="button"
+                className="view-modal__close"
+                aria-label="Close"
+                onClick={() => setSettingsOpen(false)}
+              >
+                <Icon name="x" size={16} />
+              </button>
+            </div>
+            <div className="view-modal__body">
+              {ownsActiveView ? (
+                <>
+                  <TextField
+                    label="Name"
+                    name="view-rename"
+                    value={renameDraft}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={handleRenameKeyDown}
+                    autoFocus
+                  />
+
+                  {/* View type segmented control */}
+                  <div className="view-modal__field">
+                    <span className="view-modal__field-label">View type</span>
+                    <div
+                      className="view-modal__segmented"
+                      role="radiogroup"
+                      aria-label="View type"
+                    >
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={viewTypeDraft === "table"}
+                        className={
+                          viewTypeDraft === "table"
+                            ? "view-modal__segmented-btn view-modal__segmented-btn--on"
+                            : "view-modal__segmented-btn"
+                        }
+                        onClick={() => setViewTypeDraft("table")}
+                      >
+                        Table
+                      </button>
+                      <button
+                        type="button"
+                        role="radio"
+                        aria-checked={viewTypeDraft === "kanban"}
+                        disabled={
+                          !hasEnumColumns && viewTypeDraft !== "kanban"
+                        }
+                        title={
+                          !hasEnumColumns
+                            ? "Kanban requires at least one enum column"
+                            : undefined
+                        }
+                        className={
+                          viewTypeDraft === "kanban"
+                            ? "view-modal__segmented-btn view-modal__segmented-btn--on"
+                            : "view-modal__segmented-btn"
+                        }
+                        onClick={() => {
+                          if (hasEnumColumns) setViewTypeDraft("kanban");
+                        }}
+                      >
+                        Kanban
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="view-modal__toggle-row">
+                    <div className="view-modal__toggle-info">
+                      <span className="view-modal__toggle-name">
+                        Share with everyone
+                      </span>
+                      <span className="view-modal__toggle-hint">
+                        Other users can see and use this view
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={
+                        activeView.is_shared
+                          ? "view-modal__toggle-btn view-modal__toggle-btn--on"
+                          : "view-modal__toggle-btn"
+                      }
+                      role="switch"
+                      aria-checked={activeView.is_shared}
+                      aria-label="Share with everyone"
+                      onClick={() => {
+                        if (activeViewId !== null) {
+                          void onToggleViewShared?.(activeViewId);
+                        }
+                      }}
+                    >
+                      <Icon
+                        name={
+                          activeView.is_shared ? "toggle-right" : "toggle-left"
+                        }
+                        size={28}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="view-modal__toggle-row">
+                    <div className="view-modal__toggle-info">
+                      <span className="view-modal__toggle-name">Auto-save</span>
+                      <span className="view-modal__toggle-hint">
+                        Persist changes to this view as you edit
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={
+                        autoSave
+                          ? "view-modal__toggle-btn view-modal__toggle-btn--on"
+                          : "view-modal__toggle-btn"
+                      }
+                      role="switch"
+                      aria-checked={autoSave}
+                      aria-label="Auto-save"
+                      onClick={() => onSetAutoSave?.(!autoSave)}
+                    >
+                      <Icon
+                        name={autoSave ? "toggle-right" : "toggle-left"}
+                        size={28}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="view-modal__toggle-row">
+                    <div className="view-modal__toggle-info">
+                      <span className="view-modal__toggle-name">
+                        Default view
+                      </span>
+                      <span className="view-modal__toggle-hint">
+                        Open this view automatically when the table loads
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      className={
+                        defaultViewId === activeViewId
+                          ? "view-modal__toggle-btn view-modal__toggle-btn--on"
+                          : "view-modal__toggle-btn"
+                      }
+                      role="switch"
+                      aria-checked={defaultViewId === activeViewId}
+                      aria-label="Default view"
+                      onClick={() => {
+                        if (activeViewId === null) return;
+                        void onSetDefaultView?.(
+                          defaultViewId === activeViewId ? null : activeViewId,
+                        );
+                      }}
+                    >
+                      <Icon
+                        name={
+                          defaultViewId === activeViewId
+                            ? "toggle-right"
+                            : "toggle-left"
+                        }
+                        size={28}
+                      />
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="view-modal__field">
+                    <span className="view-modal__field-label">Name</span>
+                    <span className="view-modal__readonly-value">
+                      {activeView.name}
+                    </span>
+                  </div>
+                  <p className="view-modal__note">
+                    This view is shared by another user. You can't edit it
+                    directly — duplicate it to get your own editable copy.
+                  </p>
+                </>
+              )}
+            </div>
+            <div className="view-modal__footer view-modal__footer--split">
+              {ownsActiveView ? (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  onClick={() => void handleDeleteView()}
+                  disabled={deletingView}
+                >
+                  {deletingView ? "Deleting…" : "Delete view"}
+                </Button>
+              ) : (
+                <span />
+              )}
+              <div className="view-modal__footer-actions">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setSettingsOpen(false)}
+                >
+                  Cancel
+                </Button>
+                {ownsActiveView ? (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={!renameDraft.trim() || renameSaving}
+                    onClick={() => void handleRenameView()}
+                  >
+                    {renameSaving ? "Saving…" : "Save"}
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="primary"
+                    disabled={duplicatingView}
+                    onClick={() => void handleDuplicateView()}
+                  >
+                    <Icon name="copy" size={14} />
+                    {duplicatingView ? "Duplicating…" : "Duplicate as my view"}
+                  </Button>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       ) : null}
     </div>

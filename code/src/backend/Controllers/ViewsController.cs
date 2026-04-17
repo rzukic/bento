@@ -107,7 +107,7 @@ public sealed class ViewsController : ControllerBase
     }
 
     /// <summary>
-    /// Update a view. Only the owner may update. type and table_name are immutable.
+    /// Update a view. Only the owner may update. table_name is immutable.
     /// </summary>
     [HttpPut("{id:int}")]
     public async Task<IActionResult> Update(int id, [FromBody] UpdateViewRequest request)
@@ -124,6 +124,7 @@ public sealed class ViewsController : ControllerBase
             throw new ApiForbiddenException("Only the view owner can update this view.");
 
         var newName     = request.Name is not null ? request.Name.Trim() : existing.Name;
+        var newType     = request.Type is not null ? ValidateType(request.Type) : existing.Type;
         var newConfig   = request.Config.HasValue ? ValidateConfig(request.Config) : existing.Config;
         var newIsShared = request.IsShared ?? existing.IsShared;
         var now         = UtcNowIso();
@@ -132,12 +133,13 @@ public sealed class ViewsController : ControllerBase
             $"""
             UPDATE {ViewsTable}
             SET name       = @Name,
+                type       = @Type,
                 config     = @Config,
                 is_shared  = @IsShared,
                 updated_at = @Now
             WHERE id = @Id
             """,
-            new { Name = newName, Config = newConfig, IsShared = newIsShared, Now = now, Id = id });
+            new { Name = newName, Type = newType, Config = newConfig, IsShared = newIsShared, Now = now, Id = id });
 
         var updated = await GetByIdAsync(conn, id);
         return Ok(MapToResponse(updated!));

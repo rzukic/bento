@@ -53,6 +53,7 @@ export type KanbanExplorerViewConfig = ExplorerBaseViewConfig & {
   type: "kanban";
   kanbanColumn: string | null;
   cardFieldNames: string[];
+  hiddenLaneValues: string[];
 };
 
 export type ExplorerViewConfig =
@@ -139,7 +140,8 @@ export function patchExplorerViewConfig(
       ...nextBase,
       type: "kanban",
       kanbanColumn: config.kanbanColumn,
-      cardFieldNames: [...config.cardFieldNames]
+      cardFieldNames: [...config.cardFieldNames],
+      hiddenLaneValues: [...(config.hiddenLaneValues ?? [])]
     };
   }
 

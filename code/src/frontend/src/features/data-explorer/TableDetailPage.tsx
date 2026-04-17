@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -10,6 +10,7 @@ import {
   getExplorerQueryForView,
   useExplorerStore,
 } from "../../stores/explorerStore";
+import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import {
   DEFAULT_QUERY,
@@ -21,7 +22,8 @@ import {
   DataPaginationBar,
   DataQueryControls,
 } from "./components/DataQueryControls";
-import { ReadOnlyDataGrid } from "./components/ReadOnlyDataGrid";
+import { KanbanConfigPanel } from "./components/KanbanConfigPanel";
+import { ViewRenderer } from "./components/ViewRenderer";
 import {
   getReferencedTableName,
   getRelatedDrillIns,
@@ -65,6 +67,20 @@ export function TableDetailPage() {
   const clearContext = useExplorerStore((state) => state.clearContext);
   const loadSavedViews = useExplorerStore((state) => state.loadSavedViews);
   const switchView = useExplorerStore((state) => state.switchView);
+  const saveCurrentAsView = useExplorerStore((state) => state.saveCurrentAsView);
+  const updateActiveViewConfig = useExplorerStore((state) => state.updateActiveViewConfig);
+  const renameView = useExplorerStore((state) => state.renameView);
+  const toggleViewShared = useExplorerStore((state) => state.toggleViewShared);
+  const deleteView = useExplorerStore((state) => state.deleteView);
+  const changeViewType = useExplorerStore((state) => state.changeViewType);
+  const setDefaultView = useExplorerStore((state) => state.setDefaultView);
+  const setAutoSave = useExplorerStore((state) => state.setAutoSave);
+  const setKanbanConfig = useExplorerStore((state) => state.setKanbanConfig);
+  const duplicateView = useExplorerStore((state) => state.duplicateView);
+  const currentUserId = useAuthStore((state) => state.user?.id ?? null);
+  const defaultViewId = useExplorerStore((state) =>
+    tableId ? state.defaultViewIdByTable[tableId] ?? null : null,
+  );
   const view = useExplorerStore((state) =>
     tableId ? (state.views[tableId] ?? null) : null,
   );
@@ -92,6 +108,49 @@ export function TableDetailPage() {
     void loadSavedViews(tableId);
   }, [tableId, loadSavedViews, view?.savedViewsStatus]);
 
+  // Once saved views have loaded, switch to the default view for this table
+  // (if one was marked). Only runs once per table mount.
+  const autoSwitchedForTable = useRef<string | null>(null);
+  useEffect(() => {
+    if (!tableId) return;
+    if (view?.savedViewsStatus !== "ready") return;
+    if (autoSwitchedForTable.current === tableId) return;
+    autoSwitchedForTable.current = tableId;
+    if (
+      defaultViewId !== null &&
+      view.activeViewId === null &&
+      view.savedViews.some((sv) => sv.id === defaultViewId)
+    ) {
+      switchView(defaultViewId);
+    }
+  }, [
+    tableId,
+    view?.savedViewsStatus,
+    view?.activeViewId,
+    view?.savedViews,
+    defaultViewId,
+    switchView,
+  ]);
+
+  // Auto-open the kanban config panel the first time we land on a kanban
+  // view whose grouping column hasn't been chosen yet. Keyed by
+  // table+activeViewId so switching views can re-trigger.
+  useEffect(() => {
+    if (!tableId) return;
+    if (!view) return;
+    if (view.config.type !== "kanban") {
+      setKanbanConfigOpen(false);
+      kanbanAutoOpenedFor.current = null;
+      return;
+    }
+    const key = `${tableId}:${view.activeViewId ?? "none"}`;
+    if (kanbanAutoOpenedFor.current === key) return;
+    if (view.config.kanbanColumn === null) {
+      kanbanAutoOpenedFor.current = key;
+      setKanbanConfigOpen(true);
+    }
+  }, [tableId, view?.config, view?.activeViewId, view]);
+
   // Fetch rows once the table is active and schema is ready, but only on
   // the first load (idle → loading).
   useEffect(() => {
@@ -104,6 +163,8 @@ export function TableDetailPage() {
 
   const schemaLoading = schemaStatus === "loading" || schemaStatus === "idle";
   const schemaReady = schemaStatus === "ready" && snapshot !== null;
+  const [kanbanConfigOpen, setKanbanConfigOpen] = useState(false);
+  const kanbanAutoOpenedFor = useRef<string | null>(null);
   const [filterShortcut, setFilterShortcut] = useState<{
     columnName: string;
     nonce: number;
@@ -315,13 +376,9 @@ export function TableDetailPage() {
       void fetchRows();
       return;
     }
-    setQuery({
-      page: 1,
-      perPage: DEFAULT_QUERY.perPage,
-      sort: [],
-      search: "",
-      filters: [],
-    });
+    // Re-apply the active saved view's config (or default if on All Records).
+    // switchView fully re-hydrates config (including hidden columns) and fetches.
+    switchView(view?.activeViewId ?? null);
   }
 
   function handleRequestFilterColumn(columnName: string) {
@@ -550,6 +607,19 @@ export function TableDetailPage() {
             savedViews={view.savedViews}
             activeViewId={view.activeViewId}
             onSwitchView={switchView}
+            onSaveCurrentAsView={(name) => saveCurrentAsView(name, view.config.type, false)}
+            onUpdateActiveViewConfig={updateActiveViewConfig}
+            onRenameView={renameView}
+            onToggleViewShared={toggleViewShared}
+            onDeleteView={deleteView}
+            onChangeViewType={changeViewType}
+            defaultViewId={defaultViewId}
+            onSetDefaultView={setDefaultView}
+            onDuplicateView={duplicateView}
+            currentUserId={currentUserId}
+            autoSave={view.autoSave}
+            onSetAutoSave={setAutoSave}
+            currentViewConfig={view.config}
             hiddenColumnNames={hiddenColumnNames}
             selectionPanel={
               selectedRowIds.length > 0 && relationDrillIns.length > 0
@@ -624,7 +694,21 @@ export function TableDetailPage() {
             onFiltersChange={handleFiltersChange}
             onHiddenColumnsChange={handleHiddenColumnsChange}
             onResetView={handleResetView}
+            viewType={view.config.type}
+            onConfigureKanban={() => setKanbanConfigOpen(true)}
           />
+
+          {view.config.type === "kanban" ? (
+            <KanbanConfigPanel
+              open={kanbanConfigOpen}
+              table={resolvedTable}
+              kanbanColumn={view.config.kanbanColumn}
+              cardFieldNames={view.config.cardFieldNames}
+              hiddenLaneValues={view.config.hiddenLaneValues ?? []}
+              onApply={(patch) => setKanbanConfig(patch)}
+              onClose={() => setKanbanConfigOpen(false)}
+            />
+          ) : null}
 
           {dataStatus === "error" && dataError ? (
             <Alert
@@ -652,11 +736,13 @@ export function TableDetailPage() {
             </div>
           ) : null}
 
-          {dataStatus === "loading" && view.rows.length === 0 ? (
+          {dataStatus === "loading" &&
+          view.rows.length === 0 &&
+          view.config.type !== "kanban" ? (
             <div className="explorer-loading" data-testid="data-loading">
               <Spinner label="Loading rows" />
             </div>
-          ) : view.rows.length === 0 ? (
+          ) : view.rows.length === 0 && view.config.type !== "kanban" ? (
             <>
               <EmptyState
                 icon="database"
@@ -685,7 +771,11 @@ export function TableDetailPage() {
             </>
           ) : (
             <>
-              <ReadOnlyDataGrid
+              <ViewRenderer
+                type={view.config.type}
+                viewConfig={view.config}
+                loading={dataStatus === "loading"}
+                onConfigureView={() => setKanbanConfigOpen(true)}
                 table={visibleTable ?? resolvedTable}
                 rows={view.rows}
                 page={query.page}
@@ -716,15 +806,17 @@ export function TableDetailPage() {
                     : []
                 }
               />
-              <DataPaginationBar
-                query={query}
-                total={view.meta?.total ?? 0}
-                totalPages={totalPages}
-                disabled={dataStatus === "loading"}
-                placement="bottom"
-                onPerPageChange={handlePerPageChange}
-                onPageChange={handlePageChange}
-              />
+              {view.config.type !== "kanban" ? (
+                <DataPaginationBar
+                  query={query}
+                  total={view.meta?.total ?? 0}
+                  totalPages={totalPages}
+                  disabled={dataStatus === "loading"}
+                  placement="bottom"
+                  onPerPageChange={handlePerPageChange}
+                  onPageChange={handlePageChange}
+                />
+              ) : null}
             </>
           )}
         </section>

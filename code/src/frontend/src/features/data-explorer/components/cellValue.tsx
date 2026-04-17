@@ -1,0 +1,179 @@
+import type { ModelColumn } from "../../../types/api";
+
+function normalizeCalendarPart(value: string): number | null {
+  const normalized = Number.parseInt(value, 10);
+  if (!Number.isFinite(normalized) || normalized <= 0) return null;
+  return normalized;
+}
+
+function parseTemporalValue(
+  value: string,
+  type: ModelColumn["type"],
+): { date: Date; timeZone?: string } | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  if (type === "date") {
+    const dateOnlyMatch = trimmed.match(/^(\d{4})-(\d{1,3})-(\d{1,3})$/);
+    if (dateOnlyMatch) {
+      const [, year, monthRaw, dayRaw] = dateOnlyMatch;
+      const month = normalizeCalendarPart(monthRaw);
+      const day = normalizeCalendarPart(dayRaw);
+      if (month === null || day === null) return null;
+      return {
+        date: new Date(Date.UTC(Number(year), month - 1, day)),
+        timeZone: "UTC",
+      };
+    }
+  }
+
+  const isoLikeMatch = trimmed.match(
+    /^(\d{4})-(\d{1,3})-(\d{1,3})[T\s](\d{2}):(\d{2})(?::(\d{2}))?(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})?$/,
+  );
+
+  if (isoLikeMatch) {
+    const [, year, monthRaw, dayRaw, hour, minute, second = "0", fraction = "0", zone] =
+      isoLikeMatch;
+    const month = normalizeCalendarPart(monthRaw);
+    const day = normalizeCalendarPart(dayRaw);
+    if (month === null || day === null) return null;
+
+    if (zone) {
+      const normalized = `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}T${hour}:${minute}:${second}.${fraction.padEnd(3, "0")}${zone}`;
+      const zonedDate = new Date(normalized);
+      if (!Number.isNaN(zonedDate.getTime())) {
+        return zone === "Z"
+          ? { date: zonedDate, timeZone: "UTC" }
+          : { date: zonedDate };
+      }
+    }
+
+    return {
+      date: new Date(
+        Number(year),
+        month - 1,
+        day,
+        Number(hour),
+        Number(minute),
+        Number(second),
+        Number(fraction.padEnd(3, "0")),
+      ),
+    };
+  }
+
+  const fallback = new Date(trimmed);
+  if (!Number.isNaN(fallback.getTime())) {
+    return { date: fallback };
+  }
+
+  return null;
+}
+
+export function formatTemporalValue(value: string, type: ModelColumn["type"]): string {
+  const parsed = parseTemporalValue(value, type);
+  if (!parsed) return value;
+
+  if (type === "date") {
+    return new Intl.DateTimeFormat(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      timeZone: parsed.timeZone,
+    }).format(parsed.date);
+  }
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: parsed.timeZone,
+  }).format(parsed.date);
+}
+
+export function getJsonPreview(value: unknown): string {
+  try {
+    const raw = JSON.stringify(value);
+    if (!raw) return "—";
+    return raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
+  } catch {
+    return String(value);
+  }
+}
+
+export function normalizeBooleanValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "number") {
+    if (value === 1) return true;
+    if (value === 0) return false;
+    return null;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") return true;
+    if (normalized === "false" || normalized === "0") return false;
+  }
+
+  return null;
+}
+
+export function renderCellValue(column: ModelColumn, value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return <span className="data-grid__cell-empty">—</span>;
+  }
+
+  if (column.type === "boolean") {
+    const booleanValue = normalizeBooleanValue(value);
+    if (booleanValue !== null) {
+      return (
+        <span
+          className={`data-grid__boolean data-grid__boolean--${booleanValue ? "true" : "false"}`}
+        >
+          {booleanValue ? "true" : "false"}
+        </span>
+      );
+    }
+  }
+
+  if (typeof value === "boolean") {
+    return (
+      <span
+        className={`data-grid__boolean data-grid__boolean--${value ? "true" : "false"}`}
+      >
+        {value ? "true" : "false"}
+      </span>
+    );
+  }
+
+  if (typeof value === "number") {
+    return <span className="data-grid__mono">{value}</span>;
+  }
+
+  if (typeof value === "string" && (column.type === "date" || column.type === "datetime")) {
+    return <span className="data-grid__mono">{formatTemporalValue(value, column.type)}</span>;
+  }
+
+  if (column.type === "json" || typeof value === "object") {
+    return (
+      <code className="data-grid__code" title={getJsonPreview(value)}>
+        {getJsonPreview(value)}
+      </code>
+    );
+  }
+
+  if (column.type === "relation" || column.references) {
+    return (
+      <span className="data-grid__reference" title={String(value)}>
+        {String(value)}
+      </span>
+    );
+  }
+
+  if (column.primaryKey) {
+    return <span className="data-grid__mono">{String(value)}</span>;
+  }
+
+  return <span>{String(value)}</span>;
+}

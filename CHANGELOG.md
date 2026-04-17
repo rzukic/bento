@@ -14,6 +14,20 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 2 — Data Management
 
+### 2026-04-16 — Complete Step 2.3 Views System (saved views + kanban)
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.3 — Views System](working-steps/2.3-views-system.md)
+
+Shipped a full saved-views system and kanban view type on top of the Data Explorer, closing out all thirteen Step 2.3 tasks (TASK-075, TASK-077 through TASK-089). The explorer now supports named, shareable, persistent views per table, with a kanban board as the second built-in view type.
+
+**Highlights:**
+- **Saved views** — per-table view selector bar; save current query state (search, sort, filters, hidden columns, view type) as a named view; rename, delete, toggle shared, change type, and duplicate on views you own; auto-save mode; default-view per table (localStorage); dirty-state detection with "Save changes" / "Save to new view" actions
+- **Views API** — `system_views` backend table + REST API (`GET /api/v1/views/{tableId}`, `POST`, `PUT /{id}`, `DELETE /{id}`); workspace-wide sharing via `is_shared`; 27 new backend integration tests
+- **View-type plugin architecture** — `ViewRenderer` component routes rendering by `type`; unrecognized types fall back to the grid with a console warning; adding a new view type requires only registering it in `VIEW_TYPE_REGISTRY`
+- **Kanban view** — groups rows into lanes by any `enum` column in schema-declared order; drag-and-drop between lanes fires `PATCH /api/v1/data/:table/:id` with optimistic update and rollback on failure; configurable primary (bold) + up to 3 secondary card fields; hidden-lane support; "Configure" button in the toolbar replaces "Columns" for kanban views
+- **Frontend regression suite** — 16 new tests in `views.test.tsx` covering view selector behaviour, ViewRenderer fallback, kanban lane/card rendering, drag PATCH, and PATCH-failure rollback; all 102 frontend tests green; `npm run typecheck` and `npm run build` clean; 383 backend tests pass
+
 ### 2026-04-13 — Refine the Step 2.2 explorer into an Airtable-style workspace
 
 > **Phase**: Phase 2 — Data Management
