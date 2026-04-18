@@ -669,6 +669,7 @@
     gap: 0.3rem;
     flex-shrink: 0;
     min-width: 0;
+    flex-wrap: wrap;
 }
 
 /* Dropdown wrapper — provides the positioning context for the menu */
@@ -842,6 +843,67 @@
     opacity: 0.35;
     cursor: default;
     pointer-events: none;
+}
+
+.data-controls__export {
+    position: relative;
+    flex-shrink: 0;
+}
+
+.data-controls__export-menu {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    min-width: 8rem;
+    padding: 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    z-index: 24;
+}
+
+.data-controls__export-option {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition:
+        background var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.data-controls__export-option:hover,
+.data-controls__export-option:focus-visible {
+    background: var(--surface-raised);
+    color: var(--text);
+    outline: none;
+}
+
+.data-controls__export-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-height: 1.75rem;
+    padding: 0.1rem 0.15rem 0.1rem 0.55rem;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-raised) 78%, transparent);
+}
+
+.data-controls__export-progress {
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    white-space: nowrap;
 }
 
 /* ── View modals (create + settings) ── */
@@ -1296,6 +1358,10 @@
     background: color-mix(in srgb, var(--accent-soft) 32%, var(--surface));
 }
 
+.data-grid__row--pending-new td {
+    background: color-mix(in srgb, var(--accent-soft) 18%, var(--surface));
+}
+
 .data-grid__header-cell {
     display: flex;
     align-items: center;
@@ -1480,6 +1546,21 @@
     transition: opacity var(--dur) var(--ease);
 }
 
+.data-grid__new-row-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 1rem;
+    padding: 0 0.34rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+    color: var(--accent-ink);
+    font-size: 9px;
+    font-family: var(--font-mono);
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
 .data-grid__row:hover .data-grid__primary-value,
 .data-grid__row--selected .data-grid__primary-value {
     opacity: 0;
@@ -1615,6 +1696,57 @@
     color: var(--text-4);
 }
 
+.data-grid__row-error-row td {
+    padding: 0;
+    border-right: 0;
+    background: color-mix(in srgb, var(--danger, #d04545) 5%, var(--surface));
+}
+
+.data-grid__row-error-banner {
+    padding: 0.42rem 0.72rem;
+    color: var(--danger, #d04545);
+    font-size: 0.76rem;
+    line-height: 1.35;
+}
+
+.data-grid__add-row td {
+    border-right: 0;
+    background: color-mix(in srgb, var(--surface-raised) 46%, var(--surface));
+}
+
+.data-grid__add-row-trigger,
+.data-grid__add-row-copy {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    width: 100%;
+    min-height: 2.25rem;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-3);
+    font: inherit;
+}
+
+.data-grid__add-row-fill {
+    padding: 0;
+}
+
+.data-grid__add-row-copy {
+    justify-content: flex-start;
+    padding: 0 0.72rem;
+}
+
+.data-grid__add-row-trigger:hover,
+.data-grid__add-row-trigger:focus-visible,
+.data-grid__add-row-copy:hover,
+.data-grid__add-row-copy:focus-visible {
+    color: var(--text);
+    background: color-mix(in srgb, var(--accent-soft) 24%, var(--surface));
+    outline: none;
+}
+
 .data-grid__column {
     min-width: 8.75rem;
 }
@@ -1671,6 +1803,196 @@
 
 .data-grid__cell-empty {
     color: var(--text-4);
+}
+
+/* ── Inline edit mode (TASK-092) ──────────────────────────────────────
+ * Editing replaces the cell's text with an input in-place. The cell's
+ * background lightens slightly to mark active focus; no extra borders or
+ * padding so nothing layout-shifts.
+ */
+
+.data-grid__cell--editable {
+    cursor: text;
+}
+
+.data-grid__cell--editable:focus-visible {
+    outline: none;
+    background: color-mix(in srgb, var(--surface-raised) 60%, var(--surface));
+}
+
+.data-grid__cell--editing {
+    padding: 0;
+    background: color-mix(in srgb, var(--surface-raised) 55%, var(--surface));
+    box-shadow: inset 0 0 0 1px
+        color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.data-grid__cell-editor,
+.data-grid__cell-editor .cell-editor {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* Strip the EditorShell wrapper of any browser-default span layout so the
+ * input fills the cell exactly like the static text it replaces. */
+.data-grid__cell-editor .cell-editor {
+    position: relative;
+}
+
+/* Make every editor's primary control (input / select / textarea / button
+ * combobox) feel like part of the cell — no extra border, no extra
+ * background, inherits cell typography. */
+.data-grid__cell-editor input,
+.data-grid__cell-editor select,
+.data-grid__cell-editor textarea {
+    box-sizing: border-box;
+    width: 100%;
+    margin: 0;
+    padding: 0.44rem 0.72rem;
+    border: 0;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 0.83rem;
+    line-height: 1.24;
+    outline: none;
+    appearance: none;
+}
+
+.data-grid__cell-editor textarea {
+    min-height: 2.1rem;
+    resize: vertical;
+}
+
+.data-grid__cell-editor .cell-editor--error input,
+.data-grid__cell-editor .cell-editor--error select,
+.data-grid__cell-editor .cell-editor--error textarea {
+    box-shadow: inset 0 -2px 0 var(--danger, #d04545);
+}
+
+.data-grid__cell-editor .cell-editor__error {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 2px;
+    padding: 0.2rem 0.5rem;
+    font-size: 0.72rem;
+    color: var(--danger, #d04545);
+    background: var(--surface-raised);
+    border-radius: 3px;
+    z-index: 5;
+    white-space: normal;
+}
+
+/* Combobox cell editor (enum / boolean / FK) — visually mirrors the enum
+ * filter dropdown: a single input that opens a listbox below. The input
+ * shows the current label when closed and acts as a search field when open. */
+.data-grid__cell-editor .cell-combobox {
+    position: relative;
+    width: 100%;
+    height: 100%;
+}
+
+.data-grid__cell-editor .cell-combobox__trigger {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+}
+
+.data-grid__cell-editor .cell-combobox__input {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.data-grid__cell-editor .cell-combobox__input::placeholder {
+    color: var(--text);
+    opacity: 1;
+}
+
+.data-grid__cell-editor
+    .cell-combobox[data-open]
+    .cell-combobox__input::placeholder {
+    color: var(--text-4);
+}
+
+.cell-combobox__chevron {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding-right: 0.55rem;
+    color: var(--text-3);
+    pointer-events: none;
+}
+
+.cell-combobox__listbox {
+    position: absolute;
+    z-index: 10;
+    top: calc(100% + 0.3rem);
+    left: 0;
+    width: 100%;
+    min-width: 14rem;
+    max-height: 16rem;
+    margin: 0;
+    padding: 0.35rem;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    box-shadow: var(--shadow-lg);
+    overflow: auto;
+}
+
+.cell-combobox__option {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: var(--r-md);
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+}
+
+.cell-combobox__option--active {
+    background: color-mix(in srgb, var(--surface-raised) 78%, var(--surface));
+}
+
+.cell-combobox__option--selected {
+    background: color-mix(in srgb, var(--accent-soft) 52%, var(--surface));
+}
+
+.cell-combobox__check {
+    width: 0.9rem;
+    height: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    color: var(--accent);
+}
+
+.cell-combobox__label {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cell-combobox__empty {
+    padding: 0.55rem 0.6rem;
+    color: var(--text-3);
+    font-size: 0.78rem;
+}
+
+/* Pending validation error on a cell that is *not* currently being edited:
+ * a thin red underline so the row reads as having an unresolved problem
+ * without adding any extra height. */
+.data-grid__column--has-error .data-grid__cell {
+    box-shadow: inset 0 -2px 0 var(--danger, #d04545);
 }
 
 .data-grid__mono {
@@ -1802,11 +2124,11 @@
 .kanban-board {
     position: relative;
     display: flex;
-    gap: 0.75rem;
-    align-items: flex-start;
+    gap: 0.85rem;
+    align-items: stretch;
     overflow-x: auto;
     overflow-y: hidden;
-    padding: 0.75rem 0.85rem 1rem;
+    padding: 0.85rem 0.95rem 1.15rem;
     min-height: 0;
 }
 
@@ -1822,9 +2144,9 @@
     flex-direction: column;
     max-height: calc(100vh - 280px);
     min-height: 200px;
-    background: var(--surface-muted, var(--surface));
+    background: color-mix(in srgb, var(--surface) 40%, var(--surface-raised));
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 12px;
     scroll-snap-align: start;
     overflow: hidden;
 }
@@ -1834,15 +2156,20 @@
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    padding: 0.55rem 0.7rem;
+    padding: 0.65rem 0.8rem;
     border-bottom: 1px solid var(--border);
-    background: var(--surface);
-    font-size: 0.8rem;
+    background: color-mix(in srgb, var(--surface) 82%, var(--surface-raised));
+    font-size: 0.76rem;
     font-weight: 600;
     color: var(--text);
 }
 
 .kanban-lane__label {
+    font-family: var(--font-mono);
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-3);
+
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1851,9 +2178,10 @@
 .kanban-lane__count {
     flex: 0 0 auto;
     min-width: 1.5rem;
-    padding: 0.1rem 0.45rem;
+    padding: 0.14rem 0.45rem;
     border-radius: 999px;
-    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    background: color-mix(in srgb, var(--accent-soft) 72%, var(--surface));
+    border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
     color: var(--accent);
     font-size: 0.72rem;
     font-weight: 600;
@@ -1864,8 +2192,8 @@
     flex: 1 1 auto;
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.55rem;
+    gap: 0.6rem;
+    padding: 0.65rem;
     overflow-y: auto;
 }
 
@@ -1891,20 +2219,22 @@
 .kanban-card {
     position: relative;
     display: flex;
-    gap: 0.4rem;
-    padding: 0.55rem 0.6rem 0.55rem 0.5rem;
+    gap: 0.5rem;
+    padding: 0.65rem 0.7rem 0.65rem 0.55rem;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: 10px;
     cursor: default;
     transition:
-        border-color 120ms ease,
-        box-shadow 120ms ease;
+        box-shadow 120ms ease,
+        transform 120ms ease;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
 }
 
 .kanban-card:hover {
     border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.08);
+    transform: translateY(-1px);
 }
 
 .kanban-card:focus-visible {
@@ -1921,10 +2251,25 @@
 .kanban-card__drag-handle {
     flex: 0 0 auto;
     display: flex;
-    align-items: flex-start;
-    padding-top: 0.15rem;
+    align-items: center;
+    justify-content: center;
+    width: 1.55rem;
+    height: 1.55rem;
+    margin-top: 0.04rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-raised) 82%, var(--surface));
+
     color: var(--text-muted);
     cursor: grab;
+    transition:
+        background var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.kanban-card:hover .kanban-card__drag-handle,
+.kanban-card:focus-visible .kanban-card__drag-handle {
+    background: color-mix(in srgb, var(--accent-soft) 60%, var(--surface));
+    color: var(--text-2);
 }
 
 .kanban-card__drag-handle:active {
@@ -1997,7 +2342,7 @@
 .kanban-card__fields {
     display: flex;
     flex-direction: column;
-    gap: 0.2rem;
+    gap: 0.28rem;
     margin: 0;
 }
 
@@ -2013,9 +2358,9 @@
     flex: 0 0 auto;
     font-size: 0.7rem;
     font-weight: 500;
-    color: var(--text-muted);
+    color: var(--text-4);
     text-transform: uppercase;
-    letter-spacing: 0.02em;
+    letter-spacing: 0.06em;
 }
 
 .kanban-card__field-value {
@@ -2024,7 +2369,15 @@
     min-width: 0;
     font-size: 0.75rem;
     color: var(--text);
+    line-height: 1.35;
+
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.kanban-card__field-value > .data-grid__reference {
+    max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
 }

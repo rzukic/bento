@@ -3,6 +3,7 @@ import { Icon } from "../../../components/common/Icon";
 import type { ModelColumn, ModelTable } from "../../../types/api";
 import { apiClient } from "../../../api/client";
 import { renderCellValue } from "./cellValue";
+import { lookupReferenceLabel, useReferenceLabels } from "./useReferenceLabels";
 
 type KanbanViewProps = {
   table: ModelTable;
@@ -42,6 +43,7 @@ export function KanbanView({
   onConfigureView,
   onNavigateReference,
 }: KanbanViewProps) {
+  const referenceLabels = useReferenceLabels(table, rows);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [dragError, setDragError] = useState<{ rowId: string; msg: string } | null>(null);
@@ -297,21 +299,40 @@ export function KanbanView({
                                 {col.displayName ?? col.name}
                               </dt>
                               <dd className="kanban-card__field-value">
-                                {(col.type === "relation" || col.references) &&
-                                row[col.name] !== null &&
-                                row[col.name] !== undefined &&
-                                row[col.name] !== "" &&
-                                onNavigateReference ? (
-                                  <button
-                                    type="button"
-                                    className="data-grid__reference data-grid__reference--interactive"
-                                    onClick={() => onNavigateReference(col, row[col.name], row)}
-                                  >
-                                    {String(row[col.name])}
-                                  </button>
-                                ) : (
-                                  renderCellValue(col, row[col.name])
-                                )}
+                                {(() => {
+                                  const isReferenceValue =
+                                    (col.type === "relation" || col.references) &&
+                                    row[col.name] !== null &&
+                                    row[col.name] !== undefined &&
+                                    row[col.name] !== "";
+                                  if (!isReferenceValue) {
+                                    return renderCellValue(col, row[col.name]);
+                                  }
+
+                                  const rawId = String(row[col.name]);
+                                  const label =
+                                    lookupReferenceLabel(referenceLabels, col, row[col.name]) ?? rawId;
+
+                                  if (onNavigateReference) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        className="data-grid__reference data-grid__reference--interactive"
+                                        aria-label={`Open related ${label}`}
+                                        title={`Open related ${label}`}
+                                        onClick={() => onNavigateReference(col, row[col.name], row)}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  }
+
+                                  return (
+                                    <span className="data-grid__reference" title={label}>
+                                      {label}
+                                    </span>
+                                  );
+                                })()}
                               </dd>
                             </div>
                           ))}

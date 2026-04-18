@@ -61,6 +61,11 @@ function seedExplorerRows(table: string, rows: Record<string, unknown>[]) {
         error: null,
         source: { kind: "table" },
         selectedRowIds: [],
+        editingCell: null,
+        cellErrors: {},
+        pendingCellSaves: [],
+        pendingNewRowIds: [],
+        rowErrors: {},
         context: null,
         savedViews: [],
         savedViewsStatus: "ready" as const,
@@ -276,6 +281,11 @@ describe("Table detail (/data/:tableId)", () => {
           error: null,
           source: { kind: "table" },
           selectedRowIds: [],
+          editingCell: null,
+          cellErrors: {},
+          pendingCellSaves: [],
+          pendingNewRowIds: [],
+          rowErrors: {},
           context: null,
           savedViews: [],
           savedViewsStatus: "ready" as const,
@@ -414,6 +424,11 @@ describe("Table detail (/data/:tableId)", () => {
           error: null,
           source: { kind: "table" },
           selectedRowIds: [],
+          editingCell: null,
+          cellErrors: {},
+          pendingCellSaves: [],
+          pendingNewRowIds: [],
+          rowErrors: {},
           context: null,
           savedViews: [
             {
@@ -566,15 +581,16 @@ describe("Table detail (/data/:tableId)", () => {
     render(<RouterProvider router={router} />);
 
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /open related 7/i }));
+    await user.click(screen.getByRole("button", { name: /open related/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "/api/v1/data/customers?",
-      );
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "filter%5Bid%5D=7",
-      );
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]).includes("/api/v1/data/customers?") &&
+            String(c[0]).includes("filter%5Bid%5D=7"),
+        ),
+      ).toBe(true);
     });
 
     expect(await screen.findByText(/focused record/i)).toBeInTheDocument();
@@ -662,12 +678,13 @@ describe("Table detail (/data/:tableId)", () => {
     await user.click(screen.getByRole("button", { name: /^orders$/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "/api/v1/data/orders?",
-      );
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "filter%5Bcustomer_id%5D=7",
-      );
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]).includes("/api/v1/data/orders?") &&
+            String(c[0]).includes("filter%5Bcustomer_id%5D=7"),
+        ),
+      ).toBe(true);
     });
 
     expect(await screen.findByText(/related records/i)).toBeInTheDocument();
@@ -765,12 +782,13 @@ describe("Table detail (/data/:tableId)", () => {
     await user.click(screen.getByRole("button", { name: /^orders$/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "/api/v1/data/orders?",
-      );
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "filter%5Bcustomer_id%5D=7",
-      );
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]).includes("/api/v1/data/orders?") &&
+            String(c[0]).includes("filter%5Bcustomer_id%5D=7"),
+        ),
+      ).toBe(true);
     });
 
     expect(
@@ -940,12 +958,13 @@ describe("Table detail (/data/:tableId)", () => {
     await user.click(screen.getByRole("button", { name: /^orders$/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "/api/v1/data/orders?",
-      );
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain(
-        "filter%5Bcustomer_id%5D%5Bin%5D=1%2C2",
-      );
+      expect(
+        fetchMock.mock.calls.some(
+          (c) =>
+            String(c[0]).includes("/api/v1/data/orders?") &&
+            String(c[0]).includes("filter%5Bcustomer_id%5D%5Bin%5D=1%2C2"),
+        ),
+      ).toBe(true);
     });
 
     expect(
@@ -1247,6 +1266,271 @@ describe("Table detail (/data/:tableId)", () => {
     expect(
       screen.getByRole("menuitem", { name: /^orders$/i }),
     ).toBeInTheDocument();
+  });
+
+  it("right-clicking an unselected row selects it before opening the row context menu", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      {
+        id: 1,
+        name: "Customer 1",
+        email: "customer1@example.com",
+      },
+      {
+        id: 2,
+        name: "Customer 2",
+        email: "customer2@example.com",
+      },
+    ]);
+
+    const router = createTestRouter(["/data/customers"]);
+    const { container } = render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+
+    const rowCells = Array.from(container.querySelectorAll("tbody tr"));
+    const secondRow = rowCells.find((row) => row.textContent?.includes("Customer 2"));
+    expect(secondRow).not.toBeNull();
+    if (!secondRow) {
+      throw new Error("Expected second customer row");
+    }
+
+    await user.pointer([
+      {
+        keys: "[MouseRight]",
+        target: secondRow,
+      },
+    ]);
+
+    expect(screen.getByRole("menuitem", { name: /delete row/i })).toBeInTheDocument();
+    expect(useExplorerStore.getState().views.customers?.selectedRowIds).toEqual(["2"]);
+  });
+
+  it("shows a bulk-delete success summary after deleting multiple selected rows", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      { id: 1, name: "Customer 1", email: "customer1@example.com" },
+      { id: 2, name: "Customer 2", email: "customer2@example.com" },
+      { id: 3, name: "Customer 3", email: "customer3@example.com" },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/")) {
+        return new Response(null, { status: 204 });
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+    await user.click(screen.getByRole("button", { name: /select row 2/i }));
+    await user.click(
+      screen.getByRole("button", { name: /selection operations/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /delete rows/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(
+      await screen.findByText(/successfully deleted 2\/2 rows\./i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Customer 1")).not.toBeInTheDocument();
+    expect(screen.queryByText("Customer 2")).not.toBeInTheDocument();
+    expect(screen.getByText("Customer 3")).toBeInTheDocument();
+  });
+
+  it("shows a bulk-delete partial-failure summary and restores failed rows", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      { id: 1, name: "Customer 1", email: "customer1@example.com" },
+      { id: 2, name: "Customer 2", email: "customer2@example.com" },
+      { id: 3, name: "Customer 3", email: "customer3@example.com" },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/1")) {
+        return new Response(null, { status: 204 });
+      }
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/2")) {
+        return new Response(
+          JSON.stringify({ error: { code: "INTERNAL", message: "Delete failed." } }),
+          { status: 500, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+    await user.click(screen.getByRole("button", { name: /select row 2/i }));
+    await user.click(
+      screen.getByRole("button", { name: /selection operations/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /delete rows/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(
+      await screen.findByText(/successfully deleted 1\/2 rows\. 1 could not be deleted\./i),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Customer 1")).not.toBeInTheDocument();
+    expect(screen.getByText("Customer 2")).toBeInTheDocument();
+    expect(screen.getByText("Delete failed.")).toBeInTheDocument();
+  });
+
+  it("shows an undo toast after a single delete and restores the row from the toast action", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      { id: 1, name: "Customer 1", email: "customer1@example.com" },
+      { id: 2, name: "Customer 2", email: "customer2@example.com" },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/1")) {
+        return new Response(null, { status: 204 });
+      }
+
+      if (method === "POST" && url.endsWith("/api/v1/data/customers")) {
+        return new Response(
+          JSON.stringify({
+            data: {
+              id: 11,
+              name: "Customer 1",
+              email: "customer1@example.com",
+            },
+          }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+    await user.click(
+      screen.getByRole("button", { name: /selection operations/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /delete row/i }));
+
+    expect(
+      await screen.findByRole("button", { name: /undo delete/i }),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /undo delete/i }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    expect(await screen.findByText("Customer 1")).toBeInTheDocument();
+    expect(useExplorerStore.getState().undoStackByTable.customers).toEqual([]);
+  });
+
+  it("undoes the last bulk delete with Ctrl+Z and consumes a single undo entry", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("customers", [
+      { id: 1, name: "Customer 1", email: "customer1@example.com" },
+      { id: 2, name: "Customer 2", email: "customer2@example.com" },
+      { id: 3, name: "Customer 3", email: "customer3@example.com" },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const method = (init?.method ?? "GET").toUpperCase();
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/1")) {
+        return new Response(null, { status: 204 });
+      }
+
+      if (method === "DELETE" && url.includes("/api/v1/data/customers/2")) {
+        return new Response(null, { status: 204 });
+      }
+
+      if (method === "POST" && url.endsWith("/api/v1/data/customers")) {
+        const payload = JSON.parse(String(init?.body));
+        const restoredId = payload.email === "customer1@example.com" ? 11 : 12;
+        return new Response(
+          JSON.stringify({ data: { id: restoredId, ...payload } }),
+          { status: 201, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${method} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/data/customers"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /select row 1/i }));
+    await user.click(screen.getByRole("button", { name: /select row 2/i }));
+    await user.click(
+      screen.getByRole("button", { name: /selection operations/i }),
+    );
+    await user.click(screen.getByRole("button", { name: /^delete$/i }));
+
+    const dialog = screen.getByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: /delete rows/i }));
+
+    await waitFor(() => {
+      expect(useExplorerStore.getState().undoStackByTable.customers).toHaveLength(1);
+    });
+    expect(
+      useExplorerStore.getState().undoStackByTable.customers?.[0]?.rows,
+    ).toHaveLength(2);
+
+    fireEvent.keyDown(window, { key: "z", ctrlKey: true });
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    });
+
+    expect(await screen.findByText(/restored 2 rows\./i)).toBeInTheDocument();
+    expect(screen.getByText("Customer 1")).toBeInTheDocument();
+    expect(screen.getByText("Customer 2")).toBeInTheDocument();
+    expect(useExplorerStore.getState().undoStackByTable.customers).toEqual([]);
   });
 
   it("clears a partial selection with escape", async () => {
@@ -2397,6 +2681,215 @@ describe("Table detail (/data/:tableId)", () => {
       screen.getByText(/sort: status desc, created_at desc/i),
     ).toBeInTheDocument();
     expect(screen.getByText(/status = pending/i)).toBeInTheDocument();
+  });
+
+  it("exports the current view to CSV across all matching pages with visible columns only", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    useExplorerStore.setState((state) => ({
+      activeTable: "orders",
+      views: {
+        ...state.views,
+        orders: {
+          status: "ready",
+          config: {
+            ...DEFAULT_EXPLORER_VIEW_CONFIG,
+            hiddenColumnNames: ["created_at"],
+            search: "Acme",
+            sort: [{ column: "status", dir: "desc" }],
+            filters: [{ column: "status", op: "eq", value: "pending" }],
+          },
+          page: 1,
+          perPage: 25,
+          rows: [
+            {
+              id: 101,
+              customer_id: 7,
+              total: 149.5,
+              status: "pending",
+              created_at: "2026-04-12T08:45:00Z",
+            },
+          ],
+          meta: {
+            page: 1,
+            per_page: 25,
+            total: 3,
+            total_pages: 1,
+          },
+          error: null,
+          source: { kind: "table" },
+          selectedRowIds: [],
+          editingCell: null,
+          cellErrors: {},
+          pendingCellSaves: [],
+          pendingNewRowIds: [],
+          rowErrors: {},
+          context: null,
+          savedViews: [],
+          savedViewsStatus: "ready" as const,
+          activeViewId: null,
+          autoSave: false,
+        },
+      },
+    }));
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      const parsed = new URL(url, "http://localhost");
+
+      if (parsed.pathname === "/api/v1/data/orders") {
+        const page = Number(parsed.searchParams.get("page") ?? "1");
+        const body =
+          page === 1
+            ? {
+                data: [
+                  {
+                    id: 101,
+                    customer_id: 7,
+                    total: 149.5,
+                    status: "pending",
+                    created_at: "2026-04-12T08:45:00Z",
+                  },
+                  {
+                    id: 102,
+                    customer_id: 8,
+                    total: 87.25,
+                    status: "pending",
+                    created_at: "2026-04-13T09:15:00Z",
+                  },
+                ],
+                meta: {
+                  page: 1,
+                  per_page: 1000,
+                  total: 3,
+                  total_pages: 2,
+                },
+              }
+            : {
+                data: [
+                  {
+                    id: 103,
+                    customer_id: 7,
+                    total: 59.0,
+                    status: "pending",
+                    created_at: "2026-04-14T10:05:00Z",
+                  },
+                ],
+                meta: {
+                  page: 2,
+                  per_page: 1000,
+                  total: 3,
+                  total_pages: 2,
+                },
+              };
+
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (parsed.pathname === "/api/v1/data/customers") {
+        return new Response(
+          JSON.stringify(
+            mockListResponse(
+              [
+                { id: 7, name: "Acme Co" },
+                { id: 8, name: "Northwind" },
+              ],
+              2,
+              1,
+              2,
+            ),
+          ),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    let capturedBlob: Blob | null = null;
+    const createObjectUrl = vi.fn((blob: Blob) => {
+      capturedBlob = blob;
+      return "blob:export";
+    });
+    const revokeObjectUrl = vi.fn();
+    const originalCreateObjectUrl = URL.createObjectURL;
+    const originalRevokeObjectUrl = URL.revokeObjectURL;
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      writable: true,
+      value: createObjectUrl,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      writable: true,
+      value: revokeObjectUrl,
+    });
+    const anchorClick = vi
+      .spyOn(HTMLAnchorElement.prototype, "click")
+      .mockImplementation(() => {});
+
+    try {
+      const router = createTestRouter(["/data/orders"]);
+      render(<RouterProvider router={router} />);
+
+      await screen.findByRole("table");
+
+      const user = userEvent.setup();
+      await user.click(screen.getByRole("button", { name: /^export$/i }));
+      await user.click(screen.getByRole("menuitem", { name: "CSV" }));
+
+      await waitFor(() => expect(capturedBlob).not.toBeNull());
+      await waitFor(() =>
+        expect(document.body.textContent).toMatch(
+          /Downloaded 3 rows to orders-AllRecords-.*\.csv/i,
+        ),
+      );
+
+      expect(anchorClick).toHaveBeenCalledTimes(1);
+      expect(createObjectUrl).toHaveBeenCalledTimes(1);
+      expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
+      const exportCalls = fetchMock.mock.calls
+        .map((call) => String(call[0]))
+        .filter((url) => url.includes("per_page=1000"));
+      expect(exportCalls).toHaveLength(2);
+      const customerCalls = fetchMock.mock.calls
+        .map((call) => String(call[0]))
+        .filter((url) => url.includes("/api/v1/data/customers"));
+      expect(customerCalls.length).toBeGreaterThan(0);
+
+      expect(exportCalls[0]).toContain("page=1");
+      expect(exportCalls[0]).toContain("search=Acme");
+      expect(exportCalls[0]).toContain("sort=-status");
+      expect(exportCalls[0]).toContain(
+        "filter%5Bstatus%5D=pending",
+      );
+      expect(exportCalls[1]).toContain("page=2");
+      expect(
+        customerCalls.some((url) =>
+          url.includes("filter%5Bid%5D%5Bin%5D=7%2C8"),
+        ),
+      ).toBe(true);
+
+      expect(capturedBlob).not.toBeNull();
+    } finally {
+      Object.defineProperty(URL, "createObjectURL", {
+        configurable: true,
+        writable: true,
+        value: originalCreateObjectUrl,
+      });
+      Object.defineProperty(URL, "revokeObjectURL", {
+        configurable: true,
+        writable: true,
+        value: originalRevokeObjectUrl,
+      });
+    }
   });
 
   it("can start sorting from the column header menu", async () => {

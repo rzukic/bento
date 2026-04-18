@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useParams } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/Dialog";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
@@ -17,7 +18,7 @@ import {
   type FilterClause,
   type SortClause,
 } from "../../types/explorer";
-import type { ModelColumn } from "../../types/api";
+import type { ModelColumn, ModelTable } from "../../types/api";
 import {
   DataPaginationBar,
   DataQueryControls,
@@ -25,10 +26,33 @@ import {
 import { KanbanConfigPanel } from "./components/KanbanConfigPanel";
 import { ViewRenderer } from "./components/ViewRenderer";
 import {
+  type ExportFormat,
+  getOrderedVisibleColumns,
+} from "./export/serializers";
+import {
+  EXPORT_ROW_LIMIT,
+  useExportCurrentView,
+} from "./export/useExportCurrentView";
+import {
   getReferencedTableName,
   getRelatedDrillIns,
 } from "./relationNavigation";
 import "./DataExplorer.css";
+
+const BULK_DELETE_CONCURRENCY = 4;
+
+async function runInConcurrentBatches<T, R>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < items.length; index += concurrency) {
+    const batch = items.slice(index, index + concurrency);
+    results.push(...(await Promise.all(batch.map((item) => worker(item)))));
+  }
+  return results;
+}
 
 export function TableDetailPage() {
   const { tableId } = useParams<{ tableId: string }>();
@@ -67,8 +91,12 @@ export function TableDetailPage() {
   const clearContext = useExplorerStore((state) => state.clearContext);
   const loadSavedViews = useExplorerStore((state) => state.loadSavedViews);
   const switchView = useExplorerStore((state) => state.switchView);
-  const saveCurrentAsView = useExplorerStore((state) => state.saveCurrentAsView);
-  const updateActiveViewConfig = useExplorerStore((state) => state.updateActiveViewConfig);
+  const saveCurrentAsView = useExplorerStore(
+    (state) => state.saveCurrentAsView,
+  );
+  const updateActiveViewConfig = useExplorerStore(
+    (state) => state.updateActiveViewConfig,
+  );
   const renameView = useExplorerStore((state) => state.renameView);
   const toggleViewShared = useExplorerStore((state) => state.toggleViewShared);
   const deleteView = useExplorerStore((state) => state.deleteView);
@@ -77,12 +105,25 @@ export function TableDetailPage() {
   const setAutoSave = useExplorerStore((state) => state.setAutoSave);
   const setKanbanConfig = useExplorerStore((state) => state.setKanbanConfig);
   const duplicateView = useExplorerStore((state) => state.duplicateView);
+  const startCellEdit = useExplorerStore((state) => state.startCellEdit);
+  const cancelCellEdit = useExplorerStore((state) => state.cancelCellEdit);
+  const commitCellEdit = useExplorerStore((state) => state.commitCellEdit);
+  const addBlankRow = useExplorerStore((state) => state.addBlankRow);
+  const deleteRow = useExplorerStore((state) => state.deleteRow);
+  const duplicateRow = useExplorerStore((state) => state.duplicateRow);
+  const pushUndoDeleteEntry = useExplorerStore(
+    (state) => state.pushUndoDeleteEntry,
+  );
+  const undoLast = useExplorerStore((state) => state.undoLast);
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const defaultViewId = useExplorerStore((state) =>
-    tableId ? state.defaultViewIdByTable[tableId] ?? null : null,
+    tableId ? (state.defaultViewIdByTable[tableId] ?? null) : null,
   );
   const view = useExplorerStore((state) =>
     tableId ? (state.views[tableId] ?? null) : null,
+  );
+  const topUndoEntry = useExplorerStore((state) =>
+    tableId ? ((state.undoStackByTable[tableId] ?? []).at(-1) ?? null) : null,
   );
 
   // Ensure schema is loaded
@@ -173,6 +214,17 @@ export function TableDetailPage() {
     columnName: string;
     nonce: number;
   } | null>(null);
+  const [deleteDialogRowIds, setDeleteDialogRowIds] = useState<string[] | null>(
+    null,
+  );
+  const [operationNotice, setOperationNotice] = useState<{
+    tone: "success" | "warning" | "error";
+    title: string;
+    message: string;
+  } | null>(null);
+  const [undoToastVisible, setUndoToastVisible] = useState(false);
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   const table = useMemo(() => {
     if (!schemaReady) return null;
@@ -193,18 +245,26 @@ export function TableDetailPage() {
           ),
     [table, view?.config.hiddenColumnNames],
   );
+  const visibleColumns = useMemo(
+    () =>
+      !table
+        ? []
+        : getOrderedVisibleColumns(
+            table,
+            hiddenColumnNames,
+            view?.config.columnOrder ?? [],
+          ),
+    [hiddenColumnNames, table, view?.config.columnOrder],
+  );
   const visibleTable = useMemo(
     () =>
       !table
         ? null
         : {
             ...table,
-            columns: table.columns.filter(
-              (column) =>
-                column.primaryKey || !hiddenColumnNames.includes(column.name),
-            ),
+            columns: visibleColumns,
           },
-    [hiddenColumnNames, table],
+    [table, visibleColumns],
   );
   const visibleRowIds = useMemo(
     () =>
@@ -212,16 +272,23 @@ export function TableDetailPage() {
         .map((row) => row.id)
         .filter(
           (value): value is string | number =>
-            value !== null && value !== undefined && value !== "",
+            value !== null &&
+            value !== undefined &&
+            value !== "" &&
+            !(view?.pendingNewRowIds ?? []).includes(String(value)),
         )
         .map((value) => String(value)) ?? [],
-    [view?.rows],
+    [view?.pendingNewRowIds, view?.rows],
   );
   const dataStatus = view?.status ?? "idle";
   const dataError = view?.error ?? null;
   const query = view ? getExplorerQueryForView(view) : DEFAULT_QUERY;
   const totalPages = view?.meta?.total_pages ?? 1;
   const selectedRowIds = view?.selectedRowIds ?? [];
+  const editingCell = view?.editingCell ?? null;
+  const cellErrors = view?.cellErrors ?? {};
+  const rowErrors = view?.rowErrors ?? {};
+  const pendingNewRowIds = view?.pendingNewRowIds ?? [];
   const context = view?.context ?? null;
   const selectedRows = useMemo(
     () =>
@@ -230,6 +297,107 @@ export function TableDetailPage() {
       ) ?? [],
     [selectedRowIds, view?.rows],
   );
+  const targetTableName = table?.name ?? tableId ?? null;
+  const exportTable: ModelTable = table ?? {
+    name: tableId ?? "",
+    columns: [],
+  };
+  const activeViewName =
+    view?.savedViews.find((savedView) => savedView.id === view.activeViewId)
+      ?.name ?? "AllRecords";
+  const {
+    isExporting,
+    format: exportFormat,
+    phase: exportPhase,
+    fetchedRows: exportedRowsSoFar,
+    totalRows: exportTotalRows,
+    exportCurrentView,
+    cancelExport,
+  } = useExportCurrentView({
+    table: exportTable,
+    columns: visibleColumns,
+    query,
+    source: view?.source ?? { kind: "table" },
+    viewName: activeViewName,
+  });
+
+  function isEditableEventTarget(target: EventTarget | null): boolean {
+    return (
+      target instanceof HTMLElement &&
+      (target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target.isContentEditable)
+    );
+  }
+
+  async function handleUndoLast() {
+    if (!topUndoEntry || !targetTableName) return;
+    setOperationNotice(null);
+    setUndoToastVisible(false);
+    const result = await undoLast(targetTableName);
+    if (result.total === 0) return;
+
+    const restoredLabel = result.total === 1 ? "row" : "rows";
+    if (result.failureCount === 0) {
+      setOperationNotice({
+        tone: "success",
+        title: "Undo completed",
+        message: `Restored ${result.successCount} ${restoredLabel}.`,
+      });
+      return;
+    }
+
+    setOperationNotice({
+      tone: result.successCount > 0 ? "warning" : "error",
+      title:
+        result.successCount > 0 ? "Undo partially completed" : "Undo failed",
+      message:
+        result.successCount > 0
+          ? `Restored ${result.successCount}/${result.total} rows. ${result.failureCount} could not be restored.`
+          : `Could not restore ${result.total} ${restoredLabel}.`,
+    });
+  }
+
+  useEffect(() => {
+    if (!topUndoEntry) {
+      setUndoToastVisible(false);
+      return;
+    }
+    setUndoToastVisible(true);
+    const timeout = window.setTimeout(() => {
+      setUndoToastVisible(false);
+    }, 10_000);
+    return () => window.clearTimeout(timeout);
+  }, [topUndoEntry?.at]);
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "z") {
+        if (event.shiftKey || event.altKey) return;
+        if (isEditableEventTarget(event.target)) return;
+        if (!topUndoEntry) return;
+        event.preventDefault();
+        void handleUndoLast();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [topUndoEntry?.at, targetTableName]);
+
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [exportMenuOpen]);
 
   // Loading schema
   if (schemaLoading) {
@@ -508,6 +676,122 @@ export function TableDetailPage() {
     handleHiddenColumnsChange([...hiddenColumnNames, column.name]);
   }
 
+  function handleAddRow() {
+    if (context) return;
+    addBlankRow(resolvedTable.name);
+  }
+
+  async function handleExport(format: ExportFormat) {
+    setOperationNotice(null);
+    setExportMenuOpen(false);
+
+    try {
+      const result = await exportCurrentView(format);
+      if (result.status === "cancelled") {
+        setOperationNotice({
+          tone: "warning",
+          title: "Export canceled",
+          message:
+            result.exportedRows > 0
+              ? `Canceled ${format.toUpperCase()} export after fetching ${result.exportedRows} rows.`
+              : `Canceled ${format.toUpperCase()} export before a file was created.`,
+        });
+        return;
+      }
+
+      setOperationNotice({
+        tone: result.truncated ? "warning" : "success",
+        title: result.truncated ? "Export truncated" : "Export ready",
+        message: result.truncated
+          ? `Downloaded ${result.exportedRows} rows to ${result.filename}. Export truncated to ${EXPORT_ROW_LIMIT.toLocaleString()} rows.`
+          : `Downloaded ${result.exportedRows} rows to ${result.filename}.`,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to export this view.";
+      setOperationNotice({
+        tone: "error",
+        title: "Export failed",
+        message,
+      });
+    }
+  }
+
+  function handleRequestDeleteRows(rowIds: string[]) {
+    const nextRowIds = Array.from(new Set(rowIds.filter(Boolean)));
+    if (nextRowIds.length === 0) return;
+    setOperationNotice(null);
+    setDeleteDialogRowIds(nextRowIds);
+  }
+
+  function handleDeleteShortcut(focusedRowId: string | null) {
+    const rowIds =
+      selectedRowIds.length > 0
+        ? selectedRowIds
+        : focusedRowId
+          ? [focusedRowId]
+          : [];
+    handleRequestDeleteRows(rowIds);
+  }
+
+  async function handleConfirmDeleteRows() {
+    const rowIds = deleteDialogRowIds ?? [];
+    setDeleteDialogRowIds(null);
+    if (rowIds.length === 0) return;
+    const deleteSnapshots = rowIds
+      .map((rowId) => {
+        const index =
+          view?.rows.findIndex((row) => String(row.id ?? "") === rowId) ?? -1;
+        if (index === -1) return null;
+        return { row: { ...view!.rows[index]! }, index };
+      })
+      .filter(
+        (item): item is { row: Record<string, unknown>; index: number } =>
+          item !== null,
+      );
+
+    const results = await runInConcurrentBatches(
+      rowIds,
+      BULK_DELETE_CONCURRENCY,
+      (rowId) => deleteRow(resolvedTable.name, rowId),
+    );
+    const successCount = results.filter(Boolean).length;
+    const failureCount = rowIds.length - successCount;
+    const successfulDeletes = deleteSnapshots.filter(
+      (snapshot, index) => results[index],
+    );
+
+    if (successfulDeletes.length > 0) {
+      pushUndoDeleteEntry(resolvedTable.name, successfulDeletes);
+    }
+
+    if (rowIds.length > 1) {
+      const tone =
+        failureCount === 0
+          ? "success"
+          : successCount === 0
+            ? "error"
+            : "warning";
+      const title =
+        failureCount === 0
+          ? "Rows deleted"
+          : successCount === 0
+            ? "No rows deleted"
+            : "Bulk delete partially completed";
+      const message =
+        failureCount === 0
+          ? `Successfully deleted ${successCount}/${rowIds.length} rows.`
+          : `Successfully deleted ${successCount}/${rowIds.length} rows. ${failureCount} could not be deleted.`;
+      setOperationNotice({ tone, title, message });
+    }
+  }
+
+  function handleDuplicateSelectedRow() {
+    const rowId = selectedRowIds[0];
+    if (!rowId || selectedRowIds.length !== 1) return;
+    void duplicateRow(resolvedTable.name, rowId);
+  }
+
   const selectionActionItems = relationDrillIns.map((drillIn) => ({
     id: drillIn.accessor,
     label: drillIn.label,
@@ -524,6 +808,26 @@ export function TableDetailPage() {
         )),
     onSelect: () => handleOpenRelated(drillIn.accessor, drillIn.targetTable),
   }));
+
+  const rowSelectionMenuItems =
+    selectedRowIds.length > 0
+      ? [
+          {
+            id: "duplicate-row",
+            label: "Duplicate row",
+            disabled: selectedRowIds.length !== 1,
+            onSelect: handleDuplicateSelectedRow,
+          },
+          {
+            id: "delete-row",
+            label:
+              selectedRowIds.length === 1
+                ? "Delete row"
+                : `Delete ${selectedRowIds.length} rows`,
+            onSelect: () => handleRequestDeleteRows(selectedRowIds),
+          },
+        ]
+      : [];
 
   return (
     <div className="table-detail">
@@ -604,10 +908,87 @@ export function TableDetailPage() {
             table={resolvedTable}
             query={query}
             disabled={dataStatus === "loading" && view.rows.length === 0}
+            toolbarActions={
+              <>
+                <div className="data-controls__export" ref={exportMenuRef}>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-haspopup="menu"
+                    aria-expanded={exportMenuOpen}
+                    onClick={() => setExportMenuOpen((open) => !open)}
+                    disabled={isExporting}
+                    trailingIcon={<Icon name="chevron-down" size={12} />}
+                  >
+                    Export
+                  </Button>
+                  {exportMenuOpen ? (
+                    <div
+                      className="data-controls__export-menu"
+                      role="menu"
+                      aria-label="Export current view"
+                    >
+                      <button
+                        type="button"
+                        className="data-controls__export-option"
+                        role="menuitem"
+                        onClick={() => void handleExport("csv")}
+                      >
+                        CSV
+                      </button>
+                      <button
+                        type="button"
+                        className="data-controls__export-option"
+                        role="menuitem"
+                        onClick={() => void handleExport("json")}
+                      >
+                        JSON
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+                {isExporting ? (
+                  <div className="data-controls__export-status" aria-live="polite">
+                    <span className="data-controls__export-progress">
+                      {getExportProgressLabel(
+                        exportFormat,
+                        exportPhase,
+                        exportedRowsSoFar,
+                        exportTotalRows,
+                      )}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={cancelExport}
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                ) : null}
+                {undoToastVisible && topUndoEntry ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => void handleUndoLast()}
+                    leadingIcon={<Icon name="refresh" size={13} />}
+                  >
+                    {topUndoEntry.rows.length === 1
+                      ? "Undo delete"
+                      : `Undo delete (${topUndoEntry.rows.length})`}
+                  </Button>
+                ) : null}
+              </>
+            }
             savedViews={view.savedViews}
             activeViewId={view.activeViewId}
             onSwitchView={switchView}
-            onSaveCurrentAsView={(name, type) => saveCurrentAsView(name, type, false)}
+            onSaveCurrentAsView={(name, type) =>
+              saveCurrentAsView(name, type, false)
+            }
             onUpdateActiveViewConfig={updateActiveViewConfig}
             onRenameView={renameView}
             onToggleViewShared={toggleViewShared}
@@ -622,7 +1003,7 @@ export function TableDetailPage() {
             currentViewConfig={view.config}
             hiddenColumnNames={hiddenColumnNames}
             selectionPanel={
-              selectedRowIds.length > 0 && relationDrillIns.length > 0
+              selectedRowIds.length > 0
                 ? {
                     count: selectedRowIds.length,
                     content: (
@@ -632,8 +1013,8 @@ export function TableDetailPage() {
                         </span>
                         <span className="explorer-context__description">
                           {selectedRowIds.length === 1
-                            ? "Open related rows from the selected row."
-                            : "Open related rows from the current selection when that relation supports normal table filters."}
+                            ? "Duplicate, delete, or open related rows from the selected row."
+                            : "Delete the current selection or open related rows when that relation supports normal table filters."}
                         </span>
                         <div className="explorer-related__actions">
                           <Button
@@ -643,6 +1024,27 @@ export function TableDetailPage() {
                             onClick={handleClearSelection}
                           >
                             Clear selection
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            disabled={selectedRowIds.length !== 1}
+                            onClick={handleDuplicateSelectedRow}
+                            leadingIcon={<Icon name="copy" size={13} />}
+                          >
+                            Duplicate
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleRequestDeleteRows(selectedRowIds)
+                            }
+                            leadingIcon={<Icon name="trash" size={13} />}
+                          >
+                            Delete
                           </Button>
                           {relationDrillIns.map((drillIn) => (
                             <Button
@@ -730,6 +1132,14 @@ export function TableDetailPage() {
             />
           ) : null}
 
+          {operationNotice ? (
+            <Alert
+              tone={operationNotice.tone}
+              title={operationNotice.title}
+              message={operationNotice.message}
+            />
+          ) : null}
+
           {dataStatus === "loading" && view.rows.length > 0 ? (
             <div className="data-panel__status" aria-live="polite">
               Refreshing results...
@@ -780,7 +1190,15 @@ export function TableDetailPage() {
                 rows={view.rows}
                 page={query.page}
                 perPage={query.perPage}
+                pendingNewRowIds={pendingNewRowIds}
+                rowErrors={rowErrors}
                 selectedRowIds={selectedRowIds}
+                onAddRow={
+                  view.config.type === "table" && context === null
+                    ? handleAddRow
+                    : undefined
+                }
+                onDeleteRowsShortcut={handleDeleteShortcut}
                 onRequestFilterColumn={(column) =>
                   handleRequestFilterColumn(column.name)
                 }
@@ -793,9 +1211,33 @@ export function TableDetailPage() {
                 onToggleSelectAllRows={handleToggleSelectAllRows}
                 onSetSelectedRowIds={handleSetSelectedRows}
                 onClearSelection={handleClearSelection}
+                editingCell={editingCell}
+                cellErrors={cellErrors}
+                onStartEdit={(row, column) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  if (!rowId) return;
+                  startCellEdit(resolvedTable.name, rowId, column.name);
+                }}
+                onCancelEdit={() => {
+                  if (!resolvedTable) return;
+                  cancelCellEdit(resolvedTable.name);
+                }}
+                onCommitEdit={(row, column, nextValue) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  if (!rowId) return;
+                  void commitCellEdit(
+                    resolvedTable.name,
+                    rowId,
+                    column.name,
+                    nextValue,
+                  );
+                }}
                 selectionMenuItems={
                   selectedRowIds.length > 0
                     ? [
+                        ...rowSelectionMenuItems,
                         {
                           id: "clear-selection",
                           label: "Clear selection",
@@ -825,6 +1267,48 @@ export function TableDetailPage() {
           <Spinner label="Loading rows" />
         </div>
       )}
+      <ConfirmDialog
+        open={deleteDialogRowIds !== null}
+        title={
+          (deleteDialogRowIds?.length ?? 0) === 1
+            ? "Delete this row?"
+            : `Delete these rows? (${deleteDialogRowIds?.length ?? 0} rows)`
+        }
+        description={
+          (deleteDialogRowIds?.length ?? 0) === 1
+            ? "This cannot be undone."
+            : "This cannot be undone."
+        }
+        confirmLabel={
+          (deleteDialogRowIds?.length ?? 0) === 1 ? "Delete row" : "Delete rows"
+        }
+        confirmVariant="danger"
+        onConfirm={() => void handleConfirmDeleteRows()}
+        onCancel={() => setDeleteDialogRowIds(null)}
+      />
     </div>
   );
+}
+
+function getExportProgressLabel(
+  format: ExportFormat | null,
+  phase: "paging" | "references" | "download" | null,
+  fetchedRows: number,
+  totalRows: number | null,
+) {
+  const formatLabel = format?.toUpperCase() ?? "Export";
+  if (phase === "references") {
+    return `Resolving references for ${fetchedRows.toLocaleString()} ${getRowLabel(fetchedRows)} (${formatLabel})`;
+  }
+  if (phase === "download") {
+    return `Preparing ${formatLabel} download`;
+  }
+  if (totalRows !== null) {
+    return `Exporting ${formatLabel} ${fetchedRows.toLocaleString()}/${totalRows.toLocaleString()} rows`;
+  }
+  return `Exporting ${formatLabel} ${fetchedRows.toLocaleString()} ${getRowLabel(fetchedRows)}`;
+}
+
+function getRowLabel(count: number) {
+  return count === 1 ? "row" : "rows";
 }

@@ -14,6 +14,135 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 2 — Data Management
 
+### 2026-04-18 — Export Explorer Views to CSV and JSON
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-097 by adding a real export path for the current explorer view instead of leaving data trapped in the browser. Users can now export the active filtered/sorted/hidden-column view as CSV or JSON from the main toolbar, with inline progress, cancel, and a safety cap for very large result sets.
+
+**Highlights:**
+- Added pure export helpers under `features/data-explorer/export/` for visible-column ordering, CSV/JSON serialization, filename generation, and FK display-value handling
+- Added `useExportCurrentView()` to page through the active query with `per_page=1000`, resolve referenced display labels, download via `Blob`, and stop at `100,000` rows with a user-visible truncation notice
+- `TableDetailPage` now surfaces an `Export` dropdown beside the other explorer controls and shows inline progress/cancel state while the export is running
+- Added serializer unit tests plus an explorer regression proving export follows the active query across multiple pages; full frontend suite green and `npm run typecheck` clean
+
+### 2026-04-18 — Add Undo for Recent Deletes
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-096 by adding a lightweight session-only undo path for recent row deletes. The explorer now treats delete as a recoverable action for a short window: users get an immediate undo toast, Cmd/Ctrl+Z support, and restored rows are recreated through the normal POST path with new primary keys.
+
+**Highlights:**
+- Added a capped per-table undo stack in `explorerStore` that records successful single-row and bulk deletes, with the oldest entries dropped after 10 actions
+- Undo now recreates deleted rows by POSTing the captured writable payload back to the table and reinserting the recreated rows near their original positions
+- `TableDetailPage` now shows a 10-second undo toast, supports Cmd/Ctrl+Z outside editable inputs, and surfaces undo completion/failure through the shared alert primitive
+- Added regressions for single-delete undo, bulk undo via keyboard, stack capacity overflow, and undo failure consumption; frontend suite and typecheck green
+
+### 2026-04-18 — Close Bulk Selection and Bulk Delete
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-095 after aligning the task spec to the shipped PK-column selection model instead of a separate checkbox-only column. Bulk delete now finishes the last missing behavior: selected rows are deleted in bounded concurrent batches and the page surfaces a compact multi-row success/partial-failure summary after the operation completes.
+
+**Highlights:**
+- Kept the existing selection UX in the primary-key column, including page-scoped select-all, shift-range selection, drag selection, and right-click row selection
+- Multi-row delete now runs in small concurrent batches rather than a purely sequential loop, while still reusing the existing optimistic delete + rollback path in `deleteRow`
+- Added explorer regressions for bulk-delete success and partial failure, plus a summary banner like `Successfully deleted N/M rows`
+
+### 2026-04-18 — Polish Kanban Cards and FK Labels
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Shipped a small follow-up pass on the new explorer row-ops work so the kanban board feels more deliberate and relation cards match the table grid’s FK display behavior. Kanban cards now resolve the referenced table’s display column and show that human-friendly label instead of a raw foreign-key id.
+
+**Highlights:**
+- `KanbanView` now uses the shared FK label-resolution hook already used by the table grid, including the non-clickable fallback path
+- Added a targeted regression test proving `orders.customer_id = 7` renders as the referenced customer name on kanban cards
+- Tightened the kanban board surfaces with modest lane/card spacing, radius, hover, and drag-handle polish without changing the overall interaction model
+
+### 2026-04-18 — Add Row Creation, Delete, and Duplicate Operations
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-094 and turned the explorer into a real row-entry surface instead of a cell-only editor. Users can now add blank rows, commit the first cell through `POST`, duplicate existing rows, and delete selected rows with confirmation plus optimistic rollback on failure.
+
+**Highlights:**
+- Added `createRow` / `deleteRow` API helpers plus new explorer-store actions: `addBlankRow`, `deleteRow`, and `duplicateRow`
+- New rows now use a local temp-id lifecycle with `pendingNewRowIds`: toolbar `Add row`, bottom `+` row affordance, first-save `POST`, and automatic local cleanup when an unsaved draft row is abandoned
+- Deleting rows now confirms in the UI, removes optimistically, restores on failure, and surfaces the failure inline as a row-level error banner; duplication posts a schema-filtered payload and inserts the saved copy immediately after the source row
+- Added right-click row selection, `Ctrl`/`Cmd` shortcuts for add/delete, 4 focused store tests in `rowOperations.test.ts`, 2 grid shortcut tests, full frontend suite green at 150/150, and `npm run typecheck` clean
+
+### 2026-04-18 — Cell PATCH Save with Optimistic Rollback
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed the inline-edit loop (TASK-093). Committing a cell now writes the new value optimistically, fires `PATCH /api/v1/data/:table/:id` with the changed field, and reconciles the row from the response — or rolls back to the previous value if the backend refuses.
+
+**Highlights:**
+- New `patchRow(table, id, partial)` API helper; new `commitCellEdit` store action wraps the optimistic-apply → PATCH → reconcile/rollback flow
+- Field-level 4xx validation errors map onto `cellErrors[rowId][columnName]` (red underline persists on the cell); 5xx / network failures surface a generic message on the edited cell
+- No-op commits skip the API entirely; per-cell pending markers tracked via `pendingCellSaves` for future per-cell spinner UI
+- 4 new unit tests cover success / no-op / field-validation rollback / 5xx rollback; full suite green at 144/144; typecheck clean
+
+### 2026-04-17 — Wire Inline Edit Mode into the Data Grid
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Wired the type-aware editors into the renamed `DataGrid` (was `ReadOnlyDataGrid`) so users can enter edit mode on a cell, navigate between cells with the keyboard, and see per-cell error indicators (TASK-092). The save round-trip stays in TASK-093 — this slice is the in-grid affordance only.
+
+**Highlights:**
+- Click a writable cell, or press Enter / F2 with focus on it, to enter edit mode; the matching editor is picked from `column.type` (relation/references → `ReferenceCellEditor`)
+- Tab / Shift+Tab move the edit caret across editable (non-PK) cells, wrapping at row boundaries; Escape cancels without committing
+- Store gains `editingCell`, `cellErrors`, plus `startCellEdit` / `cancelCellEdit` / `cellEditCommitted` / `setCellError` actions — `cellEditCommitted` is the seam TASK-093 will plug PATCH into
+- Cells with a pending error get a `data-grid__column--has-error` hook for styling
+- 8 new unit tests for the grid wiring; full frontend suite green at 140/140; typecheck clean
+
+### 2026-04-17 — Add Reference Cell Editor (FK Chooser)
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Shipped the `ReferenceCellEditor` for FK columns (TASK-091): a searchable combobox that fetches candidates from the referenced table's list endpoint with debounced server-side search and commits the chosen row's primary-key id.
+
+**Highlights:**
+- Schema-driven: reads referenced table + PK from `column.references`; resolves a display column heuristically (first non-PK string column → fallback)
+- 250ms debounce + capped 20-row page; keyboard nav (Up/Down/Enter), nullable clear via Backspace, Escape cancels
+- Reuses the existing `fetchTableRows` API client; no parallel lookup endpoint
+- Helpers (`getReferenceTableName`, `getReferencePrimaryKey`, `getDisplayColumnForTable`) live alongside the editor for reuse by the full-screen record editor (TASK-098+)
+- 4 new unit tests; full frontend suite green at 132/132; typecheck clean
+
+### 2026-04-17 — Start Step 2.4 with Type-Aware Cell Editor Primitives
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Landed the foundational cell-editor primitives that the inline grid editor (TASK-092) and full-screen record editor (TASK-098) will share. Nine pure-presentation components live under `code/src/frontend/src/features/data-explorer/components/editors/`, all conforming to a single `CellEditorProps<T>` contract.
+
+**Highlights:**
+- Editors for `text`, `integer`, `float`, `currency`, `boolean`, `date`, `datetime`, `enum`, `json`; reference editor deferred to TASK-091
+- Shared keyboard contract: Enter/blur commit, Escape cancels, Backspace on empty value commits `null` for nullable columns; uniform error-state rendering via `EditorShell`
+- Editors are presentation-only — no `explorerStore` or API client imports — so the same components plug into both the grid and the full-screen editor unchanged
+- 21 new unit tests in `cellEditors.test.tsx`; full frontend suite green at 128/128; typecheck clean
+
+### 2026-04-17 — Fix Explorer Auto-Save Cross-Table Scoping
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.3 — Views System](working-steps/2.3-views-system.md)
+
+Fixed a Step 2.3 follow-up data-integrity bug (TASK-103) where the saved-view auto-save debounce could persist edits to whichever table was active when the timer fired, instead of the table/view that scheduled the save. The debounce now captures `{ tableId, viewId }` at schedule time and the persist path guards on active-view match and view ownership.
+
+**Highlights:**
+- `scheduleAutoSave` captures the intended table/view target; fire-time persists via the new `updateViewConfigFor(tableId, viewId)` action
+- Cross-table navigation within the 500ms window no longer drops or mis-targets writes
+- Three regression tests cover cross-table navigation, `switchView` cancellation, and foreign-owned-view guarding; all 107 frontend tests green
+
 ### 2026-04-16 — Complete Step 2.3 Views System (saved views + kanban)
 
 > **Phase**: Phase 2 — Data Management
@@ -22,7 +151,7 @@ _Changes that are complete but not yet part of a versioned release._
 Shipped a full saved-views system and kanban view type on top of the Data Explorer, closing out all thirteen Step 2.3 tasks (TASK-075, TASK-077 through TASK-089). The explorer now supports named, shareable, persistent views per table, with a kanban board as the second built-in view type.
 
 **Highlights:**
-- **Saved views** — per-table view selector bar; save current query state (search, sort, filters, hidden columns, view type) as a named view; rename, delete, toggle shared, change type, and duplicate on views you own; auto-save mode; default-view per table (localStorage); dirty-state detection with "Save changes" / "Save to new view" actions
+- **Saved views** — per-table view selector bar; save current query state (search, sort, filters, hidden columns, view type) as a named view; rename, delete, toggle shared, change type, and duplicate on views you own; auto-save mode; backend-backed per-user default-view preferences; dirty-state detection with "Save changes" / "Save to new view" actions
 - **Views API** — `system_views` backend table + REST API (`GET /api/v1/views/{tableId}`, `POST`, `PUT /{id}`, `DELETE /{id}`); workspace-wide sharing via `is_shared`; 27 new backend integration tests
 - **View-type plugin architecture** — `ViewRenderer` component routes rendering by `type`; unrecognized types fall back to the grid with a console warning; adding a new view type requires only registering it in `VIEW_TYPE_REGISTRY`
 - **Kanban view** — groups rows into lanes by any `enum` column in schema-declared order; drag-and-drop between lanes fires `PATCH /api/v1/data/:table/:id` with optimistic update and rollback on failure; configurable primary (bold) + up to 3 secondary card fields; hidden-lane support; "Configure" button in the toolbar replaces "Columns" for kanban views

@@ -130,6 +130,11 @@ function seedOrdersView(
         error: null,
         source: { kind: "table" },
         selectedRowIds: [],
+        editingCell: null,
+        cellErrors: {},
+        pendingCellSaves: [],
+        pendingNewRowIds: [],
+        rowErrors: {},
         context: null,
         savedViews,
         savedViewsStatus: "ready" as const,
@@ -248,7 +253,9 @@ describe("View selector bar", () => {
     await user.click(screen.getByRole("option", { name: /high value orders/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("sort=-total");
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes("sort=-total")),
+      ).toBe(true);
     });
 
     expect(
@@ -421,6 +428,11 @@ describe("View selector bar", () => {
           error: null,
           source: { kind: "table" },
           selectedRowIds: [],
+          editingCell: null,
+          cellErrors: {},
+          pendingCellSaves: [],
+          pendingNewRowIds: [],
+          rowErrors: {},
           context: null,
           savedViews: [],
           savedViewsStatus: "ready" as const,
@@ -615,6 +627,56 @@ describe("Saved view auto-save", () => {
       vi.useRealTimers();
     }
   });
+
+  it("does not auto-save a view owned by another user when the debounce fires", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      // savedView2 is owned by user 99; the authenticated user is user 1.
+      seedOrdersView(sampleRows, { savedViews: [savedView2], activeViewId: savedView2.id });
+
+      // Force-enable auto-save bypassing the setAutoSave guard, to simulate
+      // ownership transferring (or any drift) while a flag remained true.
+      useExplorerStore.setState((state) => ({
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView2.id}`) && method === "PUT") {
+          return mockOkResponse(savedView2);
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      useExplorerStore.getState().setSearch("urgent");
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView2.id}`) && m === "PUT";
+        }),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 // ── ViewRenderer plugin architecture ────────────────────────────────────────
@@ -702,6 +764,48 @@ describe("KanbanView", () => {
     expect(pendingLane.querySelector(".kanban-lane__count")?.textContent).toBe("1");
     expect(shippedLane.querySelector(".kanban-lane__count")?.textContent).toBe("1");
     expect(deliveredLane.querySelector(".kanban-lane__count")?.textContent).toBe("0");
+  });
+
+  it("resolves FK card labels from the referenced table display column", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (
+        url.includes("/api/v1/data/customers?") &&
+        url.includes("filter%5Bid%5D%5Bin%5D=7")
+      ) {
+        return mockOkResponse({
+          data: [{ id: 7, name: "Acme Co" }],
+          meta: { page: 1, per_page: 1, total: 1, total_pages: 1 },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onNavigateReference = vi.fn();
+    render(
+      <KanbanView
+        table={ordersTable}
+        rows={sampleRows}
+        kanbanColumn="status"
+        cardFieldNames={["customer_id", "total"]}
+        onNavigateReference={onNavigateReference}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /open related acme co/i }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Acme Co")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows the unconfigured state when kanbanColumn is null", () => {

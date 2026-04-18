@@ -53,6 +53,45 @@ export function fetchTableRows(table: string, query: ExplorerQuery): Promise<Lis
   return apiClient.get<ListResponse>(`/data/${encodeURIComponent(table)}?${qs}`);
 }
 
+/**
+ * PATCH a single row by primary key. The backend accepts a partial body of
+ * column → value pairs and returns the full updated row (including any
+ * server-applied side-effects like `updated_at`).
+ */
+export function patchRow(
+  table: string,
+  rowId: string | number,
+  partial: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return apiClient
+    .patch<{ data: Record<string, unknown> }>(
+      `/data/${encodeURIComponent(table)}/${encodeURIComponent(String(rowId))}`,
+      partial,
+    )
+    .then((res) => res.data);
+}
+
+export function createRow(
+  table: string,
+  partial: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return apiClient
+    .post<{ data: Record<string, unknown> }>(
+      `/data/${encodeURIComponent(table)}`,
+      partial,
+    )
+    .then((res) => res.data);
+}
+
+export function deleteRow(
+  table: string,
+  rowId: string | number,
+): Promise<void> {
+  return apiClient.delete<void>(
+    `/data/${encodeURIComponent(table)}/${encodeURIComponent(String(rowId))}`,
+  );
+}
+
 export function fetchRelatedRows(
   parentTable: string,
   parentRowId: string,
