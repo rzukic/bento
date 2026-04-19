@@ -38,6 +38,7 @@ type DataGridProps = {
   onRequestHideColumn?: (column: ModelColumn) => void;
   onAddRow?: () => void;
   onDeleteRowsShortcut?: (focusedRowId: string | null) => void;
+  onOpenRecord?: (row: Record<string, unknown>) => void;
   onNavigateReference?: (
     column: ModelColumn,
     value: unknown,
@@ -162,6 +163,7 @@ export function DataGrid({
   onRequestHideColumn,
   onAddRow,
   onDeleteRowsShortcut,
+  onOpenRecord,
   onNavigateReference,
   selectedRowIds = [],
   onToggleRowSelection,
@@ -177,6 +179,21 @@ export function DataGrid({
 }: DataGridProps) {
   const referenceLabels = useReferenceLabels(table, rows);
   const pendingNewRowIdSet = new Set(pendingNewRowIds);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [xOverflow, setXOverflow] = useState(false);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const check = () => setXOverflow(el.scrollWidth > el.clientWidth);
+    check();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    const tbl = el.querySelector("table");
+    if (tbl) ro.observe(tbl);
+    return () => ro.disconnect();
+  }, [rows.length, table.columns.length]);
   const editableColumnIndexes = table.columns
     .map((column, index) => ({ column, index }))
     .filter(({ column }) => isColumnEditable(column));
@@ -403,12 +420,29 @@ export function DataGrid({
     if ((event.metaKey || event.ctrlKey) && event.key === "Delete") {
       event.preventDefault();
       onDeleteRowsShortcut?.(focusedRowId);
+      return;
+    }
+
+    if (event.key === " " && onOpenRecord && focusedRowId) {
+      const row = rows.find((candidate) => String(candidate.id ?? "") === focusedRowId);
+      if (!row) return;
+      if (pendingNewRowIdSet.has(focusedRowId)) return;
+      event.preventDefault();
+      onOpenRecord(row);
     }
   }
 
   return (
-    <div className="data-grid" onKeyDown={handleGridKeyDown}>
-      <div className="data-grid__scroll">
+    <div
+      className={[
+        "data-grid",
+        xOverflow ? "data-grid--x-overflow" : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      onKeyDown={handleGridKeyDown}
+    >
+      <div className="data-grid__scroll" ref={scrollRef}>
         <table>
           <thead>
             <tr>
@@ -759,6 +793,29 @@ export function DataGrid({
                         </td>
                       );
                     })}
+                    {onOpenRecord ? (
+                      <td
+                        className="data-grid__column data-grid__column--actions"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <div className="data-grid__cell data-grid__cell--actions">
+                          {!pendingNew ? (
+                            <button
+                              type="button"
+                              className="data-grid__row-expand"
+                              aria-label={`Open record ${rowIdString}`}
+                              title="Open record"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                onOpenRecord(row);
+                              }}
+                            >
+                              <Icon name="expand" size={13} />
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
                   </tr>
                   {rowError ? (
                     <tr

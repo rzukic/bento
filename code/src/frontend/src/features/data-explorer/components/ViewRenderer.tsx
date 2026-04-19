@@ -40,6 +40,7 @@ export type CommonViewProps = {
   selectedRowIds?: string[];
   onAddRow?: () => void;
   onDeleteRowsShortcut?: (focusedRowId: string | null) => void;
+  onOpenRecord?: (row: Record<string, unknown>) => void;
   onRequestFilterColumn?: (column: ModelColumn) => void;
   onRequestSortColumn?: (column: ModelColumn) => void;
   onRequestHideColumn?: (column: ModelColumn) => void;
@@ -87,8 +88,16 @@ type RendererEntry = (
 // props and pulls any type-specific bits off `viewConfig`. Add new view types
 // here (see file comment).
 export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>> = {
-  table: ({ viewConfig: _viewConfig, ...rest }) => <DataGrid {...rest} />,
-  kanban: ({ viewConfig, table, rows, loading, onConfigureView, onNavigateReference }) => {
+  table: ({ viewConfig: _viewConfig, ...rest }) => <DataGrid {...rest} />, // onOpenRecord flows via ...rest
+  kanban: ({
+    viewConfig,
+    table,
+    rows,
+    loading,
+    onConfigureView,
+    onNavigateReference,
+    onOpenRecord,
+  }) => {
     const kanbanColumn =
       viewConfig && viewConfig.type === "kanban" ? viewConfig.kanbanColumn : null;
     const cardFieldNames =
@@ -105,6 +114,7 @@ export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>
         hiddenLaneValues={hiddenLaneValues}
         onConfigureView={onConfigureView}
         onNavigateReference={onNavigateReference}
+        onOpenRecord={onOpenRecord}
       />
     );
   },

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { EditorShell } from "./editorShell";
+import { parseLenientNumber } from "./numericParsing";
 import type { CellEditorProps } from "./types";
 
 export function FloatCellEditor({
@@ -23,8 +24,8 @@ export function FloatCellEditor({
       onCommit(null);
       return;
     }
-    const next = Number(trimmed);
-    if (!Number.isFinite(next)) {
+    const next = parseLenientNumber(trimmed);
+    if (next === null) {
       onCancel();
       return;
     }
@@ -52,9 +53,9 @@ export function FloatCellEditor({
     <EditorShell error={error}>
       <input
         ref={inputRef}
-        type="number"
+        type="text"
         inputMode="decimal"
-        step="any"
+        autoComplete="off"
         size={1}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

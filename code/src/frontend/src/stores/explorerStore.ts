@@ -3,6 +3,7 @@ import {
   createRow,
   deleteRow as deleteRowApi,
   fetchRelatedRows,
+  fetchRow,
   fetchTableRows,
   patchRow,
   type ExplorerDataSource,
@@ -259,6 +260,29 @@ function cancelAutoSave(): void {
 
 // ── Store shape ───────────────────────────────────────────────────────
 
+/**
+ * A single entry in the record-editor navigation stack (TASK-099). Each push
+ * represents a related record that the user drilled into from the previous
+ * entry's FK value. Loading and error states are per-entry so a failed deep
+ * push does not blow away earlier entries.
+ */
+export type RecordEditorEntry = {
+  table: string;
+  rowId: string;
+  status: "loading" | "ready" | "error";
+  row: Record<string, unknown> | null;
+  error: string | null;
+};
+
+/**
+ * The in-modal navigation stack. When `open` is true and `stack` is non-empty
+ * the modal renders the top entry; closing clears the stack entirely.
+ */
+export type RecordEditorState = {
+  open: boolean;
+  stack: RecordEditorEntry[];
+};
+
 type ExplorerStoreState = {
   /** The currently-active table name (from the route param). */
   activeTable: string | null;
@@ -268,6 +292,13 @@ type ExplorerStoreState = {
 
   /** Session-only undo history for destructive row actions, keyed by table. */
   undoStackByTable: Record<string, UndoEntry[]>;
+
+  /**
+   * The currently-open full-screen record editor (TASK-098). Null when
+   * dismissed. The editor reuses `views[table].rows` as its source of truth so
+   * inline grid edits and editor saves auto-reconcile via `commitCellEdit`.
+   */
+  recordEditor: RecordEditorState | null;
 
   // ── Row-fetch actions ──
 
@@ -464,6 +495,36 @@ type ExplorerStoreState = {
    */
   setKanbanConfig: (patch: { kanbanColumn?: string | null; cardFieldNames?: string[]; hiddenLaneValues?: string[] }) => void;
 
+  // ── Record editor (TASK-098, TASK-099) ──
+
+  /**
+   * Open the full-screen record editor with a fresh stack containing the given
+   * entry. Fetches the row from `GET /data/:table/:id` and inserts/updates it
+   * into `views[table].rows` so the inline grid and the editor share the same
+   * source of truth.
+   */
+  openRecordEditor: (params: { table: string; rowId: string | number }) => Promise<void>;
+
+  /**
+   * Push another record onto the in-modal navigation stack (TASK-099).
+   * Typically invoked from a clicked FK value. Fetches the row; on error the
+   * stack entry enters an error state without affecting earlier entries. No-op
+   * when the editor is closed.
+   */
+  pushRecordEditor: (params: { table: string; rowId: string | number }) => Promise<void>;
+
+  /**
+   * Drop the top entry from the stack. If the stack becomes empty, closes the
+   * editor entirely (TASK-099).
+   */
+  popRecordEditor: () => void;
+
+  /** Close the record editor and clear the entire stack. */
+  closeRecordEditor: () => void;
+
+  /** Re-run the fetch for the top stack entry after a load error. */
+  retryRecordEditorLoad: () => Promise<void>;
+
   /** Full reset (e.g. on logout). */
   reset: () => void;
 };
@@ -613,6 +674,82 @@ function dropPendingNewRows(
   };
 }
 
+/**
+ * Drive the async fetch for a single record-editor stack entry (TASK-099). On
+ * success the record is written back into both the entry and `views[table]`
+ * so inline edits and editor saves keep reconciling. On failure only the
+ * target entry flips to "error" — earlier entries in the stack are untouched.
+ *
+ * `expectedIndex` lets us tolerate out-of-order async completions: if the
+ * user pops before the fetch resolves, or pushes a new entry above, we bail
+ * out instead of clobbering unrelated state.
+ */
+async function loadRecordEditorEntry(
+  set: (partial: Partial<ExplorerStoreState> | ((state: ExplorerStoreState) => Partial<ExplorerStoreState> | ExplorerStoreState)) => void,
+  _get: () => ExplorerStoreState,
+  table: string,
+  rowIdString: string,
+  expectedIndex: number
+): Promise<void> {
+  try {
+    const fetched = await fetchRow(table, rowIdString);
+    set((state) => {
+      const editor = state.recordEditor;
+      if (!editor) return state;
+      const target = editor.stack[expectedIndex];
+      if (!target || target.table !== table || target.rowId !== rowIdString) return state;
+
+      const nextStack = editor.stack.slice();
+      nextStack[expectedIndex] = {
+        ...target,
+        status: "ready",
+        row: fetched,
+        error: null,
+      };
+
+      const view = state.views[table];
+      const updatedViews = view
+        ? (() => {
+            const idx = view.rows.findIndex(
+              (row) => String(row.id ?? "") === rowIdString,
+            );
+            const nextRows = view.rows.slice();
+            if (idx === -1) {
+              nextRows.push(fetched);
+            } else {
+              nextRows[idx] = { ...nextRows[idx]!, ...fetched };
+            }
+            return {
+              ...state.views,
+              [table]: { ...view, rows: nextRows },
+            };
+          })()
+        : state.views;
+
+      return {
+        views: updatedViews,
+        recordEditor: { ...editor, stack: nextStack },
+      };
+    });
+  } catch (cause) {
+    const message =
+      cause instanceof ApiClientError
+        ? cause.message
+        : cause instanceof Error
+          ? cause.message
+          : "Unable to load record.";
+    set((state) => {
+      const editor = state.recordEditor;
+      if (!editor) return state;
+      const target = editor.stack[expectedIndex];
+      if (!target || target.table !== table || target.rowId !== rowIdString) return state;
+      const nextStack = editor.stack.slice();
+      nextStack[expectedIndex] = { ...target, status: "error", error: message };
+      return { recordEditor: { ...editor, stack: nextStack } };
+    });
+  }
+}
+
 // ── Store ─────────────────────────────────────────────────────────────
 
 const initialState = {
@@ -620,6 +757,7 @@ const initialState = {
   views: {} as Record<string, TableViewState>,
   defaultViewIdByTable: {} as Record<string, number | null>,
   undoStackByTable: {} as Record<string, UndoEntry[]>,
+  recordEditor: null as RecordEditorState | null,
 };
 
 export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
@@ -1931,6 +2069,95 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     }));
 
     scheduleAutoSave();
+  },
+
+  openRecordEditor: async ({ table, rowId }) => {
+    const rowIdString = String(rowId);
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+      const existing = view.rows.find((row) => String(row.id ?? "") === rowIdString) ?? null;
+      const entry: RecordEditorEntry = {
+        table,
+        rowId: rowIdString,
+        status: "loading",
+        row: existing,
+        error: null,
+      };
+      return {
+        views: state.views[table] ? state.views : { ...state.views, [table]: view },
+        recordEditor: { open: true, stack: [entry] },
+      };
+    });
+
+    await loadRecordEditorEntry(set, get, table, rowIdString, 0);
+  },
+
+  pushRecordEditor: async ({ table, rowId }) => {
+    const current = get().recordEditor;
+    if (!current || !current.open) return;
+
+    const rowIdString = String(rowId);
+    // No-op if the top entry already matches (prevent double-push on re-click).
+    const top = current.stack[current.stack.length - 1];
+    if (top && top.table === table && top.rowId === rowIdString) return;
+
+    let pushedIndex = -1;
+    set((state) => {
+      const editor = state.recordEditor;
+      if (!editor || !editor.open) return state;
+      const view = state.views[table] ?? freshTableView();
+      const existing = view.rows.find((row) => String(row.id ?? "") === rowIdString) ?? null;
+      const entry: RecordEditorEntry = {
+        table,
+        rowId: rowIdString,
+        status: "loading",
+        row: existing,
+        error: null,
+      };
+      const nextStack = [...editor.stack, entry];
+      pushedIndex = nextStack.length - 1;
+      return {
+        views: state.views[table] ? state.views : { ...state.views, [table]: view },
+        recordEditor: { ...editor, stack: nextStack },
+      };
+    });
+
+    if (pushedIndex === -1) return;
+    await loadRecordEditorEntry(set, get, table, rowIdString, pushedIndex);
+  },
+
+  popRecordEditor: () => {
+    set((state) => {
+      const editor = state.recordEditor;
+      if (!editor) return state;
+      if (editor.stack.length <= 1) {
+        return { recordEditor: null };
+      }
+      return {
+        recordEditor: { ...editor, stack: editor.stack.slice(0, -1) },
+      };
+    });
+  },
+
+  closeRecordEditor: () => {
+    set({ recordEditor: null });
+  },
+
+  retryRecordEditorLoad: async () => {
+    const editor = get().recordEditor;
+    if (!editor || editor.stack.length === 0) return;
+    const topIndex = editor.stack.length - 1;
+    const top = editor.stack[topIndex]!;
+    set((state) => {
+      const current = state.recordEditor;
+      if (!current) return state;
+      const nextStack = current.stack.slice();
+      const target = nextStack[topIndex];
+      if (!target) return state;
+      nextStack[topIndex] = { ...target, status: "loading", error: null };
+      return { recordEditor: { ...current, stack: nextStack } };
+    });
+    await loadRecordEditorEntry(set, get, top.table, top.rowId, topIndex);
   },
 
   reset: () => {

@@ -66,12 +66,41 @@ export function ComboboxCellEditor({
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<ComboboxOption[]>([]);
   const [highlight, setHighlight] = useState(0);
+  const [placement, setPlacement] = useState<"down" | "up">("down");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+
+  // Flip the listbox above the trigger when there isn't enough room below.
+  useEffect(() => {
+    if (!open) return;
+    const root = rootRef.current;
+    if (!root) return;
+    const rect = root.getBoundingClientRect();
+    const maxListHeight = 16 * 16; // matches CSS max-height
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    setPlacement(spaceBelow < maxListHeight && spaceAbove > spaceBelow ? "up" : "down");
+  }, [open, options.length]);
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
   }, [autoFocus]);
+
+  // Close on outside pointerdown. Using pointerdown (not click) so the
+  // dropdown collapses before a subsequent focus/click reopens it; we also
+  // call onCancel to exit edit mode cleanly in the grid and record editor.
+  useEffect(() => {
+    if (!open) return;
+    function handlePointerDown(event: PointerEvent) {
+      const root = rootRef.current;
+      if (!root) return;
+      if (event.target instanceof Node && root.contains(event.target)) return;
+      setOpen(false);
+      onCancel();
+    }
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => document.removeEventListener("pointerdown", handlePointerDown);
+  }, [open, onCancel]);
 
   // Resolve options. Sync providers are called immediately; async ones are
   // debounced. We always call once on open so the user sees a starter list.
@@ -192,7 +221,7 @@ export function ComboboxCellEditor({
           <ul
             role="listbox"
             aria-label={ariaLabel}
-            className="cell-combobox__listbox"
+            className={`cell-combobox__listbox cell-combobox__listbox--${placement}`}
           >
             {options.length === 0 ? (
               <li

@@ -27,6 +27,7 @@ export type IconName =
   | "arrow-up-down"
   | "more-horizontal"
   | "focus"
+  | "expand"
   | "pencil"
   | "x"
   | "type"
@@ -195,6 +196,14 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M12 19v3" />
       <path d="M2 12h3" />
       <path d="M19 12h3" />
+    </>
+  ),
+  expand: (
+    <>
+      <path d="M14 4h6v6" />
+      <path d="M20 4l-7 7" />
+      <path d="M10 20H4v-6" />
+      <path d="M4 20l7-7" />
     </>
   ),
   pencil: (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { NavLink, useLocation, useNavigate, useParams } from "react-router-dom";
+import { parseQueryString } from "../../api/data";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -25,6 +26,7 @@ import {
 } from "./components/DataQueryControls";
 import { KanbanConfigPanel } from "./components/KanbanConfigPanel";
 import { ViewRenderer } from "./components/ViewRenderer";
+import { RecordEditor } from "./RecordEditor";
 import {
   type ExportFormat,
   getOrderedVisibleColumns,
@@ -56,6 +58,7 @@ async function runInConcurrentBatches<T, R>(
 
 export function TableDetailPage() {
   const { tableId } = useParams<{ tableId: string }>();
+  const location = useLocation();
   const navigate = useNavigate();
   const schemaStatus = useSchemaStore((state) => state.status);
   const snapshot = useSchemaStore((state) => state.snapshot);
@@ -70,9 +73,6 @@ export function TableDetailPage() {
   const setSearch = useExplorerStore((state) => state.setSearch);
   const setFilters = useExplorerStore((state) => state.setFilters);
   const setQuery = useExplorerStore((state) => state.setQuery);
-  const openRecordContext = useExplorerStore(
-    (state) => state.openRecordContext,
-  );
   const toggleRowSelection = useExplorerStore(
     (state) => state.toggleRowSelection,
   );
@@ -115,6 +115,7 @@ export function TableDetailPage() {
     (state) => state.pushUndoDeleteEntry,
   );
   const undoLast = useExplorerStore((state) => state.undoLast);
+  const openRecordEditor = useExplorerStore((state) => state.openRecordEditor);
   const currentUserId = useAuthStore((state) => state.user?.id ?? null);
   const defaultViewId = useExplorerStore((state) =>
     tableId ? (state.defaultViewIdByTable[tableId] ?? null) : null,
@@ -152,6 +153,7 @@ export function TableDetailPage() {
   // Once saved views have loaded, switch to the default view for this table
   // (if one was marked). Only runs once per table mount.
   const autoSwitchedForTable = useRef<string | null>(null);
+  const appliedRouteQueryRef = useRef<string | null>(null);
   useEffect(() => {
     if (!tableId) return;
     if (view?.savedViewsStatus !== "ready") return;
@@ -191,6 +193,22 @@ export function TableDetailPage() {
       setKanbanConfigOpen(true);
     }
   }, [tableId, view?.config, view?.activeViewId, view]);
+
+  useEffect(() => {
+    if (!tableId) return;
+    if (!location.search) {
+      appliedRouteQueryRef.current = null;
+      return;
+    }
+
+    const key = `${tableId}?${location.search}`;
+    if (appliedRouteQueryRef.current === key) return;
+    appliedRouteQueryRef.current = key;
+
+    const routeQuery = parseQueryString(location.search);
+    if (Object.keys(routeQuery).length === 0) return;
+    setQuery(routeQuery);
+  }, [tableId, location.search, setQuery]);
 
   // Fetch rows once the table is active and schema is ready, but only on
   // the first load (idle → loading).
@@ -285,7 +303,13 @@ export function TableDetailPage() {
   const query = view ? getExplorerQueryForView(view) : DEFAULT_QUERY;
   const totalPages = view?.meta?.total_pages ?? 1;
   const selectedRowIds = view?.selectedRowIds ?? [];
-  const editingCell = view?.editingCell ?? null;
+  const recordEditorOpen = useExplorerStore(
+    (state) => state.recordEditor?.open === true,
+  );
+  // When the full-screen record editor is open it owns inline-edit state for the
+  // row; the grid should not mount its own inline editor (they would fight for
+  // focus and cause the edit to collapse immediately).
+  const editingCell = recordEditorOpen ? null : (view?.editingCell ?? null);
   const cellErrors = view?.cellErrors ?? {};
   const rowErrors = view?.rowErrors ?? {};
   const pendingNewRowIds = view?.pendingNewRowIds ?? [];
@@ -560,27 +584,23 @@ export function TableDetailPage() {
   function handleNavigateReference(
     column: ModelColumn,
     value: unknown,
-    row: Record<string, unknown>,
+    _row: Record<string, unknown>,
   ) {
     if (!snapshot) return;
 
     const targetTable = getReferencedTableName(snapshot, resolvedTable, column);
-    const targetRowId = Number(value);
-    const sourceRowId = Number(row.id);
-    if (
-      !targetTable ||
-      Number.isNaN(targetRowId) ||
-      Number.isNaN(sourceRowId)
-    ) {
+    const targetRowId =
+      value === null || value === undefined || value === ""
+        ? null
+        : String(value);
+    if (!targetTable || !targetRowId) {
       return;
     }
 
-    openRecordContext(targetTable, targetRowId, {
-      sourceTable: resolvedTable.name,
-      sourceRowId,
-      sourceColumn: column.displayName ?? column.name,
+    void openRecordEditor({
+      table: targetTable,
+      rowId: targetRowId,
     });
-    navigate(`/data/${targetTable}`);
   }
 
   function handleOpenRelated(drillInAccessor: string, targetTable: string) {
@@ -855,42 +875,24 @@ export function TableDetailPage() {
           className="table-detail__workspace"
           aria-label={`${displayName} data grid`}
         >
-          {context ? (
+          {context && context.kind !== "reference" ? (
             <div className="explorer-context__wrapper">
               <div className="explorer-context">
                 <div className="explorer-context__summary">
-                  {context.kind === "reference" ? (
-                    <>
-                      <span className="explorer-context__eyebrow">
-                        <Icon name="arrow-right" size={12} strokeWidth={1.5} />
-                        Focused record
-                      </span>
-                      <span className="explorer-context__title">
-                        {displayName} row #{context.rowId}
-                      </span>
-                      <span className="explorer-context__description">
-                        Opened from {context.sourceTable} #{context.sourceRowId}{" "}
-                        via {context.sourceColumn}.
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="explorer-context__eyebrow">
-                        <Icon name="arrow-right" size={12} strokeWidth={1.5} />
-                        Related records
-                      </span>
-                      <span className="explorer-context__title">
-                        {displayName} related to {context.parentTable}{" "}
-                        {context.parentRowIds.length === 1 ? "row" : "rows"}{" "}
-                        {context.parentRowIds.join(", ")}
-                      </span>
-                      <span className="explorer-context__description">
-                        {context.via === "filter"
-                          ? `Using the normal filter flow on ${context.filterColumn ?? "the related field"} via ${context.accessor}.`
-                          : `Using relation accessor ${context.accessor} through the backend relation endpoint.`}
-                      </span>
-                    </>
-                  )}
+                  <span className="explorer-context__eyebrow">
+                    <Icon name="arrow-right" size={12} strokeWidth={1.5} />
+                    Related records
+                  </span>
+                  <span className="explorer-context__title">
+                    {displayName} related to {context.parentTable}{" "}
+                    {context.parentRowIds.length === 1 ? "row" : "rows"}{" "}
+                    {context.parentRowIds.join(", ")}
+                  </span>
+                  <span className="explorer-context__description">
+                    {context.via === "filter"
+                      ? `Using the normal filter flow on ${context.filterColumn ?? "the related field"} via ${context.accessor}.`
+                      : `Using relation accessor ${context.accessor} through the backend relation endpoint.`}
+                  </span>
                 </div>
                 <Button
                   type="button"
@@ -1199,6 +1201,14 @@ export function TableDetailPage() {
                     : undefined
                 }
                 onDeleteRowsShortcut={handleDeleteShortcut}
+                onOpenRecord={(row) => {
+                  const rowId = row.id;
+                  if (rowId === null || rowId === undefined || rowId === "") return;
+                  void openRecordEditor({
+                    table: resolvedTable.name,
+                    rowId: String(rowId),
+                  });
+                }}
                 onRequestFilterColumn={(column) =>
                   handleRequestFilterColumn(column.name)
                 }
@@ -1286,6 +1296,7 @@ export function TableDetailPage() {
         onConfirm={() => void handleConfirmDeleteRows()}
         onCancel={() => setDeleteDialogRowIds(null)}
       />
+      <RecordEditor />
     </div>
   );
 }

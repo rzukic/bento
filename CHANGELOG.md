@@ -14,6 +14,20 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 2 — Data Management
 
+### 2026-04-19 — Ship the Full-Screen Record Editor and Sync Step 2.4
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-098 through TASK-101 and carried the Step 2.4 closeout/docs-sync pass (TASK-102) as far as this workspace allowed. The explorer now has a real full-screen record editor with FK drill-through, relation previews, and a `Go to table` escape hatch, while the Step 2.2 focused-record banner flow is superseded by the modal path.
+
+**Highlights:**
+- Added `RecordEditor` as a full-screen editing surface with shared type-aware field editors, per-field validation, loading/error states, and row-expand / Space / kanban / FK open triggers
+- Added an in-modal FK navigation stack with back/breadcrumb UI, clickable FK chips, per-entry loading/error isolation, and a persistent `Go to table` action that navigates using the current top-of-stack record
+- Added schema-derived relation footer sections with independent loading/error states, up to 5 preview rows, click-to-push drill-ins, and filtered `View all` navigation into the related table
+- Added route-query parsing so filtered navigation like relation-section `View all` lands on a normal shareable explorer URL instead of hidden runtime state
+- Synced Part 8 and the Step 2.4 working-step record to the shipped behavior; frontend validation is clean (`npm run typecheck`, `npm run build`, full frontend suite), non-Postgres backend tests pass, while packaged smoke / live Postgres revalidation remain blocked in this session by unavailable Docker and local Postgres targets
+
 ### 2026-04-18 — Export Explorer Views to CSV and JSON
 
 > **Phase**: Phase 2 — Data Management

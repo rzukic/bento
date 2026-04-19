@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { EditorShell } from "./editorShell";
+import { parseLenientNumber } from "./numericParsing";
 import type { CellEditorProps } from "./types";
 
 export function IntegerCellEditor({
@@ -23,12 +24,12 @@ export function IntegerCellEditor({
       onCommit(null);
       return;
     }
-    if (!/^-?\d+$/.test(trimmed)) {
-      // Reject non-integer input by reverting to the original value.
+    const next = parseLenientNumber(trimmed, { integer: true });
+    if (next === null) {
       onCancel();
       return;
     }
-    onCommit(Number.parseInt(trimmed, 10));
+    onCommit(next);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>) {
@@ -52,9 +53,9 @@ export function IntegerCellEditor({
     <EditorShell error={error}>
       <input
         ref={inputRef}
-        type="number"
+        type="text"
         inputMode="numeric"
-        step={1}
+        autoComplete="off"
         size={1}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

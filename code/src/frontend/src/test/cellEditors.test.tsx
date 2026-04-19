@@ -12,6 +12,12 @@ import {
   ReferenceCellEditor,
   TextCellEditor,
 } from "../features/data-explorer/components/editors";
+import { parseLenientNumber } from "../features/data-explorer/components/editors/numericParsing";
+import {
+  formatDateDraft,
+  parseDateDraft,
+  parseTimeDraft,
+} from "../features/data-explorer/components/editors/temporalEditing";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
 import type { ModelColumn, ModelSnapshot } from "../types/api";
 
@@ -66,16 +72,27 @@ describe("IntegerCellEditor", () => {
   it("commits a parsed integer on Enter", () => {
     const { onCommit, onCancel } = makeHandlers();
     render(<IntegerCellEditor value={1} column={col({ type: "int64" })} onCommit={onCommit} onCancel={onCancel} />);
-    const input = screen.getByRole("spinbutton");
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "42" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith(42);
   });
 
+  it("accepts grouped integer input without growing the editor into a native spinner", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(<IntegerCellEditor value={1} column={col({ type: "int64" })} onCommit={onCommit} onCancel={onCancel} />);
+    const input = screen.getByRole("textbox");
+    expect(input).toHaveAttribute("type", "text");
+    fireEvent.change(input, { target: { value: "100,000" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommit).toHaveBeenCalledWith(100000);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it("cancels rather than committing a non-integer", () => {
     const { onCommit, onCancel } = makeHandlers();
     render(<IntegerCellEditor value={1} column={col({ type: "int64" })} onCommit={onCommit} onCancel={onCancel} />);
-    const input = screen.getByRole("spinbutton");
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "1.5" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCommit).not.toHaveBeenCalled();
@@ -103,10 +120,20 @@ describe("FloatCellEditor", () => {
   it("commits a parsed float on Enter", () => {
     const { onCommit, onCancel } = makeHandlers();
     render(<FloatCellEditor value={1} column={col({ type: "double" })} onCommit={onCommit} onCancel={onCancel} />);
-    const input = screen.getByRole("spinbutton");
+    const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "3.14" } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith(3.14);
+  });
+
+  it("accepts locale-style decimals with mixed separators", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(<FloatCellEditor value={1} column={col({ type: "double" })} onCommit={onCommit} onCancel={onCancel} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "100.000,99" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onCommit).toHaveBeenCalledWith(100000.99);
+    expect(onCancel).not.toHaveBeenCalled();
   });
 
   it("cancels on Escape and surfaces error", () => {
@@ -120,9 +147,28 @@ describe("FloatCellEditor", () => {
         error="x"
       />,
     );
-    fireEvent.keyDown(screen.getByRole("spinbutton"), { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
     expect(onCancel).toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("x");
+  });
+});
+
+describe("parseLenientNumber", () => {
+  it("parses German-style input", () => {
+    expect(parseLenientNumber("100.000,99", { locale: "de-DE" })).toBe(100000.99);
+  });
+
+  it("parses US-style input", () => {
+    expect(parseLenientNumber("100,000.99", { locale: "en-US" })).toBe(100000.99);
+  });
+
+  it("ignores repeated stray separators", () => {
+    expect(parseLenientNumber("1...0...0..0..0..0,99", { locale: "de-DE" })).toBe(100000.99);
+  });
+
+  it("uses locale to resolve a single ambiguous separator", () => {
+    expect(parseLenientNumber("1,234", { locale: "de-DE" })).toBe(1.234);
+    expect(parseLenientNumber("1,234", { locale: "en-US" })).toBe(1234);
   });
 });
 
@@ -203,9 +249,9 @@ describe("BooleanCellEditor", () => {
 // ── DateCellEditor ──────────────────────────────────────────────────────────
 
 describe("DateCellEditor", () => {
-  it("commits the date string on Enter", () => {
+  it("commits the locale-text date as an ISO date on Enter", () => {
     const { onCommit, onCancel } = makeHandlers();
-    const { container } = render(
+    render(
       <DateCellEditor
         value="2026-01-01"
         column={col({ type: "date" })}
@@ -213,15 +259,65 @@ describe("DateCellEditor", () => {
         onCancel={onCancel}
       />,
     );
-    const input = container.querySelector("input")!;
-    fireEvent.change(input, { target: { value: "2026-04-17" } });
+    const input = screen.getByRole("textbox", { name: "value" });
+    fireEvent.change(input, { target: { value: formatDateDraft("2026-04-17") } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith("2026-04-17");
   });
 
+  it("syncs the visible text field when a date is chosen from the custom picker", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(
+      <DateCellEditor
+        value=""
+        column={col({ type: "date" })}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.focus(screen.getByRole("textbox", { name: "value" }));
+    expect(screen.getByRole("dialog", { name: "Date picker" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pick 2026-04-17" }));
+    expect(screen.getByRole("textbox", { name: "value" })).toHaveValue(
+      formatDateDraft("2026-04-17"),
+    );
+  });
+
+  it("lets the month header open a month picker and switch months", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(
+      <DateCellEditor
+        value="2026-04-17"
+        column={col({ type: "date" })}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.focus(screen.getByRole("textbox", { name: "value" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose month" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose January" }));
+    expect(screen.getByRole("button", { name: "Choose month" })).toHaveTextContent(/jan/i);
+  });
+
+  it("lets the year header open a year picker and switch years", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(
+      <DateCellEditor
+        value="2026-04-17"
+        column={col({ type: "date" })}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.focus(screen.getByRole("textbox", { name: "value" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose year" }));
+    fireEvent.click(screen.getByRole("button", { name: "Choose 2027" }));
+    expect(screen.getByRole("button", { name: "Choose year" })).toHaveTextContent("2027");
+  });
+
   it("cancels on Escape and shows error", () => {
     const { onCommit, onCancel } = makeHandlers();
-    const { container } = render(
+    render(
       <DateCellEditor
         value=""
         column={col({ type: "date" })}
@@ -230,7 +326,9 @@ describe("DateCellEditor", () => {
         error="bad"
       />,
     );
-    fireEvent.keyDown(container.querySelector("input")!, { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "value" }), {
+      key: "Escape",
+    });
     expect(onCancel).toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("bad");
   });
@@ -239,9 +337,9 @@ describe("DateCellEditor", () => {
 // ── DateTimeCellEditor ──────────────────────────────────────────────────────
 
 describe("DateTimeCellEditor", () => {
-  it("commits the datetime-local string on Enter", () => {
+  it("commits the visible date and time segments as a datetime string on Enter", () => {
     const { onCommit, onCancel } = makeHandlers();
-    const { container } = render(
+    render(
       <DateTimeCellEditor
         value="2026-04-17T10:00:00Z"
         column={col({ type: "datetime" })}
@@ -249,15 +347,33 @@ describe("DateTimeCellEditor", () => {
         onCancel={onCancel}
       />,
     );
-    const input = container.querySelector("input")!;
-    fireEvent.change(input, { target: { value: "2026-04-17T11:30" } });
-    fireEvent.keyDown(input, { key: "Enter" });
+    const dateInput = screen.getByRole("textbox", { name: "value date" });
+    const timeInput = screen.getByRole("textbox", { name: "value time" });
+    fireEvent.change(dateInput, { target: { value: formatDateDraft("2026-04-17") } });
+    fireEvent.change(timeInput, { target: { value: "11:30" } });
+    fireEvent.keyDown(timeInput, { key: "Enter" });
     expect(onCommit).toHaveBeenCalledWith("2026-04-17T11:30");
+  });
+
+  it("updates the time segment from the custom time picker", () => {
+    const { onCommit, onCancel } = makeHandlers();
+    render(
+      <DateTimeCellEditor
+        value="2026-04-17T10:00:00Z"
+        column={col({ type: "datetime" })}
+        onCommit={onCommit}
+        onCancel={onCancel}
+      />,
+    );
+    fireEvent.focus(screen.getByRole("textbox", { name: "value time" }));
+    expect(screen.getByRole("dialog", { name: "Time picker" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Pick 09:45" }));
+    expect(screen.getByRole("textbox", { name: "value time" })).toHaveValue("09:45");
   });
 
   it("cancels on Escape and shows error", () => {
     const { onCommit, onCancel } = makeHandlers();
-    const { container } = render(
+    render(
       <DateTimeCellEditor
         value=""
         column={col({ type: "datetime" })}
@@ -266,9 +382,22 @@ describe("DateTimeCellEditor", () => {
         error="bad"
       />,
     );
-    fireEvent.keyDown(container.querySelector("input")!, { key: "Escape" });
+    fireEvent.keyDown(screen.getByRole("textbox", { name: "value date" }), {
+      key: "Escape",
+    });
     expect(onCancel).toHaveBeenCalled();
     expect(screen.getByRole("alert")).toHaveTextContent("bad");
+  });
+});
+
+describe("temporalEditing helpers", () => {
+  it("parses locale date text back into ISO", () => {
+    expect(parseDateDraft(formatDateDraft("2026-04-17"))).toBe("2026-04-17");
+  });
+
+  it("parses compact and separated time drafts", () => {
+    expect(parseTimeDraft("11:30")).toBe("11:30");
+    expect(parseTimeDraft("1130")).toBe("11:30");
   });
 });
 

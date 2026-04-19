@@ -15,6 +15,14 @@ export type RelatedDrillIn = {
   valueColumn?: string;
 };
 
+export type IncomingRelationSection = {
+  targetTable: string;
+  label: string;
+  description: string;
+  filterColumn: string;
+  filterColumnLabel: string;
+};
+
 export function deriveReferenceAccessor(column: ModelColumn): string {
   if (column.relationName?.trim()) {
     return column.relationName.trim();
@@ -105,6 +113,50 @@ export function getRelatedDrillIns(
   return Array.from(related.values());
 }
 
+export function getIncomingRelationSections(
+  snapshot: ModelSnapshot,
+  currentTable: ModelTable
+): IncomingRelationSection[] {
+  const sections = new Map<string, IncomingRelationSection>();
+  const tablesByName = new Map(
+    snapshot.tables.map((table) => [table.name.toLowerCase(), table] as const)
+  );
+
+  for (const relation of snapshot.relations ?? []) {
+    const fromTable = getRelationFromTable(relation);
+    const toTable = getRelationToTable(relation);
+    if (!fromTable || !toTable) continue;
+    if (!equalsIgnoreCase(fromTable, currentTable.name)) continue;
+    if (!isOneToManyRelation(relation)) continue;
+
+    const relationColumn =
+      typeof relation.column === "string" && relation.column.trim().length > 0
+        ? relation.column.trim()
+        : null;
+    if (!relationColumn) continue;
+
+    const targetTable = tablesByName.get(toTable.toLowerCase());
+    if (!targetTable) continue;
+
+    addIncomingRelationSection(sections, targetTable, relationColumn);
+  }
+
+  for (const table of snapshot.tables) {
+    if (equalsIgnoreCase(table.name, currentTable.name)) continue;
+
+    for (const column of table.columns) {
+      const referencedTable = getReferenceTableNameFromColumn(column);
+      if (!referencedTable || !equalsIgnoreCase(referencedTable, currentTable.name)) {
+        continue;
+      }
+
+      addIncomingRelationSection(sections, table, column.name, column.displayName ?? column.name);
+    }
+  }
+
+  return finalizeIncomingRelationLabels(Array.from(sections.values()));
+}
+
 function addRelatedDrillIn(
   related: Map<string, RelatedDrillIn>,
   tablesByName: Map<string, ModelTable>,
@@ -164,6 +216,45 @@ function addFallbackDrillIn(
     mode: "filter",
     filterColumn: column.name
   });
+}
+
+function addIncomingRelationSection(
+  sections: Map<string, IncomingRelationSection>,
+  targetTable: ModelTable,
+  filterColumn: string,
+  filterColumnLabel?: string
+): void {
+  const key = `${targetTable.name.toLowerCase()}:${filterColumn.toLowerCase()}`;
+  if (sections.has(key)) return;
+
+  const label = targetTable.displayName ?? targetTable.name;
+  sections.set(key, {
+    targetTable: targetTable.name,
+    label,
+    description: `Related ${label} where ${filterColumn} points at this record`,
+    filterColumn,
+    filterColumnLabel: filterColumnLabel ?? filterColumn
+  });
+}
+
+function finalizeIncomingRelationLabels(
+  sections: IncomingRelationSection[]
+): IncomingRelationSection[] {
+  const duplicateCounts = new Map<string, number>();
+  for (const section of sections) {
+    const key = section.targetTable.toLowerCase();
+    duplicateCounts.set(key, (duplicateCounts.get(key) ?? 0) + 1);
+  }
+
+  return sections
+    .map((section) => ({
+      ...section,
+      label:
+        (duplicateCounts.get(section.targetTable.toLowerCase()) ?? 0) > 1
+          ? `${section.label} via ${section.filterColumnLabel}`
+          : section.label
+    }))
+    .sort((left, right) => left.label.localeCompare(right.label));
 }
 
 function resolveFilterConfig(

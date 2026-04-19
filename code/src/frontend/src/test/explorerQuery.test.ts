@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildQueryString } from "../api/data";
+import { buildQueryString, parseQueryString } from "../api/data";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import {
   extractExplorerViewConfig,
@@ -124,6 +124,38 @@ describe("buildQueryString", () => {
     };
     const qs = buildQueryString(query);
     expect(qs).toContain("filter%5Bdeleted_at%5D%5Bnull%5D=");
+  });
+});
+
+describe("parseQueryString", () => {
+  it("parses pagination, search, sort, and filter shorthand from the route search", () => {
+    expect(
+      parseQueryString(
+        "?page=3&per_page=50&search=alice&sort=name,-created_at&filter[status]=active",
+      ),
+    ).toEqual({
+      page: 3,
+      perPage: 50,
+      search: "alice",
+      sort: [
+        { column: "name", dir: "asc" },
+        { column: "created_at", dir: "desc" },
+      ],
+      filters: [{ column: "status", op: "eq", value: "active" }],
+    });
+  });
+
+  it("parses operator filters from the route search", () => {
+    expect(
+      parseQueryString(
+        "?filter[amount][gte]=100&filter[deleted_at][null]=",
+      ),
+    ).toEqual({
+      filters: [
+        { column: "amount", op: "gte", value: "100" },
+        { column: "deleted_at", op: "null" },
+      ],
+    });
   });
 });
 
