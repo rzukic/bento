@@ -113,11 +113,14 @@ export function RecordEditor() {
   const view = useExplorerStore((state) =>
     top ? (state.views[top.table] ?? null) : null,
   );
+  const cachedRow = useExplorerStore((state) =>
+    top ? (state.recordCacheByTable[top.table]?.[top.rowId] ?? null) : null,
+  );
   const liveRow = useMemo(() => {
     if (!top || !view) return null;
     return view.rows.find((row) => String(row.id ?? "") === top.rowId) ?? null;
   }, [top, view]);
-  const currentRow = liveRow ?? top?.row ?? null;
+  const currentRow = cachedRow ?? liveRow ?? top?.row ?? null;
   const cellErrors = useMemo<Record<string, string>>(() => {
     if (!top || !view) return EMPTY_CELL_ERRORS;
     return view.cellErrors[top.rowId] ?? EMPTY_CELL_ERRORS;
@@ -191,8 +194,7 @@ export function RecordEditor() {
 
   if (!editorState || !top) return null;
 
-  const titleRow = liveRow ?? top.row;
-  const title = table ? getRecordTitle(table, titleRow) : `Record #${top.rowId}`;
+  const title = table ? getRecordTitle(table, currentRow) : `Record #${top.rowId}`;
   const topRowId = top.rowId;
   const topTableName = top.table;
   const showBack = depth > 1;

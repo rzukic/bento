@@ -73,6 +73,7 @@ export function TableDetailPage() {
   const setSearch = useExplorerStore((state) => state.setSearch);
   const setFilters = useExplorerStore((state) => state.setFilters);
   const setQuery = useExplorerStore((state) => state.setQuery);
+  const applyRouteQuery = useExplorerStore((state) => state.applyRouteQuery);
   const toggleRowSelection = useExplorerStore(
     (state) => state.toggleRowSelection,
   );
@@ -154,11 +155,15 @@ export function TableDetailPage() {
   // (if one was marked). Only runs once per table mount.
   const autoSwitchedForTable = useRef<string | null>(null);
   const appliedRouteQueryRef = useRef<string | null>(null);
+  const routeQuery = useMemo(() => parseQueryString(location.search), [location.search]);
+  const hasRouteQueryState = Object.keys(routeQuery).length > 0;
   useEffect(() => {
     if (!tableId) return;
+    if (hasRouteQueryState) return;
     if (view?.savedViewsStatus !== "ready") return;
-    if (autoSwitchedForTable.current === tableId) return;
-    autoSwitchedForTable.current = tableId;
+    const key = `${tableId}:plain`;
+    if (autoSwitchedForTable.current === key) return;
+    autoSwitchedForTable.current = key;
     if (
       defaultViewId !== null &&
       view.activeViewId === null &&
@@ -173,6 +178,7 @@ export function TableDetailPage() {
     view?.savedViews,
     defaultViewId,
     switchView,
+    hasRouteQueryState,
   ]);
 
   // Auto-open the kanban config panel the first time we land on a kanban
@@ -196,7 +202,7 @@ export function TableDetailPage() {
 
   useEffect(() => {
     if (!tableId) return;
-    if (!location.search) {
+    if (!hasRouteQueryState) {
       appliedRouteQueryRef.current = null;
       return;
     }
@@ -205,10 +211,8 @@ export function TableDetailPage() {
     if (appliedRouteQueryRef.current === key) return;
     appliedRouteQueryRef.current = key;
 
-    const routeQuery = parseQueryString(location.search);
-    if (Object.keys(routeQuery).length === 0) return;
-    setQuery(routeQuery);
-  }, [tableId, location.search, setQuery]);
+    applyRouteQuery(tableId, routeQuery);
+  }, [tableId, location.search, hasRouteQueryState, routeQuery, applyRouteQuery]);
 
   // Fetch rows once the table is active and schema is ready, but only on
   // the first load (idle → loading).

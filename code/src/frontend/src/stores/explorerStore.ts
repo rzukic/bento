@@ -223,39 +223,60 @@ export function getExplorerQueryForView(view: TableViewState): ExplorerQuery {
 }
 
 // ── Auto-save debounce ─────────────────────────────────────────────────────
-// Module-level timer so it survives store re-renders without polluting state.
+// Module-level timers so they survive store re-renders without polluting
+// persisted state. Timers are isolated per scheduling table/view target.
 
-let _autoSaveTimer: ReturnType<typeof setTimeout> | null = null;
-let _autoSaveTarget: { tableId: string; viewId: number } | null = null;
+type AutoSaveTarget = { tableId: string; viewId: number };
 
-function scheduleAutoSave(): void {
-  if (_autoSaveTimer !== null) clearTimeout(_autoSaveTimer);
+const AUTO_SAVE_DEBOUNCE_MS = 500;
+const _autoSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function getAutoSaveTarget(tableId?: string | null): AutoSaveTarget | null {
   const store = useExplorerStore.getState();
-  const { activeTable } = store;
-  if (!activeTable) return;
-  const view = store.views[activeTable];
-  if (!view || view.activeViewId === null) return;
-  // Capture the table/view that scheduled the save. This prevents quick
-  // navigation between tables from persisting the wrong view.
-  _autoSaveTarget = { tableId: activeTable, viewId: view.activeViewId };
-  _autoSaveTimer = setTimeout(() => {
-    _autoSaveTimer = null;
-    const target = _autoSaveTarget;
-    _autoSaveTarget = null;
-    if (!target) return;
+  const targetTable = tableId ?? store.activeTable;
+  if (!targetTable) return null;
+  const view = store.views[targetTable];
+  if (!view || view.activeViewId === null) return null;
+  return { tableId: targetTable, viewId: view.activeViewId };
+}
+
+function getAutoSaveKey(target: AutoSaveTarget): string {
+  return `${target.tableId}:${target.viewId}`;
+}
+
+function scheduleAutoSave(target = getAutoSaveTarget()): void {
+  if (!target) return;
+  const key = getAutoSaveKey(target);
+  const existing = _autoSaveTimers.get(key);
+  if (existing !== undefined) {
+    clearTimeout(existing);
+  }
+
+  const timer = setTimeout(() => {
+    _autoSaveTimers.delete(key);
     const latest = useExplorerStore.getState();
     const view = latest.views[target.tableId];
     if (!view?.autoSave) return;
     void latest.updateViewConfigFor(target.tableId, target.viewId);
-  }, 500);
+  }, AUTO_SAVE_DEBOUNCE_MS);
+
+  _autoSaveTimers.set(key, timer);
 }
 
-function cancelAutoSave(): void {
-  if (_autoSaveTimer !== null) {
-    clearTimeout(_autoSaveTimer);
-    _autoSaveTimer = null;
+function cancelAutoSave(target?: AutoSaveTarget | null): void {
+  if (!target) {
+    for (const timer of _autoSaveTimers.values()) {
+      clearTimeout(timer);
+    }
+    _autoSaveTimers.clear();
+    return;
   }
-  _autoSaveTarget = null;
+
+  const key = getAutoSaveKey(target);
+  const timer = _autoSaveTimers.get(key);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  _autoSaveTimers.delete(key);
 }
 
 // ── Store shape ───────────────────────────────────────────────────────
@@ -283,6 +304,8 @@ export type RecordEditorState = {
   stack: RecordEditorEntry[];
 };
 
+type RecordCacheByTable = Record<string, Record<string, Record<string, unknown>>>;
+
 type ExplorerStoreState = {
   /** The currently-active table name (from the route param). */
   activeTable: string | null;
@@ -290,13 +313,21 @@ type ExplorerStoreState = {
   /** Cached view state per table name. Survives in-app navigation. */
   views: Record<string, TableViewState>;
 
+  /**
+   * Single-record cache used by the full-screen editor. Unlike `views[table]`,
+   * this cache is allowed to hold records that are not part of the table's
+   * current query/page result set.
+   */
+  recordCacheByTable: RecordCacheByTable;
+
   /** Session-only undo history for destructive row actions, keyed by table. */
   undoStackByTable: Record<string, UndoEntry[]>;
 
   /**
    * The currently-open full-screen record editor (TASK-098). Null when
-   * dismissed. The editor reuses `views[table].rows` as its source of truth so
-   * inline grid edits and editor saves auto-reconcile via `commitCellEdit`.
+   * dismissed. The editor reads from a dedicated single-record cache while
+   * still reconciling visible grid rows in-place when they are part of the
+   * current table result set.
    */
   recordEditor: RecordEditorState | null;
 
@@ -310,6 +341,12 @@ type ExplorerStoreState = {
 
   /** Replace the full query and refetch. Page resets to 1. */
   setQuery: (patch: Partial<ExplorerQuery>) => void;
+
+  /**
+   * Apply route-query state against a clean "All Records" base instead of the
+   * currently active saved/ad-hoc view. Used for shareable explorer URLs.
+   */
+  applyRouteQuery: (table: string, patch: Partial<ExplorerQuery>) => void;
 
   /** Navigate to a specific page and refetch. */
   setPage: (page: number) => void;
@@ -499,9 +536,9 @@ type ExplorerStoreState = {
 
   /**
    * Open the full-screen record editor with a fresh stack containing the given
-   * entry. Fetches the row from `GET /data/:table/:id` and inserts/updates it
-   * into `views[table].rows` so the inline grid and the editor share the same
-   * source of truth.
+   * entry. Fetches the row from `GET /data/:table/:id` and writes it into the
+   * editor's single-record cache, reconciling the current table view only when
+   * that row is already part of the visible result set.
    */
   openRecordEditor: (params: { table: string; rowId: string | number }) => Promise<void>;
 
@@ -674,11 +711,50 @@ function dropPendingNewRows(
   };
 }
 
+function upsertRecordCacheEntry(
+  cacheByTable: RecordCacheByTable,
+  table: string,
+  rowId: string,
+  row: Record<string, unknown>,
+): RecordCacheByTable {
+  return {
+    ...cacheByTable,
+    [table]: {
+      ...(cacheByTable[table] ?? {}),
+      [rowId]: { ...row },
+    },
+  };
+}
+
+function removeRecordCacheEntry(
+  cacheByTable: RecordCacheByTable,
+  table: string,
+  rowId: string,
+): RecordCacheByTable {
+  const tableCache = cacheByTable[table];
+  if (!tableCache || tableCache[rowId] === undefined) return cacheByTable;
+
+  const nextTableCache = { ...tableCache };
+  delete nextTableCache[rowId];
+
+  if (Object.keys(nextTableCache).length === 0) {
+    const nextCache = { ...cacheByTable };
+    delete nextCache[table];
+    return nextCache;
+  }
+
+  return {
+    ...cacheByTable,
+    [table]: nextTableCache,
+  };
+}
+
 /**
  * Drive the async fetch for a single record-editor stack entry (TASK-099). On
- * success the record is written back into both the entry and `views[table]`
- * so inline edits and editor saves keep reconciling. On failure only the
- * target entry flips to "error" — earlier entries in the stack are untouched.
+ * success the record is written into the editor cache, and into `views[table]`
+ * only if that row is already present in the current result set. On failure
+ * only the target entry flips to "error" — earlier entries in the stack are
+ * untouched.
  *
  * `expectedIndex` lets us tolerate out-of-order async completions: if the
  * user pops before the fetch resolves, or pushes a new entry above, we bail
@@ -708,17 +784,20 @@ async function loadRecordEditorEntry(
       };
 
       const view = state.views[table];
+      const nextRecordCache = upsertRecordCacheEntry(
+        state.recordCacheByTable,
+        table,
+        rowIdString,
+        fetched,
+      );
       const updatedViews = view
         ? (() => {
             const idx = view.rows.findIndex(
               (row) => String(row.id ?? "") === rowIdString,
             );
+            if (idx === -1) return state.views;
             const nextRows = view.rows.slice();
-            if (idx === -1) {
-              nextRows.push(fetched);
-            } else {
-              nextRows[idx] = { ...nextRows[idx]!, ...fetched };
-            }
+            nextRows[idx] = { ...nextRows[idx]!, ...fetched };
             return {
               ...state.views,
               [table]: { ...view, rows: nextRows },
@@ -728,6 +807,7 @@ async function loadRecordEditorEntry(
 
       return {
         views: updatedViews,
+        recordCacheByTable: nextRecordCache,
         recordEditor: { ...editor, stack: nextStack },
       };
     });
@@ -755,6 +835,7 @@ async function loadRecordEditorEntry(
 const initialState = {
   activeTable: null as string | null,
   views: {} as Record<string, TableViewState>,
+  recordCacheByTable: {} as RecordCacheByTable,
   defaultViewIdByTable: {} as Record<string, number | null>,
   undoStackByTable: {} as Record<string, UndoEntry[]>,
   recordEditor: null as RecordEditorState | null,
@@ -850,6 +931,34 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         }
       }
     }));
+    void fetchRows();
+  },
+
+  applyRouteQuery: (table, patch) => {
+    const { fetchRows } = get();
+    set((state) => {
+      const currentView = dropPendingNewRows(state.views[table] ?? freshTableView());
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...currentView,
+            status: "idle",
+            config: patchExplorerViewConfig(DEFAULT_EXPLORER_VIEW_CONFIG, patch),
+            activeViewId: null,
+            page: patch.page ?? 1,
+            perPage: patch.perPage ?? DEFAULT_QUERY.perPage,
+            rows: [],
+            meta: null,
+            error: null,
+            source: { kind: "table" },
+            selectedRowIds: [],
+            context: null,
+          },
+        },
+      };
+    });
     void fetchRows();
   },
 
@@ -1110,8 +1219,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const view = stateBefore.views[table];
     if (!view) return;
     const rowIndex = view.rows.findIndex((r) => String(r.id ?? "") === rowId);
-    if (rowIndex === -1) return;
-    const row = view.rows[rowIndex]!;
+    const cachedRow = stateBefore.recordCacheByTable[table]?.[rowId] ?? null;
+    const row = rowIndex === -1 ? cachedRow : view.rows[rowIndex]!;
+    if (!row) return;
     const prevValue = row[columnName];
     const isPendingNewRow = view.pendingNewRowIds.includes(rowId);
     const tableModel = isPendingNewRow ? getTableModel(table) : null;
@@ -1130,8 +1240,17 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       set((s) => {
         const v = s.views[table];
         if (!v) return s;
+        const idx = v.rows.findIndex((candidate) => String(candidate.id ?? "") === rowId);
         const nextRows = v.rows.slice();
-        nextRows[rowIndex] = { ...nextRows[rowIndex]!, [columnName]: nextValue };
+        if (idx !== -1) {
+          nextRows[idx] = { ...nextRows[idx]!, [columnName]: nextValue };
+        }
+        const cacheRow =
+          idx !== -1 ? nextRows[idx]! : (s.recordCacheByTable[table]?.[rowId] ?? null);
+        const nextCache =
+          cacheRow === null
+            ? s.recordCacheByTable
+            : upsertRecordCacheEntry(s.recordCacheByTable, table, rowId, cacheRow);
         return {
           views: {
             ...s.views,
@@ -1142,6 +1261,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               cellErrors: clearCellError(v.cellErrors, rowId, columnName),
             },
           },
+          recordCacheByTable: nextCache,
         };
       });
       return;
@@ -1154,8 +1274,15 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     set((s) => {
       const v = s.views[table];
       if (!v) return s;
+      const idx = v.rows.findIndex((candidate) => String(candidate.id ?? "") === rowId);
       const nextRows = v.rows.slice();
-      nextRows[rowIndex] = { ...nextRows[rowIndex]!, [columnName]: nextValue };
+      const currentCacheRow = s.recordCacheByTable[table]?.[rowId] ?? null;
+      const baseRow = idx !== -1 ? nextRows[idx]! : currentCacheRow;
+      if (!baseRow) return s;
+      const nextRow = { ...baseRow, [columnName]: nextValue };
+      if (idx !== -1) {
+        nextRows[idx] = nextRow;
+      }
       const nextErrors = clearCellError(v.cellErrors, rowId, columnName);
       return {
         views: {
@@ -1170,6 +1297,12 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               : [...v.pendingCellSaves, pendingKey],
           },
         },
+        recordCacheByTable: upsertRecordCacheEntry(
+          s.recordCacheByTable,
+          table,
+          rowId,
+          nextRow,
+        ),
       };
     });
 
@@ -1197,6 +1330,13 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
           delete nextRowErrors[rowId];
         }
         const updatedRowId = String(updated.id ?? rowId);
+        let nextRecordCache = removeRecordCacheEntry(s.recordCacheByTable, table, rowId);
+        nextRecordCache = upsertRecordCacheEntry(
+          nextRecordCache,
+          table,
+          updatedRowId,
+          updated,
+        );
         return {
           views: {
             ...s.views,
@@ -1217,6 +1357,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               rowErrors: nextRowErrors,
             },
           },
+          recordCacheByTable: nextRecordCache,
         };
       });
     } catch (err) {
@@ -1230,6 +1371,16 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
         const nextRows = v.rows.slice();
         if (idx !== -1) {
           nextRows[idx] = { ...nextRows[idx]!, [columnName]: prevValue };
+        }
+        const currentCacheRow = s.recordCacheByTable[table]?.[rowId] ?? null;
+        let nextRecordCache = s.recordCacheByTable;
+        if (currentCacheRow) {
+          nextRecordCache = upsertRecordCacheEntry(
+            s.recordCacheByTable,
+            table,
+            rowId,
+            { ...currentCacheRow, [columnName]: prevValue },
+          );
         }
         let nextErrors = v.cellErrors;
         if (fieldErrors && fieldErrors.length > 0) {
@@ -1255,6 +1406,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               pendingCellSaves: v.pendingCellSaves.filter((k) => k !== pendingKey),
             },
           },
+          recordCacheByTable: nextRecordCache,
         };
       });
     }
@@ -1324,6 +1476,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               rowErrors: nextRowErrors,
             },
           },
+          recordCacheByTable: removeRecordCacheEntry(state.recordCacheByTable, table, rowId),
         };
       });
       return true;
@@ -1347,6 +1500,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
             rowErrors: nextRowErrors,
           },
         },
+        recordCacheByTable: removeRecordCacheEntry(state.recordCacheByTable, table, rowId),
       };
     });
 
@@ -1376,6 +1530,12 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               },
             },
           },
+          recordCacheByTable: upsertRecordCacheEntry(
+            state.recordCacheByTable,
+            table,
+            rowId,
+            row,
+          ),
         };
       });
       return false;
@@ -1701,7 +1861,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
   },
 
   switchView: (viewId) => {
-    cancelAutoSave();
+    cancelAutoSave(getAutoSaveTarget());
 
     const { activeTable, views, fetchRows } = get();
     if (!activeTable) return;
@@ -2085,6 +2245,10 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       };
       return {
         views: state.views[table] ? state.views : { ...state.views, [table]: view },
+        recordCacheByTable:
+          existing === null
+            ? state.recordCacheByTable
+            : upsertRecordCacheEntry(state.recordCacheByTable, table, rowIdString, existing),
         recordEditor: { open: true, stack: [entry] },
       };
     });
@@ -2118,6 +2282,10 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       pushedIndex = nextStack.length - 1;
       return {
         views: state.views[table] ? state.views : { ...state.views, [table]: view },
+        recordCacheByTable:
+          existing === null
+            ? state.recordCacheByTable
+            : upsertRecordCacheEntry(state.recordCacheByTable, table, rowIdString, existing),
         recordEditor: { ...editor, stack: nextStack },
       };
     });

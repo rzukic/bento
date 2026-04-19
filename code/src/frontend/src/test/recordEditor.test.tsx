@@ -452,6 +452,94 @@ describe("RecordEditor — TASK-099 FK navigation stack", () => {
   });
 });
 
+describe("RecordEditor — TASK-108 row cache isolation", () => {
+  it("keeps an off-query FK record out of the destination table view while still editing it in the modal", async () => {
+    seedAuthenticated();
+    seedSchema();
+    seedExplorerView("orders", [{ ...baseOrderRow, customer_id: 7 }]);
+    seedExplorerView("users", [
+      { id: 99, name: "Bob", email: "bob@example.com" },
+    ]);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (
+        url.includes("/api/v1/data/users?") &&
+        url.includes("filter%5Bid%5D%5Bin%5D=7")
+      ) {
+        return listResponse([relatedUserRow]);
+      }
+
+      if (url.includes("/api/v1/data/orders/1")) {
+        return jsonResponse(200, {
+          data: { ...baseOrderRow, customer_id: 7, created_at: "2026-04-18T00:00:00Z" },
+        });
+      }
+
+      if (init?.method === "PATCH" && url.includes("/api/v1/data/users/7")) {
+        return jsonResponse(200, {
+          data: { ...relatedUserRow, name: "Alicia" },
+        });
+      }
+
+      if (url.includes("/api/v1/data/users/7")) {
+        return jsonResponse(200, { data: relatedUserRow });
+      }
+
+      return jsonResponse(404, {
+        error: { code: "NOT_FOUND", message: `Unhandled: ${url}` },
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRecordEditor();
+    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+    await useExplorerStore.getState().pushRecordEditor({ table: "users", rowId: 7 });
+
+    expect(await screen.findByRole("heading", { name: "Alice" })).toBeInTheDocument();
+
+    let usersView = useExplorerStore.getState().views.users!;
+    expect(usersView.rows).toEqual([{ id: 99, name: "Bob", email: "bob@example.com" }]);
+    expect(usersView.meta?.total).toBe(1);
+    expect(useExplorerStore.getState().recordCacheByTable.users?.["7"]).toEqual(relatedUserRow);
+
+    const nameField = screen
+      .getAllByRole("button")
+      .find((element) => element.id === "record-editor-field-users-name");
+    expect(nameField).toBeTruthy();
+
+    const user = userEvent.setup();
+    await user.click(nameField!);
+    const nameInput = screen.getByRole("textbox", { name: "name" });
+    await user.clear(nameInput);
+    await user.type(nameInput, "Alicia");
+    nameInput.blur();
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, requestInit]) =>
+            String(url).includes("/api/v1/data/users/7") &&
+            (requestInit as RequestInit | undefined)?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Alicia" })).toBeInTheDocument(),
+    );
+
+    usersView = useExplorerStore.getState().views.users!;
+    expect(usersView.rows).toEqual([{ id: 99, name: "Bob", email: "bob@example.com" }]);
+    expect(usersView.meta?.total).toBe(1);
+    expect(useExplorerStore.getState().recordCacheByTable.users?.["7"]).toEqual({
+      ...relatedUserRow,
+      name: "Alicia",
+    });
+  });
+});
+
 describe("RecordEditor — TASK-101 relation sections", () => {
   it("renders incoming relation sections with count and preview rows", async () => {
     seedAuthenticated();
