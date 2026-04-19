@@ -3,6 +3,7 @@ import { Icon } from "../../../components/common/Icon";
 import type { ModelColumn, ModelTable } from "../../../types/api";
 import { apiClient } from "../../../api/client";
 import { renderCellValue } from "./cellValue";
+import { lookupReferenceLabel, useReferenceLabels } from "./useReferenceLabels";
 
 type KanbanViewProps = {
   table: ModelTable;
@@ -13,6 +14,7 @@ type KanbanViewProps = {
   hiddenLaneValues?: string[];
   onConfigureView?: () => void;
   onNavigateReference?: (column: ModelColumn, value: unknown, row: Record<string, unknown>) => void;
+  onOpenRecord?: (row: Record<string, unknown>) => void;
 };
 
 const UNASSIGNED_LANE_ID = "__kanban_unassigned__";
@@ -41,7 +43,9 @@ export function KanbanView({
   hiddenLaneValues = [],
   onConfigureView,
   onNavigateReference,
+  onOpenRecord,
 }: KanbanViewProps) {
+  const referenceLabels = useReferenceLabels(table, rows);
   const [overrides, setOverrides] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [dragError, setDragError] = useState<{ rowId: string; msg: string } | null>(null);
@@ -273,13 +277,40 @@ export function KanbanView({
                 return (
                   <article
                     key={rowId}
-                    className={["kanban-card", isSaving ? "kanban-card--saving" : ""].filter(Boolean).join(" ")}
+                    className={[
+                      "kanban-card",
+                      isSaving ? "kanban-card--saving" : "",
+                      onOpenRecord ? "kanban-card--interactive" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     tabIndex={0}
+                    role={onOpenRecord ? "button" : undefined}
+                    aria-label={onOpenRecord ? `Open record ${rowId}` : undefined}
+                    onClick={(e) => {
+                      if (!onOpenRecord) return;
+                      // Ignore clicks that originated in the drag handle or any
+                      // nested interactive control (FK reference buttons, etc.);
+                      // those already call stopPropagation on their own handlers
+                      // but we guard defensively for future additions.
+                      const target = e.target as HTMLElement | null;
+                      if (target?.closest(".kanban-card__drag-handle")) return;
+                      if (target?.closest("button,a,input,select,textarea")) return;
+                      onOpenRecord(row);
+                    }}
+                    onKeyDown={(e) => {
+                      if (!onOpenRecord) return;
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        onOpenRecord(row);
+                      }
+                    }}
                   >
                     <span
                       className="kanban-card__drag-handle"
                       draggable
                       aria-label="Drag to move"
+                      onClick={(e) => e.stopPropagation()}
                       onDragStart={(e) => handleDragStart(e, rowId, lane.id)}
                       onDragEnd={handleDragEnd}
                     >
@@ -297,21 +328,40 @@ export function KanbanView({
                                 {col.displayName ?? col.name}
                               </dt>
                               <dd className="kanban-card__field-value">
-                                {(col.type === "relation" || col.references) &&
-                                row[col.name] !== null &&
-                                row[col.name] !== undefined &&
-                                row[col.name] !== "" &&
-                                onNavigateReference ? (
-                                  <button
-                                    type="button"
-                                    className="data-grid__reference data-grid__reference--interactive"
-                                    onClick={() => onNavigateReference(col, row[col.name], row)}
-                                  >
-                                    {String(row[col.name])}
-                                  </button>
-                                ) : (
-                                  renderCellValue(col, row[col.name])
-                                )}
+                                {(() => {
+                                  const isReferenceValue =
+                                    (col.type === "relation" || col.references) &&
+                                    row[col.name] !== null &&
+                                    row[col.name] !== undefined &&
+                                    row[col.name] !== "";
+                                  if (!isReferenceValue) {
+                                    return renderCellValue(col, row[col.name]);
+                                  }
+
+                                  const rawId = String(row[col.name]);
+                                  const label =
+                                    lookupReferenceLabel(referenceLabels, col, row[col.name]) ?? rawId;
+
+                                  if (onNavigateReference) {
+                                    return (
+                                      <button
+                                        type="button"
+                                        className="data-grid__reference data-grid__reference--interactive"
+                                        aria-label={`Open related ${label}`}
+                                        title={`Open related ${label}`}
+                                        onClick={() => onNavigateReference(col, row[col.name], row)}
+                                      >
+                                        {label}
+                                      </button>
+                                    );
+                                  }
+
+                                  return (
+                                    <span className="data-grid__reference" title={label}>
+                                      {label}
+                                    </span>
+                                  );
+                                })()}
                               </dd>
                             </div>
                           ))}

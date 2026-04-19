@@ -5,7 +5,7 @@ import type {
   ExplorerViewType,
 } from "../../../types/explorer";
 import { KanbanView } from "./KanbanView";
-import { ReadOnlyDataGrid } from "./ReadOnlyDataGrid";
+import { DataGrid } from "./DataGrid";
 
 /*
  * ViewRenderer — view-type plugin routing layer.
@@ -35,7 +35,12 @@ export type CommonViewProps = {
   page: number;
   perPage: number;
   loading?: boolean;
+  pendingNewRowIds?: string[];
+  rowErrors?: Record<string, string>;
   selectedRowIds?: string[];
+  onAddRow?: () => void;
+  onDeleteRowsShortcut?: (focusedRowId: string | null) => void;
+  onOpenRecord?: (row: Record<string, unknown>) => void;
   onRequestFilterColumn?: (column: ModelColumn) => void;
   onRequestSortColumn?: (column: ModelColumn) => void;
   onRequestHideColumn?: (column: ModelColumn) => void;
@@ -55,6 +60,19 @@ export type CommonViewProps = {
     onSelect: () => void;
   }>;
   onConfigureView?: () => void;
+  // ── Inline edit mode (TASK-092) ──
+  editingCell?: { rowId: string; columnName: string } | null;
+  cellErrors?: Record<string, Record<string, string>>;
+  onStartEdit?: (
+    row: Record<string, unknown>,
+    column: ModelColumn,
+  ) => void;
+  onCancelEdit?: () => void;
+  onCommitEdit?: (
+    row: Record<string, unknown>,
+    column: ModelColumn,
+    nextValue: unknown,
+  ) => void;
 };
 
 type ViewRendererProps = CommonViewProps & {
@@ -70,8 +88,16 @@ type RendererEntry = (
 // props and pulls any type-specific bits off `viewConfig`. Add new view types
 // here (see file comment).
 export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>> = {
-  table: ({ viewConfig: _viewConfig, ...rest }) => <ReadOnlyDataGrid {...rest} />,
-  kanban: ({ viewConfig, table, rows, loading, onConfigureView, onNavigateReference }) => {
+  table: ({ viewConfig: _viewConfig, ...rest }) => <DataGrid {...rest} />, // onOpenRecord flows via ...rest
+  kanban: ({
+    viewConfig,
+    table,
+    rows,
+    loading,
+    onConfigureView,
+    onNavigateReference,
+    onOpenRecord,
+  }) => {
     const kanbanColumn =
       viewConfig && viewConfig.type === "kanban" ? viewConfig.kanbanColumn : null;
     const cardFieldNames =
@@ -88,6 +114,7 @@ export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>
         hiddenLaneValues={hiddenLaneValues}
         onConfigureView={onConfigureView}
         onNavigateReference={onNavigateReference}
+        onOpenRecord={onOpenRecord}
       />
     );
   },
@@ -111,7 +138,7 @@ export function ViewRenderer({
         `[ViewRenderer] Unknown view type "${type}" — falling back to table grid.`,
       );
     }
-    return <ReadOnlyDataGrid {...rest} />;
+    return <DataGrid {...rest} />;
   }
 
   return entry({ ...rest, viewConfig });

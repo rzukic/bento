@@ -84,6 +84,21 @@ const savedView2: SavedView = {
   updated_at: "2026-04-14T10:00:00Z",
 };
 
+const savedView3: SavedView = {
+  id: 12,
+  name: "Customer Focus",
+  table_name: "customers",
+  owner_user_id: 1,
+  type: "table",
+  config: {
+    ...DEFAULT_EXPLORER_VIEW_CONFIG,
+    search: "priority",
+  },
+  is_shared: false,
+  created_at: "2026-04-14T10:00:00Z",
+  updated_at: "2026-04-14T10:00:00Z",
+};
+
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 function seedAuthenticated() {
@@ -107,7 +122,8 @@ function seedSchema(snapshot: ModelSnapshot) {
   });
 }
 
-function seedOrdersView(
+function seedTableView(
+  table: string,
   rows: Record<string, unknown>[],
   options: {
     savedViews?: SavedView[];
@@ -117,10 +133,10 @@ function seedOrdersView(
 ) {
   const { savedViews = [], activeViewId = null, config = { ...DEFAULT_EXPLORER_VIEW_CONFIG } } = options;
   useExplorerStore.setState((state) => ({
-    activeTable: "orders",
+    activeTable: table,
     views: {
       ...state.views,
-      orders: {
+      [table]: {
         status: "ready",
         config,
         page: 1,
@@ -130,6 +146,11 @@ function seedOrdersView(
         error: null,
         source: { kind: "table" },
         selectedRowIds: [],
+        editingCell: null,
+        cellErrors: {},
+        pendingCellSaves: [],
+        pendingNewRowIds: [],
+        rowErrors: {},
         context: null,
         savedViews,
         savedViewsStatus: "ready" as const,
@@ -140,7 +161,18 @@ function seedOrdersView(
   }));
 }
 
-function mockDataResponse(rows = sampleRows) {
+function seedOrdersView(
+  rows: Record<string, unknown>[],
+  options: {
+    savedViews?: SavedView[];
+    activeViewId?: number | null;
+    config?: ExplorerViewConfig;
+  } = {},
+) {
+  seedTableView("orders", rows, options);
+}
+
+function mockDataResponse(rows: Record<string, unknown>[] = sampleRows) {
   return new Response(
     JSON.stringify({ data: rows, meta: { page: 1, per_page: 25, total: rows.length, total_pages: 1 } }),
     { status: 200, headers: { "Content-Type": "application/json" } },
@@ -248,7 +280,9 @@ describe("View selector bar", () => {
     await user.click(screen.getByRole("option", { name: /high value orders/i }));
 
     await waitFor(() => {
-      expect(String(fetchMock.mock.calls.at(-1)?.[0])).toContain("sort=-total");
+      expect(
+        fetchMock.mock.calls.some((c) => String(c[0]).includes("sort=-total")),
+      ).toBe(true);
     });
 
     expect(
@@ -421,6 +455,11 @@ describe("View selector bar", () => {
           error: null,
           source: { kind: "table" },
           selectedRowIds: [],
+          editingCell: null,
+          cellErrors: {},
+          pendingCellSaves: [],
+          pendingNewRowIds: [],
+          rowErrors: {},
           context: null,
           savedViews: [],
           savedViewsStatus: "ready" as const,
@@ -566,6 +605,147 @@ describe("Saved view auto-save", () => {
     }
   });
 
+  it("keeps pending auto-saves isolated per saved-view target", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      seedOrdersView(sampleRows, { savedViews: [savedView1], activeViewId: savedView1.id });
+      seedTableView(
+        "customers",
+        [{ id: 7, name: "Acme Corp" }],
+        { savedViews: [savedView3], activeViewId: savedView3.id },
+      );
+
+      useExplorerStore.setState((state) => ({
+        activeTable: "orders",
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+          customers: { ...state.views.customers!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes("/api/v1/data/customers") && method === "GET") {
+          return mockDataResponse([{ id: 7, name: "Acme Corp" }]);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView1.id}`) && method === "PUT") {
+          return mockOkResponse({
+            ...savedView1,
+            config: {
+              ...savedView1.config,
+              search: "urgent",
+            },
+            updated_at: "2026-04-17T12:00:00Z",
+          });
+        }
+
+        if (url.includes(`/api/v1/views/${savedView3.id}`) && method === "PUT") {
+          return mockOkResponse({
+            ...savedView3,
+            config: {
+              ...savedView3.config,
+              search: "vip",
+            },
+            updated_at: "2026-04-17T12:00:00Z",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      useExplorerStore.getState().setSearch("urgent");
+      useExplorerStore.getState().setActiveTable("customers");
+      useExplorerStore.getState().setSearch("vip");
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView1.id}`) && m === "PUT";
+        }),
+      ).toBe(true);
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView3.id}`) && m === "PUT";
+        }),
+      ).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("coalesces repeated edits for the same saved-view target into one auto-save", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      seedOrdersView(sampleRows, { savedViews: [savedView1], activeViewId: savedView1.id });
+
+      useExplorerStore.setState((state) => ({
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView1.id}`) && method === "PUT") {
+          return mockOkResponse({
+            ...savedView1,
+            config: {
+              ...savedView1.config,
+              search: "urgent",
+              filters: [{ column: "status", op: "eq", value: "pending" }],
+            },
+            updated_at: "2026-04-17T12:00:00Z",
+          });
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      useExplorerStore.getState().setSearch("urgent");
+      useExplorerStore.getState().setFilters([{ column: "status", op: "eq", value: "pending" }]);
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.filter(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView1.id}`) && m === "PUT";
+        }),
+      ).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("does not auto-save after switching away from a saved view before the debounce fires", async () => {
     vi.useFakeTimers();
     try {
@@ -609,6 +789,56 @@ describe("Saved view auto-save", () => {
           const u = String(url);
           const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
           return u.includes(`/api/v1/views/${savedView1.id}`) && m === "PUT";
+        }),
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not auto-save a view owned by another user when the debounce fires", async () => {
+    vi.useFakeTimers();
+    try {
+      seedAuthenticated();
+      seedSchema(sampleSnapshot);
+      // savedView2 is owned by user 99; the authenticated user is user 1.
+      seedOrdersView(sampleRows, { savedViews: [savedView2], activeViewId: savedView2.id });
+
+      // Force-enable auto-save bypassing the setAutoSave guard, to simulate
+      // ownership transferring (or any drift) while a flag remained true.
+      useExplorerStore.setState((state) => ({
+        views: {
+          ...state.views,
+          orders: { ...state.views.orders!, autoSave: true },
+        },
+      }));
+
+      const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const method = (init?.method ?? "GET").toUpperCase();
+
+        if (url.includes("/api/v1/data/orders") && method === "GET") {
+          return mockDataResponse(sampleRows);
+        }
+
+        if (url.includes(`/api/v1/views/${savedView2.id}`) && method === "PUT") {
+          return mockOkResponse(savedView2);
+        }
+
+        throw new Error(`Unexpected fetch: ${method} ${url}`);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+
+      useExplorerStore.getState().setSearch("urgent");
+
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          const u = String(url);
+          const m = String((init as RequestInit | undefined)?.method ?? "GET").toUpperCase();
+          return u.includes(`/api/v1/views/${savedView2.id}`) && m === "PUT";
         }),
       ).toBe(false);
     } finally {
@@ -702,6 +932,48 @@ describe("KanbanView", () => {
     expect(pendingLane.querySelector(".kanban-lane__count")?.textContent).toBe("1");
     expect(shippedLane.querySelector(".kanban-lane__count")?.textContent).toBe("1");
     expect(deliveredLane.querySelector(".kanban-lane__count")?.textContent).toBe("0");
+  });
+
+  it("resolves FK card labels from the referenced table display column", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+
+      if (
+        url.includes("/api/v1/data/customers?") &&
+        url.includes("filter%5Bid%5D%5Bin%5D=7")
+      ) {
+        return mockOkResponse({
+          data: [{ id: 7, name: "Acme Co" }],
+          meta: { page: 1, per_page: 1, total: 1, total_pages: 1 },
+        });
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const onNavigateReference = vi.fn();
+    render(
+      <KanbanView
+        table={ordersTable}
+        rows={sampleRows}
+        kanbanColumn="status"
+        cardFieldNames={["customer_id", "total"]}
+        onNavigateReference={onNavigateReference}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole("button", { name: /open related acme co/i }),
+      ).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("Acme Co")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it("shows the unconfigured state when kanbanColumn is null", () => {

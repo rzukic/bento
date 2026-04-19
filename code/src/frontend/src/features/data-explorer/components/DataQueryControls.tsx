@@ -27,6 +27,7 @@ type DataQueryControlsProps = {
   table: ModelTable;
   query: ExplorerQuery;
   disabled?: boolean;
+  toolbarActions?: ReactNode;
   hiddenColumnNames?: string[];
   selectionPanel?: { content: ReactNode; count?: number } | null;
   suppressAutoPanel?: boolean;
@@ -596,6 +597,7 @@ export function DataQueryControls({
   table,
   query,
   disabled = false,
+  toolbarActions = null,
   hiddenColumnNames = [],
   selectionPanel = null,
   suppressAutoPanel = false,
@@ -1314,6 +1316,7 @@ export function DataQueryControls({
             ) : null}
           </div>
           <div className="data-controls__menu">
+            {toolbarActions}
             {selectionPanel ? (
               <Button
                 type="button"
