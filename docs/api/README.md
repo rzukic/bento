@@ -96,19 +96,75 @@ Cross-origin and request-size behavior:
 | `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
 | `GET` | `/api/v1/admin/health/details` | Detailed backend health and runtime state for admin callers |
 | `GET` | `/api/v1/admin/schema` | Return the current Model JSON |
+| `POST` | `/api/v1/admin/schema/preview` | Validate and preview a schema migration without applying it |
 | `PUT` | `/api/v1/admin/schema` | Apply a new Model JSON and run the generated migration |
 | `GET` | `/api/v1/admin/migrations` | List migration history |
 | `POST` | `/api/v1/admin/migrations/rollback` | Roll back the most recent migration |
 
-Current Step 1.5 admin contract:
+Current admin contract:
 - `GET /api/v1/admin/health` is public in both `standard` and `open` mode so container and orchestrator readiness probes can use the canonical versioned health route without a bootstrap token
 - `GET /api/v1/admin/health/details` requires an admin caller in `standard` mode and uses the open-mode admin bypass in `open` mode
 - the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
 - `GET /api/v1/admin/schema` returns the raw Model JSON document with `application/json`
+- `POST /api/v1/admin/schema/preview` validates and normalizes the submitted Model JSON, diffs it against the current stored schema, and returns preview metadata without running SQL, changing schema history, or reloading the live schema cache
 - `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
 - destructive schema changes must be retried with `?confirm_destructive=true`; otherwise the endpoint returns `409 CONFLICT` with `CONFIRMATION_REQUIRED`
 - `GET /api/v1/admin/migrations` returns migration history in reverse chronological order
 - `POST /api/v1/admin/migrations/rollback` rolls back the most recent migration and reloads the schema cache; if no migration exists it returns `400` with `NO_MIGRATIONS`
+
+Schema preview shape (`POST /api/v1/admin/schema/preview`):
+
+```json
+{
+  "isValid": true,
+  "hasChanges": true,
+  "isDestructive": false,
+  "requiresConfirmation": false,
+  "currentVersion": 1,
+  "errors": [],
+  "warnings": [],
+  "changes": [
+    {
+      "changeType": "AddColumn",
+      "table": "widgets",
+      "column": "color",
+      "isDestructive": false
+    }
+  ],
+  "normalizedModel": {
+    "version": 0,
+    "tables": [
+      {
+        "name": "widgets",
+        "columns": [
+          { "name": "id", "type": "integer", "primaryKey": true, "nullable": false, "unique": true },
+          { "name": "name", "type": "text", "nullable": false },
+          { "name": "color", "type": "text" }
+        ],
+        "indexes": []
+      }
+    ],
+    "relations": []
+  },
+  "plan": {
+    "sqlUp": [
+      "ALTER TABLE \"widgets\" ADD COLUMN \"color\" TEXT;"
+    ],
+    "sqlDown": [
+      "ALTER TABLE \"widgets\" DROP COLUMN \"color\";"
+    ],
+    "isDestructive": false,
+    "requiresConfirmation": false
+  }
+}
+```
+
+Preview contract notes:
+- preview responses use `200 OK` for both valid and validation-failed drafts; callers should inspect `isValid` plus the `errors` array
+- `errors` and `warnings` use `{ code, message, path }`, where `path` points into the submitted Model JSON
+- `changes` contain the diff metadata the workbench can group into table / column / relation / index summaries
+- `normalizedModel` is the validator-normalized Model JSON draft that preview/apply operate on
+- `plan` is omitted when validation fails or migration planning cannot be generated safely; when present, `sqlUp` / `sqlDown` show the generated migration statements
 
 Public probe shape (`GET /api/v1/admin/health`):
 
