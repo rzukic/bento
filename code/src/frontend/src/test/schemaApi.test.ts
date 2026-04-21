@@ -80,17 +80,25 @@ describe("schema api", () => {
       warnings: [],
       changes: [
         {
-          changeType: "AddTable",
+          changeType: "AlterColumnType",
           table: "widgets",
-          isDestructive: false
+          column: "name",
+          oldValue: "text",
+          newValue: "integer",
+          coercionKind: "Lossy",
+          castExamples: [
+            { sourceValue: "1,0", castValue: 1, isValid: true },
+            { sourceValue: "two", castValue: 0, isValid: true }
+          ],
+          isDestructive: true
         }
       ],
       normalizedModel: simpleDraft,
       plan: {
         sqlUp: ['CREATE TABLE "widgets" ("id" INTEGER NOT NULL PRIMARY KEY, "name" TEXT NOT NULL);'],
         sqlDown: ['DROP TABLE "widgets";'],
-        isDestructive: false,
-        requiresConfirmation: false
+        isDestructive: true,
+        requiresConfirmation: true
       }
     };
 

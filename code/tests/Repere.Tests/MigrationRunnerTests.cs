@@ -470,7 +470,7 @@ public class MigrationRunnerTests
             var diff = new SchemaDiffEngine();
             var generator = new MigrationGenerator(Config);
             MigrationRunner = new MigrationRunner(DataPool, SystemPool, ModelJsonStore);
-            SchemaService = new SchemaService(ModelJsonStore, validator, diff, generator, MigrationRunner);
+            SchemaService = new SchemaService(ModelJsonStore, validator, diff, generator, MigrationRunner, DataPool);
         }
 
         public async Task InitializeAsync()

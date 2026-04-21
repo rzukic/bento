@@ -34,7 +34,20 @@ public sealed record AdminSchemaChangeResponse
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? CoercionKind { get; init; }
 
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<AdminSchemaCastExampleResponse>? CastExamples { get; init; }
+
     public bool IsDestructive { get; init; }
+}
+
+public sealed record AdminSchemaCastExampleResponse
+{
+    public object? SourceValue { get; init; }
+    public object? CastValue { get; init; }
+    public required bool IsValid { get; init; }
+
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? Error { get; init; }
 }
 
 public sealed record AdminSchemaPlanResponse

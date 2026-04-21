@@ -38,6 +38,40 @@ public sealed class AdminSchemaTests
         }
         """;
 
+    private const string TextScoreSchema = """
+        {
+            "tables": [
+                {
+                    "name": "widgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                        { "name": "name", "type": "text", "nullable": false },
+                        { "name": "score", "type": "text" }
+                    ],
+                    "indexes": []
+                }
+            ],
+            "relations": []
+        }
+        """;
+
+    private const string IntegerScoreSchema = """
+        {
+            "tables": [
+                {
+                    "name": "widgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                        { "name": "name", "type": "text", "nullable": false },
+                        { "name": "score", "type": "integer" }
+                    ],
+                    "indexes": []
+                }
+            ],
+            "relations": []
+        }
+        """;
+
     private const string MissingTableNameSchema = """
         {
             "tables": [
@@ -258,6 +292,64 @@ public sealed class AdminSchemaTests
         Assert.Equal(0, json.GetProperty("changes").GetArrayLength());
         Assert.Equal(0, json.GetProperty("plan").GetProperty("sqlUp").GetArrayLength());
         Assert.Equal(0, json.GetProperty("plan").GetProperty("sqlDown").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_LossyTypeChange_ReturnsDeterministicCastExamples()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(TextScoreSchema);
+
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "widgets" ("name", "score")
+            VALUES
+                ('one', '1,0'),
+                ('two', '2,0'),
+                ('three', '2,1'),
+                ('word', 'two'),
+                ('four', '3,9'),
+                ('overflow', '999');
+            """);
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(IntegerScoreSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("isValid").GetBoolean());
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.True(json.GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
+
+        var typeChange = json.GetProperty("changes")
+            .EnumerateArray()
+            .Single(change =>
+                change.GetProperty("changeType").GetString() == "AlterColumnType"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "score");
+
+        Assert.Equal("Lossy", typeChange.GetProperty("coercionKind").GetString());
+
+        var castExamples = typeChange.GetProperty("castExamples");
+        Assert.Equal(5, castExamples.GetArrayLength());
+
+        Assert.Equal("1,0", castExamples[0].GetProperty("sourceValue").GetString());
+        Assert.Equal(1L, castExamples[0].GetProperty("castValue").GetInt64());
+        Assert.True(castExamples[0].GetProperty("isValid").GetBoolean());
+
+        Assert.Equal("2,0", castExamples[1].GetProperty("sourceValue").GetString());
+        Assert.Equal(2L, castExamples[1].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("2,1", castExamples[2].GetProperty("sourceValue").GetString());
+        Assert.Equal(2L, castExamples[2].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("two", castExamples[3].GetProperty("sourceValue").GetString());
+        Assert.Equal(0L, castExamples[3].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("3,9", castExamples[4].GetProperty("sourceValue").GetString());
+        Assert.Equal(3L, castExamples[4].GetProperty("castValue").GetInt64());
     }
 
     [Fact]

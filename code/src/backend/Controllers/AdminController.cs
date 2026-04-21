@@ -268,6 +268,9 @@ public sealed class AdminController : ControllerBase
     private static AdminSchemaPreviewResponse BuildSchemaPreviewResponse(SchemaPreviewResult result)
     {
         var plan = BuildSchemaPlanResponse(result.Plan);
+        var castPreviewLookup = result.CastPreviews.ToDictionary(
+            preview => BuildCastPreviewKey(preview.ChangeType, preview.TableName, preview.ColumnName),
+            preview => preview);
 
         return new AdminSchemaPreviewResponse
         {
@@ -278,7 +281,7 @@ public sealed class AdminController : ControllerBase
             CurrentVersion = result.CurrentModel.Version,
             Errors = result.Errors.Select(BuildSchemaIssueResponse).ToList(),
             Warnings = result.Warnings.Select(BuildSchemaIssueResponse).ToList(),
-            Changes = result.Changes.Select(BuildSchemaChangeResponse).ToList(),
+            Changes = result.Changes.Select(change => BuildSchemaChangeResponse(change, castPreviewLookup)).ToList(),
             NormalizedModel = result.TargetModel,
             Plan = plan
         };
@@ -289,8 +292,14 @@ public sealed class AdminController : ControllerBase
         return new AdminSchemaIssueResponse(issue.Code, issue.Message, issue.Path);
     }
 
-    private static AdminSchemaChangeResponse BuildSchemaChangeResponse(SchemaChange change)
+    private static AdminSchemaChangeResponse BuildSchemaChangeResponse(
+        SchemaChange change,
+        IReadOnlyDictionary<string, SchemaChangeCastPreview> castPreviewLookup)
     {
+        castPreviewLookup.TryGetValue(
+            BuildCastPreviewKey(change.ChangeType, change.TableName, change.ColumnName),
+            out var castPreview);
+
         return new AdminSchemaChangeResponse
         {
             ChangeType = change.ChangeType.ToString(),
@@ -300,10 +309,24 @@ public sealed class AdminController : ControllerBase
             PreviousColumn = change.PreviousColumnName,
             Relation = change.RelationName,
             Index = change.IndexName,
-            OldValue = change.OldValue,
-            NewValue = change.NewValue,
+            OldValue = NormalizeSchemaChangeValue(change.OldValue),
+            NewValue = NormalizeSchemaChangeValue(change.NewValue),
             CoercionKind = change.CoercionKind?.ToString(),
+            CastExamples = castPreview?.Examples.Count > 0
+                ? castPreview.Examples.Select(BuildSchemaCastExampleResponse).ToList()
+                : null,
             IsDestructive = change.IsDestructive
+        };
+    }
+
+    private static AdminSchemaCastExampleResponse BuildSchemaCastExampleResponse(SchemaCastExample example)
+    {
+        return new AdminSchemaCastExampleResponse
+        {
+            SourceValue = NormalizeSchemaChangeValue(example.SourceValue),
+            CastValue = NormalizeSchemaChangeValue(example.CastValue),
+            IsValid = example.IsValid,
+            Error = example.Error
         };
     }
 
@@ -318,6 +341,22 @@ public sealed class AdminController : ControllerBase
             SqlDown = plan.SqlDown,
             IsDestructive = plan.IsDestructive,
             RequiresConfirmation = plan.RequiresConfirmation
+        };
+    }
+
+    private static string BuildCastPreviewKey(SchemaChangeType changeType, string tableName, string? columnName)
+    {
+        return $"{changeType}|{tableName}|{columnName}";
+    }
+
+    private static object? NormalizeSchemaChangeValue(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            JsonElement json => JsonSerializer.Deserialize<object?>(json.GetRawText()),
+            Enum enumValue => enumValue.ToString(),
+            _ => value
         };
     }
 

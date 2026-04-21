@@ -1,4 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -34,8 +42,10 @@ function readBlobText(blob: Blob): Promise<string> {
 
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error("Unable to read blob contents."));
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Unable to read blob contents."));
+    reader.onload = () =>
+      resolve(typeof reader.result === "string" ? reader.result : "");
     reader.readAsText(blob);
   });
 }
@@ -72,13 +82,42 @@ function replaceModelEditorValue(value: string): void {
   });
 }
 
+function setScrollMetrics(
+  element: HTMLElement,
+  metrics: { scrollHeight: number; clientHeight: number; scrollTop?: number },
+): void {
+  let currentScrollTop = metrics.scrollTop ?? 0;
+
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get: () => metrics.scrollHeight,
+  });
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    get: () => metrics.clientHeight,
+  });
+  Object.defineProperty(element, "scrollTop", {
+    configurable: true,
+    get: () => currentScrollTop,
+    set: (value: number) => {
+      currentScrollTop = value;
+    },
+  });
+}
+
 const populatedSchema = {
   version: 3,
   tables: [
     {
       name: "widgets",
       columns: [
-        { name: "id", type: "integer", primaryKey: true, nullable: false, unique: true },
+        {
+          name: "id",
+          type: "integer",
+          primaryKey: true,
+          nullable: false,
+          unique: true,
+        },
         { name: "name", type: "text", nullable: false },
       ],
       indexes: [],
@@ -99,7 +138,83 @@ const importedSchema = {
     {
       name: "gadgets",
       columns: [
-        { name: "id", type: "integer", primaryKey: true, nullable: false, unique: true },
+        {
+          name: "id",
+          type: "integer",
+          primaryKey: true,
+          nullable: false,
+          unique: true,
+        },
+      ],
+      indexes: [],
+    },
+  ],
+  relations: [],
+};
+
+const appliedSchema = {
+  version: 4,
+  tables: [
+    {
+      name: "widgets",
+      columns: [
+        {
+          name: "id",
+          type: "integer",
+          primaryKey: true,
+          nullable: false,
+          unique: true,
+        },
+        { name: "name", type: "text", nullable: false },
+        { name: "color", type: "text", nullable: true },
+      ],
+      indexes: [
+        {
+          name: "idx_widgets_name",
+          columns: ["name"],
+          unique: false,
+        },
+      ],
+    },
+    {
+      name: "gadgets",
+      columns: [
+        {
+          name: "id",
+          type: "integer",
+          primaryKey: true,
+          nullable: false,
+          unique: true,
+        },
+      ],
+      indexes: [],
+    },
+  ],
+  relations: [
+    {
+      name: "widget_notes",
+      type: "1:N",
+      from: "widgets",
+      to: "gadgets",
+    },
+  ],
+};
+
+const destructiveAppliedSchema = {
+  version: 4,
+  tables: [
+    {
+      name: "widgets",
+      columns: [
+        {
+          name: "id",
+          type: "integer",
+          primaryKey: true,
+          nullable: false,
+          unique: true,
+        },
+        { name: "name", type: "text", nullable: false },
+        { name: "score", type: "integer", nullable: true },
       ],
       indexes: [],
     },
@@ -123,12 +238,112 @@ const previewDiagnosticsResponse = {
   warnings: [
     {
       code: "reserved_table_name",
-      message: "Table 'widgets' is a SQL reserved word and may require quoting.",
+      message:
+        "Table 'widgets' is a SQL reserved word and may require quoting.",
       path: "tables[0].name",
     },
   ],
   changes: [],
   normalizedModel: populatedSchema,
+};
+
+const previewGroupedResponse = {
+  isValid: true,
+  hasChanges: true,
+  isDestructive: false,
+  requiresConfirmation: false,
+  currentVersion: 3,
+  errors: [],
+  warnings: [],
+  changes: [
+    {
+      changeType: "AddTable",
+      table: "gadgets",
+      isDestructive: false,
+    },
+    {
+      changeType: "AddColumn",
+      table: "widgets",
+      column: "color",
+      isDestructive: false,
+    },
+    {
+      changeType: "AddRelation",
+      table: "widgets",
+      relation: "widget_notes",
+      isDestructive: false,
+    },
+    {
+      changeType: "AddIndex",
+      table: "widgets",
+      index: "idx_widgets_name",
+      isDestructive: false,
+    },
+  ],
+  normalizedModel: populatedSchema,
+  plan: {
+    sqlUp: ['ALTER TABLE "widgets" ADD COLUMN "color" TEXT;'],
+    sqlDown: ['ALTER TABLE "widgets" DROP COLUMN "color";'],
+    isDestructive: false,
+    requiresConfirmation: false,
+  },
+};
+
+const previewNoOpResponse = {
+  isValid: true,
+  hasChanges: false,
+  isDestructive: false,
+  requiresConfirmation: false,
+  currentVersion: 3,
+  errors: [],
+  warnings: [],
+  changes: [],
+  normalizedModel: populatedSchema,
+  plan: {
+    sqlUp: [],
+    sqlDown: [],
+    isDestructive: false,
+    requiresConfirmation: false,
+  },
+};
+
+const previewLossyResponse = {
+  isValid: true,
+  hasChanges: true,
+  isDestructive: true,
+  requiresConfirmation: true,
+  currentVersion: 3,
+  errors: [],
+  warnings: [],
+  changes: [
+    {
+      changeType: "AlterColumnType",
+      table: "widgets",
+      column: "score",
+      oldValue: "text",
+      newValue: "integer",
+      coercionKind: "Lossy",
+      isDestructive: true,
+      castExamples: [
+        { sourceValue: "1,0", castValue: 1, isValid: true },
+        { sourceValue: "2,0", castValue: 2, isValid: true },
+        { sourceValue: "2,1", castValue: 2, isValid: true },
+        { sourceValue: "two", castValue: 0, isValid: true },
+        { sourceValue: "3,9", castValue: 3, isValid: true },
+      ],
+    },
+  ],
+  normalizedModel: populatedSchema,
+  plan: {
+    sqlUp: [
+      'ALTER TABLE "widgets" ALTER COLUMN "score" TYPE BIGINT USING CAST("score" AS BIGINT);',
+    ],
+    sqlDown: [
+      'ALTER TABLE "widgets" ALTER COLUMN "score" TYPE TEXT USING CAST("score" AS TEXT);',
+    ],
+    isDestructive: true,
+    requiresConfirmation: true,
+  },
 };
 
 beforeEach(() => {
@@ -162,20 +377,28 @@ describe("Model workbench route (/model)", () => {
     expect(getModelEditorValue()).toBe(
       JSON.stringify(populatedSchema, null, 2),
     );
-    expect(screen.getByRole("toolbar", { name: "Schema workbench actions" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("toolbar", { name: "Schema workbench actions" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Schema workbench")).not.toBeInTheDocument();
     expect(screen.queryByText("Clean draft")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Preview" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Format JSON" })).toBeEnabled();
-    expect(screen.getByRole("heading", { name: "Diagnostics" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Preview" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Diagnostics" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Preview" }),
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("model-json-highlight")).toBeNull();
     expect(useSchemaStore.getState().snapshot).toBeNull();
 
     replaceModelEditorValue(`${JSON.stringify(populatedSchema, null, 2)}\n`);
 
-    expect(getModelEditorValue()).toBe(`${JSON.stringify(populatedSchema, null, 2)}\n`);
+    expect(getModelEditorValue()).toBe(
+      `${JSON.stringify(populatedSchema, null, 2)}\n`,
+    );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/v1/admin/schema",
       expect.objectContaining({
@@ -194,7 +417,9 @@ describe("Model workbench route (/model)", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByText("Admin access required")).toBeInTheDocument();
-    expect(screen.getByText(/sign in with an admin account/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/sign in with an admin account/i),
+    ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -206,13 +431,20 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByText(/loading current schema/i)).toBeInTheDocument();
-    expect(screen.getByText(/fetching the current model json/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/loading current schema/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/fetching the current model json/i),
+    ).toBeInTheDocument();
   });
 
   it("shows an empty-schema notice when no schema is currently applied", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(emptySchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(emptySchema)),
+    );
 
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
@@ -223,7 +455,10 @@ describe("Model workbench route (/model)", () => {
 
   it("formats valid JSON drafts into the canonical pretty-printed shape", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(populatedSchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+    );
 
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
@@ -231,18 +466,25 @@ describe("Model workbench route (/model)", () => {
     await screen.findByRole("textbox", { name: /model json draft/i });
     replaceModelEditorValue('{"version":1,"tables":[],"relations":[]}');
 
-    expect(getModelEditorValue()).toBe('{"version":1,"tables":[],"relations":[]}');
+    expect(getModelEditorValue()).toBe(
+      '{"version":1,"tables":[],"relations":[]}',
+    );
     expect(screen.getByText("JSON syntax valid")).toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Format JSON" }));
 
-    expect(getModelEditorValue()).toBe('{\n  "version": 1,\n  "tables": [],\n  "relations": []\n}');
+    expect(getModelEditorValue()).toBe(
+      '{\n  "version": 1,\n  "tables": [],\n  "relations": []\n}',
+    );
   });
 
   it("exports the current draft as canonical JSON", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(populatedSchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+    );
 
     let capturedBlob: Blob | null = null;
     const createObjectUrl = vi.fn((blob: Blob) => {
@@ -300,7 +542,10 @@ describe("Model workbench route (/model)", () => {
 
   it("confirms before replacing a dirty draft with imported JSON", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(populatedSchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+    );
 
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
@@ -308,9 +553,13 @@ describe("Model workbench route (/model)", () => {
     await screen.findByRole("textbox", { name: /model json draft/i });
     replaceModelEditorValue(`${JSON.stringify(populatedSchema, null, 2)}\n`);
 
-    const file = new File([JSON.stringify(importedSchema)], "imported-model.json", {
-      type: "application/json",
-    });
+    const file = new File(
+      [JSON.stringify(importedSchema)],
+      "imported-model.json",
+      {
+        type: "application/json",
+      },
+    );
     fireEvent.change(screen.getByTestId("model-json-import-input"), {
       target: {
         files: [file],
@@ -320,7 +569,9 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByRole("dialog", { name: "Replace the current draft?" }),
     ).toBeInTheDocument();
-    expect(getModelEditorValue()).toBe(`${JSON.stringify(populatedSchema, null, 2)}\n`);
+    expect(getModelEditorValue()).toBe(
+      `${JSON.stringify(populatedSchema, null, 2)}\n`,
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Replace draft" }));
@@ -330,7 +581,10 @@ describe("Model workbench route (/model)", () => {
 
   it("keeps invalid JSON editable and shows a local parse error without breaking the page", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(populatedSchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+    );
 
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
@@ -343,9 +597,13 @@ describe("Model workbench route (/model)", () => {
     expect(screen.getByText("Local JSON syntax")).toBeInTheDocument();
     expect(screen.getByText("json_parse_error")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Format JSON" })).toBeDisabled();
-    expect(screen.getByText(/backend schema validation is paused/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/backend schema validation is paused/i),
+    ).toBeInTheDocument();
 
-    replaceModelEditorValue('{\n  "version": 1,\n  "tables": [],\n  "relations": []\n}');
+    replaceModelEditorValue(
+      '{\n  "version": 1,\n  "tables": [],\n  "relations": []\n}',
+    );
 
     expect(screen.queryByText("Syntax error")).not.toBeInTheDocument();
     expect(screen.getByText("JSON syntax valid")).toBeInTheDocument();
@@ -372,7 +630,9 @@ describe("Model workbench route (/model)", () => {
     await user.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(await screen.findByText("Schema errors")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Warnings" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Warnings" }),
+    ).toBeInTheDocument();
     expect(screen.getByText("missing_column_type")).toBeInTheDocument();
     expect(screen.getByText("reserved_table_name")).toBeInTheDocument();
     expect(screen.getByText("tables[0].columns[1].type")).toBeInTheDocument();
@@ -383,7 +643,9 @@ describe("Model workbench route (/model)", () => {
     );
 
     await waitFor(() => {
-      expect(getModelEditorView().state.selection.main.head).toBe(expectedIndex);
+      expect(getModelEditorView().state.selection.main.head).toBe(
+        expectedIndex,
+      );
       expect(
         document.querySelector(
           `.schema-json-editor__gutter-line--active[data-line="${expectedLine}"]`,
@@ -401,9 +663,348 @@ describe("Model workbench route (/model)", () => {
     );
   });
 
+  it("renders grouped additive preview sections after a successful preview", async () => {
+    seedAuthenticated("admin");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(populatedSchema))
+        .mockResolvedValueOnce(jsonResponse(previewGroupedResponse)),
+    );
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      screen.getByText("No destructive changes detected"),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tables" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Columns" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Relations" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Indexes" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Add table gadgets")).toBeInTheDocument();
+    expect(screen.getByText("Add column widgets.color")).toBeInTheDocument();
+    expect(screen.getByText("Add relation widget_notes")).toBeInTheDocument();
+    expect(screen.getByText("Add index idx_widgets_name")).toBeInTheDocument();
+  });
+
+  it("shows a clear no-op preview state when the draft matches the current schema", async () => {
+    seedAuthenticated("admin");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(populatedSchema))
+        .mockResolvedValueOnce(jsonResponse(previewNoOpResponse)),
+    );
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(await screen.findByText("No-op preview")).toBeInTheDocument();
+    expect(screen.getByText(/matches the live schema/i)).toBeInTheDocument();
+  });
+
+  it("shows destructive lossy type changes with example casts", async () => {
+    seedAuthenticated("admin");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(populatedSchema))
+        .mockResolvedValueOnce(jsonResponse(previewLossyResponse)),
+    );
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      await screen.findByText("Destructive changes require confirmation"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Change type of widgets.score from text to integer"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Example Casts (5 first rows)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText('"1,0" -> 1')).toBeInTheDocument();
+    expect(screen.getByText('"2,0" -> 2')).toBeInTheDocument();
+    expect(screen.getByText('"2,1" -> 2')).toBeInTheDocument();
+    expect(screen.getByText('"two" -> 0')).toBeInTheDocument();
+    expect(screen.getByText('"3,9" -> 3')).toBeInTheDocument();
+  });
+
+  it("applies a previewed draft through the review modal and refreshes the live schema snapshot", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(previewGroupedResponse))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          applied: true,
+          version: 4,
+          changes: previewGroupedResponse.changes,
+          warnings: [],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(appliedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Review and apply schema changes",
+    });
+    expect(
+      within(dialog).getByText("Add column widgets.color"),
+    ).toBeInTheDocument();
+
+    const review = within(dialog).getByTestId("schema-apply-review-scroll");
+    setScrollMetrics(review, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+      scrollTop: 0,
+    });
+    fireEvent.scroll(review);
+
+    const confirmButton = within(dialog).getByRole("button", { name: "Apply" });
+    await waitFor(() => expect(confirmButton).toBeDisabled());
+
+    review.scrollTop = 800;
+    fireEvent.scroll(review);
+    await waitFor(() => expect(confirmButton).toBeEnabled());
+
+    await user.click(confirmButton);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Review and apply schema changes" }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(
+      await screen.findByText("Applied schema version 4"),
+    ).toBeInTheDocument();
+    expect(getModelEditorValue()).toBe(JSON.stringify(appliedSchema, null, 2));
+    expect(useSchemaStore.getState().snapshot).toEqual(appliedSchema);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/admin/schema",
+      expect.objectContaining({
+        method: "PUT",
+        body: JSON.stringify(populatedSchema),
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/admin/schema",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+  });
+
+  it("keeps the draft and shows diagnostics when apply fails validation", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(previewGroupedResponse))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: "VALIDATION_FAILED",
+              message: "Schema validation failed.",
+              details: {
+                errors: [
+                  {
+                    code: "duplicate_table_name",
+                    message: "Table 'widgets' already exists.",
+                    path: "tables[1].name",
+                  },
+                ],
+              },
+            },
+          },
+          400,
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Review and apply schema changes",
+    });
+    const review = within(dialog).getByTestId("schema-apply-review-scroll");
+    setScrollMetrics(review, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+      scrollTop: 800,
+    });
+    fireEvent.scroll(review);
+
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Review and apply schema changes" }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(
+      await screen.findByText("Apply blocked by validation errors"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Schema errors")).toBeInTheDocument();
+    expect(screen.getByText("duplicate_table_name")).toBeInTheDocument();
+    expect(screen.getByText("tables[1].name")).toBeInTheDocument();
+    expect(getModelEditorValue()).toBe(JSON.stringify(populatedSchema, null, 2));
+    expect(useSchemaStore.getState().snapshot).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("requires explicit destructive confirmation before resending apply with confirm_destructive", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(previewLossyResponse))
+      .mockResolvedValueOnce(
+        jsonResponse(
+          {
+            error: {
+              code: "CONFIRMATION_REQUIRED",
+              message:
+                "Schema change includes destructive operations. Resend with ?confirm_destructive=true to apply.",
+              details: {
+                changes: [
+                  {
+                    changeType: "AlterColumnType",
+                    table: "widgets",
+                    column: "score",
+                    isDestructive: true,
+                  },
+                ],
+              },
+            },
+          },
+          409,
+        ),
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          applied: true,
+          version: 4,
+          changes: previewLossyResponse.changes,
+          warnings: [],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(destructiveAppliedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    await user.click(screen.getByRole("button", { name: "Apply" }));
+
+    const dialog = await screen.findByRole("dialog", {
+      name: "Review and apply schema changes",
+    });
+    const review = within(dialog).getByTestId("schema-apply-review-scroll");
+    setScrollMetrics(review, {
+      scrollHeight: 1200,
+      clientHeight: 400,
+      scrollTop: 800,
+    });
+    fireEvent.scroll(review);
+
+    await user.click(within(dialog).getByRole("button", { name: "Apply" }));
+
+    expect(
+      await within(dialog).findByText("Explicit destructive confirmation required"),
+    ).toBeInTheDocument();
+
+    const destructiveButton = within(dialog).getByRole("button", {
+      name: "Apply destructive changes",
+    });
+    expect(destructiveButton).toBeEnabled();
+
+    await user.click(destructiveButton);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Review and apply schema changes" }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(
+      await screen.findByText("Applied schema version 4"),
+    ).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      3,
+      "/api/v1/admin/schema",
+      expect.objectContaining({
+        method: "PUT",
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      4,
+      "/api/v1/admin/schema?confirm_destructive=true",
+      expect.objectContaining({
+        method: "PUT",
+      }),
+    );
+    expect(useSchemaStore.getState().snapshot).toEqual(destructiveAppliedSchema);
+  });
+
   it("rejects invalid imported JSON without replacing the current draft", async () => {
     seedAuthenticated("admin");
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonResponse(populatedSchema)));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+    );
 
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
@@ -432,7 +1033,12 @@ describe("Model workbench route (/model)", () => {
       .fn()
       .mockResolvedValueOnce(
         jsonResponse(
-          { error: { code: "INTERNAL_ERROR", message: "Schema engine offline." } },
+          {
+            error: {
+              code: "INTERNAL_ERROR",
+              message: "Schema engine offline.",
+            },
+          },
           500,
         ),
       )
@@ -442,13 +1048,17 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Schema engine offline.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Schema engine offline.",
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => {
-      expect(screen.getByRole("toolbar", { name: "Schema workbench actions" })).toBeInTheDocument();
+      expect(
+        screen.getByRole("toolbar", { name: "Schema workbench actions" }),
+      ).toBeInTheDocument();
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });

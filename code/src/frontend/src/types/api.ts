@@ -211,7 +211,15 @@ export type SchemaChange = {
   oldValue?: unknown;
   newValue?: unknown;
   coercionKind?: SchemaCoercionKind | null;
+  castExamples?: SchemaCastExample[] | null;
   isDestructive: boolean;
+};
+
+export type SchemaCastExample = {
+  sourceValue?: unknown;
+  castValue?: unknown;
+  isValid: boolean;
+  error?: string | null;
 };
 
 export type SchemaPlan = {
