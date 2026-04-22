@@ -54,6 +54,294 @@ public class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task SchemaService_ApplySchema_RemovesRenameHintsFromPersistedModel()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "accounts",
+                  "renamedFrom": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "renamedFrom": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        Assert.True(result.Applied);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameTable);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+        Assert.Null(result.TargetModel.Tables[0].RenamedFrom);
+        Assert.Null(result.TargetModel.Tables[0].Columns.Single(column => column.Name == "name").RenamedFrom);
+
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal("accounts", current!.Tables[0].Name);
+        Assert.Null(current.Tables[0].RenamedFrom);
+        Assert.Null(current.Tables[0].Columns.Single(column => column.Name == "name").RenamedFrom);
+
+        await using var dataConn = await env.OpenDataAsync();
+        Assert.True(await TableExistsAsync(dataConn, "accounts"));
+        Assert.Equal(["id", "name"], await GetColumnNamesAsync(dataConn, "accounts"));
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_CascadesTableRenameHintsToReferencesAndRelations()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "accounts",
+                  "renamedFrom": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        Assert.True(result.Applied);
+        Assert.Empty(result.Errors);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameTable);
+
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal("accounts", current!.Tables[0].Name);
+        Assert.Equal(
+            "accounts",
+            current.Tables.Single(table => table.Name == "orders")
+                .Columns.Single(column => column.Name == "customer_id")
+                .References);
+        Assert.Equal("accounts", current.Relations.Single().From);
+        Assert.Equal("orders", current.Relations.Single().To);
+        Assert.Null(current.Tables[0].RenamedFrom);
+
+        await using var dataConn = await env.OpenDataAsync();
+        Assert.True(await TableExistsAsync(dataConn, "accounts"));
+        Assert.True(await TableExistsAsync(dataConn, "orders"));
+    }
+
+    [Fact]
+    public async Task SchemaService_PreviewSchema_BlocksPrimaryKeyColumnRenames()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var preview = await env.SchemaService.PreviewSchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "account_id", "renamedFrom": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(preview.Errors);
+        Assert.Equal("primary_key_rename_unsupported", error.Code);
+        Assert.Equal("tables[0].columns[0].name", error.Path);
+        Assert.Contains("Keep the primary key column named 'id'", error.Message);
+        Assert.Null(preview.Plan);
+        Assert.Contains(preview.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_BlocksPrimaryKeyColumnRenamesAndLeavesSchemaUntouched()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "account_id", "renamedFrom": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(result.Errors);
+        Assert.False(result.Applied);
+        Assert.Equal("primary_key_rename_unsupported", error.Code);
+        Assert.Null(result.Plan);
+
+        await using var dataConn = await env.OpenDataAsync();
+        Assert.Equal(["id", "name"], await GetColumnNamesAsync(dataConn, "customers"));
+
+        await using var systemConn = await env.OpenSystemAsync();
+        Assert.Equal(1, await CountRowsAsync(systemConn, "migrations"));
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_RenamesChildReferenceColumnAndPreservesValues()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        await using (var dataConn = await env.OpenDataAsync())
+        {
+            using var insertCustomer = dataConn.CreateCommand();
+            insertCustomer.CommandText = """INSERT INTO "customers" ("name") VALUES ('Acme');""";
+            await insertCustomer.ExecuteNonQueryAsync();
+
+            using var insertOrder = dataConn.CreateCommand();
+            insertOrder.CommandText = """INSERT INTO "orders" ("customer_id") VALUES (1);""";
+            await insertOrder.ExecuteNonQueryAsync();
+        }
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "account_id", "renamedFrom": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "account_id" }
+              ]
+            }
+            """));
+
+        Assert.True(result.Applied);
+        Assert.Empty(result.Errors);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn && change.PreviousColumnName == "customer_id" && change.ColumnName == "account_id");
+
+        await using var verifyConn = await env.OpenDataAsync();
+        Assert.Equal(["id", "account_id"], await GetColumnNamesAsync(verifyConn, "orders"));
+
+        using var query = verifyConn.CreateCommand();
+        query.CommandText = """SELECT "account_id" FROM "orders" LIMIT 1;""";
+        Assert.Equal(1L, (long)(await query.ExecuteScalarAsync() ?? 0L));
+    }
+
+    [Fact]
     public async Task SchemaService_ApplySchema_ModifyThenRollback_RestoresPreviousSchema()
     {
         using var env = new SchemaTestEnvironment();
@@ -392,6 +680,36 @@ public class MigrationRunnerTests
     }
 
     private static ModelJson Parse(string json) => ModelJsonSerializer.Parse(json);
+
+    private static async Task ApplyReferencedCustomerOrderSchemaAsync(SchemaTestEnvironment env)
+    {
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+    }
 
     private static async Task<int> CountRowsAsync(SqliteConnection conn, string tableName)
     {

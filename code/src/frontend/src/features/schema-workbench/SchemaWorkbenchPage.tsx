@@ -19,13 +19,17 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import type {
   SchemaCastExample,
   SchemaChange,
+  SchemaColumn,
   SchemaIssue,
   SchemaModelDocument,
   SchemaPreviewResponse,
+  SchemaRelation,
+  SchemaTable,
 } from "../../types/api";
 import { JsonCodeEditor, type JsonEditorDiagnostic } from "./JsonCodeEditor";
 import { parseJsonDraft, type JsonDraftLocation } from "./draftJson";
 import { resolveJsonPathLocation } from "./jsonPathLocation";
+import { addAutomaticRenameHints } from "./schemaRenameHints";
 import "./SchemaWorkbenchPage.css";
 
 type WorkbenchStatus = "loading" | "ready" | "error";
@@ -57,6 +61,7 @@ type PreviewState = {
   status: PreviewStatus;
   response: SchemaPreviewResponse | null;
   error: string | null;
+  errorCode: string | null;
 };
 
 type WorkbenchDiagnostic = {
@@ -68,7 +73,7 @@ type WorkbenchDiagnostic = {
   message: string;
   path: string | null;
   severity: "error" | "warning";
-  source: "backend" | "syntax";
+  source: "backend" | "preview" | "syntax";
 };
 
 type PreviewChangeGroup = {
@@ -89,6 +94,40 @@ type ApplyDialogState = {
   confirmationRequired: boolean;
   error: string | null;
 };
+
+type MiniErdChangeTone = "added" | "changed" | "removed";
+
+type MiniErdChangeAnnotation = {
+  destructive: boolean;
+  label: string;
+  tone: MiniErdChangeTone;
+  typeTransition?: {
+    from: string;
+    to: string;
+  };
+};
+
+type MiniErdChangeMap = {
+  columns: Map<string, MiniErdChangeAnnotation>;
+  hasChanges: boolean;
+  relations: Map<string, MiniErdChangeAnnotation>;
+  tables: Map<string, MiniErdChangeAnnotation>;
+};
+
+const numericColumnTypeLabels = [
+  "text",
+  "integer",
+  "float",
+  "boolean",
+  "date",
+  "datetime",
+  "json",
+  "reference",
+  "computed",
+  "currency",
+  "enum",
+  "file",
+];
 
 function readBlobText(file: Blob): Promise<string> {
   if (typeof file.text === "function") {
@@ -121,6 +160,7 @@ const initialPreviewState: PreviewState = {
   status: "idle",
   response: null,
   error: null,
+  errorCode: null,
 };
 
 const initialApplyDialogState: ApplyDialogState = {
@@ -129,6 +169,8 @@ const initialApplyDialogState: ApplyDialogState = {
   confirmationRequired: false,
   error: null,
 };
+
+const autoPreviewDebounceMs = 800;
 
 function isEmptySchema(document: SchemaModelDocument): boolean {
   return document.tables.length === 0 && document.relations.length === 0;
@@ -189,7 +231,8 @@ function buildPreviewGroups(changes: SchemaChange[]): PreviewChangeGroup[] {
         (change) =>
           change.changeType === "AddTable" ||
           change.changeType === "DropTable" ||
-          change.changeType === "RenameTable",
+          change.changeType === "RenameTable" ||
+          change.changeType === "AlterTableMetadata",
       ),
     },
     {
@@ -200,6 +243,7 @@ function buildPreviewGroups(changes: SchemaChange[]): PreviewChangeGroup[] {
           change.changeType === "AddColumn" ||
           change.changeType === "DropColumn" ||
           change.changeType === "RenameColumn" ||
+          change.changeType === "AlterColumnMetadata" ||
           change.changeType === "AlterColumnType" ||
           change.changeType === "AlterColumnNullability" ||
           change.changeType === "AlterColumnDefault" ||
@@ -262,6 +306,8 @@ function describePreviewChange(change: SchemaChange): {
       return {
         title: `Rename table ${change.previousTable ?? change.table} to ${change.table}`,
       };
+    case "AlterTableMetadata":
+      return { title: `Update table details for ${change.table}` };
     case "AddColumn":
       return { title: `Add column ${getQualifiedColumnName(change)}` };
     case "DropColumn":
@@ -270,6 +316,8 @@ function describePreviewChange(change: SchemaChange): {
       return {
         title: `Rename column ${change.table}.${change.previousColumn ?? change.column} to ${change.column ?? change.previousColumn}`,
       };
+    case "AlterColumnMetadata":
+      return { title: `Update column details for ${getQualifiedColumnName(change)}` };
     case "AlterColumnType":
       return {
         title: `Change type of ${getQualifiedColumnName(change)} from ${change.oldValue} to ${change.newValue}`,
@@ -328,6 +376,516 @@ function mergePreviewValidationErrors(
   };
 }
 
+function resolvePreviewErrorLocation(
+  message: string,
+  draftText: string,
+): Pick<WorkbenchDiagnostic, "location" | "locationExact" | "path"> | null {
+  const path = extractServerJsonPath(message);
+  if (path) {
+    const resolution = resolveJsonPathLocation(draftText, path);
+    if (resolution) {
+      return {
+        location: resolution.location,
+        locationExact: resolution.exact,
+        path,
+      };
+    }
+  }
+
+  const lineByteLocation = extractServerLineByteLocation(message, draftText);
+  if (lineByteLocation) {
+    return {
+      location: lineByteLocation,
+      locationExact: true,
+      path: path ?? null,
+    };
+  }
+
+  const scalarPath = resolveQuotedScalarPath(message, draftText);
+  if (scalarPath) {
+    const resolution = resolveJsonPathLocation(draftText, scalarPath);
+    if (resolution) {
+      return {
+        location: resolution.location,
+        locationExact: resolution.exact,
+        path: scalarPath,
+      };
+    }
+  }
+
+  return null;
+}
+
+function extractServerJsonPath(message: string): string | null {
+  const match = message.match(/Path:\s*([^|]+?)(?:\s*\||$)/i);
+  if (!match) {
+    return null;
+  }
+
+  let path = match[1].trim();
+  if (!path) {
+    return null;
+  }
+
+  path = path
+    .replace(/^\$/, "")
+    .replace(/^\./, "")
+    .replace(/\[['"]([^'"]+)['"]\]/g, ".$1");
+
+  return path || "schema";
+}
+
+function extractServerLineByteLocation(
+  message: string,
+  draftText: string,
+): JsonDraftLocation | null {
+  const match = message.match(
+    /LineNumber:\s*(\d+)\s*\|\s*BytePositionInLine:\s*(\d+)/i,
+  );
+  if (!match) {
+    return null;
+  }
+
+  const lineNumber = Number.parseInt(match[1], 10);
+  const bytePosition = Number.parseInt(match[2], 10);
+  if (
+    !Number.isFinite(lineNumber) ||
+    !Number.isFinite(bytePosition) ||
+    lineNumber < 0 ||
+    bytePosition < 0
+  ) {
+    return null;
+  }
+
+  const line = lineNumber + 1;
+  const column = bytePosition + 1;
+  if (line > draftText.split("\n").length) {
+    return null;
+  }
+
+  return { line, column };
+}
+
+function resolveQuotedScalarPath(
+  message: string,
+  draftText: string,
+): string | null {
+  const quotedValues = [...message.matchAll(/['"]([^'"]+)['"]/g)]
+    .map((match) => match[1])
+    .filter((value) => value.length > 0);
+
+  if (quotedValues.length === 0) {
+    return null;
+  }
+
+  try {
+    const document = JSON.parse(draftText) as unknown;
+    for (const value of quotedValues) {
+      const path = findScalarValuePath(document, value);
+      if (path) {
+        return path;
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function findScalarValuePath(
+  value: unknown,
+  target: string,
+  base = "",
+): string | null {
+  if (value === target) {
+    return base || "schema";
+  }
+
+  if (Array.isArray(value)) {
+    for (let index = 0; index < value.length; index += 1) {
+      const path = findScalarValuePath(
+        value[index],
+        target,
+        `${base}[${index}]`,
+      );
+      if (path) {
+        return path;
+      }
+    }
+
+    return null;
+  }
+
+  if (value && typeof value === "object") {
+    for (const [key, child] of Object.entries(value)) {
+      const path = findScalarValuePath(
+        child,
+        target,
+        base ? `${base}.${key}` : key,
+      );
+      if (path) {
+        return path;
+      }
+    }
+  }
+
+  return null;
+}
+
+function asSchemaModelDocument(value: unknown): SchemaModelDocument | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const candidate = value as Partial<SchemaModelDocument>;
+  if (!Array.isArray(candidate.tables) || !Array.isArray(candidate.relations)) {
+    return null;
+  }
+
+  return candidate as SchemaModelDocument;
+}
+
+function getColumnBadgeLabels(column: SchemaColumn): string[] {
+  const labels: string[] = [];
+
+  if (column.primaryKey) {
+    labels.push("PK");
+  }
+
+  if (column.unique) {
+    labels.push("Unique");
+  }
+
+  if (column.nullable === false) {
+    labels.push("Required");
+  }
+
+  return labels;
+}
+
+function getRelationEndpoint(
+  relation: SchemaRelation,
+  preferredKey: "from" | "to",
+): string {
+  const fallbackKey = preferredKey === "from" ? "fromTable" : "toTable";
+  const directValue = relation[preferredKey];
+  const fallbackValue = relation[fallbackKey];
+
+  return typeof directValue === "string"
+    ? directValue
+    : typeof fallbackValue === "string"
+      ? fallbackValue
+      : "Unknown";
+}
+
+function getColumnChangeKey(tableName: string, columnName: string): string {
+  return `${tableName}.${columnName}`;
+}
+
+function createEmptyMiniErdChangeMap(): MiniErdChangeMap {
+  return {
+    columns: new Map(),
+    hasChanges: false,
+    relations: new Map(),
+    tables: new Map(),
+  };
+}
+
+function setMiniErdChangeAnnotation(
+  map: Map<string, MiniErdChangeAnnotation>,
+  key: string | null | undefined,
+  annotation: MiniErdChangeAnnotation,
+) {
+  if (!key) {
+    return;
+  }
+
+  const current = map.get(key);
+  if (
+    current?.tone === "removed" ||
+    (current?.destructive && !annotation.destructive)
+  ) {
+    return;
+  }
+
+  map.set(key, annotation);
+}
+
+function getChangedAnnotation(change: SchemaChange): MiniErdChangeAnnotation {
+  return {
+    tone: "changed",
+    label: change.isDestructive ? "Destructive" : "Changed",
+    destructive: change.isDestructive,
+  };
+}
+
+function formatMiniErdTypeValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim().toLowerCase();
+  }
+
+  if (typeof value === "number" && Number.isInteger(value)) {
+    return numericColumnTypeLabels[value] ?? String(value);
+  }
+
+  return formatPreviewValue(value);
+}
+
+function buildMiniErdChangeMap(changes: SchemaChange[]): MiniErdChangeMap {
+  const changeMap = createEmptyMiniErdChangeMap();
+  changeMap.hasChanges = changes.length > 0;
+
+  for (const change of changes) {
+    switch (change.changeType) {
+      case "AddTable":
+        setMiniErdChangeAnnotation(changeMap.tables, change.table, {
+          tone: "added",
+          label: "Added",
+          destructive: false,
+        });
+        break;
+      case "DropTable":
+        setMiniErdChangeAnnotation(changeMap.tables, change.table, {
+          tone: "removed",
+          label: "Removed",
+          destructive: true,
+        });
+        break;
+      case "RenameTable":
+        setMiniErdChangeAnnotation(changeMap.tables, change.table, {
+          tone: "changed",
+          label: "Renamed",
+          destructive: change.isDestructive,
+        });
+        break;
+      case "AddColumn":
+        setMiniErdChangeAnnotation(
+          changeMap.columns,
+          change.column
+            ? getColumnChangeKey(change.table, change.column)
+            : undefined,
+          {
+            tone: "added",
+            label: "Added",
+            destructive: false,
+          },
+        );
+        break;
+      case "DropColumn":
+        setMiniErdChangeAnnotation(
+          changeMap.columns,
+          change.column
+            ? getColumnChangeKey(change.table, change.column)
+            : undefined,
+          {
+            tone: "removed",
+            label: "Removed",
+            destructive: true,
+          },
+        );
+        break;
+      case "RenameColumn":
+        setMiniErdChangeAnnotation(
+          changeMap.columns,
+          change.column
+            ? getColumnChangeKey(change.table, change.column)
+            : undefined,
+          {
+            tone: "changed",
+            label: "Renamed",
+            destructive: change.isDestructive,
+          },
+        );
+        break;
+      case "AlterColumnType":
+        setMiniErdChangeAnnotation(
+          changeMap.columns,
+          change.column
+            ? getColumnChangeKey(change.table, change.column)
+            : undefined,
+          {
+            tone: "changed",
+            label: change.isDestructive ? "Destructive" : "Type changed",
+            destructive: change.isDestructive,
+            typeTransition: {
+              from: formatMiniErdTypeValue(change.oldValue),
+              to: formatMiniErdTypeValue(change.newValue),
+            },
+          },
+        );
+        break;
+      case "AlterColumnNullability":
+      case "AlterColumnDefault":
+      case "AlterColumnUnique":
+        setMiniErdChangeAnnotation(
+          changeMap.columns,
+          change.column
+            ? getColumnChangeKey(change.table, change.column)
+            : undefined,
+          getChangedAnnotation(change),
+        );
+        break;
+      case "AddRelation":
+        setMiniErdChangeAnnotation(changeMap.relations, change.relation, {
+          tone: "added",
+          label: "Added",
+          destructive: false,
+        });
+        break;
+      case "DropRelation":
+        setMiniErdChangeAnnotation(changeMap.relations, change.relation, {
+          tone: "removed",
+          label: "Removed",
+          destructive: true,
+        });
+        break;
+      case "AlterRelation":
+        setMiniErdChangeAnnotation(
+          changeMap.relations,
+          change.relation,
+          getChangedAnnotation(change),
+        );
+        break;
+      case "AddIndex":
+      case "DropIndex":
+      case "RenameIndex":
+      case "AlterIndex":
+        setMiniErdChangeAnnotation(
+          changeMap.tables,
+          change.table,
+          getChangedAnnotation(change),
+        );
+        break;
+      default:
+        break;
+    }
+  }
+
+  return changeMap;
+}
+
+function getMiniErdAnnotationClass(
+  baseClass: string,
+  annotation: MiniErdChangeAnnotation | null | undefined,
+): string {
+  if (!annotation) {
+    return baseClass;
+  }
+
+  return [
+    baseClass,
+    `${baseClass}--${annotation.tone}`,
+    annotation.destructive ? `${baseClass}--destructive` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function findTableByName(
+  document: SchemaModelDocument | null,
+  tableName: string,
+): SchemaTable | null {
+  return document?.tables.find((table) => table.name === tableName) ?? null;
+}
+
+function findRelationByName(
+  document: SchemaModelDocument | null,
+  relationName: string,
+): SchemaRelation | null {
+  return (
+    document?.relations.find((relation) => relation.name === relationName) ??
+    null
+  );
+}
+
+function buildMiniErdTables(
+  document: SchemaModelDocument,
+  baselineDocument: SchemaModelDocument | null,
+  changeMap: MiniErdChangeMap,
+): SchemaTable[] {
+  const tables = [...document.tables];
+  const names = new Set(tables.map((table) => table.name));
+
+  changeMap.tables.forEach((annotation, tableName) => {
+    if (annotation.tone !== "removed" || names.has(tableName)) {
+      return;
+    }
+
+    const baselineTable = findTableByName(baselineDocument, tableName);
+    if (baselineTable) {
+      tables.push(baselineTable);
+      names.add(tableName);
+    }
+  });
+
+  return tables;
+}
+
+function buildMiniErdColumns(
+  table: SchemaTable,
+  baselineTable: SchemaTable | null,
+  changeMap: MiniErdChangeMap,
+): SchemaColumn[] {
+  const columns = [...table.columns];
+  const names = new Set(columns.map((column) => column.name));
+
+  changeMap.columns.forEach((annotation, key) => {
+    if (annotation.tone !== "removed" || !key.startsWith(`${table.name}.`)) {
+      return;
+    }
+
+    const columnName = key.slice(table.name.length + 1);
+    if (names.has(columnName)) {
+      return;
+    }
+
+    const baselineColumn = baselineTable?.columns.find(
+      (column) => column.name === columnName,
+    );
+    if (baselineColumn) {
+      columns.push(baselineColumn);
+      names.add(columnName);
+    }
+  });
+
+  return columns;
+}
+
+function buildMiniErdRelations(
+  document: SchemaModelDocument,
+  baselineDocument: SchemaModelDocument | null,
+  changeMap: MiniErdChangeMap,
+): SchemaRelation[] {
+  const relations = [...document.relations];
+  const names = new Set(relations.map((relation) => relation.name));
+
+  changeMap.relations.forEach((annotation, relationName) => {
+    if (annotation.tone !== "removed" || names.has(relationName)) {
+      return;
+    }
+
+    const baselineRelation = findRelationByName(baselineDocument, relationName);
+    if (baselineRelation) {
+      relations.push(baselineRelation);
+      names.add(relationName);
+    }
+  });
+
+  return relations;
+}
+
+function getMiniErdColumnTypeLabel(
+  column: SchemaColumn,
+  annotation: MiniErdChangeAnnotation | null | undefined,
+): string {
+  if (annotation?.typeTransition) {
+    return `${annotation.typeTransition.from} -> ${annotation.typeTransition.to}`;
+  }
+
+  return formatMiniErdTypeValue(column.type);
+}
+
 export function SchemaWorkbenchPage() {
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.role === "admin";
@@ -356,6 +914,9 @@ export function SchemaWorkbenchPage() {
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const applyReviewRef = useRef<HTMLDivElement | null>(null);
   const previewRequestIdRef = useRef(0);
+  const currentDraftTextRef = useRef(state.draftText);
+  const previewedDraftTextRef = useRef<string | null>(null);
+  currentDraftTextRef.current = state.draftText;
 
   function resetApplyDialog() {
     setApplyDialog(initialApplyDialogState);
@@ -364,6 +925,7 @@ export function SchemaWorkbenchPage() {
 
   function resetPreviewState() {
     previewRequestIdRef.current += 1;
+    previewedDraftTextRef.current = null;
     setPreviewState(initialPreviewState);
     setActiveDiagnosticId(null);
     setEditorFocusLocation(null);
@@ -445,8 +1007,7 @@ export function SchemaWorkbenchPage() {
       const maxScrollTop =
         reviewContainer!.scrollHeight - reviewContainer!.clientHeight;
       const canSubmit =
-        maxScrollTop <= 8 ||
-        reviewContainer!.scrollTop >= maxScrollTop - 8;
+        maxScrollTop <= 8 || reviewContainer!.scrollTop >= maxScrollTop - 8;
 
       setApplyDialog((current) =>
         current.canSubmit === canSubmit
@@ -473,6 +1034,17 @@ export function SchemaWorkbenchPage() {
 
   const draftParse =
     state.status === "ready" ? parseJsonDraft(state.draftText) : null;
+  const baselineDocument = useMemo(() => {
+    if (state.status !== "ready") {
+      return null;
+    }
+
+    try {
+      return asSchemaModelDocument(JSON.parse(state.loadedText));
+    } catch {
+      return null;
+    }
+  }, [state.loadedText, state.status]);
   const dirty = state.draftText !== state.loadedText;
   const syntaxDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
     if (draftParse?.status !== "invalid") {
@@ -519,24 +1091,60 @@ export function SchemaWorkbenchPage() {
       buildBackendDiagnostic(issue, "warning", index, state.draftText),
     );
   }, [draftParse, previewState, state.draftText]);
+  const previewRequestErrorDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
+    if (previewState.status !== "error" || !previewState.error) {
+      return [];
+    }
+
+    const code = previewState.errorCode ?? "preview_request_failed";
+    const location = resolvePreviewErrorLocation(
+      previewState.error,
+      state.draftText,
+    );
+
+    return [
+      {
+        code,
+        id: `preview:error:${code}:${location?.path ?? "request"}`,
+        location: location?.location ?? null,
+        locationExact: location?.locationExact ?? false,
+        message: previewState.error,
+        path: location?.path ?? null,
+        severity: "error",
+        source: "preview",
+      },
+    ];
+  }, [
+    previewState.error,
+    previewState.errorCode,
+    previewState.status,
+    state.draftText,
+  ]);
+  const previewErrorDiagnostics = useMemo(
+    () => [
+      ...syntaxDiagnostics,
+      ...backendErrorDiagnostics,
+      ...previewRequestErrorDiagnostics,
+    ],
+    [
+      syntaxDiagnostics,
+      backendErrorDiagnostics,
+      previewRequestErrorDiagnostics,
+    ],
+  );
   const editorDiagnostics = useMemo<JsonEditorDiagnostic[]>(
     () =>
-      [
-        ...syntaxDiagnostics,
-        ...backendErrorDiagnostics,
-        ...backendWarningDiagnostics,
-      ]
+      [...previewErrorDiagnostics, ...backendWarningDiagnostics]
         .filter((diagnostic) => diagnostic.location)
         .map((diagnostic) => ({
           line: diagnostic.location?.line ?? 1,
           severity: diagnostic.severity,
         })),
-    [syntaxDiagnostics, backendErrorDiagnostics, backendWarningDiagnostics],
+    [previewErrorDiagnostics, backendWarningDiagnostics],
   );
   const activeLine = useMemo(() => {
     const activeDiagnostic = [
-      ...syntaxDiagnostics,
-      ...backendErrorDiagnostics,
+      ...previewErrorDiagnostics,
       ...backendWarningDiagnostics,
     ].find((diagnostic) => diagnostic.id === activeDiagnosticId);
 
@@ -544,29 +1152,32 @@ export function SchemaWorkbenchPage() {
       return activeDiagnostic.location.line;
     }
 
-    return syntaxDiagnostics[0]?.location?.line ?? null;
-  }, [
-    activeDiagnosticId,
-    syntaxDiagnostics,
-    backendErrorDiagnostics,
-    backendWarningDiagnostics,
-  ]);
+    return previewErrorDiagnostics[0]?.location?.line ?? null;
+  }, [activeDiagnosticId, previewErrorDiagnostics, backendWarningDiagnostics]);
   const previewGroups = useMemo(
     () => buildPreviewGroups(previewState.response?.changes ?? []),
     [previewState.response],
   );
-  const destructiveChangeCount = useMemo(
+  const miniErdDocument = useMemo(() => {
+    if (draftParse?.status !== "valid") {
+      return null;
+    }
+
+    const previewDocument =
+      previewState.status === "ready"
+        ? previewState.response?.normalizedModel
+        : null;
+
+    return asSchemaModelDocument(previewDocument ?? draftParse.value);
+  }, [draftParse, previewState]);
+  const miniErdChangeMap = useMemo(
     () =>
-      previewState.response?.changes.filter((change) => change.isDestructive)
-        .length ?? 0,
-    [previewState.response],
-  );
-  const lossyChangeCount = useMemo(
-    () =>
-      previewState.response?.changes.filter(
-        (change) => change.coercionKind === "Lossy",
-      ).length ?? 0,
-    [previewState.response],
+      buildMiniErdChangeMap(
+        previewState.status === "ready"
+          ? (previewState.response?.changes ?? [])
+          : [],
+      ),
+    [previewState.response, previewState.status],
   );
   const canOpenApplyDialog =
     draftParse?.status === "valid" &&
@@ -576,6 +1187,8 @@ export function SchemaWorkbenchPage() {
     previewState.response.hasChanges &&
     backendErrorDiagnostics.length === 0 &&
     !applyInFlight;
+  const previewContentHiddenByErrors =
+    draftParse?.status !== "valid" || previewState.status === "error";
 
   function applyImportedDraft(text: string) {
     replaceDraftText(text);
@@ -633,23 +1246,21 @@ export function SchemaWorkbenchPage() {
     }, 0);
   }
 
-  async function handlePreview() {
-    if (draftParse?.status !== "valid") {
-      return;
-    }
-
+  async function runPreview(model: SchemaModelDocument, draftText: string) {
     const requestId = previewRequestIdRef.current + 1;
     previewRequestIdRef.current = requestId;
+    previewedDraftTextRef.current = draftText;
     setPreviewState({
       status: "loading",
       response: null,
       error: null,
+      errorCode: null,
     });
     setActiveDiagnosticId(null);
 
     try {
       const response = await previewSchemaDraft(
-        draftParse.value as SchemaModelDocument,
+        addAutomaticRenameHints(model, baselineDocument),
       );
       if (previewRequestIdRef.current !== requestId) {
         return;
@@ -659,6 +1270,7 @@ export function SchemaWorkbenchPage() {
         status: "ready",
         response,
         error: null,
+        errorCode: null,
       });
     } catch (error) {
       if (previewRequestIdRef.current !== requestId) {
@@ -672,9 +1284,52 @@ export function SchemaWorkbenchPage() {
           error instanceof ApiClientError
             ? error.message
             : "Unable to preview the schema draft right now.",
+        errorCode:
+          error instanceof ApiClientError
+            ? (error.code ?? "preview_request_failed")
+            : "preview_request_failed",
       });
     }
   }
+
+  async function handlePreview() {
+    if (draftParse?.status !== "valid") {
+      return;
+    }
+
+    await runPreview(draftParse.value as SchemaModelDocument, state.draftText);
+  }
+
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      state.status !== "ready" ||
+      state.draftText === state.loadedText
+    ) {
+      return;
+    }
+
+    const draftText = state.draftText;
+    const autoPreviewDraft = parseJsonDraft(draftText);
+    if (autoPreviewDraft.status !== "valid") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (
+        currentDraftTextRef.current !== draftText ||
+        previewedDraftTextRef.current === draftText
+      ) {
+        return;
+      }
+
+      void runPreview(autoPreviewDraft.value as SchemaModelDocument, draftText);
+    }, autoPreviewDebounceMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isAdmin, state.draftText, state.loadedText, state.status]);
 
   function openApplyDialog() {
     if (!canOpenApplyDialog) {
@@ -723,8 +1378,12 @@ export function SchemaWorkbenchPage() {
     }));
 
     try {
-      const applyResult = await applySchemaDraft(
+      const applyDraft = addAutomaticRenameHints(
         draftParse.value as SchemaModelDocument,
+        baselineDocument,
+      );
+      const applyResult = await applySchemaDraft(
+        applyDraft,
         applyDialog.confirmationRequired
           ? { confirmDestructive: true }
           : undefined,
@@ -771,6 +1430,7 @@ export function SchemaWorkbenchPage() {
               validationDetails.errors ?? [],
             ),
             error: null,
+            errorCode: null,
           };
         });
         setApplyDialog(initialApplyDialogState);
@@ -1009,143 +1669,56 @@ export function SchemaWorkbenchPage() {
         </Panel>
 
         <div className="schema-workbench__side">
-          <Panel title="Diagnostics" className="schema-workbench__side-panel">
-            {draftParse?.status === "invalid" ? (
-              <div className="schema-workbench__diagnostics">
-                <Alert
-                  tone="error"
-                  title="Syntax error"
-                  message="The draft is not valid JSON yet, so backend schema validation is paused until the syntax is fixed."
-                />
-                <DiagnosticsSection
-                  title="Local JSON syntax"
-                  diagnostics={syntaxDiagnostics}
-                  activeDiagnosticId={activeDiagnosticId}
-                  onSelect={focusDiagnostic}
-                />
-              </div>
-            ) : (
-              <div className="schema-workbench__diagnostics">
-                <Alert
-                  tone="success"
-                  title="JSON syntax valid"
-                  message="Run Preview to validate schema rules, warnings, and issue paths against the backend."
-                />
-
-                {previewState.status === "idle" ? (
-                  <Alert
-                    title="Backend validation idle"
-                    message="No backend diagnostics yet. Preview the current draft to load schema errors and warnings with editor path mapping."
-                  />
-                ) : null}
-
-                {previewState.status === "loading" ? (
-                  <div
-                    className="schema-workbench__preview-loading"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <Spinner label="Previewing schema draft" />
-                    <p className="schema-workbench__preview-copy">
-                      Validating the draft against the backend schema engine and
-                      mapping issue paths back into the editor.
-                    </p>
-                  </div>
-                ) : null}
-
-                {previewState.status === "error" ? (
-                  <Alert
-                    tone="error"
-                    title="Preview request failed"
-                    message={
-                      previewState.error ??
-                      "Unable to preview the schema draft right now."
-                    }
-                  />
-                ) : null}
-
-                {previewState.status === "ready" ? (
-                  <>
-                    {backendErrorDiagnostics.length === 0 &&
-                    backendWarningDiagnostics.length === 0 ? (
-                      <Alert
-                        tone="success"
-                        title="No backend diagnostics"
-                        message="The backend accepted the draft without validation errors or warnings."
-                      />
-                    ) : null}
-
-                    <DiagnosticsSection
-                      title="Schema errors"
-                      diagnostics={backendErrorDiagnostics}
-                      activeDiagnosticId={activeDiagnosticId}
-                      onSelect={focusDiagnostic}
-                    />
-
-                    <DiagnosticsSection
-                      title="Warnings"
-                      diagnostics={backendWarningDiagnostics}
-                      activeDiagnosticId={activeDiagnosticId}
-                      onSelect={focusDiagnostic}
-                    />
-                  </>
-                ) : null}
-              </div>
-            )}
+          <Panel title="Schema Map" className="schema-workbench__side-panel">
+            <SchemaMiniErd
+              baselineDocument={baselineDocument}
+              changeMap={miniErdChangeMap}
+              document={miniErdDocument}
+              syntaxInvalid={draftParse?.status !== "valid"}
+            />
           </Panel>
 
           <Panel title="Preview" className="schema-workbench__side-panel">
-            {draftParse?.status !== "valid" ? (
-              <EmptyState
-                title="Fix JSON syntax before previewing"
-                description="The workbench keeps your raw text intact while the draft is invalid. Preview and apply stay unavailable until the JSON parses again."
-                icon="table"
-                bullets={[
-                  "Local parse errors do not wipe your draft",
-                  "Format, preview, and apply reactivate once the JSON parses again",
-                ]}
+            <div className="schema-workbench__preview-panel">
+              <PreviewDiagnostics
+                activeDiagnosticId={activeDiagnosticId}
+                errorDiagnostics={previewErrorDiagnostics}
+                onSelect={focusDiagnostic}
+                warningDiagnostics={backendWarningDiagnostics}
               />
-            ) : previewState.status === "idle" ? (
-              <EmptyState
-                title="Run Preview to validate this draft"
-                description="Preview validates the draft against the backend schema engine and turns the diff into a grouped change summary before you open the apply review."
-                icon="table"
-                bullets={[
-                  "Preview is non-mutating and safe to rerun",
-                  "Destructive changes will be highlighted before apply",
-                ]}
-              />
-            ) : previewState.status === "loading" ? (
-              <div
-                className="schema-workbench__preview-loading"
-                role="status"
-                aria-live="polite"
-              >
-                <Spinner label="Preparing preview result" />
-                <p className="schema-workbench__preview-copy">
-                  Building the grouped schema summary and destructive-change
-                  details from the backend preview result.
-                </p>
-              </div>
-            ) : previewState.status === "error" ? (
-              <Alert
-                tone="error"
-                title="Preview unavailable"
-                message={
-                  previewState.error ??
-                  "Unable to preview the schema draft right now."
-                }
-              />
-            ) : previewState.response ? (
-              <PreviewSummary
-                errorCount={backendErrorDiagnostics.length}
-                warningCount={backendWarningDiagnostics.length}
-                response={previewState.response}
-                groups={previewGroups}
-                destructiveChangeCount={destructiveChangeCount}
-                lossyChangeCount={lossyChangeCount}
-              />
-            ) : null}
+
+              {previewContentHiddenByErrors ? null : previewState.status ===
+                "idle" ? (
+                <EmptyState
+                  title="Run Preview to validate this draft"
+                  description="Preview validates the draft against the backend schema engine and turns the diff into a grouped change summary before you open the apply review."
+                  icon="table"
+                  bullets={[
+                    "Preview is non-mutating and safe to rerun",
+                    "Destructive changes will be highlighted before apply",
+                  ]}
+                />
+              ) : previewState.status === "loading" ? (
+                <div
+                  className="schema-workbench__preview-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Spinner label="Preparing preview result" />
+                  <p className="schema-workbench__preview-copy">
+                    Building the grouped schema summary and destructive-change
+                    details from the backend preview result.
+                  </p>
+                </div>
+              ) : previewState.response ? (
+                <PreviewSummary
+                  errorCount={previewErrorDiagnostics.length}
+                  warningCount={backendWarningDiagnostics.length}
+                  response={previewState.response}
+                  groups={previewGroups}
+                />
+              ) : null}
+            </div>
           </Panel>
         </div>
       </div>
@@ -1194,9 +1767,7 @@ export function SchemaWorkbenchPage() {
         <div className="schema-workbench__apply-dialog-shell">
           {applyDialog.error ? (
             <Alert
-              tone={
-                applyDialog.confirmationRequired ? "warning" : "error"
-              }
+              tone={applyDialog.confirmationRequired ? "warning" : "error"}
               title={
                 applyDialog.confirmationRequired
                   ? "Explicit destructive confirmation required"
@@ -1226,12 +1797,10 @@ export function SchemaWorkbenchPage() {
               data-testid="schema-apply-review-scroll"
             >
               <PreviewSummary
-                errorCount={backendErrorDiagnostics.length}
+                errorCount={previewErrorDiagnostics.length}
                 warningCount={backendWarningDiagnostics.length}
                 response={previewState.response}
                 groups={previewGroups}
-                destructiveChangeCount={destructiveChangeCount}
-                lossyChangeCount={lossyChangeCount}
               />
             </div>
           ) : null}
@@ -1261,6 +1830,260 @@ export function SchemaWorkbenchPage() {
   );
 }
 
+type SchemaMiniErdProps = {
+  baselineDocument: SchemaModelDocument | null;
+  changeMap: MiniErdChangeMap;
+  document: SchemaModelDocument | null;
+  syntaxInvalid: boolean;
+};
+
+function SchemaMiniErd({
+  baselineDocument,
+  changeMap,
+  document,
+  syntaxInvalid,
+}: SchemaMiniErdProps) {
+  if (syntaxInvalid) {
+    return (
+      <EmptyState
+        title="Fix JSON syntax to update the schema map"
+        description="The map stays empty while the draft is not valid JSON, so it never shows a stale structure."
+        icon="schema"
+        bullets={[
+          "The JSON editor remains editable",
+          "The schema map updates again as soon as the draft parses",
+        ]}
+      />
+    );
+  }
+
+  if (!document) {
+    return (
+      <EmptyState
+        title="Draft structure is not ready for a schema map"
+        description="The JSON parses, but the draft does not expose the tables and relations arrays the workbench needs for a read-only topology preview."
+        icon="schema"
+        bullets={[
+          "Add a tables array",
+          "Add a relations array, even when it is empty",
+        ]}
+      />
+    );
+  }
+
+  const tables = buildMiniErdTables(document, baselineDocument, changeMap);
+  const relations = buildMiniErdRelations(
+    document,
+    baselineDocument,
+    changeMap,
+  );
+
+  if (tables.length === 0) {
+    return (
+      <EmptyState
+        title="No tables in this draft"
+        description="The schema map will appear here once the draft includes at least one table."
+        icon="schema"
+        bullets={[
+          "Empty schemas are valid for a new workspace",
+          "Relations appear after both endpoints exist in the draft",
+        ]}
+      />
+    );
+  }
+
+  return (
+    <div
+      className="schema-workbench__mini-erd"
+      aria-label="Read-only schema map"
+      data-testid="schema-mini-erd"
+    >
+      <div className="schema-workbench__mini-erd-stats">
+        <div className="schema-workbench__mini-erd-stat">
+          <Icon name="table" size={14} />
+          <strong>{tables.length}</strong>
+          <span>{tables.length === 1 ? "table" : "tables"}</span>
+        </div>
+        <div className="schema-workbench__mini-erd-stat">
+          <Icon name="link" size={14} />
+          <strong>{relations.length}</strong>
+          <span>{relations.length === 1 ? "relation" : "relations"}</span>
+        </div>
+      </div>
+
+      <div className="schema-workbench__mini-erd-table-grid">
+        {tables.map((table) => (
+          <MiniErdTable
+            key={table.name}
+            annotation={changeMap.tables.get(table.name)}
+            baselineTable={findTableByName(baselineDocument, table.name)}
+            changeMap={changeMap}
+            table={table}
+          />
+        ))}
+      </div>
+
+      {relations.length > 0 ? (
+        <section
+          className="schema-workbench__mini-erd-relations"
+          aria-label="Schema relations"
+        >
+          <h3>Relations</h3>
+          <ol className="schema-workbench__mini-erd-relation-list">
+            {relations.map((relation) => (
+              <MiniErdRelation
+                key={relation.name}
+                annotation={changeMap.relations.get(relation.name)}
+                relation={relation}
+              />
+            ))}
+          </ol>
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+type MiniErdTableProps = {
+  annotation?: MiniErdChangeAnnotation;
+  baselineTable: SchemaTable | null;
+  changeMap: MiniErdChangeMap;
+  table: SchemaTable;
+};
+
+function MiniErdTable({
+  annotation,
+  baselineTable,
+  changeMap,
+  table,
+}: MiniErdTableProps) {
+  const columns = buildMiniErdColumns(table, baselineTable, changeMap);
+  const visibleColumns = columns.slice(0, 6);
+  const hiddenColumnCount = columns.length - visibleColumns.length;
+
+  return (
+    <section
+      className={getMiniErdAnnotationClass(
+        "schema-workbench__mini-erd-table",
+        annotation,
+      )}
+      aria-label={table.name}
+    >
+      <header className="schema-workbench__mini-erd-table-header">
+        <Icon name="table" size={14} />
+        <strong>{table.displayName ?? table.name}</strong>
+        {annotation ? (
+          <span
+            className={getMiniErdAnnotationClass(
+              "schema-workbench__mini-erd-change-badge",
+              annotation,
+            )}
+          >
+            {annotation.label}
+          </span>
+        ) : null}
+      </header>
+
+      <ol className="schema-workbench__mini-erd-column-list">
+        {visibleColumns.map((column) => {
+          const badges = getColumnBadgeLabels(column);
+          const columnAnnotation = changeMap.columns.get(
+            getColumnChangeKey(table.name, column.name),
+          );
+
+          return (
+            <li
+              key={column.name}
+              className={getMiniErdAnnotationClass(
+                "schema-workbench__mini-erd-column",
+                columnAnnotation,
+              )}
+            >
+              <span className="schema-workbench__mini-erd-column-name">
+                {column.name}
+              </span>
+              <span className="schema-workbench__mini-erd-column-type">
+                {getMiniErdColumnTypeLabel(column, columnAnnotation)}
+              </span>
+              {badges.length > 0 || columnAnnotation ? (
+                <span className="schema-workbench__mini-erd-column-badges">
+                  {columnAnnotation ? (
+                    <span
+                      className={getMiniErdAnnotationClass(
+                        "schema-workbench__mini-erd-change-badge",
+                        columnAnnotation,
+                      )}
+                    >
+                      {columnAnnotation.label}
+                    </span>
+                  ) : null}
+                  {badges.map((badge) => (
+                    <span
+                      key={badge}
+                      className="schema-workbench__mini-erd-column-badge"
+                    >
+                      {badge}
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+            </li>
+          );
+        })}
+      </ol>
+
+      {hiddenColumnCount > 0 ? (
+        <div className="schema-workbench__mini-erd-more">
+          +{hiddenColumnCount} more
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+type MiniErdRelationProps = {
+  annotation?: MiniErdChangeAnnotation;
+  relation: SchemaRelation;
+};
+
+function MiniErdRelation({ annotation, relation }: MiniErdRelationProps) {
+  const from = getRelationEndpoint(relation, "from");
+  const to = getRelationEndpoint(relation, "to");
+
+  return (
+    <li
+      className={getMiniErdAnnotationClass(
+        "schema-workbench__mini-erd-relation",
+        annotation,
+      )}
+    >
+      <span className="schema-workbench__mini-erd-relation-name">
+        {relation.name}
+      </span>
+      {annotation ? (
+        <span
+          className={getMiniErdAnnotationClass(
+            "schema-workbench__mini-erd-change-badge",
+            annotation,
+          )}
+        >
+          {annotation.label}
+        </span>
+      ) : null}
+      <span className="schema-workbench__mini-erd-relation-path">
+        <span>{from}</span>
+        <Icon name="arrow-right" size={13} />
+        <span>{to}</span>
+      </span>
+      {relation.type ? (
+        <span className="schema-workbench__mini-erd-relation-type">
+          {relation.type}
+        </span>
+      ) : null}
+    </li>
+  );
+}
+
 type PreviewChangeCardProps = {
   change: SchemaChange;
 };
@@ -1270,8 +2093,6 @@ type PreviewSummaryProps = {
   warningCount: number;
   response: SchemaPreviewResponse;
   groups: PreviewChangeGroup[];
-  destructiveChangeCount: number;
-  lossyChangeCount: number;
 };
 
 function PreviewSummary({
@@ -1279,55 +2100,15 @@ function PreviewSummary({
   warningCount,
   response,
   groups,
-  destructiveChangeCount,
-  lossyChangeCount,
 }: PreviewSummaryProps) {
   return (
     <div className="schema-workbench__preview-summary">
-      <div className="schema-workbench__preview-stat-grid">
-        <div className="schema-workbench__preview-stat">
-          <span className="schema-workbench__preview-stat-label">Errors</span>
-          <strong>{errorCount}</strong>
-        </div>
-        <div className="schema-workbench__preview-stat">
-          <span className="schema-workbench__preview-stat-label">Warnings</span>
-          <strong>{warningCount}</strong>
-        </div>
-        <div className="schema-workbench__preview-stat">
-          <span className="schema-workbench__preview-stat-label">Changes</span>
-          <strong>{response.changes.length}</strong>
-        </div>
-      </div>
+      <p className="schema-workbench__preview-counts">
+        {countLabel(errorCount, "error")} {countLabel(warningCount, "warning")}{" "}
+        {countLabel(response.changes.length, "change")}
+      </p>
 
-      {response.isDestructive ? (
-        <Alert
-          tone="warning"
-          title="Destructive changes require confirmation"
-          message={
-            lossyChangeCount > 0
-              ? `${countLabel(destructiveChangeCount, "destructive change")} detected, including ${countLabel(lossyChangeCount, "lossy type conversion")}. Review the example casts before applying.`
-              : `${countLabel(destructiveChangeCount, "destructive change")} detected. Applying this draft will require explicit confirmation.`
-          }
-        />
-      ) : response.hasChanges ? (
-        <Alert
-          tone="success"
-          title="No destructive changes detected"
-          message="This preview only contains additive or reversible schema changes."
-        />
-      ) : null}
-
-      {!response.hasChanges ? (
-        <EmptyState
-          title="No-op preview"
-          description="The current draft already matches the live schema. Preview is safe to rerun, but there is no migration to apply."
-          icon="table"
-          bullets={[
-            "No tables, columns, relations, or indexes would change",
-            "The apply flow should stay disabled for this draft",
-          ]}
-        />
-      ) : (
+      {response.hasChanges ? (
         <div className="schema-workbench__preview-groups">
           {groups.map((group) => (
             <section
@@ -1353,7 +2134,7 @@ function PreviewSummary({
             </section>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1412,7 +2193,7 @@ type CastExamplesProps = {
 function CastExamples({ examples }: CastExamplesProps) {
   return (
     <div className="schema-workbench__cast-examples">
-      <h4>Example Casts (5 first rows)</h4>
+      <h4>Example Casts (first 5 rows)</h4>
       <ol className="schema-workbench__cast-example-list">
         {examples.map((example, index) => (
           <li
@@ -1442,29 +2223,64 @@ type DiagnosticsSectionProps = {
   activeDiagnosticId: string | null;
   diagnostics: WorkbenchDiagnostic[];
   onSelect: (diagnostic: WorkbenchDiagnostic) => void;
-  title: string;
+  singularLabel: "error" | "warning";
 };
+
+type PreviewDiagnosticsProps = {
+  activeDiagnosticId: string | null;
+  errorDiagnostics: WorkbenchDiagnostic[];
+  onSelect: (diagnostic: WorkbenchDiagnostic) => void;
+  warningDiagnostics: WorkbenchDiagnostic[];
+};
+
+function PreviewDiagnostics({
+  activeDiagnosticId,
+  errorDiagnostics,
+  onSelect,
+  warningDiagnostics,
+}: PreviewDiagnosticsProps) {
+  if (errorDiagnostics.length === 0 && warningDiagnostics.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="schema-workbench__preview-diagnostics">
+      <DiagnosticsSection
+        singularLabel="error"
+        diagnostics={errorDiagnostics}
+        activeDiagnosticId={activeDiagnosticId}
+        onSelect={onSelect}
+      />
+
+      <DiagnosticsSection
+        singularLabel="warning"
+        diagnostics={warningDiagnostics}
+        activeDiagnosticId={activeDiagnosticId}
+        onSelect={onSelect}
+      />
+    </div>
+  );
+}
 
 function DiagnosticsSection({
   activeDiagnosticId,
   diagnostics,
   onSelect,
-  title,
+  singularLabel,
 }: DiagnosticsSectionProps) {
   if (diagnostics.length === 0) {
     return null;
   }
 
+  const label = countLabel(diagnostics.length, singularLabel);
+
   return (
     <section
       className="schema-workbench__diagnostic-section"
-      aria-label={title}
+      aria-label={label}
     >
       <div className="schema-workbench__diagnostic-heading">
-        <h3>{title}</h3>
-        <span className="schema-workbench__diagnostic-count">
-          {countLabel(diagnostics.length, "issue")}
-        </span>
+        <h3>{label}</h3>
       </div>
 
       <div className="schema-workbench__diagnostic-list">
@@ -1502,9 +2318,11 @@ function DiagnosticsSection({
                 <span className="schema-workbench__diagnostic-severity">
                   {diagnostic.source === "syntax"
                     ? "Syntax"
-                    : diagnostic.severity === "error"
-                      ? "Error"
-                      : "Warning"}
+                    : diagnostic.source === "preview"
+                      ? "Preview"
+                      : diagnostic.severity === "error"
+                        ? "Error"
+                        : "Warning"}
                 </span>
                 <code className="schema-workbench__diagnostic-code">
                   {diagnostic.code}

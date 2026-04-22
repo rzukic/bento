@@ -72,8 +72,9 @@ public class SchemaService
 
     public async Task<SchemaPreviewResult> PreviewSchemaAsync(ModelJson requestedModel)
     {
-        var validation = _validator.Validate(requestedModel);
         var currentModel = await _modelJsonStore.GetCurrentAsync() ?? new ModelJson { Version = 0 };
+        var requestedModelWithRenameReferences = CascadeTableRenameReferences(currentModel, requestedModel);
+        var validation = _validator.Validate(requestedModelWithRenameReferences);
 
         if (!validation.IsValid)
         {
@@ -91,6 +92,25 @@ public class SchemaService
         }
 
         var changes = _schemaDiffEngine.Diff(currentModel, validation.NormalizedModel);
+        var unsupportedPrimaryKeyRenames = BuildPrimaryKeyRenameErrors(
+            currentModel,
+            validation.NormalizedModel,
+            changes);
+        if (unsupportedPrimaryKeyRenames.Count > 0)
+        {
+            return new SchemaPreviewResult
+            {
+                RequiresConfirmation = false,
+                CurrentModel = currentModel,
+                TargetModel = validation.NormalizedModel,
+                Errors = [..validation.Errors, ..unsupportedPrimaryKeyRenames],
+                Warnings = validation.Warnings,
+                Changes = changes,
+                CastPreviews = [],
+                Plan = null
+            };
+        }
+
         if (changes.Count == 0)
         {
             return new SchemaPreviewResult
@@ -193,14 +213,15 @@ public class SchemaService
         var plan = preview.Plan
             ?? throw new InvalidOperationException("Schema preview did not produce a migration plan for an applicable schema change.");
 
-        var migration = await _migrationRunner.ApplyAsync(preview.CurrentModel, preview.TargetModel, plan);
+        var persistedTargetModel = RemoveRenameHints(preview.TargetModel);
+        var migration = await _migrationRunner.ApplyAsync(preview.CurrentModel, persistedTargetModel, plan);
 
         return new SchemaApplyResult
         {
             Applied = true,
             RequiresConfirmation = false,
             CurrentModel = preview.CurrentModel,
-            TargetModel = preview.TargetModel with { Version = migration.VersionTo },
+            TargetModel = persistedTargetModel with { Version = migration.VersionTo },
             Errors = preview.Errors,
             Warnings = preview.Warnings,
             Changes = preview.Changes,
@@ -223,6 +244,161 @@ public class SchemaService
             SqlDown = [],
             IsDestructive = false,
             Changes = changes
+        };
+    }
+
+    private static IReadOnlyList<SchemaValidationIssue> BuildPrimaryKeyRenameErrors(
+        ModelJson currentModel,
+        ModelJson targetModel,
+        IReadOnlyList<SchemaChange> changes)
+    {
+        return changes
+            .Where(change => change.ChangeType == SchemaChangeType.RenameColumn)
+            .Select(change => BuildPrimaryKeyRenameError(currentModel, targetModel, change))
+            .Where(issue => issue is not null)
+            .Cast<SchemaValidationIssue>()
+            .ToList();
+    }
+
+    private static SchemaValidationIssue? BuildPrimaryKeyRenameError(
+        ModelJson currentModel,
+        ModelJson targetModel,
+        SchemaChange change)
+    {
+        var oldTable = TryFindTable(currentModel, change.PreviousTableName ?? change.TableName);
+        var newTable = TryFindTable(targetModel, change.TableName);
+        var oldColumn = oldTable is null ? null : TryFindColumn(oldTable, change.PreviousColumnName ?? change.ColumnName);
+        var newColumn = newTable is null ? null : TryFindColumn(newTable, change.ColumnName);
+
+        if (oldColumn?.PrimaryKey != true && newColumn?.PrimaryKey != true)
+            return null;
+
+        var tableName = newTable?.Name ?? change.TableName;
+        return new SchemaValidationIssue(
+            "primary_key_rename_unsupported",
+            $"Primary key column rename is not supported for table '{tableName}'. Keep the primary key column named 'id'.",
+            FindColumnNamePath(targetModel, change.TableName, change.ColumnName));
+    }
+
+    private static ModelJson CascadeTableRenameReferences(ModelJson currentModel, ModelJson requestedModel)
+    {
+        var tableRenames = BuildTableRenameMap(currentModel, requestedModel);
+        if (tableRenames.Count == 0)
+            return requestedModel;
+
+        var changed = false;
+        var tables = requestedModel.Tables
+            .Select(table =>
+            {
+                var columnsChanged = false;
+                var columns = table.Columns
+                    .Select(column =>
+                    {
+                        var references = RewriteOptionalTableReference(column.References, tableRenames);
+                        if (string.Equals(references, column.References, StringComparison.Ordinal))
+                            return column;
+
+                        columnsChanged = true;
+                        return column with { References = references };
+                    })
+                    .ToList();
+
+                if (!columnsChanged)
+                    return table;
+
+                changed = true;
+                return table with { Columns = columns };
+            })
+            .ToList();
+
+        var relations = requestedModel.Relations
+            .Select(relation =>
+            {
+                var from = RewriteRequiredTableReference(relation.From, tableRenames);
+                var to = RewriteRequiredTableReference(relation.To, tableRenames);
+                if (
+                    string.Equals(from, relation.From, StringComparison.Ordinal) &&
+                    string.Equals(to, relation.To, StringComparison.Ordinal))
+                {
+                    return relation;
+                }
+
+                changed = true;
+                return relation with { From = from, To = to };
+            })
+            .ToList();
+
+        return changed
+            ? requestedModel with { Tables = tables, Relations = relations }
+            : requestedModel;
+    }
+
+    private static Dictionary<string, string> BuildTableRenameMap(ModelJson currentModel, ModelJson requestedModel)
+    {
+        var currentTableNames = currentModel.Tables
+            .Where(table => !string.IsNullOrWhiteSpace(table.Name))
+            .Select(table => table.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var requestedTableNames = requestedModel.Tables
+            .Where(table => !string.IsNullOrWhiteSpace(table.Name))
+            .Select(table => table.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var tableRenames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var table in requestedModel.Tables)
+        {
+            if (
+                string.IsNullOrWhiteSpace(table.Name) ||
+                string.IsNullOrWhiteSpace(table.RenamedFrom) ||
+                string.Equals(table.Name, table.RenamedFrom, StringComparison.OrdinalIgnoreCase) ||
+                requestedTableNames.Contains(table.RenamedFrom) ||
+                !currentTableNames.Contains(table.RenamedFrom))
+            {
+                continue;
+            }
+
+            tableRenames[table.RenamedFrom] = table.Name;
+        }
+
+        return tableRenames;
+    }
+
+    private static string RewriteRequiredTableReference(string value, IReadOnlyDictionary<string, string> tableRenames)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        return tableRenames.TryGetValue(value, out var renamedValue)
+            ? renamedValue
+            : value;
+    }
+
+    private static string? RewriteOptionalTableReference(string? value, IReadOnlyDictionary<string, string> tableRenames)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return value;
+
+        return tableRenames.TryGetValue(value, out var renamedValue)
+            ? renamedValue
+            : value;
+    }
+
+    private static ModelJson RemoveRenameHints(ModelJson model)
+    {
+        return model with
+        {
+            Tables = model.Tables
+                .Select(table => table with
+                {
+                    RenamedFrom = null,
+                    Columns = table.Columns
+                        .Select(column => column with { RenamedFrom = null })
+                        .ToList(),
+                    Indexes = table.Indexes
+                        .Select(index => index with { RenamedFrom = null })
+                        .ToList()
+                })
+                .ToList()
         };
     }
 
@@ -424,7 +600,17 @@ public class SchemaService
 
     private static string Quote(string identifier) => $"\"{identifier.Replace("\"", "\"\"")}\"";
 
+    private static string FindColumnNamePath(ModelJson model, string tableName, string? columnName)
+    {
+        return FindColumnPropertyPath(model, tableName, columnName, "name");
+    }
+
     private static string FindColumnTypePath(ModelJson model, string tableName, string? columnName)
+    {
+        return FindColumnPropertyPath(model, tableName, columnName, "type");
+    }
+
+    private static string FindColumnPropertyPath(ModelJson model, string tableName, string? columnName, string propertyName)
     {
         for (var tableIndex = 0; tableIndex < model.Tables.Count; tableIndex++)
         {
@@ -439,7 +625,7 @@ public class SchemaService
             {
                 var column = table.Columns[columnIndex];
                 if (string.Equals(column.Name, columnName, StringComparison.OrdinalIgnoreCase))
-                    return $"tables[{tableIndex}].columns[{columnIndex}].type";
+                    return $"tables[{tableIndex}].columns[{columnIndex}].{propertyName}";
             }
 
             return $"tables[{tableIndex}]";

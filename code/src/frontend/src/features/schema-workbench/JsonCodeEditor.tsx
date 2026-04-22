@@ -6,11 +6,27 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import { json } from "@codemirror/lang-json";
-import { defaultHighlightStyle, indentUnit, syntaxHighlighting } from "@codemirror/language";
+import {
+  defaultHighlightStyle,
+  indentUnit,
+  syntaxHighlighting,
+} from "@codemirror/language";
 import { Compartment, EditorState, RangeSet } from "@codemirror/state";
-import { EditorView, GutterMarker, gutterLineClass, keymap, lineNumberMarkers, lineNumbers } from "@codemirror/view";
+import {
+  EditorView,
+  GutterMarker,
+  gutterLineClass,
+  keymap,
+  lineNumberMarkers,
+  lineNumbers,
+} from "@codemirror/view";
 import { indexFromLocation, type JsonTextLocation } from "./jsonTextPosition";
 
 type JsonCodeEditorProps = {
@@ -45,11 +61,7 @@ const editorExtensions = [
   EditorState.tabSize.of(2),
   indentUnit.of("  "),
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
-  keymap.of([
-    indentWithTab,
-    ...defaultKeymap,
-    ...historyKeymap,
-  ]),
+  keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
   EditorView.contentAttributes.of({
     "aria-label": "Model JSON draft",
     "aria-multiline": "true",
@@ -68,10 +80,10 @@ class DiagnosticLineNumberMarker extends GutterMarker {
 
   eq(other: DiagnosticLineNumberMarker) {
     return (
-      this.lineNumber === other.lineNumber
-      && this.diagnostic.count === other.diagnostic.count
-      && this.diagnostic.severity === other.diagnostic.severity
-      && this.isActive === other.isActive
+      this.lineNumber === other.lineNumber &&
+      this.diagnostic.count === other.diagnostic.count &&
+      this.diagnostic.severity === other.diagnostic.severity &&
+      this.isActive === other.isActive
     );
   }
 
@@ -83,7 +95,9 @@ class DiagnosticLineNumberMarker extends GutterMarker {
       this.diagnostic.severity === "error"
         ? "schema-json-editor__gutter-line--error"
         : "schema-json-editor__gutter-line--warning",
-    ].filter(Boolean).join(" ");
+    ]
+      .filter(Boolean)
+      .join(" ");
     line.dataset.line = String(this.lineNumber);
 
     const number = document.createElement("span");
@@ -92,7 +106,7 @@ class DiagnosticLineNumberMarker extends GutterMarker {
 
     const marker = document.createElement("span");
     marker.className = "schema-json-editor__gutter-marker";
-    marker.textContent = String(this.diagnostic.count);
+    marker.textContent = "x";
 
     line.append(number, marker);
     return line;
@@ -112,7 +126,10 @@ class GutterLineClassMarker extends GutterMarker {
   }
 }
 
-export const JsonCodeEditor = forwardRef<JsonCodeEditorHandle, JsonCodeEditorProps>(function JsonCodeEditor(
+export const JsonCodeEditor = forwardRef<
+  JsonCodeEditorHandle,
+  JsonCodeEditorProps
+>(function JsonCodeEditor(
   {
     activeLine = null,
     diagnostics = [],
@@ -221,15 +238,19 @@ export const JsonCodeEditor = forwardRef<JsonCodeEditorHandle, JsonCodeEditorPro
     syncLineNumberDecorations(viewRef.current, diagnosticsByLine, activeLine);
   }, [activeLine, diagnosticsByLine, value]);
 
-  useImperativeHandle(ref, () => ({
-    focusLocation(location) {
-      if (!viewRef.current) {
-        return;
-      }
+  useImperativeHandle(
+    ref,
+    () => ({
+      focusLocation(location) {
+        if (!viewRef.current) {
+          return;
+        }
 
-      focusViewLocation(viewRef.current, location);
-    },
-  }), []);
+        focusViewLocation(viewRef.current, location);
+      },
+    }),
+    [],
+  );
 
   return (
     <div className="schema-json-editor" data-testid="model-json-editor">
@@ -262,22 +283,30 @@ function syncLineNumberDecorations(
 
     const line = view.state.doc.line(lineNumber);
     markerRanges.push(
-      new DiagnosticLineNumberMarker(lineNumber, diagnostic, activeLine === lineNumber).range(line.from),
+      new DiagnosticLineNumberMarker(
+        lineNumber,
+        diagnostic,
+        activeLine === lineNumber,
+      ).range(line.from),
     );
   }
 
   if (activeLine && activeLine >= 1 && activeLine <= view.state.doc.lines) {
     classRanges.push(
-      new GutterLineClassMarker("schema-json-editor__gutter-line--active").range(
-        view.state.doc.line(activeLine).from,
-      ),
+      new GutterLineClassMarker(
+        "schema-json-editor__gutter-line--active",
+      ).range(view.state.doc.line(activeLine).from),
     );
   }
 
   view.dispatch({
     effects: [
-      lineNumberMarkersCompartment.reconfigure(lineNumberMarkers.of(RangeSet.of(markerRanges, true))),
-      gutterLineClassCompartment.reconfigure(gutterLineClass.of(RangeSet.of(classRanges, true))),
+      lineNumberMarkersCompartment.reconfigure(
+        lineNumberMarkers.of(RangeSet.of(markerRanges, true)),
+      ),
+      gutterLineClassCompartment.reconfigure(
+        gutterLineClass.of(RangeSet.of(classRanges, true)),
+      ),
     ],
   });
 }

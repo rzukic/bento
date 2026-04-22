@@ -295,6 +295,84 @@ public sealed class AdminSchemaTests
     }
 
     [Fact]
+    public async Task PreviewAndApplySchema_MetadataOnlyChange_IsApplicableWithoutSql()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(SimpleSchema);
+
+        var metadataOnlySchema = """
+            {
+                "tables": [
+                    {
+                        "name": "widgets",
+                        "displayName": "Widget catalog",
+                        "description": "Inventory records managed by the workbench.",
+                        "columns": [
+                            { "name": "id", "type": "integer", "primaryKey": true },
+                            {
+                                "name": "name",
+                                "displayName": "Widget name",
+                                "description": "The customer-facing widget label.",
+                                "type": "text",
+                                "nullable": false
+                            }
+                        ]
+                    }
+                ],
+                "relations": []
+            }
+            """;
+
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(metadataOnlySchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+
+        var previewJson = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(previewJson.GetProperty("isValid").GetBoolean());
+        Assert.True(previewJson.GetProperty("hasChanges").GetBoolean());
+        Assert.False(previewJson.GetProperty("isDestructive").GetBoolean());
+        Assert.False(previewJson.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Equal(0, previewJson.GetProperty("plan").GetProperty("sqlUp").GetArrayLength());
+        Assert.Equal(0, previewJson.GetProperty("plan").GetProperty("sqlDown").GetArrayLength());
+        Assert.Contains(
+            previewJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterTableMetadata"
+                && change.GetProperty("table").GetString() == "widgets");
+        Assert.Contains(
+            previewJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterColumnMetadata"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "name");
+
+        using var applyResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(metadataOnlySchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+
+        var applyJson = await applyResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(applyJson.GetProperty("applied").GetBoolean());
+        Assert.Contains(
+            applyJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterColumnMetadata"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "name");
+
+        using var schemaResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var schemaJson = await schemaResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var widgets = Assert.Single(schemaJson.GetProperty("tables").EnumerateArray());
+        Assert.Equal("Widget catalog", widgets.GetProperty("displayName").GetString());
+        Assert.Equal("Inventory records managed by the workbench.", widgets.GetProperty("description").GetString());
+        var nameColumn = widgets.GetProperty("columns")
+            .EnumerateArray()
+            .Single(column => column.GetProperty("name").GetString() == "name");
+        Assert.Equal("Widget name", nameColumn.GetProperty("displayName").GetString());
+        Assert.Equal("The customer-facing widget label.", nameColumn.GetProperty("description").GetString());
+    }
+
+    [Fact]
     public async Task PreviewSchema_LossyTypeChange_ReturnsDeterministicCastExamples()
     {
         await using var host = await CreateHostAsync();

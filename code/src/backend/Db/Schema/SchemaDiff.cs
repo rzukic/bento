@@ -7,9 +7,11 @@ public enum SchemaChangeType
     AddTable,
     DropTable,
     RenameTable,
+    AlterTableMetadata,
     AddColumn,
     DropColumn,
     RenameColumn,
+    AlterColumnMetadata,
     AlterColumnType,
     AlterColumnNullability,
     AlterColumnDefault,
@@ -59,6 +61,16 @@ public sealed class SchemaDiffEngine
                     NewValue = match.NewItem.Name
                 });
             }
+
+            AddMetadataChange(
+                changes,
+                SchemaChangeType.AlterTableMetadata,
+                match.OldItem.DisplayName,
+                match.NewItem.DisplayName,
+                match.OldItem.Description,
+                match.NewItem.Description,
+                tableName: match.NewItem.Name,
+                previousTableName: match.OldItem.Name);
 
             changes.AddRange(DiffColumns(match.OldItem, match.NewItem));
             changes.AddRange(DiffIndexes(match.OldItem, match.NewItem));
@@ -113,6 +125,18 @@ public sealed class SchemaDiffEngine
                     NewValue = newColumn.Name
                 });
             }
+
+            AddMetadataChange(
+                changes,
+                SchemaChangeType.AlterColumnMetadata,
+                oldColumn.DisplayName,
+                newColumn.DisplayName,
+                oldColumn.Description,
+                newColumn.Description,
+                tableName: newTable.Name,
+                previousTableName: oldTable.Name,
+                columnName: newColumn.Name,
+                previousColumnName: oldColumn.Name);
 
             if (oldColumn.Type != newColumn.Type)
             {
@@ -369,6 +393,44 @@ public sealed class SchemaDiffEngine
             && string.Equals(left.Column, right.Column, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.FromColumn, right.FromColumn, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.ToColumn, right.ToColumn, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddMetadataChange(
+        List<SchemaChange> changes,
+        SchemaChangeType changeType,
+        string? oldDisplayName,
+        string? newDisplayName,
+        string? oldDescription,
+        string? newDescription,
+        string tableName,
+        string previousTableName,
+        string? columnName = null,
+        string? previousColumnName = null)
+    {
+        var displayNameChanged = !string.Equals(oldDisplayName, newDisplayName, StringComparison.Ordinal);
+        var descriptionChanged = !string.Equals(oldDescription, newDescription, StringComparison.Ordinal);
+        if (!displayNameChanged && !descriptionChanged)
+            return;
+
+        changes.Add(new SchemaChange
+        {
+            ChangeType = changeType,
+            TableName = tableName,
+            PreviousTableName = previousTableName,
+            ColumnName = columnName,
+            PreviousColumnName = previousColumnName,
+            OldValue = BuildMetadataValue(oldDisplayName, oldDescription),
+            NewValue = BuildMetadataValue(newDisplayName, newDescription)
+        });
+    }
+
+    private static IReadOnlyDictionary<string, string?> BuildMetadataValue(string? displayName, string? description)
+    {
+        return new Dictionary<string, string?>
+        {
+            ["displayName"] = displayName,
+            ["description"] = description
+        };
     }
 
     private static string? NormalizeJson(JsonElement? value)

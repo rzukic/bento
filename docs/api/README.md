@@ -118,8 +118,8 @@ Schema preview shape (`POST /api/v1/admin/schema/preview`):
 {
   "isValid": true,
   "hasChanges": true,
-  "isDestructive": false,
-  "requiresConfirmation": false,
+  "isDestructive": true,
+  "requiresConfirmation": true,
   "currentVersion": 1,
   "errors": [],
   "warnings": [],
@@ -129,6 +129,18 @@ Schema preview shape (`POST /api/v1/admin/schema/preview`):
       "table": "widgets",
       "column": "color",
       "isDestructive": false
+    },
+    {
+      "changeType": "AlterColumnType",
+      "table": "widgets",
+      "column": "quantity",
+      "oldValue": "text",
+      "newValue": "integer",
+      "coercionKind": "Lossy",
+      "castExamples": [
+        { "sourceValue": "2.7", "castValue": 2, "isValid": true }
+      ],
+      "isDestructive": true
     }
   ],
   "normalizedModel": {
@@ -153,8 +165,8 @@ Schema preview shape (`POST /api/v1/admin/schema/preview`):
     "sqlDown": [
       "ALTER TABLE \"widgets\" DROP COLUMN \"color\";"
     ],
-    "isDestructive": false,
-    "requiresConfirmation": false
+    "isDestructive": true,
+    "requiresConfirmation": true
   }
 }
 ```
@@ -162,9 +174,33 @@ Schema preview shape (`POST /api/v1/admin/schema/preview`):
 Preview contract notes:
 - preview responses use `200 OK` for both valid and validation-failed drafts; callers should inspect `isValid` plus the `errors` array
 - `errors` and `warnings` use `{ code, message, path }`, where `path` points into the submitted Model JSON
-- `changes` contain the diff metadata the workbench can group into table / column / relation / index summaries
+- `changes` contain the diff metadata the workbench can group into table / column / relation / index summaries; entries may include `previousTable`, `previousColumn`, `relation`, `index`, `oldValue`, `newValue`, and `coercionKind`
+- lossy `AlterColumnType` changes may include up to 5 deterministic `castExamples` from live data, shaped as `{ sourceValue, castValue, isValid, error? }`
 - `normalizedModel` is the validator-normalized Model JSON draft that preview/apply operate on
 - `plan` is omitted when validation fails or migration planning cannot be generated safely; when present, `sqlUp` / `sqlDown` show the generated migration statements
+
+Schema apply shape (`PUT /api/v1/admin/schema`):
+
+```json
+{
+  "applied": true,
+  "version": 2,
+  "changes": [
+    {
+      "changeType": "AddColumn",
+      "table": "widgets",
+      "column": "color",
+      "isDestructive": false
+    }
+  ],
+  "warnings": []
+}
+```
+
+Apply contract notes:
+- invalid Model JSON or schema validation failures return `400` with `VALIDATION_FAILED`; validation details use the same `{ code, message, path }` shape as preview
+- destructive changes return `409` with `CONFIRMATION_REQUIRED` until the caller retries the same draft with `?confirm_destructive=true`
+- successful applies reload the live schema cache before returning, so generated `/api/v1/data/*` route availability reflects the applied model immediately
 
 Public probe shape (`GET /api/v1/admin/health`):
 

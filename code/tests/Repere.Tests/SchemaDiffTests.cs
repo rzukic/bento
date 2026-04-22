@@ -169,6 +169,59 @@ public class SchemaDiffTests
     }
 
     [Fact]
+    public void Diff_DetectsTableAndColumnMetadataChanges()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "displayName": "Customers",
+                  "description": "Original table description",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "displayName": "Name", "description": "Original column description", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "displayName": "Accounts",
+                  "description": "Updated table description",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "displayName": "Customer name", "description": "Updated column description", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var tableMetadata = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterTableMetadata));
+        Assert.Equal("customers", tableMetadata.TableName);
+        Assert.False(tableMetadata.IsDestructive);
+
+        var columnMetadata = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterColumnMetadata));
+        Assert.Equal("customers", columnMetadata.TableName);
+        Assert.Equal("name", columnMetadata.ColumnName);
+        Assert.False(columnMetadata.IsDestructive);
+    }
+
+    [Fact]
     public void Diff_DetectsAddsDropsRelationsAndIndexChanges_InOnePass()
     {
         var oldModel = Normalize("""
