@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 2 — Data Management
 
+### 2026-04-21 — Complete the JSON Schema Workbench
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.5 — Schema Designer JSON Workbench](working-steps/2.5-schema-designer-json-workbench.md)
+
+Closed TASK-111 through TASK-121 and completed the Step 2.5 validation/docs-sync pass. Administrators now have a browser JSON schema workbench that loads the live Model JSON, validates drafts, previews migrations with destructive warnings, round-trips files, and applies reviewed changes safely.
+
+**Highlights:**
+- Added `POST /api/v1/admin/schema/preview` plus shared backend preview/apply planning so validation, diff, generated SQL, destructive flags, and lossy cast examples come from the real migration path
+- Replaced `/model` with an admin-only workbench containing a syntax-highlighted JSON editor, import/export, diagnostics mapped back to source paths, grouped preview summaries, and a safe destructive-confirmation apply modal
+- Added a read-only Schema Map beside the editor so valid drafts and backend-normalized previews show tables, columns, relations, and preview-change markers without competing with the Step 2.6 visual designer
+- Synced API docs, Part 4 wiki, and project-management records after backend and frontend Step 2.5 regressions passed
+
 ### 2026-04-19 — Ship the Full-Screen Record Editor and Sync Step 2.4
 
 > **Phase**: Phase 2 — Data Management

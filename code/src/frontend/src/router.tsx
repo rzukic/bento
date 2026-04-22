@@ -72,7 +72,8 @@ export const appRoutes: RouteObject[] = [
                 element: <ModelPage />,
                 handle: {
                   title: "Model",
-                  subtitle: "Schema design and column tools will live here.",
+                  subtitle: "Inspect and stage Model JSON drafts safely.",
+                  hidePageHeader: true,
                   navLabel: "Model",
                   navGroup: "Workspace"
                 } satisfies AppRouteHandle

@@ -219,6 +219,13 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
 
 internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
 {
+    private static readonly HashSet<string> RuntimeOnlyMetadataFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "resolvedFromAccessor",
+        "resolvedToAccessor",
+        "resolvedJunctionTableName"
+    };
+
     public override RelationDef Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using var document = JsonDocument.ParseValue(ref reader);
@@ -270,7 +277,10 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
                     toColumn = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
                     break;
                 default:
-                    additionalData[property.Name] = property.Value.Clone();
+                    if (!RuntimeOnlyMetadataFields.Contains(property.Name))
+                    {
+                        additionalData[property.Name] = property.Value.Clone();
+                    }
                     break;
             }
         }

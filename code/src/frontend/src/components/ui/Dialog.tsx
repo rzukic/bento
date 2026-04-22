@@ -8,9 +8,22 @@ type DialogProps = {
   onClose: () => void;
   children?: ReactNode;
   footer?: ReactNode;
+  panelClassName?: string;
+  bodyClassName?: string;
+  footerClassName?: string;
 };
 
-export function Dialog({ open, title, description, onClose, children, footer }: DialogProps) {
+export function Dialog({
+  open,
+  title,
+  description,
+  onClose,
+  children,
+  footer,
+  panelClassName = "",
+  bodyClassName = "",
+  footerClassName = ""
+}: DialogProps) {
   useEffect(() => {
     if (!open) return undefined;
 
@@ -34,15 +47,28 @@ export function Dialog({ open, title, description, onClose, children, footer }: 
         aria-label="Close dialog"
         onClick={onClose}
       />
-      <div className="dialog__panel" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <div
+        className={["dialog__panel", panelClassName].filter(Boolean).join(" ")}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title"
+      >
         <header className="dialog__header">
           <h2 id="dialog-title" className="dialog__title">
             {title}
           </h2>
           {description ? <p className="dialog__description">{description}</p> : null}
         </header>
-        {children ? <div className="dialog__body">{children}</div> : null}
-        {footer ? <footer className="dialog__footer">{footer}</footer> : null}
+        {children ? (
+          <div className={["dialog__body", bodyClassName].filter(Boolean).join(" ")}>
+            {children}
+          </div>
+        ) : null}
+        {footer ? (
+          <footer className={["dialog__footer", footerClassName].filter(Boolean).join(" ")}>
+            {footer}
+          </footer>
+        ) : null}
       </div>
     </div>
   );

@@ -34,6 +34,53 @@ public class SchemaDiffTests
     }
 
     [Fact]
+    public void Diff_SameNameRenameHints_ReturnsNoChanges()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": [
+                    { "name": "idx_customers_name", "columns": ["name"], "unique": false }
+                  ]
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "renamedFrom": "customers",
+                  "columns": [
+                    { "name": "id", "renamedFrom": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "renamedFrom": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": [
+                    { "name": "idx_customers_name", "renamedFrom": "idx_customers_name", "columns": ["name"], "unique": false }
+                  ]
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel);
+
+        Assert.Empty(changes);
+    }
+
+    [Fact]
     public void Diff_EmptyToSchema_FlagsAllTablesAsAdded()
     {
         var oldModel = Normalize("""
@@ -169,6 +216,59 @@ public class SchemaDiffTests
     }
 
     [Fact]
+    public void Diff_DetectsTableAndColumnMetadataChanges()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "displayName": "Customers",
+                  "description": "Original table description",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "displayName": "Name", "description": "Original column description", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "displayName": "Accounts",
+                  "description": "Updated table description",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "displayName": "Customer name", "description": "Updated column description", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var tableMetadata = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterTableMetadata));
+        Assert.Equal("customers", tableMetadata.TableName);
+        Assert.False(tableMetadata.IsDestructive);
+
+        var columnMetadata = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterColumnMetadata));
+        Assert.Equal("customers", columnMetadata.TableName);
+        Assert.Equal("name", columnMetadata.ColumnName);
+        Assert.False(columnMetadata.IsDestructive);
+    }
+
+    [Fact]
     public void Diff_DetectsAddsDropsRelationsAndIndexChanges_InOnePass()
     {
         var oldModel = Normalize("""
@@ -299,11 +399,11 @@ public class SchemaDiffTests
         Assert.True(dropTable.IsDestructive);
 
         var dropRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.DropRelation));
-        Assert.False(dropRelation.IsDestructive);
+        Assert.True(dropRelation.IsDestructive);
     }
 
     [Fact]
-    public void Diff_DetectsRelationMetadataChanges_WhenOnlyAccessorsChange()
+    public void Diff_DetectsManyToManyRelationMetadataChanges_WithoutDestructiveFlag_WhenJunctionShapeIsStable()
     {
         var oldModel = Normalize("""
             {
@@ -341,6 +441,129 @@ public class SchemaDiffTests
 
         var alterRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterRelation));
         Assert.Equal("employee_peers", alterRelation.RelationName);
+        Assert.False(alterRelation.IsDestructive);
+    }
+
+    [Fact]
+    public void Diff_FlagsManyToManyRelationAlterationsAsDestructive_WhenJunctionShapeChanges()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags" }
+              ]
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags", "fromColumn": "product_ref", "toColumn": "tag_ref" }
+              ]
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var alterRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterRelation));
+        Assert.Equal("product_tags", alterRelation.RelationName);
+        Assert.True(alterRelation.IsDestructive);
+    }
+
+    [Fact]
+    public void Diff_DetectsOneToManyRelationMetadataChanges_WithoutDestructiveFlag()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id", "fromAccessor": "orders", "toAccessor": "customer" }
+              ]
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var alterRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.AlterRelation));
+        Assert.Equal("customer_orders", alterRelation.RelationName);
+        Assert.False(alterRelation.IsDestructive);
     }
 
     private ModelJson Normalize(string json)

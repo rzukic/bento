@@ -38,6 +38,54 @@ public sealed class AdminSchemaTests
         }
         """;
 
+    private const string TextScoreSchema = """
+        {
+            "tables": [
+                {
+                    "name": "widgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                        { "name": "name", "type": "text", "nullable": false },
+                        { "name": "score", "type": "text" }
+                    ],
+                    "indexes": []
+                }
+            ],
+            "relations": []
+        }
+        """;
+
+    private const string IntegerScoreSchema = """
+        {
+            "tables": [
+                {
+                    "name": "widgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                        { "name": "name", "type": "text", "nullable": false },
+                        { "name": "score", "type": "integer" }
+                    ],
+                    "indexes": []
+                }
+            ],
+            "relations": []
+        }
+        """;
+
+    private const string MissingTableNameSchema = """
+        {
+            "tables": [
+                {
+                    "name": "",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true }
+                    ]
+                }
+            ],
+            "relations": []
+        }
+        """;
+
     private const string ManyToManySchema = """
         {
             "tables": [
@@ -59,6 +107,106 @@ public sealed class AdminSchemaTests
             "relations": [
                 { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags" }
             ]
+        }
+        """;
+
+    private const string ManyToManySchemaWithResolvedMetadata = """
+        {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                },
+                {
+                    "name": "tags",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "label", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": [
+                {
+                    "name": "product_tags",
+                    "type": "N:M",
+                    "from": "products",
+                    "to": "tags",
+                    "resolvedFromAccessor": "tags",
+                    "resolvedToAccessor": "products",
+                    "resolvedJunctionTableName": "_jt_products_tags"
+                }
+            ]
+        }
+        """;
+
+    private const string ManyToManySchemaWithoutRelation = """
+        {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                },
+                {
+                    "name": "tags",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "label", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": []
+        }
+        """;
+
+    private const string ManyToManySchemaWithExplicitJunctionColumns = """
+        {
+            "tables": [
+                {
+                    "name": "products",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                },
+                {
+                    "name": "tags",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "label", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags", "fromColumn": "product_ref", "toColumn": "tag_ref" }
+            ]
+        }
+        """;
+
+    private const string SchemaWithSecondTable = """
+        {
+            "tables": [
+                {
+                    "name": "widgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                },
+                {
+                    "name": "gadgets",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "label", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": []
         }
         """;
 
@@ -116,6 +264,409 @@ public sealed class AdminSchemaTests
         Assert.Equal("_jt_products_tags", relation.GetProperty("resolvedJunctionTableName").GetString());
     }
 
+    [Fact]
+    public async Task GetSchemaModel_ReturnsCanonicalModelJsonWithoutResolvedRelationMetadata()
+    {
+        await using var host = await CreateHostAsync();
+
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var response = await host.Client.GetAsync("/api/v1/admin/schema/model");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("application/json", response.Content.Headers.ContentType?.MediaType);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var relation = Assert.Single(json.GetProperty("relations").EnumerateArray());
+        Assert.Equal("product_tags", relation.GetProperty("name").GetString());
+        Assert.False(relation.TryGetProperty("resolvedFromAccessor", out _));
+        Assert.False(relation.TryGetProperty("resolvedToAccessor", out _));
+        Assert.False(relation.TryGetProperty("resolvedJunctionTableName", out _));
+    }
+
+    // ── POST /admin/schema/preview ──
+
+    [Fact]
+    public async Task PreviewSchema_ValidSchema_ReturnsPlanWithoutMutatingState()
+    {
+        await using var host = await CreateHostAsync();
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(SimpleSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("isValid").GetBoolean());
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.False(json.GetProperty("isDestructive").GetBoolean());
+        Assert.False(json.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Equal(0, json.GetProperty("currentVersion").GetInt32());
+        Assert.True(json.GetProperty("plan").GetProperty("sqlUp").GetArrayLength() > 0);
+        Assert.Equal(1, json.GetProperty("normalizedModel").GetProperty("tables").GetArrayLength());
+        Assert.Contains(
+            json.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AddTable"
+                && change.GetProperty("table").GetString() == "widgets");
+
+        using var schemaResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var schemaJson = await schemaResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, schemaJson.GetProperty("version").GetInt32());
+        Assert.Equal(0, schemaJson.GetProperty("tables").GetArrayLength());
+
+        using var migrationsResponse = await host.Client.GetAsync("/api/v1/admin/migrations");
+        var migrationsJson = await migrationsResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(0, migrationsJson.GetProperty("data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_InvalidSchema_ReturnsValidationIssues()
+    {
+        await using var host = await CreateHostAsync();
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(MissingTableNameSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(json.GetProperty("isValid").GetBoolean());
+        Assert.False(json.GetProperty("hasChanges").GetBoolean());
+        Assert.Equal("missing_table_name", json.GetProperty("errors")[0].GetProperty("code").GetString());
+        Assert.False(json.TryGetProperty("plan", out _));
+    }
+
+    [Fact]
+    public async Task PreviewSchema_DestructiveChange_ReturnsConfirmationMetadata()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(SimpleSchema);
+
+        var emptySchema = """
+            {
+                "tables": [],
+                "relations": []
+            }
+            """;
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(emptySchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.True(json.GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.True(json.GetProperty("plan").GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("plan").GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Contains(
+            json.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "DropTable"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("isDestructive").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_ManyToManyRelationDrop_ReturnsDestructiveConfirmationMetadata()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(ManyToManySchemaWithoutRelation, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.True(json.GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.True(json.GetProperty("plan").GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("plan").GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Contains(
+            json.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "DropRelation"
+                && change.TryGetProperty("relation", out var relation)
+                && relation.GetString() == "product_tags"
+                && change.GetProperty("isDestructive").GetBoolean());
+        Assert.Contains(
+            json.GetProperty("plan").GetProperty("sqlUp").EnumerateArray().Select(statement => statement.GetString()),
+            statement => statement is not null && statement.Contains("DROP TABLE \"_jt_products_tags\"", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PreviewSchema_ManyToManyRelationAlterThatRebuildsJunction_ReturnsDestructiveConfirmationMetadata()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(ManyToManySchemaWithExplicitJunctionColumns, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.True(json.GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Contains(
+            json.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterRelation"
+                && change.TryGetProperty("relation", out var relation)
+                && relation.GetString() == "product_tags"
+                && change.GetProperty("isDestructive").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_NoOpSchema_ReturnsStableEmptyPreview()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(SimpleSchema);
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(SimpleSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("isValid").GetBoolean());
+        Assert.False(json.GetProperty("hasChanges").GetBoolean());
+        Assert.False(json.GetProperty("isDestructive").GetBoolean());
+        Assert.False(json.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Equal(0, json.GetProperty("changes").GetArrayLength());
+        Assert.Equal(0, json.GetProperty("plan").GetProperty("sqlUp").GetArrayLength());
+        Assert.Equal(0, json.GetProperty("plan").GetProperty("sqlDown").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task PreviewAndApplySchema_MetadataOnlyChange_IsApplicableWithoutSql()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(SimpleSchema);
+
+        var metadataOnlySchema = """
+            {
+                "tables": [
+                    {
+                        "name": "widgets",
+                        "displayName": "Widget catalog",
+                        "description": "Inventory records managed by the workbench.",
+                        "columns": [
+                            { "name": "id", "type": "integer", "primaryKey": true },
+                            {
+                                "name": "name",
+                                "displayName": "Widget name",
+                                "description": "The customer-facing widget label.",
+                                "type": "text",
+                                "nullable": false
+                            }
+                        ]
+                    }
+                ],
+                "relations": []
+            }
+            """;
+
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(metadataOnlySchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+
+        var previewJson = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(previewJson.GetProperty("isValid").GetBoolean());
+        Assert.True(previewJson.GetProperty("hasChanges").GetBoolean());
+        Assert.False(previewJson.GetProperty("isDestructive").GetBoolean());
+        Assert.False(previewJson.GetProperty("requiresConfirmation").GetBoolean());
+        Assert.Equal(0, previewJson.GetProperty("plan").GetProperty("sqlUp").GetArrayLength());
+        Assert.Equal(0, previewJson.GetProperty("plan").GetProperty("sqlDown").GetArrayLength());
+        Assert.Contains(
+            previewJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterTableMetadata"
+                && change.GetProperty("table").GetString() == "widgets");
+        Assert.Contains(
+            previewJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterColumnMetadata"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "name");
+
+        using var applyResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(metadataOnlySchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+
+        var applyJson = await applyResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(applyJson.GetProperty("applied").GetBoolean());
+        Assert.Contains(
+            applyJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AlterColumnMetadata"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "name");
+
+        using var schemaResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var schemaJson = await schemaResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var widgets = Assert.Single(schemaJson.GetProperty("tables").EnumerateArray());
+        Assert.Equal("Widget catalog", widgets.GetProperty("displayName").GetString());
+        Assert.Equal("Inventory records managed by the workbench.", widgets.GetProperty("description").GetString());
+        var nameColumn = widgets.GetProperty("columns")
+            .EnumerateArray()
+            .Single(column => column.GetProperty("name").GetString() == "name");
+        Assert.Equal("Widget name", nameColumn.GetProperty("displayName").GetString());
+        Assert.Equal("The customer-facing widget label.", nameColumn.GetProperty("description").GetString());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_LossyTypeChange_ReturnsDeterministicCastExamples()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(TextScoreSchema);
+
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "widgets" ("name", "score")
+            VALUES
+                ('one', '1,0'),
+                ('two', '2,0'),
+                ('three', '2,1'),
+                ('word', 'two'),
+                ('four', '3,9'),
+                ('overflow', '999');
+            """);
+
+        using var response = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(IntegerScoreSchema, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(json.GetProperty("isValid").GetBoolean());
+        Assert.True(json.GetProperty("hasChanges").GetBoolean());
+        Assert.True(json.GetProperty("isDestructive").GetBoolean());
+        Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
+
+        var typeChange = json.GetProperty("changes")
+            .EnumerateArray()
+            .Single(change =>
+                change.GetProperty("changeType").GetString() == "AlterColumnType"
+                && change.GetProperty("table").GetString() == "widgets"
+                && change.GetProperty("column").GetString() == "score");
+
+        Assert.Equal("Lossy", typeChange.GetProperty("coercionKind").GetString());
+
+        var castExamples = typeChange.GetProperty("castExamples");
+        Assert.Equal(5, castExamples.GetArrayLength());
+
+        Assert.Equal("1,0", castExamples[0].GetProperty("sourceValue").GetString());
+        Assert.Equal(1L, castExamples[0].GetProperty("castValue").GetInt64());
+        Assert.True(castExamples[0].GetProperty("isValid").GetBoolean());
+
+        Assert.Equal("2,0", castExamples[1].GetProperty("sourceValue").GetString());
+        Assert.Equal(2L, castExamples[1].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("2,1", castExamples[2].GetProperty("sourceValue").GetString());
+        Assert.Equal(2L, castExamples[2].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("two", castExamples[3].GetProperty("sourceValue").GetString());
+        Assert.Equal(0L, castExamples[3].GetProperty("castValue").GetInt64());
+
+        Assert.Equal("3,9", castExamples[4].GetProperty("sourceValue").GetString());
+        Assert.Equal(3L, castExamples[4].GetProperty("castValue").GetInt64());
+    }
+
+    [Fact]
+    public async Task PreviewSchema_AdditiveChangeAgainstExistingSchema_DoesNotCreateTableOrEnableRoute_UntilApply()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(SimpleSchema);
+
+        var versionBeforePreview = await GetCurrentSchemaVersionAsync(host);
+        var migrationsBeforePreview = await host.QuerySystemScalarAsync<long>("SELECT COUNT(*) FROM migrations;");
+        var gadgetsTableBeforePreview = await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gadgets';");
+
+        using var routeBeforePreview = await host.Client.GetAsync("/api/v1/data/gadgets");
+        Assert.Equal(HttpStatusCode.NotFound, routeBeforePreview.StatusCode);
+
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(SchemaWithSecondTable, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+
+        var previewJson = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(previewJson.GetProperty("isValid").GetBoolean());
+        Assert.True(previewJson.GetProperty("hasChanges").GetBoolean());
+        Assert.Equal(versionBeforePreview, previewJson.GetProperty("currentVersion").GetInt32());
+        Assert.Contains(
+            previewJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "AddTable"
+                && change.GetProperty("table").GetString() == "gadgets"
+                && !change.GetProperty("isDestructive").GetBoolean());
+        Assert.Contains(
+            previewJson.GetProperty("normalizedModel").GetProperty("tables").EnumerateArray(),
+            table => table.GetProperty("name").GetString() == "gadgets");
+        Assert.Contains(
+            previewJson.GetProperty("plan").GetProperty("sqlUp").EnumerateArray().Select(statement => statement.GetString()),
+            statement => statement is not null && statement.Contains("gadgets", StringComparison.OrdinalIgnoreCase));
+
+        var versionAfterPreview = await GetCurrentSchemaVersionAsync(host);
+        var migrationsAfterPreview = await host.QuerySystemScalarAsync<long>("SELECT COUNT(*) FROM migrations;");
+        var gadgetsTableAfterPreview = await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gadgets';");
+
+        Assert.Equal(versionBeforePreview, versionAfterPreview);
+        Assert.Equal(migrationsBeforePreview, migrationsAfterPreview);
+        Assert.Equal(gadgetsTableBeforePreview, gadgetsTableAfterPreview);
+
+        using var routeAfterPreview = await host.Client.GetAsync("/api/v1/data/gadgets");
+        Assert.Equal(HttpStatusCode.NotFound, routeAfterPreview.StatusCode);
+
+        var previewChanges = previewJson.GetProperty("changes")
+            .EnumerateArray()
+            .Select(change => new
+            {
+                ChangeType = change.GetProperty("changeType").GetString(),
+                Table = change.GetProperty("table").GetString(),
+                Column = change.TryGetProperty("column", out var column) ? column.GetString() : null,
+                IsDestructive = change.GetProperty("isDestructive").GetBoolean()
+            })
+            .ToList();
+
+        using var applyResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(SchemaWithSecondTable, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, applyResponse.StatusCode);
+
+        var applyJson = await applyResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(applyJson.GetProperty("applied").GetBoolean());
+
+        var applyChanges = applyJson.GetProperty("changes")
+            .EnumerateArray()
+            .Select(change => new
+            {
+                ChangeType = change.GetProperty("changeType").GetString(),
+                Table = change.GetProperty("table").GetString(),
+                Column = change.TryGetProperty("column", out var column) ? column.GetString() : null,
+                IsDestructive = change.GetProperty("isDestructive").GetBoolean()
+            })
+            .ToList();
+
+        Assert.Equal(previewChanges, applyChanges);
+
+        var gadgetsTableAfterApply = await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gadgets';");
+        Assert.Equal(1, gadgetsTableAfterApply);
+
+        using var routeAfterApply = await host.Client.GetAsync("/api/v1/data/gadgets");
+        Assert.Equal(HttpStatusCode.OK, routeAfterApply.StatusCode);
+    }
+
     // ── PUT /admin/schema ──
 
     [Fact]
@@ -131,6 +682,36 @@ public sealed class AdminSchemaTests
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(json.GetProperty("applied").GetBoolean());
         Assert.True(json.GetProperty("version").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task PutSchema_StripsResolvedRelationMetadataBeforePersistingModelJson()
+    {
+        await using var host = await CreateHostAsync();
+
+        using var response = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(ManyToManySchemaWithResolvedMetadata, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        using var canonicalResponse = await host.Client.GetAsync("/api/v1/admin/schema/model");
+        Assert.Equal(HttpStatusCode.OK, canonicalResponse.StatusCode);
+
+        var canonicalJson = await canonicalResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var canonicalRelation = Assert.Single(canonicalJson.GetProperty("relations").EnumerateArray());
+        Assert.False(canonicalRelation.TryGetProperty("resolvedFromAccessor", out _));
+        Assert.False(canonicalRelation.TryGetProperty("resolvedToAccessor", out _));
+        Assert.False(canonicalRelation.TryGetProperty("resolvedJunctionTableName", out _));
+
+        using var enrichedResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        Assert.Equal(HttpStatusCode.OK, enrichedResponse.StatusCode);
+
+        var enrichedJson = await enrichedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var enrichedRelation = Assert.Single(enrichedJson.GetProperty("relations").EnumerateArray());
+        Assert.Equal("tags", enrichedRelation.GetProperty("resolvedFromAccessor").GetString());
+        Assert.Equal("products", enrichedRelation.GetProperty("resolvedToAccessor").GetString());
+        Assert.Equal("_jt_products_tags", enrichedRelation.GetProperty("resolvedJunctionTableName").GetString());
     }
 
     [Fact]
@@ -160,23 +741,8 @@ public sealed class AdminSchemaTests
     {
         await using var host = await CreateHostAsync();
 
-        // Schema with missing table name
-        var invalidSchema = """
-            {
-                "tables": [
-                    {
-                        "name": "",
-                        "columns": [
-                            { "name": "id", "type": "integer", "primaryKey": true }
-                        ]
-                    }
-                ],
-                "relations": []
-            }
-            """;
-
         using var response = await host.Client.PutAsync("/api/v1/admin/schema",
-            new StringContent(invalidSchema, Encoding.UTF8, "application/json"));
+            new StringContent(MissingTableNameSchema, Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 
@@ -235,6 +801,47 @@ public sealed class AdminSchemaTests
 
         var json = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.True(json.GetProperty("applied").GetBoolean());
+    }
+
+    [Fact]
+    public async Task PutSchema_ManyToManyRelationDrop_RequiresConfirmationAndDropsJunctionWhenConfirmed()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "products" ("name") VALUES ('Widget');
+            INSERT INTO "tags" ("label") VALUES ('Seasonal');
+            INSERT INTO "_jt_products_tags" ("product_id", "tag_id") VALUES (1, 1);
+            """);
+
+        using var blockedResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(ManyToManySchemaWithoutRelation, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.Conflict, blockedResponse.StatusCode);
+
+        var blockedJson = await blockedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("CONFIRMATION_REQUIRED", blockedJson.GetProperty("error").GetProperty("code").GetString());
+        Assert.Equal(
+            1L,
+            await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM \"_jt_products_tags\";"));
+
+        using var confirmedResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema?confirm_destructive=true",
+            new StringContent(ManyToManySchemaWithoutRelation, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, confirmedResponse.StatusCode);
+
+        var confirmedJson = await confirmedResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(confirmedJson.GetProperty("applied").GetBoolean());
+        Assert.Contains(
+            confirmedJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "DropRelation"
+                && change.GetProperty("table").GetString() == "tags"
+                && change.GetProperty("isDestructive").GetBoolean());
+        Assert.Equal(
+            0L,
+            await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '_jt_products_tags';"));
     }
 
     [Fact]
@@ -353,5 +960,14 @@ public sealed class AdminSchemaTests
             ["Backend:AuthMode"] = "open",
             ["Schema:AutoMigrateOnStartup"] = "false"
         });
+    }
+
+    private static async Task<int> GetCurrentSchemaVersionAsync(ApiIntegrationTestHost host)
+    {
+        using var response = await host.Client.GetAsync("/api/v1/admin/schema");
+        response.EnsureSuccessStatusCode();
+
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return json.GetProperty("version").GetInt32();
     }
 }

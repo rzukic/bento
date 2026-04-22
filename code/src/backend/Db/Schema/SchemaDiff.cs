@@ -7,9 +7,11 @@ public enum SchemaChangeType
     AddTable,
     DropTable,
     RenameTable,
+    AlterTableMetadata,
     AddColumn,
     DropColumn,
     RenameColumn,
+    AlterColumnMetadata,
     AlterColumnType,
     AlterColumnNullability,
     AlterColumnDefault,
@@ -40,6 +42,8 @@ public sealed record SchemaChange
 
 public sealed class SchemaDiffEngine
 {
+    private static readonly RelationResolver RelationResolver = new();
+
     public IReadOnlyList<SchemaChange> Diff(ModelJson oldModel, ModelJson newModel)
     {
         var changes = new List<SchemaChange>();
@@ -59,6 +63,16 @@ public sealed class SchemaDiffEngine
                     NewValue = match.NewItem.Name
                 });
             }
+
+            AddMetadataChange(
+                changes,
+                SchemaChangeType.AlterTableMetadata,
+                match.OldItem.DisplayName,
+                match.NewItem.DisplayName,
+                match.OldItem.Description,
+                match.NewItem.Description,
+                tableName: match.NewItem.Name,
+                previousTableName: match.OldItem.Name);
 
             changes.AddRange(DiffColumns(match.OldItem, match.NewItem));
             changes.AddRange(DiffIndexes(match.OldItem, match.NewItem));
@@ -113,6 +127,18 @@ public sealed class SchemaDiffEngine
                     NewValue = newColumn.Name
                 });
             }
+
+            AddMetadataChange(
+                changes,
+                SchemaChangeType.AlterColumnMetadata,
+                oldColumn.DisplayName,
+                newColumn.DisplayName,
+                oldColumn.Description,
+                newColumn.Description,
+                tableName: newTable.Name,
+                previousTableName: oldTable.Name,
+                columnName: newColumn.Name,
+                previousColumnName: oldColumn.Name);
 
             if (oldColumn.Type != newColumn.Type)
             {
@@ -298,7 +324,8 @@ public sealed class SchemaDiffEngine
                     PreviousTableName = relation.From,
                     RelationName = relation.Name,
                     OldValue = oldRelation,
-                    NewValue = relation
+                    NewValue = relation,
+                    IsDestructive = RelationAlterDropsOrRebuildsJunction(oldRelation, relation)
                 });
             }
         }
@@ -314,11 +341,49 @@ public sealed class SchemaDiffEngine
                 TableName = relation.To,
                 PreviousTableName = relation.From,
                 RelationName = relation.Name,
-                OldValue = relation
+                OldValue = relation,
+                IsDestructive = relation.Type == RelationType.ManyToMany
             });
         }
 
         return changes;
+    }
+
+    private static bool RelationAlterDropsOrRebuildsJunction(RelationDef oldRelation, RelationDef newRelation)
+    {
+        if (oldRelation.Type != RelationType.ManyToMany)
+            return false;
+
+        if (newRelation.Type != RelationType.ManyToMany)
+            return true;
+
+        var oldJunction = RelationResolver.BuildJunctionTable(oldRelation);
+        var newJunction = RelationResolver.BuildJunctionTable(newRelation);
+        return !JunctionTableEquals(oldJunction, newJunction);
+    }
+
+    private static bool JunctionTableEquals(TableDef left, TableDef right)
+    {
+        if (!string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (left.Columns.Count != right.Columns.Count)
+            return false;
+
+        for (var index = 0; index < left.Columns.Count; index++)
+        {
+            var leftColumn = left.Columns[index];
+            var rightColumn = right.Columns[index];
+            if (!string.Equals(leftColumn.Name, rightColumn.Name, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.Type != rightColumn.Type
+                || !string.Equals(leftColumn.References, rightColumn.References, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.PrimaryKey != rightColumn.PrimaryKey
+                || leftColumn.Nullable != rightColumn.Nullable)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static MatchResult<TableDef> MatchTables(IReadOnlyList<TableDef> oldTables, IReadOnlyList<TableDef> newTables)
@@ -369,6 +434,44 @@ public sealed class SchemaDiffEngine
             && string.Equals(left.Column, right.Column, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.FromColumn, right.FromColumn, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.ToColumn, right.ToColumn, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static void AddMetadataChange(
+        List<SchemaChange> changes,
+        SchemaChangeType changeType,
+        string? oldDisplayName,
+        string? newDisplayName,
+        string? oldDescription,
+        string? newDescription,
+        string tableName,
+        string previousTableName,
+        string? columnName = null,
+        string? previousColumnName = null)
+    {
+        var displayNameChanged = !string.Equals(oldDisplayName, newDisplayName, StringComparison.Ordinal);
+        var descriptionChanged = !string.Equals(oldDescription, newDescription, StringComparison.Ordinal);
+        if (!displayNameChanged && !descriptionChanged)
+            return;
+
+        changes.Add(new SchemaChange
+        {
+            ChangeType = changeType,
+            TableName = tableName,
+            PreviousTableName = previousTableName,
+            ColumnName = columnName,
+            PreviousColumnName = previousColumnName,
+            OldValue = BuildMetadataValue(oldDisplayName, oldDescription),
+            NewValue = BuildMetadataValue(newDisplayName, newDescription)
+        });
+    }
+
+    private static IReadOnlyDictionary<string, string?> BuildMetadataValue(string? displayName, string? description)
+    {
+        return new Dictionary<string, string?>
+        {
+            ["displayName"] = displayName,
+            ["description"] = description
+        };
     }
 
     private static string? NormalizeJson(JsonElement? value)

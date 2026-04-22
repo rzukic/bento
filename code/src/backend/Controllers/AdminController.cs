@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Repere.Api.Authorization;
+using Repere.Api.Db.Migrations;
 using Repere.Api.Db.Schema;
 using Repere.Api.Models;
 using Repere.Api.Services;
@@ -71,6 +72,42 @@ public sealed class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Return the current canonical Model JSON schema without runtime-only relation metadata.
+    /// </summary>
+    [HttpGet("schema/model")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> GetSchemaModel()
+    {
+        var model = await _modelJsonStore.GetCurrentAsync();
+        model ??= new ModelJson { Version = 0 };
+
+        return Content(ModelJsonSerializer.Serialize(model), "application/json");
+    }
+
+    /// <summary>
+    /// Preview a new Model JSON schema without applying it.
+    /// </summary>
+    [HttpPost("schema/preview")]
+    [RequireRole("admin")]
+    [ProducesResponseType<AdminSchemaPreviewResponse>(StatusCodes.Status200OK)]
+    [ProducesResponseType<ApiErrorEnvelope>(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> PreviewSchema([FromBody] JsonElement body)
+    {
+        ModelJson requestedModel;
+        try
+        {
+            requestedModel = ModelJsonSerializer.Parse(body.GetRawText());
+        }
+        catch (JsonException ex)
+        {
+            return BadRequest(BuildInvalidModelJsonError(ex));
+        }
+
+        var result = await _schemaService.PreviewSchemaAsync(requestedModel);
+        return Ok(BuildSchemaPreviewResponse(result));
+    }
+
+    /// <summary>
     /// Apply a new Model JSON schema. Validates, diffs, generates migration, and applies it.
     /// Pass ?confirm_destructive=true to confirm destructive changes.
     /// </summary>
@@ -87,14 +124,7 @@ public sealed class AdminController : ControllerBase
         }
         catch (JsonException ex)
         {
-            return BadRequest(new
-            {
-                error = new
-                {
-                    code = "VALIDATION_FAILED",
-                    message = $"Invalid Model JSON: {ex.Message}"
-                }
-            });
+            return BadRequest(BuildInvalidModelJsonError(ex));
         }
 
         var result = await _schemaService.ApplySchemaAsync(requestedModel, confirmDestructive);
@@ -234,6 +264,113 @@ public sealed class AdminController : ControllerBase
             Uptime: result.Uptime,
             Version: result.Version,
             Error: result.Error);
+    }
+
+    private static object BuildInvalidModelJsonError(JsonException ex)
+    {
+        return new
+        {
+            error = new
+            {
+                code = "VALIDATION_FAILED",
+                message = $"Invalid Model JSON: {ex.Message}"
+            }
+        };
+    }
+
+    private static AdminSchemaPreviewResponse BuildSchemaPreviewResponse(SchemaPreviewResult result)
+    {
+        var plan = BuildSchemaPlanResponse(result.Plan);
+        var castPreviewLookup = result.CastPreviews.ToDictionary(
+            preview => BuildCastPreviewKey(preview.ChangeType, preview.TableName, preview.ColumnName),
+            preview => preview);
+
+        return new AdminSchemaPreviewResponse
+        {
+            IsValid = result.Errors.Count == 0,
+            HasChanges = result.Changes.Count > 0,
+            IsDestructive = result.Changes.Any(change => change.IsDestructive),
+            RequiresConfirmation = result.RequiresConfirmation,
+            CurrentVersion = result.CurrentModel.Version,
+            Errors = result.Errors.Select(BuildSchemaIssueResponse).ToList(),
+            Warnings = result.Warnings.Select(BuildSchemaIssueResponse).ToList(),
+            Changes = result.Changes.Select(change => BuildSchemaChangeResponse(change, castPreviewLookup)).ToList(),
+            NormalizedModel = result.TargetModel,
+            Plan = plan
+        };
+    }
+
+    private static AdminSchemaIssueResponse BuildSchemaIssueResponse(SchemaValidationIssue issue)
+    {
+        return new AdminSchemaIssueResponse(issue.Code, issue.Message, issue.Path);
+    }
+
+    private static AdminSchemaChangeResponse BuildSchemaChangeResponse(
+        SchemaChange change,
+        IReadOnlyDictionary<string, SchemaChangeCastPreview> castPreviewLookup)
+    {
+        castPreviewLookup.TryGetValue(
+            BuildCastPreviewKey(change.ChangeType, change.TableName, change.ColumnName),
+            out var castPreview);
+
+        return new AdminSchemaChangeResponse
+        {
+            ChangeType = change.ChangeType.ToString(),
+            Table = change.TableName,
+            PreviousTable = change.PreviousTableName,
+            Column = change.ColumnName,
+            PreviousColumn = change.PreviousColumnName,
+            Relation = change.RelationName,
+            Index = change.IndexName,
+            OldValue = NormalizeSchemaChangeValue(change.OldValue),
+            NewValue = NormalizeSchemaChangeValue(change.NewValue),
+            CoercionKind = change.CoercionKind?.ToString(),
+            CastExamples = castPreview?.Examples.Count > 0
+                ? castPreview.Examples.Select(BuildSchemaCastExampleResponse).ToList()
+                : null,
+            IsDestructive = change.IsDestructive
+        };
+    }
+
+    private static AdminSchemaCastExampleResponse BuildSchemaCastExampleResponse(SchemaCastExample example)
+    {
+        return new AdminSchemaCastExampleResponse
+        {
+            SourceValue = NormalizeSchemaChangeValue(example.SourceValue),
+            CastValue = NormalizeSchemaChangeValue(example.CastValue),
+            IsValid = example.IsValid,
+            Error = example.Error
+        };
+    }
+
+    private static AdminSchemaPlanResponse? BuildSchemaPlanResponse(MigrationPlan? plan)
+    {
+        if (plan is null)
+            return null;
+
+        return new AdminSchemaPlanResponse
+        {
+            SqlUp = plan.SqlUp,
+            SqlDown = plan.SqlDown,
+            IsDestructive = plan.IsDestructive,
+            RequiresConfirmation = plan.RequiresConfirmation
+        };
+    }
+
+    private static string BuildCastPreviewKey(SchemaChangeType changeType, string tableName, string? columnName)
+    {
+        return $"{changeType}|{tableName}|{columnName}";
+    }
+
+    private static object? NormalizeSchemaChangeValue(object? value)
+    {
+        return value switch
+        {
+            null => null,
+            JsonElement json => JsonSerializer.Deserialize<object?>(json.GetRawText()),
+            Enum enumValue => enumValue.ToString(),
+            _ => value
+        };
     }
 
     private static string BuildSchemaSnapshotJson(ModelJson model)
