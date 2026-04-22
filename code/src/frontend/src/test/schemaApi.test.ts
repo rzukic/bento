@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiClientError } from "../api/client";
 import {
   applySchemaDraft,
+  getCanonicalSchemaSnapshot,
   getSchemaConfirmationRequiredDetails,
   getSchemaSnapshot,
   getSchemaValidationFailedDetails,
@@ -66,6 +67,20 @@ describe("schema api", () => {
 
     const [url, init] = fetchMock.mock.calls[0];
     expect(url).toBe("/api/v1/admin/schema");
+    expect(init.method).toBe("GET");
+  });
+
+  it("loads the canonical schema model through the editor route", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(simpleDraft));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getCanonicalSchemaSnapshot();
+
+    expect(result).toEqual(simpleDraft);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("/api/v1/admin/schema/model");
     expect(init.method).toBe("GET");
   });
 

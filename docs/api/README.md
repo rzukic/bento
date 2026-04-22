@@ -95,7 +95,8 @@ Cross-origin and request-size behavior:
 |--------|------|-------------|
 | `GET` | `/api/v1/admin/health` | Backend readiness and database pool health |
 | `GET` | `/api/v1/admin/health/details` | Detailed backend health and runtime state for admin callers |
-| `GET` | `/api/v1/admin/schema` | Return the current Model JSON |
+| `GET` | `/api/v1/admin/schema` | Return the current enriched schema snapshot for runtime navigation |
+| `GET` | `/api/v1/admin/schema/model` | Return the current canonical editable Model JSON |
 | `POST` | `/api/v1/admin/schema/preview` | Validate and preview a schema migration without applying it |
 | `PUT` | `/api/v1/admin/schema` | Apply a new Model JSON and run the generated migration |
 | `GET` | `/api/v1/admin/migrations` | List migration history |
@@ -105,7 +106,8 @@ Current admin contract:
 - `GET /api/v1/admin/health` is public in both `standard` and `open` mode so container and orchestrator readiness probes can use the canonical versioned health route without a bootstrap token
 - `GET /api/v1/admin/health/details` requires an admin caller in `standard` mode and uses the open-mode admin bypass in `open` mode
 - the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
-- `GET /api/v1/admin/schema` returns the raw Model JSON document with `application/json`
+- `GET /api/v1/admin/schema` returns an enriched schema snapshot with `application/json`; relation objects include runtime-only resolver metadata such as `resolvedFromAccessor`, `resolvedToAccessor`, and `resolvedJunctionTableName` for Data Explorer navigation
+- `GET /api/v1/admin/schema/model` returns canonical editable Model JSON with `application/json`; runtime-only `resolved*` relation metadata is omitted and this is the source used by the JSON workbench and export flow
 - `POST /api/v1/admin/schema/preview` validates and normalizes the submitted Model JSON, diffs it against the current stored schema, and returns preview metadata without running SQL, changing schema history, or reloading the live schema cache
 - `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
 - destructive schema changes must be retried with `?confirm_destructive=true`; otherwise the endpoint returns `409 CONFLICT` with `CONFIRMATION_REQUIRED`

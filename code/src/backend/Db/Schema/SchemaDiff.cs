@@ -42,6 +42,8 @@ public sealed record SchemaChange
 
 public sealed class SchemaDiffEngine
 {
+    private static readonly RelationResolver RelationResolver = new();
+
     public IReadOnlyList<SchemaChange> Diff(ModelJson oldModel, ModelJson newModel)
     {
         var changes = new List<SchemaChange>();
@@ -322,7 +324,8 @@ public sealed class SchemaDiffEngine
                     PreviousTableName = relation.From,
                     RelationName = relation.Name,
                     OldValue = oldRelation,
-                    NewValue = relation
+                    NewValue = relation,
+                    IsDestructive = RelationAlterDropsOrRebuildsJunction(oldRelation, relation)
                 });
             }
         }
@@ -338,11 +341,49 @@ public sealed class SchemaDiffEngine
                 TableName = relation.To,
                 PreviousTableName = relation.From,
                 RelationName = relation.Name,
-                OldValue = relation
+                OldValue = relation,
+                IsDestructive = relation.Type == RelationType.ManyToMany
             });
         }
 
         return changes;
+    }
+
+    private static bool RelationAlterDropsOrRebuildsJunction(RelationDef oldRelation, RelationDef newRelation)
+    {
+        if (oldRelation.Type != RelationType.ManyToMany)
+            return false;
+
+        if (newRelation.Type != RelationType.ManyToMany)
+            return true;
+
+        var oldJunction = RelationResolver.BuildJunctionTable(oldRelation);
+        var newJunction = RelationResolver.BuildJunctionTable(newRelation);
+        return !JunctionTableEquals(oldJunction, newJunction);
+    }
+
+    private static bool JunctionTableEquals(TableDef left, TableDef right)
+    {
+        if (!string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (left.Columns.Count != right.Columns.Count)
+            return false;
+
+        for (var index = 0; index < left.Columns.Count; index++)
+        {
+            var leftColumn = left.Columns[index];
+            var rightColumn = right.Columns[index];
+            if (!string.Equals(leftColumn.Name, rightColumn.Name, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.Type != rightColumn.Type
+                || !string.Equals(leftColumn.References, rightColumn.References, StringComparison.OrdinalIgnoreCase)
+                || leftColumn.PrimaryKey != rightColumn.PrimaryKey
+                || leftColumn.Nullable != rightColumn.Nullable)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static MatchResult<TableDef> MatchTables(IReadOnlyList<TableDef> oldTables, IReadOnlyList<TableDef> newTables)

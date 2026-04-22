@@ -8,6 +8,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { ConfirmDialog, Dialog } from "../../components/ui/Dialog";
 import {
   applySchemaDraft,
+  getCanonicalSchemaSnapshot,
   getSchemaConfirmationRequiredDetails,
   getSchemaSnapshot,
   getSchemaValidationFailedDetails,
@@ -29,7 +30,7 @@ import type {
 import { JsonCodeEditor, type JsonEditorDiagnostic } from "./JsonCodeEditor";
 import { parseJsonDraft, type JsonDraftLocation } from "./draftJson";
 import { resolveJsonPathLocation } from "./jsonPathLocation";
-import { addAutomaticRenameHints } from "./schemaRenameHints";
+import { formatSchemaDraftValueForEditor } from "./schemaDraftPresentation";
 import "./SchemaWorkbenchPage.css";
 
 type WorkbenchStatus = "loading" | "ready" | "error";
@@ -177,7 +178,7 @@ function isEmptySchema(document: SchemaModelDocument): boolean {
 }
 
 function formatSchemaText(document: SchemaModelDocument): string {
-  return JSON.stringify(document, null, 2);
+  return formatSchemaDraftValueForEditor(document);
 }
 
 function buildLoadedState(document: SchemaModelDocument): LoadState {
@@ -897,6 +898,7 @@ export function SchemaWorkbenchPage() {
   const [pendingImport, setPendingImport] = useState<PendingImport | null>(
     null,
   );
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [previewState, setPreviewState] =
     useState<PreviewState>(initialPreviewState);
   const [activeDiagnosticId, setActiveDiagnosticId] = useState<string | null>(
@@ -961,7 +963,7 @@ export function SchemaWorkbenchPage() {
       resetPreviewState();
 
       try {
-        const snapshot = await getSchemaSnapshot();
+        const snapshot = await getCanonicalSchemaSnapshot();
 
         if (cancelled) {
           return;
@@ -1194,6 +1196,20 @@ export function SchemaWorkbenchPage() {
     replaceDraftText(text);
   }
 
+  function requestSchemaRefresh() {
+    if (dirty) {
+      setRefreshConfirmOpen(true);
+      return;
+    }
+
+    setReloadKey((current) => current + 1);
+  }
+
+  function confirmSchemaRefresh() {
+    setRefreshConfirmOpen(false);
+    setReloadKey((current) => current + 1);
+  }
+
   async function handleImportFile(file: File) {
     const fileText = await readBlobText(file);
     const importedDraft = parseJsonDraft(fileText);
@@ -1207,7 +1223,7 @@ export function SchemaWorkbenchPage() {
       return;
     }
 
-    const formattedText = importedDraft.formattedText;
+    const formattedText = formatSchemaDraftValueForEditor(importedDraft.value);
     if (formattedText === state.draftText) {
       setImportFeedback(null);
       return;
@@ -1230,7 +1246,7 @@ export function SchemaWorkbenchPage() {
       return;
     }
 
-    const blob = new Blob([draftParse.formattedText], {
+    const blob = new Blob([formatSchemaDraftValueForEditor(draftParse.value)], {
       type: "application/json",
     });
     const url = URL.createObjectURL(blob);
@@ -1259,9 +1275,7 @@ export function SchemaWorkbenchPage() {
     setActiveDiagnosticId(null);
 
     try {
-      const response = await previewSchemaDraft(
-        addAutomaticRenameHints(model, baselineDocument),
-      );
+      const response = await previewSchemaDraft(model);
       if (previewRequestIdRef.current !== requestId) {
         return;
       }
@@ -1346,12 +1360,13 @@ export function SchemaWorkbenchPage() {
   }
 
   async function refreshAppliedSchemaState(): Promise<SchemaModelDocument> {
-    const snapshot = await getSchemaSnapshot();
+    const snapshot = await getCanonicalSchemaSnapshot();
+    const enrichedSnapshot = await getSchemaSnapshot();
     const loadedAt = Date.now();
 
     useSchemaStore.setState({
       status: "ready",
-      snapshot,
+      snapshot: enrichedSnapshot,
       error: null,
       lastLoadedAt: loadedAt,
       inFlight: null,
@@ -1378,10 +1393,7 @@ export function SchemaWorkbenchPage() {
     }));
 
     try {
-      const applyDraft = addAutomaticRenameHints(
-        draftParse.value as SchemaModelDocument,
-        baselineDocument,
-      );
+      const applyDraft = draftParse.value as SchemaModelDocument;
       const applyResult = await applySchemaDraft(
         applyDraft,
         applyDialog.confirmationRequired
@@ -1546,10 +1558,7 @@ export function SchemaWorkbenchPage() {
         role="toolbar"
         aria-label="Schema workbench actions"
       >
-        <Button
-          size="sm"
-          onClick={() => setReloadKey((current) => current + 1)}
-        >
+        <Button size="sm" onClick={requestSchemaRefresh}>
           Refresh
         </Button>
         <Button
@@ -1560,7 +1569,7 @@ export function SchemaWorkbenchPage() {
               return;
             }
 
-            replaceDraftText(draftParse.formattedText);
+            replaceDraftText(formatSchemaDraftValueForEditor(draftParse.value));
           }}
         >
           Format JSON
@@ -1825,6 +1834,17 @@ export function SchemaWorkbenchPage() {
           setPendingImport(null);
         }}
         onCancel={() => setPendingImport(null)}
+      />
+
+      <ConfirmDialog
+        open={refreshConfirmOpen}
+        title="Discard local draft edits?"
+        description="Refreshing will replace your unsaved local edits in the Model JSON draft with the latest server snapshot."
+        confirmLabel="Discard edits and refresh"
+        cancelLabel="Keep editing"
+        confirmVariant="danger"
+        onConfirm={confirmSchemaRefresh}
+        onCancel={() => setRefreshConfirmOpen(false)}
       />
     </div>
   );
@@ -2133,6 +2153,15 @@ function PreviewSummary({
               </ol>
             </section>
           ))}
+        </div>
+      ) : response.isValid ? (
+        <div className="schema-workbench__preview-no-changes">
+          <EmptyState
+            title="No schema changes"
+            description="Preview completed successfully. This draft matches the current schema, so there is nothing to apply."
+            icon="check"
+            bullets={["Apply stays disabled until the preview contains schema changes"]}
+          />
         </div>
       ) : null}
     </div>

@@ -72,6 +72,19 @@ public sealed class AdminController : ControllerBase
     }
 
     /// <summary>
+    /// Return the current canonical Model JSON schema without runtime-only relation metadata.
+    /// </summary>
+    [HttpGet("schema/model")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> GetSchemaModel()
+    {
+        var model = await _modelJsonStore.GetCurrentAsync();
+        model ??= new ModelJson { Version = 0 };
+
+        return Content(ModelJsonSerializer.Serialize(model), "application/json");
+    }
+
+    /// <summary>
     /// Preview a new Model JSON schema without applying it.
     /// </summary>
     [HttpPost("schema/preview")]

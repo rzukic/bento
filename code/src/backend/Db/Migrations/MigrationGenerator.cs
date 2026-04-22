@@ -390,42 +390,70 @@ public class MigrationGenerator
         List<string> sqlUp,
         List<string> sqlDown)
     {
-        var relation = (change.NewValue as RelationDef) ?? (change.OldValue as RelationDef);
-        if (relation is null)
-            return;
-
-        if (relation.Type == RelationType.OneToMany)
-            return;
-
-        var junction = _relationResolver.BuildJunctionTable(relation);
-
         switch (change.ChangeType)
         {
             case SchemaChangeType.AddRelation:
+            {
+                var relation = change.NewValue as RelationDef;
+                if (relation?.Type != RelationType.ManyToMany)
+                    break;
+
+                var junction = _relationResolver.BuildJunctionTable(relation);
                 Append(sqlUp, sqlDown,
                     BuildCreateTableSql(junction, provider),
                     $"DROP TABLE {Quote(junction.Name)};");
                 break;
+            }
             case SchemaChangeType.DropRelation:
+            {
+                var relation = change.OldValue as RelationDef;
+                if (relation?.Type != RelationType.ManyToMany)
+                    break;
+
+                var junction = _relationResolver.BuildJunctionTable(relation);
                 Append(sqlUp, sqlDown,
                     $"DROP TABLE {Quote(junction.Name)};",
                     BuildCreateTableSql(junction, provider));
                 break;
+            }
             case SchemaChangeType.AlterRelation:
             {
                 var oldRelation = (RelationDef)change.OldValue!;
-                var oldJunction = _relationResolver.BuildJunctionTable(oldRelation);
-                if (JunctionTableEquals(oldJunction, junction))
+                var newRelation = (RelationDef)change.NewValue!;
+                if (oldRelation.Type == RelationType.OneToMany && newRelation.Type == RelationType.OneToMany)
                     break;
+
+                if (oldRelation.Type == RelationType.OneToMany)
+                {
+                    var addedJunction = _relationResolver.BuildJunctionTable(newRelation);
+                    Append(sqlUp, sqlDown,
+                        BuildCreateTableSql(addedJunction, provider),
+                        $"DROP TABLE {Quote(addedJunction.Name)};");
+                    break;
+                }
+
+                var oldJunction = _relationResolver.BuildJunctionTable(oldRelation);
+                if (newRelation.Type == RelationType.OneToMany)
+                {
+                    Append(sqlUp, sqlDown,
+                        $"DROP TABLE {Quote(oldJunction.Name)};",
+                        BuildCreateTableSql(oldJunction, provider));
+                    break;
+                }
+
+                var newJunction = _relationResolver.BuildJunctionTable(newRelation);
+                if (JunctionTableEquals(oldJunction, newJunction))
+                    break;
+
                 Append(sqlUp, sqlDown,
                     new[]
                     {
                         $"DROP TABLE {Quote(oldJunction.Name)};",
-                        BuildCreateTableSql(junction, provider)
+                        BuildCreateTableSql(newJunction, provider)
                     },
                     new[]
                     {
-                        $"DROP TABLE {Quote(junction.Name)};",
+                        $"DROP TABLE {Quote(newJunction.Name)};",
                         BuildCreateTableSql(oldJunction, provider)
                     });
                 break;

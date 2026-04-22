@@ -18,6 +18,14 @@ export function getSchemaSnapshot(): Promise<SchemaModelDocument> {
 }
 
 /**
+ * Fetch the canonical editable Model JSON without runtime-only resolved
+ * relation metadata.
+ */
+export function getCanonicalSchemaSnapshot(): Promise<SchemaModelDocument> {
+  return apiClient.get<SchemaModelDocument>("/admin/schema/model");
+}
+
+/**
  * Preview a draft schema without mutating the live backend state.
  */
 export function previewSchemaDraft(draft: SchemaModelDocument): Promise<SchemaPreviewResponse> {

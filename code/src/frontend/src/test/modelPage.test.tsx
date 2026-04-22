@@ -15,6 +15,8 @@ import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
+import type { SchemaModelDocument } from "../types/api";
+import { addVisibleRenameHintFields } from "../features/schema-workbench/schemaDraftPresentation";
 
 function seedAuthenticated(role = "admin") {
   useAuthStore.setState({
@@ -80,6 +82,14 @@ function replaceModelEditorValue(value: string): void {
       },
     });
   });
+}
+
+function getVisibleSchemaDraft<T>(document: T): T {
+  return addVisibleRenameHintFields(document as SchemaModelDocument) as T;
+}
+
+function getVisibleSchemaDraftText(document: unknown): string {
+  return JSON.stringify(getVisibleSchemaDraft(document), null, 2);
 }
 
 function setScrollMetrics(
@@ -198,6 +208,16 @@ const appliedSchema = {
       to: "gadgets",
     },
   ],
+};
+
+const appliedSchemaWithResolvedRelationMetadata = {
+  ...appliedSchema,
+  relations: appliedSchema.relations.map((relation) => ({
+    ...relation,
+    resolvedFromAccessor: "notes",
+    resolvedToAccessor: "widget",
+    resolvedJunctionTableName: "_jt_widgets_gadgets",
+  })),
 };
 
 const renamedColumnDraftSchema = {
@@ -380,6 +400,38 @@ const previewGroupedResponse = {
   },
 };
 
+const relationDropDraftSchema = {
+  ...appliedSchema,
+  relations: [],
+};
+
+const previewDestructiveRelationDropResponse = {
+  isValid: true,
+  hasChanges: true,
+  isDestructive: true,
+  requiresConfirmation: true,
+  currentVersion: 4,
+  errors: [],
+  warnings: [],
+  changes: [
+    {
+      changeType: "DropRelation",
+      table: "gadgets",
+      relation: "widget_notes",
+      isDestructive: true,
+    },
+  ],
+  normalizedModel: relationDropDraftSchema,
+  plan: {
+    sqlUp: ['DROP TABLE "_jt_gadgets_widgets";'],
+    sqlDown: [
+      'CREATE TABLE "_jt_gadgets_widgets" ("gadget_id" INTEGER NOT NULL, "widget_id" INTEGER NOT NULL);',
+    ],
+    isDestructive: true,
+    requiresConfirmation: true,
+  },
+};
+
 const previewRenameResponse = {
   isValid: true,
   hasChanges: true,
@@ -403,6 +455,43 @@ const previewRenameResponse = {
     sqlDown: ['ALTER TABLE "widgets" RENAME COLUMN "display_name" TO "name";'],
     isDestructive: false,
     requiresConfirmation: false,
+  },
+};
+
+const previewUnhintedSameSlotRenameResponse = {
+  isValid: true,
+  hasChanges: true,
+  isDestructive: true,
+  requiresConfirmation: true,
+  currentVersion: 3,
+  errors: [],
+  warnings: [],
+  changes: [
+    {
+      changeType: "DropColumn",
+      table: "widgets",
+      column: "name",
+      isDestructive: true,
+    },
+    {
+      changeType: "AddColumn",
+      table: "widgets",
+      column: "display_name",
+      isDestructive: false,
+    },
+  ],
+  normalizedModel: renamedColumnDraftSchema,
+  plan: {
+    sqlUp: [
+      'ALTER TABLE "widgets" DROP COLUMN "name";',
+      'ALTER TABLE "widgets" ADD COLUMN "display_name" TEXT NOT NULL;',
+    ],
+    sqlDown: [
+      'ALTER TABLE "widgets" DROP COLUMN "display_name";',
+      'ALTER TABLE "widgets" ADD COLUMN "name" TEXT NOT NULL;',
+    ],
+    isDestructive: true,
+    requiresConfirmation: true,
   },
 };
 
@@ -449,6 +538,18 @@ const previewNoOpResponse = {
     isDestructive: false,
     requiresConfirmation: false,
   },
+};
+
+const previewNoOpWarningResponse = {
+  ...previewNoOpResponse,
+  warnings: [
+    {
+      code: "reserved_table_name",
+      message:
+        "Table 'widgets' is a SQL reserved word and may require quoting.",
+      path: "tables[0].name",
+    },
+  ],
 };
 
 const previewLossyResponse = {
@@ -518,9 +619,9 @@ describe("Model workbench route (/model)", () => {
     render(<RouterProvider router={router} />);
 
     await screen.findByRole("textbox", { name: /model json draft/i });
-    expect(getModelEditorValue()).toBe(
-      JSON.stringify(populatedSchema, null, 2),
-    );
+    expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(populatedSchema));
+    expect(getModelEditorValue()).toContain('"renamedFrom": "widgets"');
+    expect(getModelEditorValue()).toContain('"renamedFrom": "name"');
     expect(
       screen.getByRole("toolbar", { name: "Schema workbench actions" }),
     ).toBeInTheDocument();
@@ -544,7 +645,99 @@ describe("Model workbench route (/model)", () => {
       `${JSON.stringify(populatedSchema, null, 2)}\n`,
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/admin/schema",
+      "/api/v1/admin/schema/model",
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+      }),
+    );
+  });
+
+  it("refreshes a clean draft without asking for confirmation", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(appliedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() =>
+      expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(appliedSchema)),
+    );
+    expect(
+      screen.queryByRole("dialog", { name: "Discard local draft edits?" }),
+    ).not.toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/admin/schema/model",
+      expect.objectContaining({
+        method: "GET",
+        credentials: "include",
+      }),
+    );
+  });
+
+  it("confirms before refreshing over a dirty draft", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(appliedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+    const dirtyDraft = `${getVisibleSchemaDraftText(populatedSchema)}\n{`;
+    replaceModelEditorValue(dirtyDraft);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(
+      await screen.findByRole("dialog", {
+        name: "Discard local draft edits?",
+      }),
+    ).toBeInTheDocument();
+    expect(getModelEditorValue()).toBe(dirtyDraft);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Keep editing" }));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", {
+          name: "Discard local draft edits?",
+        }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(getModelEditorValue()).toBe(dirtyDraft);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: "Refresh" }));
+    await user.click(
+      await screen.findByRole("button", {
+        name: "Discard edits and refresh",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(appliedSchema)),
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/admin/schema/model",
       expect.objectContaining({
         method: "GET",
         credentials: "include",
@@ -668,21 +861,12 @@ describe("Model workbench route (/model)", () => {
     }
   });
 
-  it("sends automatic same-slot rename hints for preview and apply without changing the editor text", async () => {
+  it("does not infer rename hints for same-slot edits without explicit renamedFrom", async () => {
     seedAuthenticated("admin");
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(jsonResponse(populatedSchema))
-      .mockResolvedValueOnce(jsonResponse(previewRenameResponse))
-      .mockResolvedValueOnce(
-        jsonResponse({
-          applied: true,
-          version: 4,
-          changes: previewRenameResponse.changes,
-          warnings: [],
-        }),
-      )
-      .mockResolvedValueOnce(jsonResponse(renamedColumnAppliedSchema));
+      .mockResolvedValueOnce(jsonResponse(previewUnhintedSameSlotRenameResponse));
     vi.stubGlobal("fetch", fetchMock);
 
     const router = createTestRouter(["/model"]);
@@ -696,16 +880,59 @@ describe("Model workbench route (/model)", () => {
     await user.click(screen.getByRole("button", { name: "Preview" }));
 
     expect(
-      await screen.findByText("Rename column widgets.name to display_name"),
+      await screen.findByText("Drop column widgets.name"),
     ).toBeInTheDocument();
-    expect(getModelEditorValue()).toBe(visibleDraftText);
-    expect(getModelEditorValue()).not.toContain("renamedFrom");
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
       "/api/v1/admin/schema/preview",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify(renamedColumnRequestSchema),
+        body: JSON.stringify(renamedColumnDraftSchema),
+      }),
+    );
+    expect(fetchMock.mock.calls[1]?.[1]?.body).not.toContain("renamedFrom");
+  });
+
+  it("sends explicit rename hints from the visible draft for preview and apply", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(populatedSchema))
+      .mockResolvedValueOnce(jsonResponse(previewRenameResponse))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          applied: true,
+          version: 4,
+          changes: previewRenameResponse.changes,
+          warnings: [],
+        }),
+      )
+      .mockResolvedValueOnce(jsonResponse(renamedColumnAppliedSchema))
+      .mockResolvedValueOnce(jsonResponse(renamedColumnAppliedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+    const visibleRequestSchema = getVisibleSchemaDraft(renamedColumnRequestSchema);
+    const visibleDraftText = JSON.stringify(visibleRequestSchema, null, 2);
+    replaceModelEditorValue(visibleDraftText);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    expect(
+      await screen.findByText("Rename column widgets.name to display_name"),
+    ).toBeInTheDocument();
+    expect(getModelEditorValue()).toBe(visibleDraftText);
+    expect(getModelEditorValue()).toContain("renamedFrom");
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/v1/admin/schema/preview",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify(visibleRequestSchema),
       }),
     );
 
@@ -735,11 +962,11 @@ describe("Model workbench route (/model)", () => {
       "/api/v1/admin/schema",
       expect.objectContaining({
         method: "PUT",
-        body: JSON.stringify(renamedColumnRequestSchema),
+        body: JSON.stringify(visibleRequestSchema),
       }),
     );
     expect(getModelEditorValue()).toBe(
-      JSON.stringify(renamedColumnAppliedSchema, null, 2),
+      getVisibleSchemaDraftText(renamedColumnAppliedSchema),
     );
   });
 
@@ -758,7 +985,7 @@ describe("Model workbench route (/model)", () => {
 
     await screen.findByRole("textbox", { name: /model json draft/i });
     const visibleDraftText = JSON.stringify(
-      renamedPrimaryKeyDraftSchema,
+      getVisibleSchemaDraft(renamedPrimaryKeyRequestSchema),
       null,
       2,
     );
@@ -789,7 +1016,7 @@ describe("Model workbench route (/model)", () => {
       "/api/v1/admin/schema/preview",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify(renamedPrimaryKeyRequestSchema),
+        body: JSON.stringify(getVisibleSchemaDraft(renamedPrimaryKeyRequestSchema)),
       }),
     );
 
@@ -813,7 +1040,9 @@ describe("Model workbench route (/model)", () => {
     seedAuthenticated("admin");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse(appliedSchemaWithResolvedRelationMetadata)),
     );
 
     const router = createTestRouter(["/model"]);
@@ -842,7 +1071,9 @@ describe("Model workbench route (/model)", () => {
     seedAuthenticated("admin");
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(jsonResponse(populatedSchema)),
+      vi
+        .fn()
+        .mockResolvedValue(jsonResponse(appliedSchemaWithResolvedRelationMetadata)),
     );
 
     let capturedBlob: Blob | null = null;
@@ -872,6 +1103,9 @@ describe("Model workbench route (/model)", () => {
       render(<RouterProvider router={router} />);
 
       await screen.findByRole("textbox", { name: /model json draft/i });
+      expect(getModelEditorValue()).not.toContain("resolvedFromAccessor");
+      expect(getModelEditorValue()).not.toContain("resolvedToAccessor");
+      expect(getModelEditorValue()).not.toContain("resolvedJunctionTableName");
 
       const user = userEvent.setup();
       await user.click(screen.getByRole("button", { name: "Export" }));
@@ -883,7 +1117,7 @@ describe("Model workbench route (/model)", () => {
       expect(revokeObjectUrl).toHaveBeenCalledTimes(1);
       expect(capturedBlob).not.toBeNull();
       expect(await readBlobText(capturedBlob as unknown as Blob)).toBe(
-        JSON.stringify(populatedSchema, null, 2),
+        getVisibleSchemaDraftText(appliedSchema),
       );
     } finally {
       Object.defineProperty(URL, "createObjectURL", {
@@ -935,7 +1169,7 @@ describe("Model workbench route (/model)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Replace draft" }));
 
-    expect(getModelEditorValue()).toBe(JSON.stringify(importedSchema, null, 2));
+    expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(importedSchema));
   });
 
   it("keeps invalid JSON editable and shows a local parse error without breaking the page", async () => {
@@ -998,7 +1232,7 @@ describe("Model workbench route (/model)", () => {
     render(<RouterProvider router={router} />);
 
     await screen.findByRole("textbox", { name: /model json draft/i });
-    const draftText = JSON.stringify(populatedSchema, null, 2);
+    const draftText = getVisibleSchemaDraftText(populatedSchema);
     const expectedIndex = draftText.indexOf('"type": "text"');
     const expectedLine = draftText.slice(0, expectedIndex).split("\n").length;
 
@@ -1036,7 +1270,7 @@ describe("Model workbench route (/model)", () => {
       "/api/v1/admin/schema/preview",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify(populatedSchema),
+        body: JSON.stringify(getVisibleSchemaDraft(populatedSchema)),
       }),
     );
   });
@@ -1118,7 +1352,7 @@ describe("Model workbench route (/model)", () => {
 
   it("maps server path metadata in preview failures back to editor lines", async () => {
     seedAuthenticated("admin");
-    const draftText = JSON.stringify(populatedSchema, null, 2);
+    const draftText = getVisibleSchemaDraftText(populatedSchema);
     const expectedIndex = draftText.indexOf('{\n          "name": "id"');
     const expectedLine = draftText.slice(0, expectedIndex).split("\n").length;
     vi.stubGlobal(
@@ -1215,14 +1449,49 @@ describe("Model workbench route (/model)", () => {
     ).toHaveClass("schema-workbench__mini-erd-relation--added");
   });
 
-  it("shows a clear no-op preview count when the draft matches the current schema", async () => {
+  it("shows destructive relation drops in the grouped preview and schema map", async () => {
+    seedAuthenticated("admin");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(jsonResponse(appliedSchema))
+        .mockResolvedValueOnce(jsonResponse(previewDestructiveRelationDropResponse)),
+    );
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /model json draft/i });
+    replaceModelEditorValue(getVisibleSchemaDraftText(relationDropDraftSchema));
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+
+    const dropRelationTitle = await screen.findByText(
+      "Drop relation widget_notes",
+    );
+    const dropRelationCard = dropRelationTitle.closest("li");
+    expect(dropRelationCard).toHaveClass(
+      "schema-workbench__preview-change--destructive",
+    );
+    expect(within(dropRelationCard as HTMLElement).getByText("Destructive"))
+      .toBeInTheDocument();
+
+    const schemaMap = screen.getByTestId("schema-mini-erd");
+    expect(
+      within(schemaMap).getByText("widget_notes").closest("li"),
+    ).toHaveClass("schema-workbench__mini-erd-relation--removed");
+  });
+
+  it("shows a clear no-op preview state when the draft matches the current schema", async () => {
     seedAuthenticated("admin");
     vi.stubGlobal(
       "fetch",
       vi
         .fn()
         .mockResolvedValueOnce(jsonResponse(populatedSchema))
-        .mockResolvedValueOnce(jsonResponse(previewNoOpResponse)),
+        .mockResolvedValueOnce(jsonResponse(previewNoOpWarningResponse)),
     );
 
     const router = createTestRouter(["/model"]);
@@ -1233,6 +1502,23 @@ describe("Model workbench route (/model)", () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
 
+    expect(
+      await screen.findByRole("heading", { name: "No schema changes" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Preview completed successfully. This draft matches the current schema, so there is nothing to apply.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
+    expect(
+      screen.getByRole("heading", { name: "1 warning" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Table 'widgets' is a SQL reserved word and may require quoting.",
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Tables" }),
     ).not.toBeInTheDocument();
@@ -1293,6 +1579,7 @@ describe("Model workbench route (/model)", () => {
           warnings: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(appliedSchema))
       .mockResolvedValueOnce(jsonResponse(appliedSchema));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1340,18 +1627,25 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByText("Applied schema version 4"),
     ).toBeInTheDocument();
-    expect(getModelEditorValue()).toBe(JSON.stringify(appliedSchema, null, 2));
+    expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(appliedSchema));
     expect(useSchemaStore.getState().snapshot).toEqual(appliedSchema);
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
       "/api/v1/admin/schema",
       expect.objectContaining({
         method: "PUT",
-        body: JSON.stringify(populatedSchema),
+        body: JSON.stringify(getVisibleSchemaDraft(populatedSchema)),
       }),
     );
     expect(fetchMock).toHaveBeenNthCalledWith(
       4,
+      "/api/v1/admin/schema/model",
+      expect.objectContaining({
+        method: "GET",
+      }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      5,
       "/api/v1/admin/schema",
       expect.objectContaining({
         method: "GET",
@@ -1426,7 +1720,7 @@ describe("Model workbench route (/model)", () => {
     expect(screen.getByText("duplicate_table_name")).toBeInTheDocument();
     expect(screen.getByText("tables[1].name")).toBeInTheDocument();
     expect(getModelEditorValue()).toBe(
-      JSON.stringify(populatedSchema, null, 2),
+      getVisibleSchemaDraftText(populatedSchema),
     );
     expect(useSchemaStore.getState().snapshot).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(3);
@@ -1468,6 +1762,7 @@ describe("Model workbench route (/model)", () => {
           warnings: [],
         }),
       )
+      .mockResolvedValueOnce(jsonResponse(destructiveAppliedSchema))
       .mockResolvedValueOnce(jsonResponse(destructiveAppliedSchema));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -1547,7 +1842,7 @@ describe("Model workbench route (/model)", () => {
     render(<RouterProvider router={router} />);
 
     await screen.findByRole("textbox", { name: /model json draft/i });
-    const originalText = JSON.stringify(populatedSchema, null, 2);
+    const originalText = getVisibleSchemaDraftText(populatedSchema);
 
     const file = new File(['{\n  "version": 1,\n}'], "broken-model.json", {
       type: "application/json",
