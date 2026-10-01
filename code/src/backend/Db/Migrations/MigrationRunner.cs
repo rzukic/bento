@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Dapper;
 using Repere.Api.Db.Schema;
 
@@ -61,6 +62,7 @@ public class MigrationRunner
             using var systemConn = await OpenSystemConnectionAsync();
             using var systemTx = systemConn.BeginTransaction();
 
+            await MigrateSavedViewReferencesAsync(systemConn, systemTx, plan.Changes);
             var savedModel = await _modelJsonStore.SaveAsync(systemConn, systemTx, newModel);
             await InsertMigrationHistoryAsync(systemConn, systemTx, currentModel.Version, savedModel.Version, plan.SqlUp, plan.SqlDown);
 
@@ -232,8 +234,222 @@ public class MigrationRunner
             transaction);
     }
 
+    private async Task MigrateSavedViewReferencesAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        IReadOnlyList<SchemaChange> changes)
+    {
+        var tableRenames = changes
+            .Where(change => change.ChangeType == SchemaChangeType.RenameTable)
+            .Where(change => !string.IsNullOrWhiteSpace(change.PreviousTableName))
+            .ToDictionary(
+                change => change.PreviousTableName!,
+                change => change.TableName,
+                StringComparer.OrdinalIgnoreCase);
+
+        var columnRenames = changes
+            .Where(change => change.ChangeType == SchemaChangeType.RenameColumn)
+            .Where(change => !string.IsNullOrWhiteSpace(change.PreviousColumnName))
+            .ToList();
+
+        if (tableRenames.Count == 0 && columnRenames.Count == 0)
+            return;
+
+        foreach (var rename in tableRenames)
+        {
+            await conn.ExecuteAsync(
+                $"UPDATE {GetPreferencesTableName()} SET table_name = @NewTableName, updated_at = @Now WHERE table_name = @OldTableName;",
+                new
+                {
+                    OldTableName = rename.Key,
+                    NewTableName = rename.Value,
+                    Now = UtcNowIso()
+                },
+                transaction);
+        }
+
+        var views = await conn.QueryAsync<SystemViewReferenceRow>(
+            $"SELECT id AS Id, table_name AS TableName, config AS Config FROM {GetViewsTableName()};",
+            transaction: transaction);
+
+        foreach (var view in views)
+        {
+            var nextTableName = tableRenames.TryGetValue(view.TableName, out var renamedTable)
+                ? renamedTable
+                : view.TableName;
+            var columnRenameMap = BuildColumnRenameMapForView(view.TableName, nextTableName, columnRenames);
+            var nextConfig = RewriteSavedViewConfigColumnReferences(view.Config, columnRenameMap);
+
+            if (
+                string.Equals(nextTableName, view.TableName, StringComparison.Ordinal) &&
+                string.Equals(nextConfig, view.Config, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            await conn.ExecuteAsync(
+                $"UPDATE {GetViewsTableName()} SET table_name = @TableName, config = @Config, updated_at = @Now WHERE id = @Id;",
+                new
+                {
+                    view.Id,
+                    TableName = nextTableName,
+                    Config = nextConfig,
+                    Now = UtcNowIso()
+                },
+                transaction);
+        }
+    }
+
+    private static Dictionary<string, string> BuildColumnRenameMapForView(
+        string currentViewTableName,
+        string nextViewTableName,
+        IReadOnlyList<SchemaChange> columnRenames)
+    {
+        var renames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var change in columnRenames)
+        {
+            var previousTableName = change.PreviousTableName ?? change.TableName;
+            if (
+                !string.Equals(previousTableName, currentViewTableName, StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(change.TableName, nextViewTableName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            renames[change.PreviousColumnName!] = change.ColumnName!;
+        }
+
+        return renames;
+    }
+
+    private static string RewriteSavedViewConfigColumnReferences(
+        string config,
+        IReadOnlyDictionary<string, string> columnRenames)
+    {
+        if (columnRenames.Count == 0 || string.IsNullOrWhiteSpace(config))
+            return config;
+
+        JsonObject? root;
+        try
+        {
+            root = JsonNode.Parse(config) as JsonObject;
+        }
+        catch (JsonException)
+        {
+            return config;
+        }
+
+        if (root is null)
+            return config;
+
+        var changed = false;
+        changed |= RewriteColumnPropertyArrays(root, columnRenames, "hiddenColumnNames", "columnOrder", "cardFieldNames");
+        changed |= RewriteColumnProperty(root, columnRenames, "kanbanColumn");
+        changed |= RewriteColumnClauseArray(root, columnRenames, "sort");
+        changed |= RewriteColumnClauseArray(root, columnRenames, "filters");
+
+        return changed ? root.ToJsonString() : config;
+    }
+
+    private static bool RewriteColumnPropertyArrays(
+        JsonObject root,
+        IReadOnlyDictionary<string, string> columnRenames,
+        params string[] propertyNames)
+    {
+        var changed = false;
+
+        foreach (var propertyName in propertyNames)
+        {
+            if (root[propertyName] is not JsonArray values)
+                continue;
+
+            for (var i = 0; i < values.Count; i++)
+            {
+                if (!TryGetJsonString(values[i], out var value))
+                    continue;
+
+                if (!columnRenames.TryGetValue(value, out var renamedValue))
+                    continue;
+
+                values[i] = renamedValue;
+                changed = true;
+            }
+        }
+
+        return changed;
+    }
+
+    private static bool RewriteColumnProperty(
+        JsonObject root,
+        IReadOnlyDictionary<string, string> columnRenames,
+        string propertyName)
+    {
+        if (!TryGetJsonString(root[propertyName], out var value))
+            return false;
+
+        if (!columnRenames.TryGetValue(value, out var renamedValue))
+            return false;
+
+        root[propertyName] = renamedValue;
+        return true;
+    }
+
+    private static bool RewriteColumnClauseArray(
+        JsonObject root,
+        IReadOnlyDictionary<string, string> columnRenames,
+        string propertyName)
+    {
+        if (root[propertyName] is not JsonArray clauses)
+            return false;
+
+        var changed = false;
+        foreach (var clause in clauses.OfType<JsonObject>())
+        {
+            changed |= RewriteColumnProperty(clause, columnRenames, "column");
+        }
+
+        return changed;
+    }
+
+    private static bool TryGetJsonString(JsonNode? node, out string value)
+    {
+        value = string.Empty;
+        if (node is null)
+            return false;
+
+        try
+        {
+            var stringValue = node.GetValue<string>();
+            if (stringValue is null)
+                return false;
+
+            value = stringValue;
+            return true;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+
     private string GetMigrationsTableName() =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.migrations" : "migrations";
+
+    private string GetViewsTableName() =>
+        _systemPool.Provider == DatabaseProvider.Postgres ? "_system.system_views" : "system_views";
+
+    private string GetPreferencesTableName() =>
+        _systemPool.Provider == DatabaseProvider.Postgres
+            ? "_system.user_table_explorer_preferences"
+            : "user_table_explorer_preferences";
+
+    private static string UtcNowIso() =>
+        DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
 
     private async Task<IDbConnection> OpenDataConnectionAsync()
     {
@@ -253,5 +469,12 @@ public class MigrationRunner
     private async Task<IDbConnection> OpenSystemConnectionAsync()
     {
         return await _systemPool.GetConnectionAsync();
+    }
+
+    private sealed record SystemViewReferenceRow
+    {
+        public required int Id { get; init; }
+        public required string TableName { get; init; }
+        public required string Config { get; init; }
     }
 }

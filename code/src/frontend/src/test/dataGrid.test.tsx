@@ -20,6 +20,16 @@ const sampleRows = [
   { id: 2, title: "Beta", qty: 8 },
 ];
 
+const junctionTable: ModelTable = {
+  name: "_jt_items_tags",
+  columns: [
+    { name: "item_id", type: "int64", primaryKey: true, references: "items" },
+    { name: "tag_id", type: "int64", primaryKey: true, references: "tags" },
+  ],
+};
+
+const junctionRows = [{ item_id: 1, tag_id: 2 }];
+
 function getCellByText(text: string): HTMLElement {
   const node = screen.getByText(text);
   // climb to the td
@@ -34,6 +44,33 @@ function getCellInner(text: string): HTMLElement {
 }
 
 describe("DataGrid — inline edit wiring (TASK-092)", () => {
+  it("shows the PK column name and PK badge in the table header", () => {
+    render(<DataGrid table={sampleTable} rows={sampleRows} page={1} perPage={25} />);
+
+    expect(screen.getByText("id")).toBeInTheDocument();
+    expect(screen.getByText("PK")).toBeInTheDocument();
+  });
+
+  it("prefers the display name for PK column headers", () => {
+    render(
+      <DataGrid
+        table={{
+          ...sampleTable,
+          columns: [
+            { ...sampleTable.columns[0], displayName: "Order ID" },
+            ...sampleTable.columns.slice(1),
+          ],
+        }}
+        rows={sampleRows}
+        page={1}
+        perPage={25}
+      />,
+    );
+
+    expect(screen.getByText("Order ID")).toBeInTheDocument();
+    expect(screen.getByText("PK")).toBeInTheDocument();
+  });
+
   it("clicking a writable cell calls onStartEdit with that row + column", () => {
     const onStartEdit = vi.fn();
     render(
@@ -84,6 +121,25 @@ describe("DataGrid — inline edit wiring (TASK-092)", () => {
     expect(pkCell.getAttribute("tabindex")).toBeNull();
     fireEvent.click(getCellByText("1"));
     expect(onStartEdit).not.toHaveBeenCalled();
+  });
+
+  it("PK reference columns remain editable for junction-table foreign keys", () => {
+    const onStartEdit = vi.fn();
+    render(
+      <DataGrid
+        table={junctionTable}
+        rows={junctionRows}
+        page={1}
+        perPage={25}
+        onStartEdit={onStartEdit}
+      />,
+    );
+
+    const fkCell = getCellInner("1");
+    expect(fkCell.getAttribute("tabindex")).toBe("0");
+    fireEvent.click(getCellByText("1"));
+    expect(onStartEdit).toHaveBeenCalledTimes(1);
+    expect(onStartEdit.mock.calls[0]![1].name).toBe("item_id");
   });
 
   it("renders the matching editor when editingCell points at a cell", () => {

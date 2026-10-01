@@ -14,6 +14,7 @@ public class SchemaValidator
         var errors = new List<SchemaValidationIssue>();
         var warnings = new List<SchemaValidationIssue>();
         var normalizedTables = new List<TableDef>();
+        var explicitManyToManyJunctionTables = GetExplicitManyToManyJunctionTables(model);
 
         var tableLookup = new Dictionary<string, TableDef>(StringComparer.OrdinalIgnoreCase);
         var duplicateTableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -40,7 +41,7 @@ public class SchemaValidator
 
             var normalizedColumns = new List<ColumnDef>();
             var columnNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var hasPrimaryKey = false;
+            var primaryKeyColumns = new List<(ColumnDef Column, int Index)>();
             var existingIdColumn = false;
 
             for (var columnIndex = 0; columnIndex < table.Columns.Count; columnIndex++)
@@ -76,12 +77,42 @@ public class SchemaValidator
                     errors.Add(new("computed_formula_required", $"Computed column '{table.Name}.{column.Name}' must define a 'formula' field.", $"{columnPath}.formula"));
 
                 if (column.PrimaryKey)
-                    hasPrimaryKey = true;
+                    primaryKeyColumns.Add((column, columnIndex));
 
                 normalizedColumns.Add(column);
             }
 
-            if (!hasPrimaryKey)
+            var isJunctionTable =
+                IsInternalJunctionTable(table.Name) ||
+                explicitManyToManyJunctionTables.Contains(table.Name);
+
+            if (primaryKeyColumns.Count > 1 && !isJunctionTable)
+            {
+                errors.Add(new(
+                    "multiple_primary_keys",
+                    $"Table '{table.Name}' declares multiple primary key columns. User tables support exactly one primary key column named 'id'.",
+                    $"{tablePath}.columns"));
+            }
+            else if (primaryKeyColumns.Count == 1 &&
+                !isJunctionTable &&
+                !string.Equals(primaryKeyColumns[0].Column.Name, "id", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(primaryKeyColumns[0].Column.RenamedFrom, "id", StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add(new(
+                    "primary_key_must_be_id",
+                    $"Table '{table.Name}' uses '{primaryKeyColumns[0].Column.Name}' as the primary key. User tables support only the 'id' column as primaryKey.",
+                    $"{tablePath}.columns[{primaryKeyColumns[0].Index}].primaryKey"));
+            }
+            else if (primaryKeyColumns.Count == 1 &&
+                primaryKeyColumns[0].Column.Type is not (ColumnType.Integer or ColumnType.Uuid))
+            {
+                errors.Add(new(
+                    "primary_key_type_unsupported",
+                    $"Table '{table.Name}' uses '{primaryKeyColumns[0].Column.Type}' for the primary key. User table primary keys support only integer or uuid.",
+                    $"{tablePath}.columns[{primaryKeyColumns[0].Index}].type"));
+            }
+
+            if (primaryKeyColumns.Count == 0)
             {
                 if (existingIdColumn)
                 {
@@ -98,7 +129,6 @@ public class SchemaValidator
                         Nullable = false,
                         Unique = true
                     });
-                    hasPrimaryKey = true;
                 }
             }
 
@@ -194,6 +224,8 @@ public class SchemaValidator
                 errors.Add(new("relation_from_column_invalid", $"Relation '{relation.Name}' must not use an empty 'fromColumn'.", $"{relationPath}.fromColumn"));
             if (relation.ToColumn is not null && string.IsNullOrWhiteSpace(relation.ToColumn))
                 errors.Add(new("relation_to_column_invalid", $"Relation '{relation.Name}' must not use an empty 'toColumn'.", $"{relationPath}.toColumn"));
+            if (relation.JunctionTable is not null && string.IsNullOrWhiteSpace(relation.JunctionTable))
+                errors.Add(new("relation_junction_table_invalid", $"Relation '{relation.Name}' must not use an empty 'junctionTable'.", $"{relationPath}.junctionTable"));
 
             if (relation.Type == RelationType.OneToMany)
             {
@@ -239,6 +271,7 @@ public class SchemaValidator
                 }
 
                 ValidateManyToManyJunctionColumns(relation, relationPath, errors);
+                ValidateExplicitManyToManyJunctionTable(relation, relationPath, tableLookup, errors);
             }
 
             if (fromExists)
@@ -314,6 +347,69 @@ public class SchemaValidator
                 $"N:M relation '{relation.Name}' resolves duplicate junction column name '{duplicate}'.",
                 relationPath));
         }
+    }
+
+    private static void ValidateExplicitManyToManyJunctionTable(
+        RelationDef relation,
+        string relationPath,
+        Dictionary<string, TableDef> tableLookup,
+        List<SchemaValidationIssue> errors)
+    {
+        if (string.IsNullOrWhiteSpace(relation.JunctionTable))
+            return;
+
+        if (!tableLookup.TryGetValue(relation.JunctionTable, out var table))
+        {
+            errors.Add(new(
+                "relation_junction_table_missing",
+                $"N:M relation '{relation.Name}' expects junction table '{relation.JunctionTable}'.",
+                $"{relationPath}.junctionTable"));
+            return;
+        }
+
+        var resolvedJunction = new RelationResolver().BuildJunctionTable(relation);
+        foreach (var expectedColumn in resolvedJunction.Columns.Take(2))
+        {
+            var column = table.Columns.FirstOrDefault(c =>
+                string.Equals(c.Name, expectedColumn.Name, StringComparison.OrdinalIgnoreCase));
+            if (column is null)
+            {
+                errors.Add(new(
+                    "relation_junction_column_missing",
+                    $"N:M relation '{relation.Name}' expects column '{expectedColumn.Name}' on junction table '{table.Name}'.",
+                    $"{relationPath}.junctionTable"));
+                continue;
+            }
+
+            if (column.Type != ColumnType.Reference)
+            {
+                errors.Add(new(
+                    "relation_junction_column_not_reference",
+                    $"N:M relation '{relation.Name}' requires '{table.Name}.{column.Name}' to be a reference column.",
+                    $"{relationPath}.junctionTable"));
+            }
+
+            if (!string.Equals(column.References, expectedColumn.References, StringComparison.OrdinalIgnoreCase))
+            {
+                errors.Add(new(
+                    "relation_junction_reference_mismatch",
+                    $"N:M relation '{relation.Name}' requires '{table.Name}.{column.Name}' to reference '{expectedColumn.References}'.",
+                    $"{relationPath}.junctionTable"));
+            }
+        }
+    }
+
+    private static bool IsInternalJunctionTable(string tableName) =>
+        tableName.StartsWith("_jt_", StringComparison.Ordinal);
+
+    private static HashSet<string> GetExplicitManyToManyJunctionTables(ModelJson model)
+    {
+        return model.Relations
+            .Where(relation => relation.Type == RelationType.ManyToMany)
+            .Select(relation => relation.JunctionTable?.Trim())
+            .Where(name => !string.IsNullOrWhiteSpace(name))
+            .Select(name => name!)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }
 
     private static void ValidateCircularDependencies(

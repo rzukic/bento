@@ -441,6 +441,23 @@ describe("Table detail (/data/:tableId)", () => {
     expect(within(table).getAllByText("102").length).toBeGreaterThan(0);
   });
 
+  it("renders the table grid chrome and add-row affordance for empty tables", () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", []);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    const table = screen.getByRole("table");
+    expect(table).toBeInTheDocument();
+    expect(within(table).getByText("customer_id")).toBeInTheDocument();
+    expect(within(table).getByText("status")).toBeInTheDocument();
+    expect(within(table).getAllByRole("button", { name: "Add row" })).toHaveLength(2);
+    expect(screen.queryByText("No rows")).not.toBeInTheDocument();
+    expect(screen.queryByText(/has no data yet/i)).not.toBeInTheDocument();
+  });
+
   it("shows save actions immediately after kanban config changes", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -1688,6 +1705,36 @@ describe("Table detail (/data/:tableId)", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("menuitem", { name: /^orders$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("selects rows whose primary key is a UUID string", async () => {
+    const uuid = "9fd3f09f-392e-478a-904b-f0811bba4655";
+    seedAuthenticated();
+    seedSchema({
+      version: 5,
+      tables: [
+        {
+          name: "accounts",
+          columns: [
+            { name: "id", type: "uuid", primaryKey: true },
+            { name: "name", type: "string" },
+          ],
+        },
+      ],
+      relations: [],
+    });
+    seedExplorerRows("accounts", [{ id: uuid, name: "Acme" }]);
+
+    const router = createTestRouter(["/data/accounts"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: new RegExp(`select row ${uuid}`, "i") }));
+
+    expect(useExplorerStore.getState().views.accounts?.selectedRowIds).toEqual([uuid]);
+    expect(
+      screen.getByRole("button", { name: /selection operations/i }),
     ).toBeInTheDocument();
   });
 

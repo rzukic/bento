@@ -505,6 +505,82 @@ public class SchemaDiffTests
     }
 
     [Fact]
+    public void Diff_KeepsExplicitManyToManyRelationDropNonDestructive_WhenJunctionTableRemains()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "_jt_products_tags",
+                  "columns": [
+                    { "name": "product_id", "type": "reference", "references": "products", "primaryKey": true, "nullable": false },
+                    { "name": "tag_id", "type": "reference", "references": "tags", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags", "fromColumn": "product_id", "toColumn": "tag_id", "junctionTable": "_jt_products_tags" }
+              ]
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "_jt_products_tags",
+                  "columns": [
+                    { "name": "product_id", "type": "reference", "references": "products", "primaryKey": true, "nullable": false },
+                    { "name": "tag_id", "type": "reference", "references": "tags", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel).ToList();
+
+        var dropRelation = Assert.Single(changes.Where(c => c.ChangeType == SchemaChangeType.DropRelation));
+        Assert.False(dropRelation.IsDestructive);
+        Assert.DoesNotContain(changes, change => change.ChangeType == SchemaChangeType.DropTable);
+    }
+
+    [Fact]
     public void Diff_DetectsOneToManyRelationMetadataChanges_WithoutDestructiveFlag()
     {
         var oldModel = Normalize("""

@@ -20,15 +20,31 @@ public sealed record SchemaChangeCastPreview
     public required IReadOnlyList<SchemaCastExample> Examples { get; init; }
 }
 
+public sealed record SchemaChangeImpact
+{
+    public required SchemaChangeType ChangeType { get; init; }
+    public required string TableName { get; init; }
+    public string? RelationName { get; init; }
+    public required string Kind { get; init; }
+    public required string ObjectType { get; init; }
+    public required string ObjectName { get; init; }
+    public long? RowCount { get; init; }
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>>? SampleRows { get; init; }
+    public IReadOnlyList<object?>? SampleValues { get; init; }
+    public required string Message { get; init; }
+}
+
 public sealed record SchemaPreviewResult
 {
     public required bool RequiresConfirmation { get; init; }
+    public bool MetadataOnly { get; init; }
     public required ModelJson CurrentModel { get; init; }
     public required ModelJson TargetModel { get; init; }
     public required IReadOnlyList<SchemaValidationIssue> Errors { get; init; }
     public required IReadOnlyList<SchemaValidationIssue> Warnings { get; init; }
     public required IReadOnlyList<SchemaChange> Changes { get; init; }
     public required IReadOnlyList<SchemaChangeCastPreview> CastPreviews { get; init; }
+    public required IReadOnlyList<SchemaChangeImpact> Impacts { get; init; }
     public MigrationPlan? Plan { get; init; }
 }
 
@@ -41,6 +57,7 @@ public sealed record SchemaApplyResult
     public required IReadOnlyList<SchemaValidationIssue> Errors { get; init; }
     public required IReadOnlyList<SchemaValidationIssue> Warnings { get; init; }
     public required IReadOnlyList<SchemaChange> Changes { get; init; }
+    public bool MetadataOnly { get; init; }
     public MigrationPlan? Plan { get; init; }
     public MigrationApplyResult? Migration { get; init; }
 }
@@ -87,6 +104,7 @@ public class SchemaService
                 Warnings = validation.Warnings,
                 Changes = [],
                 CastPreviews = [],
+                Impacts = [],
                 Plan = null
             };
         }
@@ -107,21 +125,28 @@ public class SchemaService
                 Warnings = validation.Warnings,
                 Changes = changes,
                 CastPreviews = [],
+                Impacts = [],
                 Plan = null
             };
         }
 
         if (changes.Count == 0)
         {
+            var canonicalTarget = RemoveRenameHints(validation.NormalizedModel);
+            var metadataOnly = currentModel.Version > 0
+                && !ModelJsonSerializer.AreCanonicallyEqual(currentModel, canonicalTarget);
+
             return new SchemaPreviewResult
             {
                 RequiresConfirmation = false,
+                MetadataOnly = metadataOnly,
                 CurrentModel = currentModel,
                 TargetModel = validation.NormalizedModel,
                 Errors = validation.Errors,
                 Warnings = validation.Warnings,
                 Changes = changes,
                 CastPreviews = [],
+                Impacts = [],
                 Plan = CreateNoOpPlan(changes)
             };
         }
@@ -130,6 +155,7 @@ public class SchemaService
         {
             var plan = _migrationGenerator.Generate(currentModel, validation.NormalizedModel, changes);
             var castPreviews = await BuildLossyCastPreviewsAsync(currentModel, validation.NormalizedModel, changes);
+            var impacts = await BuildChangeImpactsAsync(currentModel, changes);
 
             return new SchemaPreviewResult
             {
@@ -140,6 +166,7 @@ public class SchemaService
                 Warnings = validation.Warnings,
                 Changes = changes,
                 CastPreviews = castPreviews,
+                Impacts = impacts,
                 Plan = plan
             };
         }
@@ -156,6 +183,7 @@ public class SchemaService
                 Warnings = validation.Warnings,
                 Changes = changes,
                 CastPreviews = [],
+                Impacts = [],
                 Plan = null
             };
         }
@@ -182,6 +210,27 @@ public class SchemaService
 
         if (preview.Changes.Count == 0)
         {
+            if (preview.MetadataOnly)
+            {
+                var canonicalTarget = RemoveRenameHints(preview.TargetModel);
+                var savedMetadata = await _modelJsonStore.UpdateCurrentMetadataAsync(canonicalTarget);
+                if (savedMetadata is not null)
+                {
+                    return new SchemaApplyResult
+                    {
+                        Applied = true,
+                        RequiresConfirmation = false,
+                        CurrentModel = preview.CurrentModel,
+                        TargetModel = savedMetadata,
+                        Errors = preview.Errors,
+                        Warnings = preview.Warnings,
+                        Changes = preview.Changes,
+                        MetadataOnly = true,
+                        Plan = preview.Plan
+                    };
+                }
+            }
+
             return new SchemaApplyResult
             {
                 Applied = false,
@@ -496,6 +545,284 @@ public class SchemaService
         }
 
         return previews;
+    }
+
+    private async Task<IReadOnlyList<SchemaChangeImpact>> BuildChangeImpactsAsync(
+        ModelJson currentModel,
+        IReadOnlyList<SchemaChange> changes)
+    {
+        var impactChanges = changes
+            .Where(change => change.ChangeType is SchemaChangeType.DropColumn or SchemaChangeType.DropTable or SchemaChangeType.DropRelation or SchemaChangeType.AlterRelation)
+            .ToList();
+
+        if (impactChanges.Count == 0)
+        {
+            return [];
+        }
+
+        var impacts = new List<SchemaChangeImpact>();
+        DbConnection? dbConnection = null;
+
+        foreach (var change in impactChanges)
+        {
+            if (change.ChangeType == SchemaChangeType.DropColumn
+                && !string.IsNullOrWhiteSpace(change.ColumnName))
+            {
+                dbConnection ??= await GetPreviewDbConnectionAsync();
+                var impact = await BuildDropColumnImpactAsync(dbConnection, currentModel, change);
+                if (impact is not null)
+                {
+                    impacts.Add(impact);
+                }
+
+                continue;
+            }
+
+            if (change.ChangeType == SchemaChangeType.DropTable)
+            {
+                dbConnection ??= await GetPreviewDbConnectionAsync();
+                var impact = await BuildDropTableImpactAsync(dbConnection, currentModel, change);
+                if (impact is not null)
+                {
+                    impacts.Add(impact);
+                }
+
+                continue;
+            }
+
+            if (change.ChangeType == SchemaChangeType.DropRelation
+                && change.OldValue is RelationDef droppedRelation
+                && droppedRelation.Type == RelationType.ManyToMany)
+            {
+                dbConnection ??= await GetPreviewDbConnectionAsync();
+                impacts.Add(await BuildManyToManyJunctionImpactAsync(
+                    dbConnection,
+                    change,
+                    droppedRelation,
+                    "many_to_many_junction_drop",
+                    $"Applying this change drops the junction rows stored for relation \"{droppedRelation.Name}\"."));
+                continue;
+            }
+
+            if (change.ChangeType != SchemaChangeType.AlterRelation
+                || change.OldValue is not RelationDef oldRelation
+                || change.NewValue is not RelationDef newRelation)
+            {
+                continue;
+            }
+
+            if (oldRelation.Type == RelationType.OneToMany
+                && newRelation.Type == RelationType.OneToMany
+                && RelationEndpointOrColumnChanged(oldRelation, newRelation))
+            {
+                impacts.Add(new SchemaChangeImpact
+                {
+                    ChangeType = change.ChangeType,
+                    TableName = change.TableName,
+                    RelationName = change.RelationName,
+                    Kind = "one_to_many_relation_retarget",
+                    ObjectType = "relation",
+                    ObjectName = newRelation.Name,
+                    Message = $"Relation \"{newRelation.Name}\" will point from \"{newRelation.From}\" to \"{newRelation.To}\" using column \"{newRelation.Column}\". Existing rows are preserved unless another preview change drops a column."
+                });
+                continue;
+            }
+
+            if (change.IsDestructive && oldRelation.Type == RelationType.ManyToMany)
+            {
+                dbConnection ??= await GetPreviewDbConnectionAsync();
+                impacts.Add(await BuildManyToManyJunctionImpactAsync(
+                    dbConnection,
+                    change,
+                    oldRelation,
+                    "many_to_many_junction_rebuild",
+                    $"Applying this change rebuilds the junction table for relation \"{oldRelation.Name}\" and deletes its stored junction rows."));
+            }
+        }
+
+        if (dbConnection is not null)
+        {
+            await dbConnection.DisposeAsync();
+        }
+
+        return impacts;
+    }
+
+    private async Task<DbConnection> GetPreviewDbConnectionAsync()
+    {
+        var connection = await _dataPool.GetConnectionAsync();
+        return connection as DbConnection
+            ?? throw new InvalidOperationException("Schema preview relation impact sampling requires a DbConnection.");
+    }
+
+    private async Task<SchemaChangeImpact> BuildManyToManyJunctionImpactAsync(
+        DbConnection connection,
+        SchemaChange change,
+        RelationDef relation,
+        string kind,
+        string message)
+    {
+        var junction = new RelationResolver().BuildJunctionTable(relation);
+        long? rowCount = null;
+        IReadOnlyList<IReadOnlyDictionary<string, object?>>? sampleRows = null;
+
+        try
+        {
+            rowCount = await LoadTableRowCountAsync(connection, junction.Name);
+            sampleRows = await LoadSampleRowsAsync(connection, junction, 5);
+        }
+        catch
+        {
+            // Preview should still describe the destructive relation change if
+            // sampling fails because the junction table is unavailable.
+        }
+
+        return new SchemaChangeImpact
+        {
+            ChangeType = change.ChangeType,
+            TableName = change.TableName,
+            RelationName = change.RelationName,
+            Kind = kind,
+            ObjectType = "table",
+            ObjectName = junction.Name,
+            RowCount = rowCount,
+            SampleRows = sampleRows,
+            Message = message
+        };
+    }
+
+    private async Task<SchemaChangeImpact?> BuildDropColumnImpactAsync(
+        DbConnection connection,
+        ModelJson currentModel,
+        SchemaChange change)
+    {
+        var table = TryFindTable(currentModel, change.PreviousTableName ?? change.TableName);
+        var column = table is null ? null : TryFindColumn(table, change.PreviousColumnName ?? change.ColumnName);
+        if (table is null || column is null || string.IsNullOrWhiteSpace(change.ColumnName))
+        {
+            return null;
+        }
+
+        long? rowCount = null;
+        IReadOnlyList<object?>? sampleValues = null;
+
+        try
+        {
+            rowCount = await LoadTableRowCountAsync(connection, table.Name);
+            sampleValues = await LoadSampleValuesAsync(connection, table, column.Name, 5);
+        }
+        catch
+        {
+            // Keep the destructive drop-column warning even if samples cannot
+            // be loaded from the current database.
+        }
+
+        var qualifiedName = $"{table.Name}.{column.Name}";
+        return new SchemaChangeImpact
+        {
+            ChangeType = change.ChangeType,
+            TableName = change.TableName,
+            RelationName = change.RelationName,
+            Kind = "column_drop",
+            ObjectType = "column",
+            ObjectName = qualifiedName,
+            RowCount = rowCount,
+            SampleValues = sampleValues,
+            Message = $"Applying this change drops column \"{qualifiedName}\" and removes its stored values."
+        };
+    }
+
+    private async Task<SchemaChangeImpact?> BuildDropTableImpactAsync(
+        DbConnection connection,
+        ModelJson currentModel,
+        SchemaChange change)
+    {
+        var table = TryFindTable(currentModel, change.PreviousTableName ?? change.TableName);
+        if (table is null)
+        {
+            return null;
+        }
+
+        long? rowCount = null;
+        IReadOnlyList<IReadOnlyDictionary<string, object?>>? sampleRows = null;
+
+        try
+        {
+            rowCount = await LoadTableRowCountAsync(connection, table.Name);
+            sampleRows = await LoadSampleRowsAsync(connection, table, 5);
+        }
+        catch
+        {
+            // Keep the destructive drop-table warning even if samples cannot
+            // be loaded from the current database.
+        }
+
+        return new SchemaChangeImpact
+        {
+            ChangeType = change.ChangeType,
+            TableName = change.TableName,
+            RelationName = change.RelationName,
+            Kind = "table_drop",
+            ObjectType = "table",
+            ObjectName = table.Name,
+            RowCount = rowCount,
+            SampleRows = sampleRows,
+            Message = $"Applying this change drops table \"{table.Name}\" and removes its stored rows."
+        };
+    }
+
+    private static bool RelationEndpointOrColumnChanged(RelationDef oldRelation, RelationDef newRelation)
+    {
+        return !string.Equals(oldRelation.From, newRelation.From, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(oldRelation.To, newRelation.To, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(oldRelation.Column, newRelation.Column, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<long> LoadTableRowCountAsync(DbConnection connection, string tableName)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {Quote(tableName)};";
+        var value = await command.ExecuteScalarAsync();
+        return Convert.ToInt64(value);
+    }
+
+    private async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> LoadSampleRowsAsync(
+        DbConnection connection,
+        TableDef table,
+        int limit)
+    {
+        var columns = table.Columns
+            .Where(column => ColumnTypes.HasPhysicalColumn(column.Type))
+            .Select(column => column.Name)
+            .ToList();
+
+        if (columns.Count == 0)
+        {
+            return [];
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            SELECT {string.Join(", ", columns.Select(Quote))}
+            FROM {Quote(table.Name)}
+            {BuildStableOrderByClause(table)}
+            LIMIT {limit};
+            """;
+
+        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            for (var index = 0; index < reader.FieldCount; index++)
+            {
+                row[reader.GetName(index)] = reader.IsDBNull(index) ? null : reader.GetValue(index);
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
     }
 
     private async Task<IReadOnlyList<object?>> LoadSampleValuesAsync(

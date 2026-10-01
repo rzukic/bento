@@ -114,7 +114,7 @@ const defaultFilterOperatorOptions: FilterOperatorOption[] = [
 ];
 
 const nullaryFilterOps: FilterOp[] = ["null", "notnull"];
-const textLikeColumnTypes = new Set(["string", "text", "json", "relation"]);
+const textLikeColumnTypes = new Set(["string", "text", "json", "relation", "uuid"]);
 const numericColumnTypes = new Set(["integer", "float", "currency"]);
 const temporalColumnTypes = new Set(["date", "datetime"]);
 
@@ -133,6 +133,8 @@ function normalizeColumnType(type: string | undefined): string {
     case "string":
     case "text":
       return "text";
+    case "uuid":
+      return "uuid";
     case "datetime":
       return "datetime";
     case "date":

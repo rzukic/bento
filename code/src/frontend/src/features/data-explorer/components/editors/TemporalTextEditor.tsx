@@ -57,6 +57,7 @@ export function TemporalTextEditor({
   const [visibleMonth, setVisibleMonth] = useState(
     getMonthKey(parseDateDraft(formatDateDraft(value, locale), locale) ?? value),
   );
+  const [placement, setPlacement] = useState<"down" | "up">("down");
 
   const selectedDate = parseDateDraft(dateDraft, locale);
   const selectedTime = parseTimeDraft(timeDraft);
@@ -68,6 +69,16 @@ export function TemporalTextEditor({
   const weekdayLabels = useMemo(() => getWeekdayLabels(locale), [locale]);
   const timeOptions = useMemo(() => buildTimeOptions(), []);
   const yearOptions = useMemo(() => buildYearOptions(visibleYear), [visibleYear]);
+
+  useEffect(() => {
+    if (!openPanel || !rootRef.current) return;
+    const rect = rootRef.current.getBoundingClientRect();
+    // Date panel is ~22rem tall, time panel ~13rem
+    const maxPanelHeight = openPanel === "date" ? 22 * 16 : 13 * 16;
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    setPlacement(spaceBelow < maxPanelHeight && spaceAbove > spaceBelow ? "up" : "down");
+  }, [openPanel, datePanelMode]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -249,7 +260,11 @@ export function TemporalTextEditor({
 
         {openPanel === "date" ? (
           <div
-            className="cell-temporal-editor__panel cell-temporal-editor__panel--date"
+            className={[
+              "cell-temporal-editor__panel",
+              "cell-temporal-editor__panel--date",
+              placement === "up" ? "cell-temporal-editor__panel--up" : "",
+            ].filter(Boolean).join(" ")}
             role="dialog"
             aria-label="Date picker"
             onMouseDown={swallowMouseDown}
@@ -414,7 +429,11 @@ export function TemporalTextEditor({
 
         {isDateTime && openPanel === "time" ? (
           <div
-            className="cell-temporal-editor__panel cell-temporal-editor__panel--time"
+            className={[
+              "cell-temporal-editor__panel",
+              "cell-temporal-editor__panel--time",
+              placement === "up" ? "cell-temporal-editor__panel--up" : "",
+            ].filter(Boolean).join(" ")}
             role="dialog"
             aria-label="Time picker"
             onMouseDown={swallowMouseDown}

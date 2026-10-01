@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -109,6 +110,112 @@ public class MigrationRunnerTests
         await using var dataConn = await env.OpenDataAsync();
         Assert.True(await TableExistsAsync(dataConn, "accounts"));
         Assert.Equal(["id", "name"], await GetColumnNamesAsync(dataConn, "accounts"));
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_MigratesSavedViewsForTableAndColumnRenames()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        await using (var systemConn = await env.OpenSystemAsync())
+        {
+            var userId = await InsertSystemUserAsync(systemConn);
+            using var view = systemConn.CreateCommand();
+            view.CommandText = """
+                INSERT INTO system_views
+                    (name, table_name, owner_user_id, type, config, is_shared)
+                VALUES
+                    ($name, $table, $owner, $type, $config, 0);
+                """;
+            view.Parameters.AddWithValue("$name", "Customer Board");
+            view.Parameters.AddWithValue("$table", "customers");
+            view.Parameters.AddWithValue("$owner", userId);
+            view.Parameters.AddWithValue("$type", "kanban");
+            view.Parameters.AddWithValue("$config", """
+                {
+                  "type": "kanban",
+                  "search": "",
+                  "sort": [{ "column": "full_name", "dir": "asc" }],
+                  "filters": [{ "column": "full_name", "op": "like", "value": "Acme" }],
+                  "hiddenColumnNames": ["full_name"],
+                  "columnOrder": ["id", "full_name"],
+                  "kanbanColumn": "full_name",
+                  "cardFieldNames": ["full_name"],
+                  "hiddenLaneValues": []
+                }
+                """);
+            await view.ExecuteNonQueryAsync();
+
+            using var preferences = systemConn.CreateCommand();
+            preferences.CommandText = """
+                INSERT INTO user_table_explorer_preferences
+                    (user_id, table_name, default_view_id, auto_save)
+                VALUES
+                    ($owner, 'customers', 1, 1);
+                """;
+            preferences.Parameters.AddWithValue("$owner", userId);
+            await preferences.ExecuteNonQueryAsync();
+        }
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "accounts",
+                  "renamedFrom": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "renamedFrom": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        Assert.True(result.Applied);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameTable);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+
+        await using var verifyConn = await env.OpenSystemAsync();
+        using var viewQuery = verifyConn.CreateCommand();
+        viewQuery.CommandText = "SELECT table_name, config FROM system_views WHERE name = 'Customer Board';";
+        await using var reader = await viewQuery.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("accounts", reader.GetString(0));
+
+        using var configDocument = JsonDocument.Parse(reader.GetString(1));
+        var config = configDocument.RootElement;
+        Assert.Equal("name", config.GetProperty("sort")[0].GetProperty("column").GetString());
+        Assert.Equal("name", config.GetProperty("filters")[0].GetProperty("column").GetString());
+        Assert.Equal("name", config.GetProperty("hiddenColumnNames")[0].GetString());
+        Assert.Equal("name", config.GetProperty("columnOrder")[1].GetString());
+        Assert.Equal("name", config.GetProperty("kanbanColumn").GetString());
+        Assert.Equal("name", config.GetProperty("cardFieldNames")[0].GetString());
+
+        using var preferencesQuery = verifyConn.CreateCommand();
+        preferencesQuery.CommandText = "SELECT table_name FROM user_table_explorer_preferences WHERE user_id = 1;";
+        Assert.Equal("accounts", await preferencesQuery.ExecuteScalarAsync());
     }
 
     [Fact]
@@ -234,6 +341,90 @@ public class MigrationRunnerTests
         Assert.Contains("Keep the primary key column named 'id'", error.Message);
         Assert.Null(preview.Plan);
         Assert.Contains(preview.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+    }
+
+    [Fact]
+    public async Task SchemaService_PreviewSchema_BlocksPrimaryKeyFlagChangesEvenWhenDiffWouldBeEmpty()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var preview = await env.SchemaService.PreviewSchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "nullable": false },
+                    { "name": "name", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(preview.Errors);
+        Assert.Equal("primary_key_must_be_id", error.Code);
+        Assert.Equal("tables[0].columns[1].primaryKey", error.Path);
+        Assert.Empty(preview.Changes);
+        Assert.Null(preview.Plan);
+    }
+
+    [Fact]
+    public async Task SchemaService_PreviewSchema_BlocksMultiplePrimaryKeys()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var preview = await env.SchemaService.PreviewSchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(preview.Errors);
+        Assert.Equal("multiple_primary_keys", error.Code);
+        Assert.Equal("tables[0].columns", error.Path);
+        Assert.Empty(preview.Changes);
+        Assert.Null(preview.Plan);
     }
 
     [Fact]
@@ -715,6 +906,17 @@ public class MigrationRunnerTests
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"SELECT COUNT(*) FROM \"{tableName}\";";
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    private static async Task<int> InsertSystemUserAsync(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO users (username, password_hash, role)
+            VALUES ('saved-view-user', 'hash', 'admin');
+            SELECT last_insert_rowid();
+            """;
         return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 

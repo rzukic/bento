@@ -660,10 +660,10 @@ export function TableDetailPage() {
   }
 
   function handleToggleRowSelection(row: Record<string, unknown>) {
-    const rowId = Number(row.id);
-    if (Number.isNaN(rowId)) return;
+    const rowId = String(row.id ?? "");
+    if (!rowId) return;
 
-    toggleRowSelection(resolvedTable.name, String(rowId));
+    toggleRowSelection(resolvedTable.name, rowId);
   }
 
   function handleToggleSelectAllRows() {
@@ -1158,33 +1158,6 @@ export function TableDetailPage() {
             <div className="explorer-loading" data-testid="data-loading">
               <Spinner label="Loading rows" />
             </div>
-          ) : view.rows.length === 0 && view.config.type !== "kanban" ? (
-            <>
-              <EmptyState
-                icon="database"
-                title={
-                  query.search || query.filters.length > 0
-                    ? "No matching rows"
-                    : "No rows"
-                }
-                description={
-                  query.search || query.filters.length > 0
-                    ? "The current query returned no results. Adjust the search, filters, or sort to widen the view."
-                    : "This table exists in the schema but has no data yet."
-                }
-                actions={
-                  query.search || query.filters.length > 0 ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={handleResetView}
-                    >
-                      Reset view
-                    </Button>
-                  ) : undefined
-                }
-              />
-            </>
           ) : (
             <>
               <ViewRenderer
@@ -1211,6 +1184,7 @@ export function TableDetailPage() {
                   void openRecordEditor({
                     table: resolvedTable.name,
                     rowId: String(rowId),
+                    row,
                   });
                 }}
                 onRequestFilterColumn={(column) =>

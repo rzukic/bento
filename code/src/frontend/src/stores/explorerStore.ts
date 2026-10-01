@@ -540,7 +540,11 @@ type ExplorerStoreState = {
    * editor's single-record cache, reconciling the current table view only when
    * that row is already part of the visible result set.
    */
-  openRecordEditor: (params: { table: string; rowId: string | number }) => Promise<void>;
+  openRecordEditor: (params: {
+    table: string;
+    rowId: string | number;
+    row?: Record<string, unknown> | null;
+  }) => Promise<void>;
 
   /**
    * Push another record onto the in-modal navigation stack (TASK-099).
@@ -548,7 +552,11 @@ type ExplorerStoreState = {
    * stack entry enters an error state without affecting earlier entries. No-op
    * when the editor is closed.
    */
-  pushRecordEditor: (params: { table: string; rowId: string | number }) => Promise<void>;
+  pushRecordEditor: (params: {
+    table: string;
+    rowId: string | number;
+    row?: Record<string, unknown> | null;
+  }) => Promise<void>;
 
   /**
    * Drop the top entry from the stack. If the stack becomes empty, closes the
@@ -596,7 +604,50 @@ function getTableModel(tableName: string): ModelTable | null {
 }
 
 function isWritableColumn(column: ModelColumn): boolean {
-  return !column.primaryKey && column.type !== "computed";
+  if (column.type === "computed") return false;
+  if (column.references || column.type === "relation") return true;
+  return !column.primaryKey;
+}
+
+function getPrimaryKeyColumns(table: ModelTable): ModelColumn[] {
+  return table.columns.filter((column) => Boolean(column.primaryKey));
+}
+
+function buildCompositeRowId(table: ModelTable, row: Record<string, unknown>): string | null {
+  const primaryKeyColumns = getPrimaryKeyColumns(table);
+  if (primaryKeyColumns.length <= 1) return null;
+
+  const parts: string[] = [];
+  for (const column of primaryKeyColumns) {
+    const value = row[column.name];
+    if (value === undefined || value === null || value === "") {
+      return null;
+    }
+    parts.push(`${column.name}:${String(value)}`);
+  }
+
+  return parts.join("|");
+}
+
+function normalizeRowId(
+  table: ModelTable,
+  row: Record<string, unknown>,
+  fallbackRowId?: string,
+): Record<string, unknown> {
+  if (row.id !== undefined && row.id !== null && row.id !== "") {
+    return row;
+  }
+
+  const compositeRowId = buildCompositeRowId(table, row);
+  if (compositeRowId) {
+    return { ...row, id: compositeRowId };
+  }
+
+  if (fallbackRowId) {
+    return { ...row, id: fallbackRowId };
+  }
+
+  return row;
 }
 
 function isTemporalColumn(column: ModelColumn): boolean {
@@ -604,7 +655,10 @@ function isTemporalColumn(column: ModelColumn): boolean {
 }
 
 function isServerManagedColumn(column: ModelColumn): boolean {
-  return Boolean(column.primaryKey) || (isTemporalColumn(column) && column.default !== undefined);
+  return (
+    (Boolean(column.primaryKey) && !column.references && column.type !== "relation") ||
+    (isTemporalColumn(column) && column.default !== undefined)
+  );
 }
 
 function getWritableColumns(table: ModelTable): ModelColumn[] {
@@ -633,6 +687,25 @@ function buildCreatePayload(
     payload[column.name] = value;
   }
   return payload;
+}
+
+function isCreateReady(
+  table: ModelTable,
+  row: Record<string, unknown>,
+  nextColumnName: string,
+  nextValue: unknown,
+): boolean {
+  for (const column of getWritableColumns(table)) {
+    if (!column.primaryKey && column.nullable !== false) continue;
+    if (column.default !== undefined) continue;
+
+    const value = column.name === nextColumnName ? nextValue : row[column.name];
+    if (value === undefined || value === null || value === "") {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function buildDuplicatePayload(
@@ -768,7 +841,11 @@ async function loadRecordEditorEntry(
   expectedIndex: number
 ): Promise<void> {
   try {
-    const fetched = await fetchRow(table, rowIdString);
+    const tableModel = getTableModel(table);
+    const fetchedRaw = await fetchRow(table, rowIdString);
+    const fetched = tableModel
+      ? normalizeRowId(tableModel, fetchedRaw, rowIdString)
+      : fetchedRaw;
     set((state) => {
       const editor = state.recordEditor;
       if (!editor) return state;
@@ -885,13 +962,17 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
               query
             )
           : await fetchTableRows(activeTable, query);
+      const tableModel = getTableModel(activeTable);
+      const normalizedRows = tableModel
+        ? result.data.map((row) => normalizeRowId(tableModel, row))
+        : result.data;
       set((state) => ({
         views: {
           ...state.views,
           [activeTable]: {
             ...state.views[activeTable]!,
             status: "ready",
-            rows: result.data,
+            rows: normalizedRows,
             meta: result.meta,
             error: null
           }
@@ -1229,6 +1310,9 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     const createPayload = isPendingNewRow
       ? buildCreatePayload(tableModel!, row, columnName, nextValue)
       : null;
+    const createReady = isPendingNewRow
+      ? isCreateReady(tableModel!, row, columnName, nextValue)
+      : false;
 
     if (Object.is(prevValue, nextValue)) {
       // No-op: just exit edit mode without hitting the API.
@@ -1236,7 +1320,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       return;
     }
 
-    if (isPendingNewRow && createPayload && Object.keys(createPayload).length === 0) {
+    if (isPendingNewRow && (!createReady || (createPayload && Object.keys(createPayload).length === 0))) {
       set((s) => {
         const v = s.views[table];
         if (!v) return s;
@@ -1307,9 +1391,12 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     });
 
     try {
-      const updated = isPendingNewRow
+      const updatedRaw = isPendingNewRow
         ? await createRow(table, createPayload ?? {})
         : await patchRow(table, rowId, { [columnName]: nextValue });
+      const updated = tableModel
+        ? normalizeRowId(tableModel, updatedRaw, rowId)
+        : updatedRaw;
       set((s) => {
         const v = s.views[table];
         if (!v) return s;
@@ -2231,15 +2318,25 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     scheduleAutoSave();
   },
 
-  openRecordEditor: async ({ table, rowId }) => {
+  openRecordEditor: async ({ table, rowId, row: providedRow = null }) => {
     const rowIdString = String(rowId);
+    let shouldFetch = true;
     set((state) => {
       const view = state.views[table] ?? freshTableView();
-      const existing = view.rows.find((row) => String(row.id ?? "") === rowIdString) ?? null;
+      const existing =
+        providedRow ??
+        view.rows.find((candidate) => String(candidate.id ?? "") === rowIdString) ??
+        null;
+      const tableModel = getTableModel(table);
+      shouldFetch = !(
+        existing !== null &&
+        ((tableModel !== null && getPrimaryKeyColumns(tableModel).length > 1) ||
+          table.startsWith("_jt_"))
+      );
       const entry: RecordEditorEntry = {
         table,
         rowId: rowIdString,
-        status: "loading",
+        status: shouldFetch ? "loading" : "ready",
         row: existing,
         error: null,
       };
@@ -2253,10 +2350,11 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
       };
     });
 
+    if (!shouldFetch) return;
     await loadRecordEditorEntry(set, get, table, rowIdString, 0);
   },
 
-  pushRecordEditor: async ({ table, rowId }) => {
+  pushRecordEditor: async ({ table, rowId, row: providedRow = null }) => {
     const current = get().recordEditor;
     if (!current || !current.open) return;
 
@@ -2266,15 +2364,25 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     if (top && top.table === table && top.rowId === rowIdString) return;
 
     let pushedIndex = -1;
+    let shouldFetch = true;
     set((state) => {
       const editor = state.recordEditor;
       if (!editor || !editor.open) return state;
       const view = state.views[table] ?? freshTableView();
-      const existing = view.rows.find((row) => String(row.id ?? "") === rowIdString) ?? null;
+      const existing =
+        providedRow ??
+        view.rows.find((row) => String(row.id ?? "") === rowIdString) ??
+        null;
+      const tableModel = getTableModel(table);
+      shouldFetch = !(
+        existing !== null &&
+        ((tableModel !== null && getPrimaryKeyColumns(tableModel).length > 1) ||
+          table.startsWith("_jt_"))
+      );
       const entry: RecordEditorEntry = {
         table,
         rowId: rowIdString,
-        status: "loading",
+        status: shouldFetch ? "loading" : "ready",
         row: existing,
         error: null,
       };
@@ -2291,6 +2399,7 @@ export const useExplorerStore = create<ExplorerStoreState>((set, get) => ({
     });
 
     if (pushedIndex === -1) return;
+    if (!shouldFetch) return;
     await loadRecordEditorEntry(set, get, table, rowIdString, pushedIndex);
   },
 

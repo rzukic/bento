@@ -99,7 +99,7 @@ public sealed class SchemaDiffEngine
             });
         }
 
-        changes.AddRange(DiffRelations(oldModel.Relations, newModel.Relations));
+        changes.AddRange(DiffRelations(oldModel, newModel));
 
         return changes;
     }
@@ -294,9 +294,11 @@ public sealed class SchemaDiffEngine
         return changes;
     }
 
-    private static IReadOnlyList<SchemaChange> DiffRelations(IReadOnlyList<RelationDef> oldRelations, IReadOnlyList<RelationDef> newRelations)
+    private static IReadOnlyList<SchemaChange> DiffRelations(ModelJson oldModel, ModelJson newModel)
     {
         var changes = new List<SchemaChange>();
+        var oldRelations = oldModel.Relations;
+        var newRelations = newModel.Relations;
         var oldByName = oldRelations.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
         var newByName = newRelations.ToDictionary(r => r.Name, StringComparer.OrdinalIgnoreCase);
 
@@ -326,6 +328,7 @@ public sealed class SchemaDiffEngine
                     OldValue = oldRelation,
                     NewValue = relation,
                     IsDestructive = RelationAlterDropsOrRebuildsJunction(oldRelation, relation)
+                        && !HasExplicitJunctionTable(oldModel, oldRelation)
                 });
             }
         }
@@ -343,10 +346,21 @@ public sealed class SchemaDiffEngine
                 RelationName = relation.Name,
                 OldValue = relation,
                 IsDestructive = relation.Type == RelationType.ManyToMany
+                    && !HasExplicitJunctionTable(oldModel, relation)
             });
         }
 
         return changes;
+    }
+
+    private static bool HasExplicitJunctionTable(ModelJson model, RelationDef relation)
+    {
+        if (relation.Type != RelationType.ManyToMany)
+            return false;
+
+        var junctionName = RelationResolver.GetJunctionTableName(relation);
+        return model.Tables.Any(table =>
+            string.Equals(table.Name, junctionName, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool RelationAlterDropsOrRebuildsJunction(RelationDef oldRelation, RelationDef newRelation)
@@ -433,7 +447,8 @@ public sealed class SchemaDiffEngine
             && string.Equals(left.ToAccessor, right.ToAccessor, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.Column, right.Column, StringComparison.OrdinalIgnoreCase)
             && string.Equals(left.FromColumn, right.FromColumn, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(left.ToColumn, right.ToColumn, StringComparison.OrdinalIgnoreCase);
+            && string.Equals(left.ToColumn, right.ToColumn, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(left.JunctionTable, right.JunctionTable, StringComparison.OrdinalIgnoreCase);
     }
 
     private static void AddMetadataChange(

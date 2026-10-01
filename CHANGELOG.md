@@ -12,6 +12,59 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-05-27 — Ship the Visual Schema Designer
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-127 through TASK-138 and completed the Step 2.6 docs/verification pass. Admins can now create and edit schema tables visually, wire relations, persist layout metadata, switch back to canonical JSON, preview backend migration impact, and apply reviewed changes from the browser.
+
+**Highlights:**
+- Added the Visual mode ERD canvas on `/model` with table cards, selection, pan/zoom/fit controls, drag-to-reposition layout, color metadata, orthogonal relation lines, and relation-line selection
+- Added Visual inspector flows for table/column editing, table create/duplicate/delete/rename, guided `1:N`, self-referential `1:N`, and visible `N:M` relation creation
+- Kept Visual and JSON modes on one canonical Model JSON draft, including invalid-JSON blocking, import/export round-trips, layout metadata preservation, and backend diagnostics mapped back to visual targets where possible
+- Reused the Step 2.5 preview/apply safety boundary for Visual submissions, including destructive confirmation, no-op previews, failed-apply draft retention, and live schema refresh after apply
+- Synced Part 4, user docs, frontend architecture notes, task board, working-step index, and final verification records for Step 2.6 closeout
+
+### 2026-05-27 — Complete Visual Designer Regression Coverage
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-137. The visual schema designer now has cross-cutting regression coverage for its draft helpers, JSON/Visual sync boundary, preview/apply review flow, and full create-from-empty workflow.
+
+**Highlights:**
+- Added a full Visual mode create -> preview -> apply -> refresh regression that builds two tables, columns, and a `1:N` relation from an empty schema
+- Verified the applied visual draft refreshes the JSON editor and frontend schema store from the backend response
+- Kept destructive review, no-op previews, backend validation diagnostics, failed-apply draft retention, layout metadata, and invalid-draft coverage in the focused Step 2.6 suite
+- Stabilized an unrelated date-picker test so the full frontend verification suite remains deterministic across calendar months
+
+### 2026-05-27 — Wire Visual Preview, Apply, and Diagnostics
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-136. Visual schema edits now use the same backend-backed preview, destructive-review, apply, diagnostics, and failed-apply retention flow as JSON mode.
+
+**Highlights:**
+- Added Visual-mode preview diagnostics that map backend issue paths to table, column, relation, or canvas targets
+- Selecting a visual diagnostic now focuses the closest canvas/inspector object while the existing JSON diagnostic path remains available in the Preview panel
+- Extended apply regression coverage so successful apply and failed validation both work while the user is in Visual mode
+- Kept destructive confirmation, lossy casts, and no-op preview handling on the shared Step 2.5 review boundary
+
+### 2026-05-27 — Persist Visual Schema Layout Metadata
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-135. Visual schema table positions and colors now persist through the shared Model JSON draft and layout-only apply path without requiring a database migration or schema version bump.
+
+**Highlights:**
+- Table dragging writes durable `layout` coordinates into the canonical draft and relation routes recompute around visible table cards after layout changes
+- Layout colors remain editable from Visual mode, visible on the ERD card border, and preserved through JSON formatting/import/export
+- Layout-only previews render a clear no-migration state, while backend apply stores metadata-only changes in place
+- Restored the Visual column inspector's reference-target selector so reference columns can be completed from the same editing surface
+
 ## Phase 2 — Data Management
 
 ### 2026-04-21 — Complete the JSON Schema Workbench

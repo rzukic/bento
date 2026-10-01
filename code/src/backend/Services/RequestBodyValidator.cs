@@ -19,10 +19,14 @@ public sealed record FieldError(string Field, string Message);
 public sealed class RequestBodyValidator
 {
     private readonly QueryService _queryService;
+    private readonly SchemaCache _schemaCache;
+    private readonly DatabaseConfig _dbConfig;
 
-    public RequestBodyValidator(QueryService queryService)
+    public RequestBodyValidator(QueryService queryService, SchemaCache schemaCache, DatabaseConfig dbConfig)
     {
         _queryService = queryService;
+        _schemaCache = schemaCache;
+        _dbConfig = dbConfig;
     }
 
     /// <summary>
@@ -41,7 +45,7 @@ public sealed class RequestBodyValidator
         var bodyProps = GetBodyProperties(body);
         var allColumns = table.Columns;
         var writableColumns = allColumns
-            .Where(c => !c.PrimaryKey && c.Type != ColumnType.Computed)
+            .Where(CrudService.IsWritableColumn)
             .ToList();
 
         // Check for unknown columns
@@ -82,7 +86,7 @@ public sealed class RequestBodyValidator
     /// Validate a request body for a full UPDATE (PUT) operation.
     /// All required columns must be present (same as create, since PUT replaces all fields).
     /// </summary>
-    public async Task ValidateUpdateAsync(TableDef table, long id, JsonElement body)
+    public async Task ValidateUpdateAsync(TableDef table, object id, JsonElement body)
     {
         // PUT has same validation as create, plus the row must exist
         var errors = new List<FieldError>();
@@ -95,7 +99,7 @@ public sealed class RequestBodyValidator
         var bodyProps = GetBodyProperties(body);
         var allColumns = table.Columns;
         var writableColumns = allColumns
-            .Where(c => !c.PrimaryKey && c.Type != ColumnType.Computed)
+            .Where(CrudService.IsWritableColumn)
             .ToList();
 
         ValidateUnknownColumns(bodyProps, allColumns, errors);
@@ -130,7 +134,7 @@ public sealed class RequestBodyValidator
     /// Validate a request body for a PATCH operation.
     /// Only validates provided columns (partial update).
     /// </summary>
-    public async Task ValidatePatchAsync(TableDef table, long id, JsonElement body)
+    public async Task ValidatePatchAsync(TableDef table, object id, JsonElement body)
     {
         var errors = new List<FieldError>();
 
@@ -142,7 +146,7 @@ public sealed class RequestBodyValidator
         var bodyProps = GetBodyProperties(body);
         var allColumns = table.Columns;
         var writableColumns = allColumns
-            .Where(c => !c.PrimaryKey && c.Type != ColumnType.Computed)
+            .Where(CrudService.IsWritableColumn)
             .ToList();
 
         ValidateUnknownColumns(bodyProps, allColumns, errors);
@@ -224,11 +228,26 @@ public sealed class RequestBodyValidator
 
             switch (col.Type)
             {
-                case ColumnType.Integer or ColumnType.Reference:
+                case ColumnType.Integer:
                     if (value.ValueKind != JsonValueKind.Number
                         && !(value.ValueKind == JsonValueKind.String && long.TryParse(value.GetString(), out _)))
                     {
                         errors.Add(new FieldError(col.Name, $"Column '{col.Name}' expects integer, got {DescribeJsonKind(value)}."));
+                    }
+                    break;
+
+                case ColumnType.Reference:
+                    if (value.ValueKind != JsonValueKind.Number &&
+                        !(value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())))
+                    {
+                        errors.Add(new FieldError(col.Name, $"Column '{col.Name}' expects integer or UUID reference, got {DescribeJsonKind(value)}."));
+                    }
+                    break;
+
+                case ColumnType.Uuid:
+                    if (value.ValueKind != JsonValueKind.String || !Guid.TryParse(value.GetString(), out _))
+                    {
+                        errors.Add(new FieldError(col.Name, $"Column '{col.Name}' expects UUID string, got {DescribeJsonKind(value)}."));
                     }
                     break;
 
@@ -296,7 +315,7 @@ public sealed class RequestBodyValidator
         TableDef table,
         Dictionary<string, JsonElement> bodyProps,
         List<ColumnDef> writableColumns,
-        long? existingId)
+        object? existingId)
     {
         var uniqueColumns = writableColumns.Where(c => c.Unique).ToList();
         if (uniqueColumns.Count == 0)
@@ -314,9 +333,9 @@ public sealed class RequestBodyValidator
                 .Where(col.Name, coerced)
                 .SelectRaw("1");
 
-            if (existingId.HasValue)
+            if (existingId is not null)
             {
-                query = query.Where("id", "!=", existingId.Value);
+                query = query.Where("id", "!=", existingId);
             }
 
             object? exists = await query.FirstOrDefaultAsync();
@@ -351,7 +370,7 @@ public sealed class RequestBodyValidator
             if (!bodyProps.TryGetValue(col.Name, out var value) || value.ValueKind == JsonValueKind.Null)
                 continue;
 
-            var refId = CrudService.CoerceValueStatic(value, ColumnType.Integer);
+            var refId = CoerceReferenceValue(value, col);
 
             object? exists = await scope.Db.Query(col.References!)
                 .Where("id", refId)
@@ -383,6 +402,24 @@ public sealed class RequestBodyValidator
             JsonValueKind.Object => "object",
             _ => element.ValueKind.ToString()
         };
+    }
+
+    private object? CoerceReferenceValue(JsonElement value, ColumnDef column)
+    {
+        var referencedPrimaryKey = !string.IsNullOrWhiteSpace(column.References)
+            ? _schemaCache.GetTable(column.References)?.Columns.FirstOrDefault(c => c.PrimaryKey)
+            : null;
+
+        if (referencedPrimaryKey?.Type == ColumnType.Uuid)
+        {
+            var raw = value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : value.GetRawText();
+            if (raw is not null && Guid.TryParse(raw, out var guid))
+                return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
+        }
+
+        return CrudService.CoerceValueStatic(value, ColumnType.Reference);
     }
 
     private static void ThrowValidationErrors(List<FieldError> errors)

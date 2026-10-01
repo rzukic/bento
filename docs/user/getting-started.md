@@ -1,6 +1,6 @@
 # Getting Started
 
-> Run the current MVP 1 product and make your first authenticated API call.
+> Run the current product and make your first authenticated API call.
 
 ---
 
@@ -11,15 +11,15 @@
 - `curl`
 - optionally `jq` for prettier JSON output
 
-You do not need to build the .NET project manually for normal MVP 1 usage.
+You do not need to build the .NET project manually for normal packaged usage.
 
 ---
 
 ## What You Are Starting
 
-Right now Repere is a backend service.
+Repere starts a backend service and, in the Phase 2 development workspace, a browser app can run beside it.
 
-You start a Docker container, then talk to it over HTTP:
+You start the backend, then talk to it over HTTP:
 - health check
 - register first admin user
 - log in
@@ -150,9 +150,10 @@ curl -fsS "$API_ROOT/admin/health/details" \
 
 Once you can log in successfully, continue with:
 
+- [Schema Designer](schema-designer.md) for the browser workflow to create tables, relations, preview migrations, and apply changes
 - [Using The API](using-the-api.md) for the first real workflow
 
-That guide shows how to:
+The API guide shows how to:
 - upload a schema JSON
 - create rows
 - query rows

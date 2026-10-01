@@ -163,6 +163,7 @@ public class ModelJsonTests
                     { "name": "computed_col", "type": "computed", "formula": "price * quantity" },
                     { "name": "currency_col", "type": "currency" },
                     { "name": "enum_col", "type": "enum", "values": ["a", "b"] },
+                    { "name": "uuid_col", "type": "uuid" },
                     { "name": "file_col", "type": "file" }
                   ],
                   "indexes": []
@@ -187,6 +188,7 @@ public class ModelJsonTests
             ColumnType.Computed,
             ColumnType.Currency,
             ColumnType.Enum,
+            ColumnType.Uuid,
             ColumnType.File
         ], types);
     }
@@ -204,7 +206,7 @@ public class ModelJsonTests
               ],
               "relations": [
                 { "name": "employee_manager", "type": "1:N", "from": "employees", "to": "employees", "column": "manager_id", "fromAccessor": "reports", "toAccessor": "manager" },
-                { "name": "team_projects", "type": "N:M", "from": "teams", "to": "projects" }
+                { "name": "team_projects", "type": "N:M", "from": "teams", "to": "projects", "junctionTable": "team_project_links" }
               ]
             }
             """);
@@ -218,6 +220,10 @@ public class ModelJsonTests
         Assert.Equal(RelationType.ManyToMany, model.Relations[1].Type);
         Assert.Equal("teams", model.Relations[1].From);
         Assert.Equal("projects", model.Relations[1].To);
+        Assert.Equal("team_project_links", model.Relations[1].JunctionTable);
+
+        var serialized = ModelJsonSerializer.Serialize(model);
+        Assert.Contains("\"junctionTable\": \"team_project_links\"", serialized);
     }
 
     [Fact]

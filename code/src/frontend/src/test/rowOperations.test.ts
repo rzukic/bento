@@ -59,6 +59,36 @@ function seedOrders(rows: Record<string, unknown>[]) {
   }));
 }
 
+function seedTableRows(table: string, rows: Record<string, unknown>[]) {
+  useExplorerStore.setState((state) => ({
+    activeTable: table,
+    views: {
+      ...state.views,
+      [table]: {
+        status: "ready",
+        config: { ...DEFAULT_EXPLORER_VIEW_CONFIG },
+        page: 1,
+        perPage: 25,
+        rows,
+        meta: { page: 1, per_page: 25, total: rows.length, total_pages: 1 },
+        error: null,
+        source: { kind: "table" },
+        selectedRowIds: [],
+        editingCell: null,
+        cellErrors: {},
+        pendingCellSaves: [],
+        pendingNewRowIds: [],
+        rowErrors: {},
+        context: null,
+        savedViews: [],
+        savedViewsStatus: "ready" as const,
+        activeViewId: null,
+        autoSave: false,
+      },
+    },
+  }));
+}
+
 function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -83,6 +113,28 @@ const sampleSnapshot: ModelSnapshot = {
           default: "CURRENT_TIMESTAMP",
         },
       ],
+    },
+    {
+      name: "_jt_order_tags",
+      columns: [
+        {
+          name: "order_id",
+          type: "int64",
+          primaryKey: true,
+          references: { table: "orders", column: "id" },
+        },
+        {
+          name: "tag_id",
+          type: "int64",
+          primaryKey: true,
+          references: { table: "tags", column: "id" },
+        },
+        { name: "note", type: "string" },
+      ],
+    },
+    {
+      name: "tags",
+      columns: [{ name: "id", type: "int64", primaryKey: true }],
     },
   ],
   relations: [],
@@ -154,6 +206,55 @@ describe("row operations", () => {
       created_at: "2026-04-18T12:00:00Z",
     });
     expect(after.meta?.total).toBe(2);
+  });
+
+  it("keeps the first required PK/FK selection local and POSTs once the junction row is complete", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedTableRows("_jt_order_tags", []);
+
+    const fetchMock = vi.fn(async () =>
+      jsonResponse(201, { data: { order_id: 1, tag_id: 9, note: null } }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    useExplorerStore.getState().addBlankRow("_jt_order_tags");
+
+    const added = useExplorerStore.getState().views._jt_order_tags!;
+    const draftRow = added.rows[0]!;
+    const draftId = String(draftRow.id);
+
+    await useExplorerStore
+      .getState()
+      .commitCellEdit("_jt_order_tags", draftId, "order_id", 1);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    let afterFirstEdit = useExplorerStore.getState().views._jt_order_tags!;
+    expect(afterFirstEdit.pendingNewRowIds).toEqual([draftId]);
+    expect(afterFirstEdit.rows[0]).toMatchObject({
+      id: draftId,
+      order_id: 1,
+      tag_id: null,
+      note: null,
+    });
+
+    await useExplorerStore
+      .getState()
+      .commitCellEdit("_jt_order_tags", draftId, "tag_id", 9);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(JSON.parse(String(init.body))).toEqual({ order_id: 1, tag_id: 9 });
+
+    const afterCreate = useExplorerStore.getState().views._jt_order_tags!;
+    expect(afterCreate.pendingNewRowIds).toEqual([]);
+    expect(afterCreate.rows[0]).toMatchObject({
+      id: "order_id:1|tag_id:9",
+      order_id: 1,
+      tag_id: 9,
+      note: null,
+    });
   });
 
   it("cancelCellEdit drops a never-saved blank row without an API call", () => {

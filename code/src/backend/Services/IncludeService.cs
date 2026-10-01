@@ -114,10 +114,19 @@ public sealed class IncludeService
     /// </summary>
     public async Task<RelatedRowsResult> LoadRelatedRowsAsync(
         string tableName,
-        long parentId,
+        string parentId,
         string relationAccessor,
         IQueryCollection query)
     {
+        var sourceTable = _schemaCache.GetTable(tableName)
+            ?? throw new ApiNotFoundException(
+                $"Table '{tableName}' does not exist.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["table"] = tableName
+                });
+        var coercedParentId = CoerceId(parentId, sourceTable);
+
         var include = ResolveInclude(tableName, relationAccessor)
             ?? throw new ApiNotFoundException(
                 $"Unknown relation accessor '{relationAccessor}' on table '{tableName}'.",
@@ -147,7 +156,7 @@ public sealed class IncludeService
             if (include.IsFromSide)
             {
                 // From parent → children (e.g., customers/:id/customer_orders → orders)
-                var relatedQuery = scope.Db.Query(def.To).Where(def.Column!, parentId);
+                var relatedQuery = scope.Db.Query(def.To).Where(def.Column!, coercedParentId);
                 return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
             }
             else
@@ -155,7 +164,7 @@ public sealed class IncludeService
                 // From child → parent (e.g., orders/:id/customer → customers row)
                 // First get the FK value from the child row
                 object? childRow = await scope.Db.Query(tableName)
-                    .Where("id", parentId)
+                    .Where("id", coercedParentId)
                     .FirstOrDefaultAsync();
 
                 if (childRow is null)
@@ -195,7 +204,7 @@ public sealed class IncludeService
 
             var relatedQuery = scope.Db.Query(remoteTable)
                 .Join(junctionTable, $"{junctionTable}.{remoteJunctionCol}", $"{remoteTable}.id")
-                .Where($"{junctionTable}.{localJunctionCol}", parentId)
+                .Where($"{junctionTable}.{localJunctionCol}", coercedParentId)
                 .Select($"{remoteTable}.*");
 
             return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
@@ -492,7 +501,7 @@ public sealed class IncludeService
         DatabaseProvider provider)
     {
         // Apply filters
-        CrudService.ApplyFiltersStatic(query, parameters.Filters);
+        CrudService.ApplyFiltersStatic(query, parameters.Filters, table, provider);
 
         // Count
         var total = await query.Clone().CountAsync<long>();
@@ -534,5 +543,43 @@ public sealed class IncludeService
         }
 
         throw new InvalidOperationException($"Unexpected row type: {row.GetType().FullName}");
+    }
+
+    private object CoerceId(string id, TableDef table)
+    {
+        var primaryKey = table.Columns.FirstOrDefault(c => c.PrimaryKey)
+            ?? throw new InvalidOperationException($"Table '{table.Name}' does not define a primary key column.");
+
+        if (primaryKey.Type == ColumnType.Uuid || IsUuidReference(primaryKey))
+        {
+            if (!Guid.TryParse(id, out var guid))
+                throw new ApiValidationException(
+                    $"Primary key '{primaryKey.Name}' expects a UUID value.",
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["field"] = primaryKey.Name,
+                        ["value"] = id
+                    });
+
+            return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
+        }
+
+        if (!long.TryParse(id, out var numericId))
+            throw new ApiValidationException(
+                $"Primary key '{primaryKey.Name}' expects an integer value.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["field"] = primaryKey.Name,
+                    ["value"] = id
+                });
+
+        return numericId;
+    }
+
+    private bool IsUuidReference(ColumnDef column)
+    {
+        return column.Type == ColumnType.Reference &&
+            !string.IsNullOrWhiteSpace(column.References) &&
+            _schemaCache.GetTable(column.References)?.Columns.FirstOrDefault(c => c.PrimaryKey)?.Type == ColumnType.Uuid;
     }
 }

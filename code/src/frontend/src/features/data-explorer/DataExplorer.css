@@ -1376,7 +1376,7 @@
     width: 100%;
     padding-left: 0.46rem;
     padding-right: 0.46rem;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .data-grid__header-trigger {
@@ -1397,6 +1397,12 @@
     display: flex;
     align-items: center;
     min-width: 0;
+}
+
+.data-grid__header-content--primary {
+    flex: 1;
+    justify-content: center;
+    padding-inline: 0.35rem;
 }
 
 .data-grid__header-name-row {
@@ -1469,6 +1475,13 @@
 }
 
 .data-grid__header-pk-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.7rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-raised) 84%, var(--surface));
     font-size: 0.7rem;
     font-family: var(--font-mono);
     font-weight: 700;
@@ -1476,14 +1489,22 @@
     text-transform: uppercase;
     color: var(--text-3);
     line-height: 1;
+    white-space: nowrap;
 }
 
-.data-grid__header-cell--primary:hover .data-grid__header-pk-label,
-.data-grid__header-cell--primary:focus-within .data-grid__header-pk-label,
+.data-grid__header-primary-label-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.data-grid__header-cell--primary:hover .data-grid__header-content--primary,
+.data-grid__header-cell--primary:focus-within
+    .data-grid__header-content--primary,
 .data-grid__header-cell--primary:has(.data-grid__select-toggle--selected)
-    .data-grid__header-pk-label,
+    .data-grid__header-content--primary,
 .data-grid__header-cell--primary:has(.data-grid__select-toggle--partial)
-    .data-grid__header-pk-label {
+    .data-grid__header-content--primary {
     opacity: 0;
 }
 
@@ -1545,6 +1566,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
     transition: opacity var(--dur) var(--ease);
 }
 
@@ -1754,9 +1776,9 @@
 }
 
 .data-grid__column--primary {
-    width: 2.6rem;
+    width: max-content;
     min-width: 2.6rem;
-    max-width: 2.6rem;
+    max-width: none;
     white-space: nowrap;
     position: sticky;
     left: 0;
@@ -1823,10 +1845,23 @@
 }
 
 .data-grid__cell--editing {
+    position: relative;
+    z-index: 30;
     padding: 0;
     background: color-mix(in srgb, var(--surface-raised) 55%, var(--surface));
     box-shadow: inset 0 0 0 1px
         color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.data-grid td:has(.data-grid__cell--editing),
+.data-grid td:has(.cell-combobox[data-open]) {
+    position: relative;
+    z-index: 30;
+}
+
+.data-grid td.data-grid__column--primary:has(.data-grid__cell--editing),
+.data-grid td.data-grid__column--primary:has(.cell-combobox[data-open]) {
+    z-index: 31;
 }
 
 .data-grid__cell-editor,
@@ -1890,13 +1925,21 @@
     left: 0;
     border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
     border-radius: 14px;
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, white) 0%, var(--surface) 100%);
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-raised) 96%, white) 0%,
+        var(--surface) 100%
+    );
     box-shadow:
         0 16px 36px rgba(15, 23, 42, 0.16),
         0 2px 10px rgba(15, 23, 42, 0.08);
     padding: 0.72rem;
     z-index: 20;
+}
+
+.cell-temporal-editor__panel--up {
+    top: auto;
+    bottom: calc(100% + 0.42rem);
 }
 
 .cell-temporal-editor__panel--date {
@@ -2224,7 +2267,7 @@
 
 .cell-combobox__listbox {
     position: absolute;
-    z-index: 10;
+    z-index: 40;
     top: calc(100% + 0.3rem);
     left: 0;
     width: 100%;
@@ -3443,6 +3486,55 @@
     background: color-mix(in srgb, var(--surface) 86%, var(--surface-raised));
 }
 
+.record-editor__relation-section--grid {
+    position: relative;
+    z-index: 2;
+    overflow: visible;
+}
+
+.record-editor__relation-section--grid .data-grid__scroll {
+    overflow: visible;
+}
+
+.record-editor__relation-section--grid .data-grid__cell--editing {
+    z-index: 90;
+}
+
+.record-editor__relation-section--grid
+    .data-grid
+    td:has(.data-grid__cell--editing),
+.record-editor__relation-section--grid
+    .data-grid
+    td:has(.cell-combobox[data-open]) {
+    position: relative;
+    z-index: 90;
+}
+
+.record-editor__relation-section--grid
+    .data-grid
+    td.data-grid__column--primary:has(.data-grid__cell--editing),
+.record-editor__relation-section--grid
+    .data-grid
+    td.data-grid__column--primary:has(.cell-combobox[data-open]) {
+    z-index: 91;
+}
+
+.record-editor__relation-section--grid .cell-combobox__listbox {
+    z-index: 120;
+}
+
+.record-editor__relation-section,
+.data-grid__scroll {
+    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.record-editor__relation-section table {
+    border-bottom: 0px !important;
+}
+
 .record-editor__relation-header {
     display: flex;
     align-items: center;
@@ -3535,13 +3627,12 @@
 .record-editor__relation-skeleton {
     height: 2.75rem;
     border-radius: 8px;
-    background:
-        linear-gradient(
-            90deg,
-            color-mix(in srgb, var(--border) 38%, transparent) 0%,
-            color-mix(in srgb, var(--surface-raised) 70%, var(--surface)) 50%,
-            color-mix(in srgb, var(--border) 38%, transparent) 100%
-        );
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--border) 38%, transparent) 0%,
+        color-mix(in srgb, var(--surface-raised) 70%, var(--surface)) 50%,
+        color-mix(in srgb, var(--border) 38%, transparent) 100%
+    );
     background-size: 200% 100%;
     animation: record-editor-skeleton 1.2s ease-in-out infinite;
 }

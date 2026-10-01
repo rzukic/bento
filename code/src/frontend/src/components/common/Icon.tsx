@@ -12,8 +12,10 @@ export type IconName =
   | "user"
   | "chevron-right"
   | "chevron-left"
+  | "chevron-up"
   | "chevron-down"
   | "plus"
+  | "minus"
   | "logout"
   | "activity"
   | "layers"
@@ -116,6 +118,7 @@ const paths: Record<IconName, React.ReactNode> = {
   ),
   "chevron-right": <path d="M9 6l6 6-6 6" />,
   "chevron-left": <path d="M15 6l-6 6 6 6" />,
+  "chevron-up": <path d="m18 15-6-6-6 6" />,
   "chevron-down": <path d="m6 9 6 6 6-6" />,
   plus: (
     <>
@@ -123,6 +126,7 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M5 12h14" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
   logout: (
     <>
       <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />

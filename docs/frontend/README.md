@@ -11,6 +11,7 @@ Current implementation status:
 - the first reusable UI primitive layer now exists for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs
 - light/dark/system theme switching is available through the shared app store and shell controls
 - Phase 2 Step 2.2 now ships a real Data Explorer read path at `/data` and `/data/:tableId`
+- Phase 2 Step 2.6 now ships the schema workbench at `/model`, including JSON and Visual modes backed by the same Model JSON draft
 
 ---
 
@@ -24,7 +25,7 @@ src/frontend/
 │   ├── router.tsx        ← Shared browser route tree
 │   ├── routes/           ← Page-level route placeholders
 │   ├── components/       ← Shared UI components and layout pieces
-│   ├── features/         ← Feature modules like the Data Explorer
+│   ├── features/         ← Feature modules like Data Explorer and Schema Workbench
 │   ├── stores/           ← Zustand state stores
 │   ├── api/              ← API client functions
 │   ├── hooks/            ← Custom React hooks
@@ -75,7 +76,8 @@ Current route behavior:
 - `/data` now renders the schema-driven Data Explorer landing with live table discovery and summary chips
 - `/data/:tableId` now renders the live explorer detail route with the read-only grid, Airtable-style foldout controls, pagination, row selection, column visibility controls, and relation browsing
 - `/dashboards`, `/forms`, and `/ai` already exist as placeholders so later modules can plug into a stable IA without route churn
-- the Schema Designer and later modules still remain placeholder shells beyond the shipped Data Explorer slice
+- `/model` renders the admin schema workbench with JSON and Visual modes sharing one draft, preview/apply safety, import/export, validation diagnostics, and live schema refresh
+- `/model` Visual mode uses a feature-local SVG ERD canvas and inspector; no third-party canvas library was introduced for Step 2.6
 
 ---
 
@@ -100,6 +102,7 @@ Current behavior:
 - auth routes use `anonymous` + `skipAuthRetry` to avoid recursive refresh attempts
 - normal protected calls can do a one-shot `401 -> /auth/refresh -> retry`
 - backend `{ error: { code, message, details } }` envelopes are surfaced as `ApiClientError`
+- schema workbench calls live in `api/schema.ts` and keep preview (`POST /admin/schema/preview`) separate from apply (`PUT /admin/schema`)
 
 ---
 
@@ -149,6 +152,25 @@ Current non-goals for this slice:
 - advanced column management beyond hide/show
 
 Those move into Step 2.3 and later Part 8 work.
+
+---
+
+## Schema Workbench
+
+Phase 2 Step 2.6 ships the schema designer under `src/features/schema-workbench/`.
+
+Current structure:
+- `SchemaWorkbenchPage.tsx` owns the `/model` route, mode switch, shared draft state, preview/apply flow, Visual inspector, and ERD canvas rendering
+- `SchemaWorkbenchPage.css` contains the workbench, editor, inspector, canvas, relation-line, diagnostics, and review-modal styles
+- `visualSchemaDraft.ts` contains immutable helpers for table, column, relation, layout, and object-path draft mutations
+- JSON helpers such as `draftJson.ts`, `jsonPathLocation.ts`, and `jsonTextPosition.ts` remain the raw-draft support layer from Step 2.5
+
+Design and dependency notes:
+- The ERD canvas is rendered with React and inline SVG paths, not a new diagramming or canvas dependency.
+- Visual and JSON modes must continue to edit one canonical Model JSON draft. Do not add a visual-only save path.
+- Backend preview/apply remains the safety boundary. Frontend previews should not guess migration impact independently.
+- Table `layout` metadata is allowed in Model JSON and is inert for migrations. Layout-only apply should not imply a schema version bump.
+- Visual relation editing currently exposes guided `1:N`, self-referential `1:N`, visible `N:M`, relation selection, and relation renaming. Explicit N:M junction tables may use custom names as long as the relation's `junctionTable` points at the visible table and its reference columns match the relation endpoints. Advanced relation properties are still deferred.
 
 ---
 

@@ -68,7 +68,13 @@ type DataGridProps = {
 };
 
 function isColumnEditable(column: ModelColumn): boolean {
-  return !column.primaryKey && column.type !== "computed";
+  if (column.type === "computed") return false;
+  if (column.references || column.type === "relation") return true;
+  return !column.primaryKey;
+}
+
+function isPrimarySelectionColumn(column: ModelColumn): boolean {
+  return Boolean(column.primaryKey) && !column.references && column.type !== "relation";
 }
 
 function pickEditorForColumn(column: ModelColumn) {
@@ -511,7 +517,16 @@ export function DataGrid({
                       </span>
                     ) : null}
                     {column.primaryKey ? (
-                      <span className="data-grid__header-pk-label">PK</span>
+                      <span className="data-grid__header-content data-grid__header-content--primary">
+                        <span className="data-grid__header-name-row">
+                          <span className="data-grid__header-name">
+                            {column.displayName ?? column.name}
+                          </span>
+                        </span>
+                        <span className="data-grid__header-primary-label-group">
+                          <span className="data-grid__header-pk-label">PK</span>
+                        </span>
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -649,14 +664,14 @@ export function DataGrid({
                             .filter(Boolean)
                             .join(" ")}
                           onClick={
-                            column.primaryKey && onToggleRowSelection && !pendingNew
+                            isPrimarySelectionColumn(column) && onToggleRowSelection && !pendingNew
                               ? (event) => handlePrimarySelectionClick(event, row, index)
                               : editable && !isEditing
                                 ? () => onStartEdit?.(row, column)
                                 : undefined
                           }
                           onMouseDown={
-                            column.primaryKey && onSetSelectedRowIds && !pendingNew
+                            isPrimarySelectionColumn(column) && onSetSelectedRowIds && !pendingNew
                               ? (event) => {
                                   if (event.button !== 0) return;
                                   if (!event.shiftKey) {
@@ -671,7 +686,7 @@ export function DataGrid({
                               : undefined
                           }
                           onMouseEnter={
-                            column.primaryKey && onSetSelectedRowIds && !pendingNew
+                            isPrimarySelectionColumn(column) && onSetSelectedRowIds && !pendingNew
                               ? (event) => {
                                   if ((event.buttons & 1) !== 1) return;
                                   setDraggedRowRange(index);
@@ -682,7 +697,7 @@ export function DataGrid({
                           <div
                             className={[
                               "data-grid__cell",
-                              column.primaryKey && onToggleRowSelection && !pendingNew
+                              isPrimarySelectionColumn(column) && onToggleRowSelection && !pendingNew
                                 ? "data-grid__cell--interactive"
                                 : "",
                               editable && !isEditing
@@ -721,7 +736,7 @@ export function DataGrid({
                                   />
                                 </div>
                               );
-                            })() : column.primaryKey ? (
+                            })() : isPrimarySelectionColumn(column) ? (
                               <span className="data-grid__primary-cell">
                                 <span className="data-grid__primary-value">
                                   {pendingNew ? (

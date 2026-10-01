@@ -80,6 +80,7 @@ export type ModelRelation = {
   column?: string | null;
   fromColumn?: string | null;
   toColumn?: string | null;
+  junctionTable?: string | null;
   resolvedFromAccessor?: string | null;
   resolvedToAccessor?: string | null;
   resolvedJunctionTableName?: string | null;
@@ -111,6 +112,7 @@ export type SchemaColumnType =
   | "computed"
   | "currency"
   | "enum"
+  | "uuid"
   | "file";
 
 export type SchemaRelationType = "1:N" | "N:M";
@@ -189,6 +191,7 @@ export type SchemaRelation = {
   column?: string | null;
   fromColumn?: string | null;
   toColumn?: string | null;
+  junctionTable?: string | null;
   resolvedFromAccessor?: string | null;
   resolvedToAccessor?: string | null;
   resolvedJunctionTableName?: string | null;
@@ -214,6 +217,7 @@ export type SchemaChange = {
   newValue?: unknown;
   coercionKind?: SchemaCoercionKind | null;
   castExamples?: SchemaCastExample[] | null;
+  impact?: SchemaChangeImpact | null;
   isDestructive: boolean;
 };
 
@@ -222,6 +226,21 @@ export type SchemaCastExample = {
   castValue?: unknown;
   isValid: boolean;
   error?: string | null;
+};
+
+export type SchemaChangeImpact = {
+  kind:
+    | "many_to_many_junction_drop"
+    | "many_to_many_junction_rebuild"
+    | "one_to_many_relation_retarget"
+    | "table_drop"
+    | "column_drop";
+  objectType: "relation" | "table" | "column";
+  objectName: string;
+  rowCount?: number;
+  sampleRows?: Record<string, unknown>[];
+  sampleValues?: unknown[];
+  message: string;
 };
 
 export type SchemaPlan = {
@@ -234,6 +253,7 @@ export type SchemaPlan = {
 export type SchemaPreviewResponse = {
   isValid: boolean;
   hasChanges: boolean;
+  metadataOnly?: boolean;
   isDestructive: boolean;
   requiresConfirmation: boolean;
   currentVersion: number;
@@ -246,6 +266,7 @@ export type SchemaPreviewResponse = {
 
 export type SchemaApplyResponse = {
   applied: boolean;
+  metadataOnly?: boolean;
   version: number;
   changes: SchemaChange[];
   warnings: SchemaIssue[];
