@@ -64,7 +64,6 @@ import {
   updateManyToManyRelation,
   updateColumn,
   updateOneToManyRelation,
-  updateRelation,
   updateTable,
   validateVisualSchemaDraft,
   type VisualTableLayout,
@@ -3098,7 +3097,7 @@ function VisualSchemaMode({
       }));
     }
 
-    function handlePointerUp(upEvent: PointerEvent) {
+    function handlePointerUp() {
       const currentPan = canvasPanRef.current;
       if (!currentPan) {
         return;
@@ -3157,7 +3156,7 @@ function VisualSchemaMode({
       );
     }
 
-    function handlePointerUp(upEvent: PointerEvent) {
+    function handlePointerUp() {
       const currentDrag = tableDragRef.current;
       if (!currentDrag) {
         return;

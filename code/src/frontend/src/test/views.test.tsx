@@ -450,7 +450,7 @@ describe("View selector bar", () => {
           config: { ...DEFAULT_EXPLORER_VIEW_CONFIG },
           page: 1,
           perPage: 25,
-          rows: [{ id: 1, title: "One" } as any],
+          rows: [{ id: 1, title: "One" }],
           meta: { page: 1, per_page: 25, total: 1, total_pages: 1 },
           error: null,
           source: { kind: "table" },
@@ -469,7 +469,7 @@ describe("View selector bar", () => {
       },
     }));
 
-    const fetchMock = vi.fn(async () => mockDataResponse([{ id: 1, title: "One" } as any]));
+    const fetchMock = vi.fn(async () => mockDataResponse([{ id: 1, title: "One" }]));
     vi.stubGlobal("fetch", fetchMock);
 
     render(<RouterProvider router={createTestRouter(["/data/items"])} />);

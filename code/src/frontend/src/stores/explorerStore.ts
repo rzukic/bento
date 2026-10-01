@@ -576,14 +576,6 @@ type ExplorerStoreState = {
 
 // ── Helpers ───────────────────────────────────────────────────────────
 
-function getView(
-  views: Record<string, TableViewState>,
-  table: string | null
-): TableViewState | null {
-  if (!table) return null;
-  return views[table] ?? null;
-}
-
 /**
  * Returns true if the current authenticated user owns the given view.
  * Used to gate destructive / mutating actions so users can't rename or

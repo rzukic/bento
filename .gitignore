@@ -1,7 +1,15 @@
 .obsidian
+.zed
 
 # SQLite runtime artifacts
 *.db-wal
 *.db-shm
 *.sqlite-wal
 *.sqlite-shm
+
+# Presentations and office lock files live outside the repo
+*.pptx
+.~lock.*#
+
+# Stray package caches at the repo root
+/node_modules/

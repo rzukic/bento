@@ -1589,9 +1589,7 @@ describe("Table detail (/data/:tableId)", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => {
       return new Response(
         JSON.stringify(
           mockListResponse(

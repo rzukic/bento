@@ -624,8 +624,6 @@ export function DataQueryControls({
   currentViewConfig = null,
   onSearch,
   onSortChange,
-  onPerPageChange,
-  onPageChange,
   onFiltersChange,
   onHiddenColumnsChange,
   onResetView,

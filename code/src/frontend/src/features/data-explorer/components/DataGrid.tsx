@@ -389,8 +389,6 @@ export function DataGrid({
       return;
     }
 
-    const rowId = String(row.id);
-
     if (event.shiftKey && onSetSelectedRowIds && selectionAnchorIndexRef.current !== null) {
       const startIndex = Math.min(selectionAnchorIndexRef.current, rowIndex);
       const endIndex = Math.max(selectionAnchorIndexRef.current, rowIndex);

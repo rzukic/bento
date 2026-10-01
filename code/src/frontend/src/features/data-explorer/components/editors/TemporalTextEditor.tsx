@@ -20,7 +20,6 @@ import {
   getCurrentLocale,
   getMonthButtonLabel,
   getMonthKey,
-  getMonthLabel,
   getMonthName,
   getMonthParts,
   getWeekdayLabels,

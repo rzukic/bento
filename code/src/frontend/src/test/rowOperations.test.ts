@@ -230,7 +230,7 @@ describe("row operations", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
 
-    let afterFirstEdit = useExplorerStore.getState().views._jt_order_tags!;
+    const afterFirstEdit = useExplorerStore.getState().views._jt_order_tags!;
     expect(afterFirstEdit.pendingNewRowIds).toEqual([draftId]);
     expect(afterFirstEdit.rows[0]).toMatchObject({
       id: draftId,

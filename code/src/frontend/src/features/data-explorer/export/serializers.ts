@@ -173,6 +173,7 @@ function sanitizeFilenameSegment(value: string): string {
   const trimmed = value.trim();
   if (!trimmed) return "export";
   return trimmed
+    // eslint-disable-next-line no-control-regex -- control characters are intentionally stripped from file names
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, "")
     .replace(/\s+/g, "-");
 }

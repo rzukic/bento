@@ -20,14 +20,6 @@ type KanbanViewProps = {
 const UNASSIGNED_LANE_ID = "__kanban_unassigned__";
 const MAX_SECONDARY_FIELDS = 3;
 
-function getPrimaryDisplayColumn(table: ModelTable): ModelColumn | null {
-  const string = table.columns.find(
-    (c) => !c.primaryKey && (c.type === "string" || c.type === "enum"),
-  );
-  if (string) return string;
-  return table.columns.find((c) => c.primaryKey) ?? table.columns[0] ?? null;
-}
-
 type Lane = {
   id: string;
   label: string;

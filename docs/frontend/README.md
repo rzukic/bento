@@ -198,19 +198,27 @@ Vite builds to `dist/`. The `repere/frontend` Docker container serves this with 
 
 nginx is configured with `try_files $uri /index.html` so React Router handles all routes client-side.
 
+The workspace uses **pnpm** (pinned via `packageManager` in `package.json`). CI runs typecheck, lint, and tests for every pull request that touches `code/**`.
+
 ```bash
+# Install dependencies
+pnpm install
+
 # Development (with Vite dev server + HMR)
-npm run dev
+pnpm run dev
 
 # Type-check the frontend workspace
-npm run typecheck
+pnpm run typecheck
+
+# Lint (ESLint flat config in eslint.config.js)
+pnpm run lint
 
 # Production build
-npm run build       # outputs to dist/
-npm run preview     # preview production build locally
+pnpm run build       # outputs to dist/
+pnpm run preview     # preview production build locally
 
 # Run the frontend test suite
-npm run test
+pnpm run test
 ```
 
 During development, `vite.config.ts` proxies `/api/v1/*` to `http://localhost:5000` so you can run the backend separately.
