@@ -280,6 +280,7 @@ The response also includes the `X-Request-Id` header so callers can correlate fa
 Current Step 1.5 data contract:
 - tables and relation accessors come from the current Model JSON; route availability updates immediately after `PUT /api/v1/admin/schema`
 - all `/api/v1/data/*` endpoints require auth in `standard` mode and run with the open-mode admin bypass in `open` mode
+- read endpoints (`GET`) accept every authenticated role (`viewer`, `editor`, `admin`, `api`); write endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) require `editor` or `admin`, or the `api` role, and return `403` with `error.details.requiredRole` / `error.details.actualRole` otherwise
 - `GET /api/v1/data/<table>` returns `{ data, meta }`, where `meta` includes `page`, `per_page`, `total`, and `total_pages`
 - `POST /api/v1/data/<table>` returns `201 Created` with `{ data }`
 - `PUT` is full replacement for writable columns; omitted optional writable columns may become `null`, while omitted non-nullable writable columns fail validation

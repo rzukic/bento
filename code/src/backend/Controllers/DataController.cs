@@ -1,12 +1,19 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Repere.Api.Authorization;
 using Repere.Api.Exceptions;
 using Repere.Api.Services;
 
 namespace Repere.Api.Controllers;
 
+/// <summary>
+/// Auto-generated row CRUD. Reads are open to every authenticated role
+/// (<c>viewer</c> and above, plus <c>api</c>); writes additionally require
+/// <c>editor</c> or above, or the <c>api</c> role.
+/// </summary>
 [ApiController]
 [Route(ApiRoutes.Data)]
+[RequireRole("viewer", "api")]
 public sealed class DataController : ControllerBase
 {
     private readonly SchemaCache _schemaCache;
@@ -77,6 +84,7 @@ public sealed class DataController : ControllerBase
     /// Create a new row.
     /// </summary>
     [HttpPost("{table}")]
+    [RequireRole("editor", "api")]
     public async Task<IActionResult> Create(string table, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
@@ -88,6 +96,7 @@ public sealed class DataController : ControllerBase
     /// Full update of a row (replace all writable columns).
     /// </summary>
     [HttpPut("{table}/{id}")]
+    [RequireRole("editor", "api")]
     public async Task<IActionResult> Update(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
@@ -99,6 +108,7 @@ public sealed class DataController : ControllerBase
     /// Partial update of a row (update only provided columns).
     /// </summary>
     [HttpPatch("{table}/{id}")]
+    [RequireRole("editor", "api")]
     public async Task<IActionResult> Patch(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
@@ -110,6 +120,7 @@ public sealed class DataController : ControllerBase
     /// Delete a row by ID.
     /// </summary>
     [HttpDelete("{table}/{id}")]
+    [RequireRole("editor", "api")]
     public async Task<IActionResult> Delete(string table, string id)
     {
         var tableDef = ResolveTable(table);
