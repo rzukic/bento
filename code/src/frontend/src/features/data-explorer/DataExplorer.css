@@ -2217,6 +2217,9 @@
 .data-grid__cell-editor textarea {
     box-sizing: border-box;
     width: 100%;
+    /* Same minimum height as .data-grid__cell so the editor box does not
+       shrink below the row it replaces. */
+    min-height: 2.1rem;
     margin: 0;
     padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
     border: 0;
