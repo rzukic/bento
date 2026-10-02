@@ -310,7 +310,10 @@
 .data-controls__menu-button {
     position: relative;
     min-width: 2.85rem;
-    min-height: 2.2rem;
+    /* Whole-pixel height (36px) so the attached foldout panel lines up
+       exactly with the tab's bottom edge; see .data-controls__panel--floating. */
+    height: 2.25rem;
+    min-height: 2.25rem;
     padding: 0 0.55rem;
     border-color: transparent;
     background: transparent;
@@ -346,6 +349,16 @@
 
 .data-controls__menu-button.data-controls__menu-button--active:hover {
     background: var(--surface);
+    /* Keep the tab outline identical to the panel border on hover instead
+       of the generic .btn:hover focus colour. */
+    border-color: var(--border);
+    border-bottom-color: transparent;
+}
+
+/* Dropdown-style menu buttons (Export) get a pressed look while open. */
+.data-controls__menu-button[aria-haspopup="menu"][aria-expanded="true"] {
+    background: var(--surface-raised);
+    color: var(--text);
 }
 
 .data-controls__menu-button--active::after {
@@ -397,10 +410,17 @@
 
 .data-controls__panel--floating {
     position: absolute;
-    top: calc(100% - 0.5rem);
+    /* The menu row is vertically centred in the bar, so the tab's bottom edge
+       sits at 50% + half the tab height (2.25rem / 2). The panel starts 1px
+       above that edge so its top border lies under the active tab's
+       transparent bottom border, where the tab background (higher z-index)
+       paints over it and tab and panel merge into one shape. */
+    top: calc(50% + 1.125rem - 1px);
     right: 0.5rem;
     left: auto;
     width: max-content;
+    /* Set by DataQueryControls so the panel reaches the active tab's left edge. */
+    min-width: min(var(--foldout-min-width, 0px), calc(100vw - 2rem));
     max-width: min(calc(100vw - 2rem), 70rem);
     z-index: 8;
     border-top: 1px solid var(--border);
@@ -420,6 +440,11 @@
     display: flex;
     gap: 0.5rem;
     align-items: end;
+}
+
+/* Match the 2.5rem field control so input and submit button share one height. */
+.data-controls__search-actions .btn {
+    height: 2.5rem;
 }
 
 .data-controls__sort-builder {
@@ -852,14 +877,14 @@
 
 .data-controls__export-menu {
     position: absolute;
-    top: calc(100% + 6px);
+    top: calc(100% + 4px);
     left: 0;
-    min-width: 8rem;
+    min-width: 100%;
     padding: 0.3rem;
     border: 1px solid var(--border);
-    border-radius: var(--r-lg);
+    border-radius: var(--r-md);
     background: var(--surface);
-    box-shadow: var(--shadow-lg);
+    box-shadow: var(--shadow-md);
     z-index: 24;
 }
 

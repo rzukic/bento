@@ -9,6 +9,7 @@ export type IconName =
   | "sparkles"
   | "settings"
   | "search"
+  | "download"
   | "user"
   | "chevron-right"
   | "chevron-left"
@@ -108,6 +109,13 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="M20 20l-3.5-3.5" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 19h14" />
     </>
   ),
   user: (

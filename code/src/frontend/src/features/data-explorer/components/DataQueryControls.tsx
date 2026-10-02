@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -632,6 +633,8 @@ export function DataQueryControls({
 }: DataQueryControlsProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewDropdownRef = useRef<HTMLDivElement | null>(null);
+  const overlayAnchorRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // ── Query controls state ──
   const [searchDraft, setSearchDraft] = useState(query.search);
@@ -651,6 +654,46 @@ export function DataQueryControls({
   const [activePanel, setActivePanel] = useState<UtilityPanel>(() =>
     suppressAutoPanel ? null : getInitialPanel(query),
   );
+
+  // The floating foldout panel is anchored to the right edge of the bar. For
+  // narrow panels (Search) its left edge would land inside the active tab, so
+  // the tab visually hangs over the panel corner. Stretch the panel's minimum
+  // width so it always reaches the active tab's left edge and the two merge
+  // into one shape.
+  useLayoutEffect(() => {
+    const anchor = overlayAnchorRef.current;
+    if (!anchor) return;
+
+    function syncPanelMinWidth() {
+      if (!anchor) return;
+      const activeButton = menuRef.current?.querySelector<HTMLElement>(
+        '[aria-expanded="true"]',
+      );
+      const panel = anchor.querySelector<HTMLElement>(
+        ".data-controls__panel--floating",
+      );
+      if (!activeButton || !panel) {
+        anchor.style.removeProperty("--foldout-min-width");
+        return;
+      }
+
+      const minWidth =
+        panel.getBoundingClientRect().right -
+        activeButton.getBoundingClientRect().left;
+      // Fractional widths are intentional: the panel's left border must sit
+      // exactly on the tab's left border, not on the nearest whole pixel.
+      anchor.style.setProperty(
+        "--foldout-min-width",
+        `${Math.max(0, minWidth)}px`,
+      );
+    }
+
+    syncPanelMinWidth();
+    window.addEventListener("resize", syncPanelMinWidth);
+    return () => {
+      window.removeEventListener("resize", syncPanelMinWidth);
+    };
+  }, [activePanel]);
 
   // ── View selector state ──
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -1134,7 +1177,7 @@ export function DataQueryControls({
 
   return (
     <div className="data-controls" ref={rootRef}>
-      <div className="data-controls__overlay-anchor">
+      <div className="data-controls__overlay-anchor" ref={overlayAnchorRef}>
         <div className="data-controls__bar">
           {/* LEFT — view selector dropdown, settings, save actions */}
           <div className="data-controls__view-selector">
@@ -1315,7 +1358,7 @@ export function DataQueryControls({
               </Button>
             ) : null}
           </div>
-          <div className="data-controls__menu">
+          <div className="data-controls__menu" ref={menuRef}>
             {toolbarActions}
             {selectionPanel ? (
               <Button

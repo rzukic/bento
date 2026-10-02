@@ -920,14 +920,18 @@ export function TableDetailPage() {
                   <Button
                     type="button"
                     variant="ghost"
-                    size="sm"
+                    className="data-controls__menu-button"
+                    aria-label="Export"
                     aria-haspopup="menu"
                     aria-expanded={exportMenuOpen}
                     onClick={() => setExportMenuOpen((open) => !open)}
                     disabled={isExporting}
-                    trailingIcon={<Icon name="chevron-down" size={12} />}
                   >
-                    Export
+                    <span className="data-controls__menu-button-content">
+                      <Icon name="download" size={14} />
+                      <span className="data-controls__menu-button-label">Export</span>
+                      <Icon name="chevron-down" size={12} />
+                    </span>
                   </Button>
                   {exportMenuOpen ? (
                     <div
