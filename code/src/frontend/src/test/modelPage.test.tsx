@@ -3726,8 +3726,10 @@ describe("Model workbench route (/model)", () => {
     const confirmButton = within(dialog).getByRole("button", { name: "Apply" });
     await user.click(confirmButton);
 
+    // Preview + dialog + apply + refresh is the longest flow in this suite and
+    // exceeded the default 1s findBy timeout under full-suite load.
     expect(
-      await screen.findByText("No schema changes applied"),
+      await screen.findByText("No schema changes applied", {}, { timeout: 4000 }),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("Applied schema version 3"),

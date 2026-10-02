@@ -58,10 +58,12 @@ public sealed class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Return the current Model JSON schema.
+    /// Return the current Model JSON schema. Readable by every authenticated
+    /// role because the browser UI needs the schema snapshot for navigation;
+    /// preview, apply, and rollback stay admin-only.
     /// </summary>
     [HttpGet("schema")]
-    [RequireRole("admin")]
+    [RequireRole("viewer", "api")]
     public async Task<IActionResult> GetSchema()
     {
         var model = await _modelJsonStore.GetCurrentAsync();
@@ -75,7 +77,7 @@ public sealed class AdminController : ControllerBase
     /// Return the current canonical Model JSON schema without runtime-only relation metadata.
     /// </summary>
     [HttpGet("schema/model")]
-    [RequireRole("admin")]
+    [RequireRole("viewer", "api")]
     public async Task<IActionResult> GetSchemaModel()
     {
         var model = await _modelJsonStore.GetCurrentAsync();

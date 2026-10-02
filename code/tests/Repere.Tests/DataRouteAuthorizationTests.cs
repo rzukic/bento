@@ -93,6 +93,31 @@ public sealed class DataRouteAuthorizationTests
     }
 
     [Fact]
+    public async Task Viewer_CanReadSchema_ButNotPreviewOrMigrations()
+    {
+        await using var host = await CreateStandardModeHostAsync();
+        var adminToken = await RegisterBootstrapAdminAsync(host);
+        var viewerToken = await CreateUserAndLoginAsync(host, adminToken, "viewer-user", "viewer");
+
+        using var schemaResponse = await SendAsync(host, HttpMethod.Get, "/api/v1/admin/schema", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, schemaResponse.StatusCode);
+        var schemaJson = await schemaResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal("customers", schemaJson.GetProperty("tables")[0].GetProperty("name").GetString());
+
+        using var modelResponse = await SendAsync(host, HttpMethod.Get, "/api/v1/admin/schema/model", viewerToken);
+        Assert.Equal(HttpStatusCode.OK, modelResponse.StatusCode);
+
+        using var previewResponse = await SendAsync(host, HttpMethod.Post, "/api/v1/admin/schema/preview", viewerToken, new { tables = Array.Empty<object>(), relations = Array.Empty<object>() });
+        await AssertForbiddenAsync(previewResponse);
+
+        using var applyResponse = await SendAsync(host, HttpMethod.Put, "/api/v1/admin/schema", viewerToken, new { tables = Array.Empty<object>(), relations = Array.Empty<object>() });
+        await AssertForbiddenAsync(applyResponse);
+
+        using var migrationsResponse = await SendAsync(host, HttpMethod.Get, "/api/v1/admin/migrations", viewerToken);
+        await AssertForbiddenAsync(migrationsResponse);
+    }
+
+    [Fact]
     public async Task Admin_CanWrite()
     {
         await using var host = await CreateStandardModeHostAsync();

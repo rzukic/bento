@@ -1576,7 +1576,7 @@ export function SchemaWorkbenchPage() {
         <Panel>
           <EmptyState
             title="Admin access required"
-            description="The schema workbench loads the admin Model JSON surface. Sign in with an admin account to inspect or stage schema drafts."
+            description="Editing the schema is reserved for administrators. Sign in with an admin account to stage, preview, or apply schema drafts."
             icon="schema"
             bullets={[
               "Loads the current server schema into a local draft",
