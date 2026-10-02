@@ -119,6 +119,7 @@ export function AppFrame({ children }: AppFrameProps) {
     | AppRouteHandle
     | undefined;
   const hidePageHeader = currentHandle?.hidePageHeader === true;
+  const customPageHeader = currentHandle?.customPageHeader === true;
 
   useDocumentTitle(`${currentTitle} · Repere`);
 
@@ -246,7 +247,7 @@ export function AppFrame({ children }: AppFrameProps) {
             hidePageHeader ? "shell__page shell__page--immersive" : "shell__page"
           }
         >
-          {!hidePageHeader ? (
+          {!hidePageHeader && !customPageHeader ? (
             <header className="shell__page-header">
               <div className="shell__page-heading">
                 <h1 className="shell__page-title display">{currentTitle}</h1>

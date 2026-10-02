@@ -16,6 +16,8 @@ export type AppRouteHandle = {
   title: string | ((params: Record<string, string | undefined>) => string);
   subtitle?: string | ((params: Record<string, string | undefined>) => string);
   hidePageHeader?: boolean;
+  /** The page renders its own heading; the shell keeps its padding but draws no header. */
+  customPageHeader?: boolean;
   navLabel?: string;
   navGroup?: string;
   /** Optional parent breadcrumb for routes that are flat siblings but should appear nested. */
@@ -28,6 +30,7 @@ const shellRoutes: RouteObject[] = [
     element: <HomePage />,
     handle: {
       title: "Home",
+      customPageHeader: true,
       navLabel: "Home",
       navGroup: "Workspace"
     } satisfies AppRouteHandle
