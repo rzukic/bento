@@ -1429,7 +1429,7 @@
 .data-grid__header-content--primary {
     flex: 1;
     justify-content: center;
-    padding-inline: 0.35rem;
+    padding-inline: 0;
 }
 
 .data-grid__header-name-row {
@@ -1522,7 +1522,7 @@
 .data-grid__header-primary-label-group {
     display: inline-flex;
     align-items: center;
-    gap: 0.45rem;
+    gap: 0.3rem;
 }
 
 .data-grid__header-cell--primary:hover .data-grid__header-content--primary,
@@ -1567,8 +1567,12 @@
 }
 
 .data-grid__cell {
+    /* Shared by the static cell and the inline editor's control so the
+       editor text sits exactly where the static text was. */
+    --data-grid-cell-pad-y: 0.44rem;
+    --data-grid-cell-pad-x: 0.72rem;
     min-height: 2.1rem;
-    padding: 0.44rem 0.72rem;
+    padding: var(--data-grid-cell-pad-y) var(--data-grid-cell-pad-x);
     font-size: 0.83rem;
     color: var(--text-2);
     line-height: 1.24;
@@ -2214,7 +2218,7 @@
     box-sizing: border-box;
     width: 100%;
     margin: 0;
-    padding: 0.44rem 0.72rem;
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
     border: 0;
     background: transparent;
     color: var(--text);
@@ -2480,8 +2484,16 @@
         padding: 0.4rem 0.64rem;
     }
 
+    .data-grid__header-cell--primary {
+        padding-left: 0.46rem;
+        padding-right: 0.46rem;
+    }
+
+    /* Only the variables change here so .data-grid__cell--editing keeps its
+       zero padding and the editor control picks up the compact spacing. */
     .data-grid__cell {
-        padding: 0.4rem 0.64rem;
+        --data-grid-cell-pad-y: 0.4rem;
+        --data-grid-cell-pad-x: 0.64rem;
     }
 
     .data-controls__menu-button-label {

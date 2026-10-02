@@ -116,13 +116,20 @@ function getColumnTypeIconName(column: ModelColumn) {
     case "json":
       return "braces" as const;
     case "enum":
+      return "list" as const;
     case "string":
+    case "text":
       return "type" as const;
     case "double":
     case "int64":
     case "integer":
+    case "int":
+    case "bigint":
     case "float":
     case "number":
+    case "decimal":
+    case "numeric":
+    case "currency":
       return "number" as const;
     default:
       return "type" as const;
@@ -145,11 +152,17 @@ function getColumnTypeLabel(column: ModelColumn) {
       return "JSON";
     case "enum":
       return "Choice";
+    case "currency":
+      return "Currency";
     case "double":
     case "int64":
     case "integer":
+    case "int":
+    case "bigint":
     case "float":
     case "number":
+    case "decimal":
+    case "numeric":
       return "Number";
     default:
       return "Text";

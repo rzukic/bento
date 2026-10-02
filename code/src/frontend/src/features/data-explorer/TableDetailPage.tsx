@@ -938,7 +938,6 @@ export function TableDetailPage() {
                     <span className="data-controls__menu-button-content">
                       <Icon name="download" size={14} />
                       <span className="data-controls__menu-button-label">Export</span>
-                      <Icon name="chevron-down" size={12} />
                     </span>
                   </Button>
                   {exportMenuOpen ? (
