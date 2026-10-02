@@ -3758,9 +3758,28 @@
     color: var(--text);
 }
 
+.explorer-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
 .explorer-summary__chip {
-    border-color: var(--line-2);
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.625rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
     background: transparent;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+}
+
+.explorer-summary__chip svg {
+    color: var(--text-4);
 }
 
 /* Table tabs: underline tabs in the display face */

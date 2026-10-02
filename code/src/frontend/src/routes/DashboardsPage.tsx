@@ -3,9 +3,11 @@ import { PlaceholderCard } from "../components/common/PlaceholderCard";
 export function DashboardsPage() {
   return (
     <PlaceholderCard
-      title="Dashboard route placeholder"
-      description="This route is reserved early so dashboard work can plug into the shell without changing the app structure later."
-      bullets={["Planned route: /dashboards", "Future phase: dashboards and widgets"]}
+      module="Dashboards"
+      phase={3}
+      title="Dashboards are on the way."
+      description="Build dashboards from your tables: KPI cards, line, bar and pie charts, tables and Sankey diagrams, with global filters and live refresh."
+      bullets={["Excel-like formulas for computed columns and widget values", "Embeddable views and signed share links"]}
     />
   );
 }

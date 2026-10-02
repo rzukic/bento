@@ -3,9 +3,11 @@ import { PlaceholderCard } from "../components/common/PlaceholderCard";
 export function FormsPage() {
   return (
     <PlaceholderCard
-      title="Forms route placeholder"
-      description="This route stabilizes the shell for the later forms module without pulling that work into Phase 2 Step 2.1."
-      bullets={["Planned route: /forms"]}
+      module="Forms"
+      phase={4}
+      title="Forms are planned."
+      description="Collect records through forms generated from your schema or built by hand, with submissions landing straight in your tables."
+      bullets={["Auto-generated forms per table", "Form builder and submission history"]}
     />
   );
 }

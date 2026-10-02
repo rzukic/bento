@@ -3,9 +3,10 @@ import { PlaceholderCard } from "../components/common/PlaceholderCard";
 export function AiPage() {
   return (
     <PlaceholderCard
-      title="AI route placeholder"
-      description="The shell includes this placeholder now so the long-term browser IA stays stable as more modules arrive."
-      bullets={["Planned route: /ai"]}
+      module="AI"
+      phase={4}
+      title="The AI assistant is planned."
+      description="Ask questions about your data and get help with formulas, schema changes and dashboards, grounded in your own workspace."
     />
   );
 }
