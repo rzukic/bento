@@ -1769,6 +1769,12 @@
     background: color-mix(in srgb, var(--surface-raised) 46%, var(--surface));
 }
 
+/* The + cell keeps the same column divider as the pk cells above it;
+   without it the cell visually merges with the "Add row" cell. */
+.data-grid__add-row td.data-grid__column--primary {
+    border-right: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+}
+
 .data-grid__add-row-trigger,
 .data-grid__add-row-copy {
     display: inline-flex;
