@@ -216,6 +216,63 @@ public sealed class ProxyAwarenessTests
         }
     }
 
+    [Fact]
+    public async Task PlainHttpLogin_InProduction_BehindTrustedProxy_KeepsCookieNonSecure()
+    {
+        // The packaged full stack runs the backend in Production and is reached over
+        // plain HTTP via the proxy (DOMAIN=localhost, http://<lan-ip>). A Secure cookie
+        // would be dropped by browsers on anything but localhost.
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:TrustedProxies:0"] = LoopbackProxy
+        }, environmentName: "Production");
+
+        await RegisterBootstrapAdminAsync(host);
+
+        using var response = await PostLoginAsync(host, forwardedFor: "10.0.0.1", forwardedProto: "http");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var refreshCookie = ExtractRefreshCookie(response);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task HttpsLogin_InProduction_BehindTrustedProxy_MarksCookieSecure()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:TrustedProxies:0"] = LoopbackProxy
+        }, environmentName: "Production");
+
+        await RegisterBootstrapAdminAsync(host);
+
+        using var response = await PostLoginAsync(host, forwardedFor: "10.0.0.1", forwardedProto: "https");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var refreshCookie = ExtractRefreshCookie(response);
+        Assert.Contains("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ForcedSecureCookie_StaysSecure_OnPlainHttp()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthCookie:RequireSecure"] = "true"
+        });
+
+        await RegisterBootstrapAdminAsync(host);
+
+        using var response = await PostLoginAsync(host, forwardedFor: "10.0.0.1", forwardedProto: "http");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var refreshCookie = ExtractRefreshCookie(response);
+        Assert.Contains("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static async Task RegisterBootstrapAdminAsync(ApiIntegrationTestHost host)
     {
         using var registerResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new

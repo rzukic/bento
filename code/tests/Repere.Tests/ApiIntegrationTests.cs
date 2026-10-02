@@ -140,14 +140,35 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Get_AuthContract_InProductionMode_ReportsSecureRefreshCookiesByDefault()
+    public async Task Get_AuthContract_InProductionMode_DoesNotForceSecureRefreshCookiesByDefault()
     {
+        // Since Step 2.7 the unset default follows the request scheme in every
+        // environment; require_secure only reports an explicit AUTH_REFRESH_COOKIE_SECURE=true.
         await using var host = await ApiIntegrationTestHost.StartAsync(
             new Dictionary<string, string?>
             {
                 ["Backend:Jwt:Secret"] = "super-secret"
             },
             environmentName: "Production");
+
+        using var response = await host.Client.GetAsync("/api/v1/auth");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<AuthRuntimeContractResponse>();
+        payload = Assert.IsType<AuthRuntimeContractResponse>(payload);
+        Assert.False(payload.RefreshCookie.RequireSecure);
+    }
+
+    [Fact]
+    public async Task Get_AuthContract_ReportsForcedSecureRefreshCookies()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(
+            new Dictionary<string, string?>
+            {
+                ["Backend:Jwt:Secret"] = "super-secret",
+                ["Backend:AuthCookie:RequireSecure"] = "true"
+            });
 
         using var response = await host.Client.GetAsync("/api/v1/auth");
 
@@ -646,8 +667,11 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Post_Login_InProductionMode_DefaultsRefreshCookieToSecure()
+    public async Task Post_Login_InProductionMode_OnPlainHttp_IssuesNonSecureRefreshCookie()
     {
+        // The packaged stack runs in Production but is reached over plain HTTP by
+        // default (DOMAIN=localhost); a Secure cookie would never come back from a
+        // browser on http://<lan-ip>. HTTPS (direct or forwarded) still marks it Secure.
         await using var host = await ApiIntegrationTestHost.StartAsync(
             new Dictionary<string, string?>
             {
@@ -671,7 +695,8 @@ public sealed class ApiIntegrationTests
         Assert.True(response.Headers.TryGetValues("Set-Cookie", out var cookieValues));
 
         var refreshCookie = Assert.Single(cookieValues);
-        Assert.Contains("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("secure", refreshCookie, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("httponly", refreshCookie, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -841,8 +866,12 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
-    public async Task Post_Refresh_InProductionMode_DoesNotReplaySecureCookie_OnPlainHttp()
+    public async Task Post_Refresh_InProductionMode_OnPlainHttp_ResumesSession()
     {
+        // Before Step 2.7 the production default forced a Secure cookie, which the
+        // client never replayed over HTTP and the refresh failed with 401. Session
+        // resume over plain HTTP is exactly what the packaged stack needs.
+
         await using var host = await ApiIntegrationTestHost.StartAsync(
             new Dictionary<string, string?>
             {
@@ -864,11 +893,86 @@ public sealed class ApiIntegrationTests
         Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
 
         using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
-        Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
 
-        var payload = await refreshResponse.Content.ReadFromJsonAsync<ApiErrorEnvelope>();
-        payload = Assert.IsType<ApiErrorEnvelope>(payload);
-        Assert.Equal("UNAUTHORIZED", payload.Error.Code);
+        var payload = await ReadJsonAsync(refreshResponse);
+        Assert.Equal("bootstrap-admin", payload.GetProperty("user").GetProperty("username").GetString());
+    }
+
+    [Fact]
+    public async Task Post_Logout_RevokesRefreshSession_AndClearsCookie()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        using var logoutResponse = await host.Client.PostAsync("/api/v1/auth/logout", content: null);
+        Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
+        Assert.True(logoutResponse.Headers.TryGetValues("Set-Cookie", out var cookieValues));
+        var cleared = Assert.Single(cookieValues);
+        Assert.Contains("repere_refresh=;", cleared, StringComparison.Ordinal);
+        Assert.Contains("path=/api/v1/auth", cleared, StringComparison.OrdinalIgnoreCase);
+
+        // The cookie jar dropped the cookie and the server-side session is revoked:
+        // a refresh can no longer resume the session.
+        using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+        Assert.Equal(HttpStatusCode.Unauthorized, refreshResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_Logout_RevokesSession_EvenIfTheCookieIsReplayedLater()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+        var refreshCookie = Assert.Single(loginResponse.Headers.GetValues("Set-Cookie")).Split(';')[0];
+
+        using var logoutResponse = await host.Client.PostAsync("/api/v1/auth/logout", content: null);
+        Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
+
+        // A copy of the old cookie (another tab, a stolen value) must be dead too.
+        using var replay = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/refresh");
+        replay.Headers.Add("Cookie", refreshCookie);
+        using var replayResponse = await host.Client.SendAsync(replay);
+        Assert.Equal(HttpStatusCode.Unauthorized, replayResponse.StatusCode);
+    }
+
+    [Fact]
+    public async Task Post_Logout_WithoutCookie_IsIdempotent()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret"
+        });
+
+        using var logoutResponse = await host.Client.PostAsync("/api/v1/auth/logout", content: null);
+        Assert.Equal(HttpStatusCode.NoContent, logoutResponse.StatusCode);
     }
 
     private static async Task<JsonElement> ReadJsonAsync(HttpResponseMessage response)

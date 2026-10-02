@@ -268,7 +268,7 @@ public sealed class BackendRuntimeConfigurationTests
     }
 
     [Fact]
-    public void BindAndValidateRuntimeOptions_DefaultsRefreshCookieSecurity_ByEnvironment()
+    public void BindAndValidateRuntimeOptions_DoesNotForceRefreshCookieSecurity_InAnyEnvironment()
     {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?>
@@ -293,10 +293,13 @@ public sealed class BackendRuntimeConfigurationTests
             configuration,
             new FakeHostEnvironment("Production"));
 
+        // Unset → the cookie follows the request scheme at runtime; nothing is forced
+        // even in Production, otherwise plain-HTTP packaged stacks (http://<lan-ip>)
+        // would issue a Secure cookie that browsers drop.
         Assert.Null(developmentOptions.AuthCookie.RequireSecure);
         Assert.False(developmentOptions.AuthCookie.EffectiveRequireSecure);
         Assert.Null(productionOptions.AuthCookie.RequireSecure);
-        Assert.True(productionOptions.AuthCookie.EffectiveRequireSecure);
+        Assert.False(productionOptions.AuthCookie.EffectiveRequireSecure);
     }
 
     [Fact]

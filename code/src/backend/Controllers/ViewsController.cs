@@ -45,8 +45,8 @@ public sealed class ViewsController : ControllerBase
                 type,
                 config,
                 is_shared       AS IsShared,
-                created_at      AS CreatedAt,
-                updated_at      AS UpdatedAt
+                {CreatedAtText} AS CreatedAt,
+                {UpdatedAtText} AS UpdatedAt
             FROM {ViewsTable}
             WHERE table_name = @TableName
               AND (owner_user_id = @UserId OR (is_shared AND owner_user_id <> @UserId))
@@ -63,8 +63,8 @@ public sealed class ViewsController : ControllerBase
                 table_name      AS TableName,
                 default_view_id AS DefaultViewId,
                 auto_save       AS AutoSave,
-                created_at      AS CreatedAt,
-                updated_at      AS UpdatedAt
+                {CreatedAtText} AS CreatedAt,
+                {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
             WHERE user_id = @UserId
               AND table_name = @TableName
@@ -120,7 +120,7 @@ public sealed class ViewsController : ControllerBase
             INSERT INTO {ViewsTable}
                 (name, table_name, owner_user_id, type, config, is_shared, created_at, updated_at)
             VALUES
-                (@Name, @TableName, @OwnerId, @Type, @Config, @IsShared, @Now, @Now)
+                (@Name, @TableName, @OwnerId, @Type, {ConfigParam}, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
             new
@@ -168,9 +168,9 @@ public sealed class ViewsController : ControllerBase
             UPDATE {ViewsTable}
             SET name       = @Name,
                 type       = @Type,
-                config     = @Config,
+                config     = {ConfigParam},
                 is_shared  = @IsShared,
-                updated_at = @Now
+                updated_at = {NowParam}
             WHERE id = @Id
             """,
             new { Name = newName, Type = newType, Config = newConfig, IsShared = newIsShared, Now = now, Id = id });
@@ -212,6 +212,12 @@ public sealed class ViewsController : ControllerBase
         _systemPool.Provider == DatabaseProvider.Postgres
             ? "_system.user_table_explorer_preferences"
             : "user_table_explorer_preferences";
+
+    // Postgres stores config as JSONB and the timestamps as TIMESTAMPTZ; SQLite as TEXT.
+    private string ConfigParam => SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config");
+    private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
+    private string CreatedAtText => SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at");
+    private string UpdatedAtText => SystemSqlDialect.TimestampText(_systemPool.Provider, "updated_at");
 
     private int RequireUserId()
     {
@@ -332,8 +338,8 @@ public sealed class ViewsController : ControllerBase
                 type,
                 config,
                 is_shared       AS IsShared,
-                created_at      AS CreatedAt,
-                updated_at      AS UpdatedAt
+                {CreatedAtText} AS CreatedAt,
+                {UpdatedAtText} AS UpdatedAt
             FROM {ViewsTable}
             WHERE id = @Id
             """,

@@ -107,7 +107,11 @@ public static class BackendRuntimeConfiguration
         }
 
         options.AuthMode = authMode;
-        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? environment.IsProduction();
+        // Unset means "follow the request scheme": the refresh cookie is Secure on
+        // HTTPS (including TLS terminated at a trusted proxy) and plain on HTTP, so
+        // a packaged stack reached over http://<lan-ip> can still resume sessions.
+        // AUTH_REFRESH_COOKIE_SECURE=true forces Secure regardless of the scheme.
+        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? false;
         Validate(options);
         ValidatePackagedPostgresSecrets(configuration);
         return options;

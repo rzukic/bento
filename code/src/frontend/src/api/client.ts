@@ -109,7 +109,8 @@ export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Pr
         await auth.refresh();
         response = await doFetch(path, { ...init, skipAuthRetry: true });
       } catch {
-        auth.logout();
+        // The refresh itself was rejected, so the cookie is already unusable.
+        auth.logout({ revokeSession: false });
         throw await parseErrorBody(response);
       }
     }

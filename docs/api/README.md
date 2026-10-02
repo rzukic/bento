@@ -17,10 +17,11 @@ Current implemented Phase 1 auth method:
 
 Current Step 1.4 auth contract:
 - `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, whether bootstrap self-registration is currently open, and the list of auth features still deferred
-- `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
+- `refresh_cookie.require_secure` reports whether `Secure` is forced by `AUTH_REFRESH_COOKIE_SECURE=true`; when it is `false` (the default in every environment since Step 2.7) the cookie follows the request scheme — `Secure` on HTTPS, including TLS terminated at a trusted proxy, plain on HTTP
 - `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
 - `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
 - `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- `POST /api/v1/auth/logout` revokes the refresh session named by the cookie (if any) and clears the cookie; always `204`, so a stale or missing cookie never blocks signing out. The short-lived access token stays valid until it expires
 - `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
 - API key auth and logout remain deferred to later phases
 
@@ -82,6 +83,7 @@ Cross-origin and request-size behavior:
 | `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
 | `POST` | `/api/v1/auth/register` | Create the bootstrap admin or an admin-managed user |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
+| `POST` | `/api/v1/auth/logout` | Revoke the refresh session and clear the cookie |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 

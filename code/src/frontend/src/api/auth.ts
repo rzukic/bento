@@ -25,3 +25,11 @@ export function postRefresh(): Promise<LoginResponse> {
 export function postRegister(req: RegisterRequest): Promise<RegisterResponse> {
   return apiClient.post<RegisterResponse>("/auth/register", req, AUTH_INIT);
 }
+
+/**
+ * Revokes the refresh session behind the HttpOnly cookie and clears it. The
+ * server answers 204 even without a cookie, so callers can fire and forget.
+ */
+export function postLogout(): Promise<void> {
+  return apiClient.post<void>("/auth/logout", undefined, AUTH_INIT);
+}

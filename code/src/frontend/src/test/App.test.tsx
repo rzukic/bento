@@ -208,8 +208,16 @@ describe("Login form", () => {
 });
 
 describe("Logout", () => {
-  it("confirms sign out, then clears the session and returns the user to /login", async () => {
+  it("confirms sign out, revokes the server session, then clears the local session and returns the user to /login", async () => {
     seedAuthenticated();
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/api/v1/auth/logout")) {
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
     const router = createTestRouter(["/"]);
 
     render(<RouterProvider router={router} />);
@@ -236,6 +244,11 @@ describe("Logout", () => {
     await waitFor(() => {
       expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     });
+    // The HttpOnly refresh cookie can only be ended server-side.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/v1/auth/logout",
+      expect.objectContaining({ method: "POST", credentials: "include" })
+    );
   });
 });
 

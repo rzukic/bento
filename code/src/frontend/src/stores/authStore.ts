@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { postLogin, postRefresh } from "../api/auth";
+import { postLogin, postLogout, postRefresh } from "../api/auth";
 import { ApiClientError } from "../api/client";
 import type { AuthUser, LoginResponse } from "../types/auth";
 
@@ -42,7 +42,11 @@ type AuthStoreState = {
   bootstrap: () => Promise<void>;
   login: (username: string, password: string) => Promise<AuthUser>;
   refresh: () => Promise<AuthUser>;
-  logout: () => void;
+  /**
+   * Drop the in-memory session and, unless `revokeSession` is false, ask the
+   * backend to revoke the refresh cookie so a page reload cannot resume it.
+   */
+  logout: (options?: { revokeSession?: boolean }) => void;
   clearError: () => void;
 };
 
@@ -119,10 +123,16 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
     return promise;
   },
 
-  logout: () => {
-    // No logout endpoint exists; the refresh cookie is HttpOnly and scoped to
-    // /api/v1/auth, so we just drop the in-memory session. The server tracks
-    // revoked refresh tokens and will reject reuse on next login anyway.
+  logout: (options) => {
+    // The refresh cookie is HttpOnly, so only the backend can end the session:
+    // revoke it server-side and have the cookie cleared. Fire and forget — the
+    // local state is cleared immediately either way. The 401-retry path in the
+    // API client skips this because its cookie is already dead.
+    if (options?.revokeSession !== false) {
+      void postLogout().catch(() => {
+        // Nothing sensible to do: the local session is gone regardless.
+      });
+    }
     set({
       status: "unauthenticated",
       user: null,
