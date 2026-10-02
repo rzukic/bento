@@ -389,12 +389,6 @@
   color: var(--text-3);
 }
 
-.shell__page-actions {
-  display: flex;
-  gap: 0.5rem;
-  flex-shrink: 0;
-}
-
 .shell__page-body {
   display: flex;
   flex-direction: column;

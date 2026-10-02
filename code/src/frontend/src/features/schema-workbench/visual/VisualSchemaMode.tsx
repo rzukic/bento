@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -93,6 +93,21 @@ export function VisualSchemaMode({
   const canvasPanRef = useRef<ErdCanvasPanState | null>(null);
   const tableDragRef = useRef<ErdTableDragState | null>(null);
 
+  // Node geometry and relation routing depend only on the draft document.
+  // Pan/zoom/drag state lives in this component too, so without memoisation
+  // every pointer move re-routed every relation line.
+  const geometry = useMemo(() => {
+    if (!document) {
+      return null;
+    }
+    const nodes = buildErdTableNodes(document);
+    return {
+      nodes,
+      canvasSize: getErdCanvasSize(nodes),
+      edges: buildErdRelationEdges(document, nodes),
+    };
+  }, [document]);
+
   if (syntaxInvalid) {
     return (
       <div className="schema-workbench__visual-shell">
@@ -133,9 +148,8 @@ export function VisualSchemaMode({
   }
 
   const visualDocument = document;
-  const nodes = buildErdTableNodes(visualDocument);
-  const canvasSize = getErdCanvasSize(nodes);
-  const edges = buildErdRelationEdges(visualDocument, nodes);
+  // `geometry` is non-null whenever `document` is; both guards above returned already.
+  const { nodes, canvasSize, edges } = geometry!;
   const zoomPercent = Math.round(viewport.zoom * 100);
 
   function addNewTable() {
