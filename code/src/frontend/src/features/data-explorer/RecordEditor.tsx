@@ -11,7 +11,11 @@ import { buildQueryString, createRow, fetchTableRows, patchRow } from "../../api
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
-import { useExplorerStore } from "../../stores/explorerStore";
+import {
+  buildCompositeRowId,
+  isWritableColumn,
+  useExplorerStore,
+} from "../../stores/explorerStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { DEFAULT_QUERY } from "../../types/explorer";
 import type { ModelColumn, ModelTable } from "../../types/api";
@@ -67,12 +71,6 @@ function pickEditorForColumn(column: ModelColumn) {
   }
 }
 
-function isWritableColumn(column: ModelColumn): boolean {
-  if (column.type === "computed") return false;
-  if (column.references || column.type === "relation") return true;
-  return !column.primaryKey;
-}
-
 function getRecordTitle(table: ModelTable, row: Record<string, unknown> | null): string {
   if (!row) return table.displayName ?? table.name;
   const id = row.id;
@@ -111,18 +109,6 @@ function coerceColumnValue(column: ModelColumn | null, value: unknown): unknown 
     }
   }
   return value;
-}
-
-function buildCompositeRowId(table: ModelTable, row: Record<string, unknown>): string | null {
-  const primaryColumns = table.columns.filter((column) => column.primaryKey);
-  if (primaryColumns.length <= 1) return null;
-  const parts: string[] = [];
-  for (const column of primaryColumns) {
-    const value = row[column.name];
-    if (value === null || value === undefined || value === "") return null;
-    parts.push(`${column.name}:${String(value)}`);
-  }
-  return parts.join("|");
 }
 
 function ensureRowId(table: ModelTable, row: Record<string, unknown>): Record<string, unknown> {
