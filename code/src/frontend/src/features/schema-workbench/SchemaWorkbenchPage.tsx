@@ -2197,7 +2197,9 @@ function getErdCanvasSize(nodes: ErdTableNode[]): {
   };
 }
 
-function buildErdRelationEdges(
+export type { ErdTableNode, ErdRelationEdge };
+
+export function buildErdRelationEdges(
   document: SchemaModelDocument,
   nodes: ErdTableNode[],
 ): ErdRelationEdge[] {
@@ -2308,13 +2310,6 @@ function buildErdRelationEdge(
   label: string,
   allNodes: ErdTableNode[],
 ): ErdRelationEdge {
-  const fromCenterX = fromNode.x + fromNode.width / 2;
-  const toCenterX = toNode.x + toNode.width / 2;
-  const exitsRight = fromCenterX <= toCenterX;
-  const startSide: ErdRouteSide = exitsRight ? "right" : "left";
-  const endSide: ErdRouteSide = exitsRight ? "left" : "right";
-  const startX = startSide === "right" ? fromNode.x + fromNode.width : fromNode.x;
-  const endX = endSide === "right" ? toNode.x + toNode.width : toNode.x;
   const startY = getErdRelationAnchorY(fromNode);
   const endY = getErdRelationAnchorY(toNode);
   const obstacles = allNodes.filter(
@@ -2322,12 +2317,11 @@ function buildErdRelationEdge(
   );
 
   const route = routeOrthogonalRelationPath(
-    { x: startX, y: startY },
-    { x: endX, y: endY },
-    startSide,
-    endSide,
+    fromNode,
+    toNode,
+    startY,
+    endY,
     obstacles,
-    [fromNode, toNode],
   );
 
   return {
@@ -2383,54 +2377,101 @@ function buildSelfReferentialErdRelationEdge(
   };
 }
 
-function routeOrthogonalRelationPath(
-  start: ErdRoutePoint,
-  end: ErdRoutePoint,
-  startSide: ErdRouteSide,
-  endSide: ErdRouteSide,
-  obstacles: ErdTableNode[],
-  endpoints: ErdTableNode[],
-): { path: string; labelPoint: ErdRoutePoint } {
-  const margin = erdRelationChannelMargin;
-  const exitX = startSide === "right" ? start.x + margin : start.x - margin;
-  const entryX = endSide === "right" ? end.x + margin : end.x - margin;
+function nodesOverlapHorizontally(a: ErdTableNode, b: ErdTableNode): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width;
+}
 
-  let midX: number;
-  let preferDirection: ErdRouteSide | null = null;
-  if (startSide === endSide) {
-    midX =
-      startSide === "right"
-        ? Math.max(exitX, entryX) + margin
-        : Math.min(exitX, entryX) - margin;
-    preferDirection = startSide;
-  } else {
-    midX = (exitX + entryX) / 2;
+function sideX(node: ErdTableNode, side: ErdRouteSide): number {
+  return side === "right" ? node.x + node.width : node.x;
+}
+
+/**
+ * Picks the sides a relation leaves and enters its tables on.
+ *
+ * Side-by-side tables connect across the gap between them. Tables that
+ * overlap horizontally (stacked above each other) cannot do that: a channel
+ * between "right of A" and "left of B" would have to cross one of the cards.
+ * They leave and enter on the same side instead, using whichever side has the
+ * less obstructed vertical channel.
+ */
+function chooseErdRelationSides(
+  fromNode: ErdTableNode,
+  toNode: ErdTableNode,
+  startY: number,
+  endY: number,
+  obstacles: ErdTableNode[],
+): { startSide: ErdRouteSide; endSide: ErdRouteSide } {
+  const margin = erdRelationChannelMargin;
+
+  if (!nodesOverlapHorizontally(fromNode, toNode)) {
+    const exitsRight = fromNode.x + fromNode.width / 2 <= toNode.x + toNode.width / 2;
+    return exitsRight
+      ? { startSide: "right", endSide: "left" }
+      : { startSide: "left", endSide: "right" };
   }
 
-  midX = clampMidXOutsideEndpoints(
-    midX,
-    start.y,
-    end.y,
-    endpoints,
-    margin,
-    preferDirection,
-  );
-  midX = clearVerticalChannel(
-    midX,
-    start.y,
-    end.y,
-    obstacles,
-    margin,
-    preferDirection,
-  );
-  midX = clampMidXOutsideEndpoints(
-    midX,
-    start.y,
-    end.y,
-    endpoints,
-    margin,
-    preferDirection,
-  );
+  const rightIdeal = Math.max(sideX(fromNode, "right"), sideX(toNode, "right")) + margin * 2;
+  const leftIdeal = Math.min(fromNode.x, toNode.x) - margin * 2;
+  const rightActual = clearVerticalChannel(rightIdeal, startY, endY, obstacles, margin, "right");
+  const leftActual = clearVerticalChannel(leftIdeal, startY, endY, obstacles, margin, "left");
+  const side: ErdRouteSide =
+    rightActual - rightIdeal <= leftIdeal - leftActual ? "right" : "left";
+
+  return { startSide: side, endSide: side };
+}
+
+function routeOrthogonalRelationPath(
+  fromNode: ErdTableNode,
+  toNode: ErdTableNode,
+  startY: number,
+  endY: number,
+  obstacles: ErdTableNode[],
+): { path: string; labelPoint: ErdRoutePoint } {
+  const margin = erdRelationChannelMargin;
+  const endpoints = [fromNode, toNode];
+  let { startSide, endSide } = chooseErdRelationSides(fromNode, toNode, startY, endY, obstacles);
+
+  const computeMidX = (): number => {
+    const exitX = sideX(fromNode, startSide) + (startSide === "right" ? margin : -margin);
+    const entryX = sideX(toNode, endSide) + (endSide === "right" ? margin : -margin);
+
+    let midX: number;
+    let preferDirection: ErdRouteSide | null = null;
+    if (startSide === endSide) {
+      midX =
+        startSide === "right"
+          ? Math.max(exitX, entryX) + margin
+          : Math.min(exitX, entryX) - margin;
+      preferDirection = startSide;
+    } else {
+      midX = (exitX + entryX) / 2;
+    }
+
+    midX = clampMidXOutsideEndpoints(midX, startY, endY, endpoints, margin, preferDirection);
+    midX = clearVerticalChannel(midX, startY, endY, obstacles, margin, preferDirection);
+    midX = clampMidXOutsideEndpoints(midX, startY, endY, endpoints, margin, preferDirection);
+    return midX;
+  };
+
+  let midX = computeMidX();
+
+  // Clamping and obstacle avoidance can push the vertical channel to the far
+  // side of a table. The final horizontal segment must then enter that table
+  // from the side the channel is on, otherwise it runs across the card.
+  const resolveSide = (node: ErdTableNode, fallback: ErdRouteSide): ErdRouteSide =>
+    midX >= node.x + node.width ? "right" : midX <= node.x ? "left" : fallback;
+  const resolvedStartSide = resolveSide(fromNode, startSide);
+  const resolvedEndSide = resolveSide(toNode, endSide);
+  if (resolvedStartSide !== startSide || resolvedEndSide !== endSide) {
+    startSide = resolvedStartSide;
+    endSide = resolvedEndSide;
+    midX = computeMidX();
+  }
+
+  const start: ErdRoutePoint = { x: sideX(fromNode, startSide), y: startY };
+  const end: ErdRoutePoint = { x: sideX(toNode, endSide), y: endY };
+  const exitX = start.x + (startSide === "right" ? margin : -margin);
+  const entryX = end.x + (endSide === "right" ? margin : -margin);
 
   let waypoints: ErdRoutePoint[] = [
     start,
@@ -3502,6 +3543,7 @@ function VisualSchemaMode({
                     <button
                       type="button"
                       className="schema-workbench__erd-table-header"
+                      aria-label={`Select table ${table.name}`}
                       onPointerDown={(event) => startTableDrag(event, table)}
                       onClick={() =>
                         onSelectionChange({
@@ -4021,6 +4063,7 @@ function VisualSchemaInspector({
                 <li key={column.name}>
                   <button
                     type="button"
+                    aria-label={`Edit column ${column.name}`}
                     onClick={() =>
                       onSelectionChange({
                         type: "column",
@@ -4068,6 +4111,7 @@ function VisualSchemaInspector({
                   <li key={relation.name}>
                     <button
                       type="button"
+                      aria-label={`Edit relation ${relation.name}`}
                       onClick={() =>
                         onSelectionChange({
                           type: "relation",

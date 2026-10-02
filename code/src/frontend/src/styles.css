@@ -348,6 +348,16 @@ textarea:disabled {
     box-shadow: none;
 }
 
+/* A disabled primary action should read as inactive, not as a faded call to
+   action: drop the accent fill instead of only dimming it. */
+.btn--primary:disabled,
+.btn--primary:disabled:hover {
+    background: var(--surface-raised);
+    border-color: var(--border);
+    color: var(--text-3);
+    opacity: 1;
+}
+
 .btn svg {
     flex-shrink: 0;
 }
