@@ -198,3 +198,32 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Tables panel (replaces the Step 2.1 placeholder activity feed) */
+.home-activity__empty {
+  margin: 0;
+  padding: 1rem;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.home-activity__empty a,
+.home-activity__event a {
+  color: var(--text);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.home-activity__empty a:hover,
+.home-activity__event a:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.home-activity__all {
+  text-decoration: none;
+}
+
+.home-activity__all:hover {
+  color: var(--accent);
+}

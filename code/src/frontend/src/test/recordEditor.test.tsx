@@ -42,7 +42,59 @@ const explorerSnapshot: ModelSnapshot = {
         { name: "email", type: "string", nullable: true },
       ],
     },
+    {
+      name: "_jt_order_tags",
+      displayName: "Order tags",
+      columns: [
+        {
+          name: "order_id",
+          displayName: "Order",
+          type: "int64",
+          primaryKey: true,
+          references: { table: "orders", column: "id" },
+        },
+        {
+          name: "user_id",
+          displayName: "User",
+          type: "int64",
+          primaryKey: true,
+          references: { table: "users", column: "id" },
+        },
+      ],
+    },
   ],
+};
+
+const manyToManySnapshot: ModelSnapshot = {
+  ...explorerSnapshot,
+  relations: [
+    {
+      name: "order_users",
+      type: "N:M",
+      from: "orders",
+      to: "users",
+      fromColumn: "order_id",
+      toColumn: "user_id",
+      junctionTable: "_jt_order_tags",
+      fromAccessor: "Users",
+      toAccessor: "Orders",
+    },
+  ],
+};
+
+const manyToManySnapshotWithNote: ModelSnapshot = {
+  ...manyToManySnapshot,
+  tables: manyToManySnapshot.tables.map((table) =>
+    table.name === "_jt_order_tags"
+      ? {
+          ...table,
+          columns: [
+            ...table.columns,
+            { name: "note", displayName: "Note", type: "string", nullable: true },
+          ],
+        }
+      : table,
+  ),
 };
 
 const baseOrderRow: Record<string, unknown> = {
@@ -141,11 +193,18 @@ function makeFetchMock(options?: {
   failUserFetch?: boolean;
   updatedNote?: string;
   orderRow?: Record<string, unknown>;
+  orderTagsRow?: Record<string, unknown>;
 }) {
   const failOrderFetch = options?.failOrderFetch ?? false;
   const failUserFetch = options?.failUserFetch ?? false;
   const updatedNote = options?.updatedNote ?? "updated";
   const orderRow = { ...baseOrderRow, ...(options?.orderRow ?? {}) };
+  const orderTagsRow = {
+    id: "order-1:user-7",
+    order_id: 1,
+    user_id: 7,
+    ...(options?.orderTagsRow ?? {}),
+  };
 
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -169,6 +228,12 @@ function makeFetchMock(options?: {
       }
       return jsonResponse(200, {
         data: { ...orderRow, created_at: "2026-04-18T00:00:00Z" },
+      });
+    }
+
+    if (url.includes("/api/v1/data/_jt_order_tags/order-1%3Auser-7")) {
+      return jsonResponse(200, {
+        data: orderTagsRow,
       });
     }
 
@@ -450,6 +515,219 @@ describe("RecordEditor — TASK-099 FK navigation stack", () => {
     expect(screen.getByRole("heading", { name: "Alice" })).toBeInTheDocument();
     expect(useExplorerStore.getState().views.orders?.editingCell).toBeNull();
   });
+
+  it("keeps PK reference fields editable in the fullscreen record editor", async () => {
+    seedAuthenticated();
+    seedSchema();
+    const junctionRow = { id: "order_id:1|user_id:7", order_id: 1, user_id: 7 };
+    seedExplorerView("_jt_order_tags", [junctionRow]);
+
+    const fetchMock = makeFetchMock();
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRecordEditor();
+    await useExplorerStore
+      .getState()
+      .openRecordEditor({
+        table: "_jt_order_tags",
+        rowId: "order_id:1|user_id:7",
+        row: junctionRow,
+      });
+
+    const orderField = await waitFor(() =>
+      screen
+        .getAllByRole("button")
+        .find((element) => element.id === "record-editor-field-_jt_order_tags-order_id"),
+    );
+    if (!orderField) {
+      throw new Error("Expected the PK reference field button to be present.");
+    }
+    expect(orderField.id).toBe("record-editor-field-_jt_order_tags-order_id");
+    await userEvent.click(orderField);
+
+    await waitFor(() => {
+      const view = useExplorerStore.getState().views._jt_order_tags!;
+      expect(view.editingCell).toEqual({
+        rowId: "order_id:1|user_id:7",
+        columnName: "order_id",
+      });
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/v1/data/_jt_order_tags/"),
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("RecordEditor — N:M relation mini table", () => {
+  function makeManyToManyFetchMock(options?: {
+    junctionRows?: Record<string, unknown>[];
+  }) {
+    const junctionRows = options?.junctionRows ?? [
+      { order_id: 1, user_id: 7 },
+    ];
+
+    return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.includes("/api/v1/data/orders/1")) {
+        return jsonResponse(200, {
+          data: { ...baseOrderRow, created_at: "2026-04-18T00:00:00Z" },
+        });
+      }
+
+      if (
+        url.includes("/api/v1/data/_jt_order_tags?") &&
+        url.includes("filter%5Border_id%5D=1")
+      ) {
+        return listResponse(junctionRows);
+      }
+
+      if (url.includes("/api/v1/data/users?")) {
+        return listResponse([relatedUserRow]);
+      }
+
+      if (init?.method === "POST" && url.includes("/api/v1/data/_jt_order_tags")) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse(201, { data: body });
+      }
+
+      if (
+        init?.method === "PATCH" &&
+        url.includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7")
+      ) {
+        const body = JSON.parse(String(init.body)) as Record<string, unknown>;
+        return jsonResponse(200, {
+          data: { order_id: 1, user_id: 7, ...body },
+        });
+      }
+
+      return jsonResponse(404, { error: { code: "NOT_FOUND", message: `Unhandled: ${url}` } });
+    });
+  }
+
+  it("renders an N:M relation section as a junction mini table without the current-record FK", async () => {
+    seedAuthenticated();
+    seedSchema(manyToManySnapshot);
+    seedExplorerView("orders", [baseOrderRow]);
+
+    vi.stubGlobal("fetch", makeManyToManyFetchMock());
+
+    renderRecordEditor();
+    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+
+    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
+    expect(within(relationGrid).getByRole("columnheader", { name: /user/i })).toBeInTheDocument();
+    expect(
+      within(relationGrid).queryByRole("columnheader", { name: /order/i }),
+    ).toBeNull();
+    expect(within(relationGrid).getByRole("button", { name: /add row/i })).toBeInTheDocument();
+  });
+
+  it("prefills the hidden current-record FK when adding an N:M junction row", async () => {
+    seedAuthenticated();
+    seedSchema(manyToManySnapshot);
+    seedExplorerView("orders", [baseOrderRow]);
+
+    const fetchMock = makeManyToManyFetchMock({ junctionRows: [] });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRecordEditor();
+    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+
+    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
+    await userEvent.click(within(relationGrid).getByRole("button", { name: /add row/i }));
+
+    await within(relationGrid).findByRole("combobox", { name: /user/i });
+    await waitFor(() => expect(within(relationGrid).getByText("Alice")).toBeInTheDocument());
+    await userEvent.click(within(relationGrid).getByText("Alice"));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(([url, init]) => {
+          if (!String(url).includes("/api/v1/data/_jt_order_tags")) return false;
+          if ((init as RequestInit | undefined)?.method !== "POST") return false;
+          return JSON.stringify(JSON.parse(String((init as RequestInit).body))).includes(
+            '"order_id":1',
+          );
+        }),
+      ).toBe(true),
+    );
+
+    const postCall = fetchMock.mock.calls.find(
+      ([url, init]) =>
+        String(url).includes("/api/v1/data/_jt_order_tags") &&
+        (init as RequestInit | undefined)?.method === "POST",
+    );
+    expect(JSON.parse(String((postCall?.[1] as RequestInit).body))).toEqual({
+      order_id: 1,
+      user_id: 7,
+    });
+  });
+
+  it("opens a junction row from the N:M footer without refetching by composite id", async () => {
+    seedAuthenticated();
+    seedSchema(manyToManySnapshot);
+    seedExplorerView("orders", [baseOrderRow]);
+
+    const fetchMock = makeManyToManyFetchMock({
+      junctionRows: [{ order_id: 1, user_id: 7 }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRecordEditor();
+    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+
+    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
+    await userEvent.click(within(relationGrid).getByLabelText(/open record order_id:1\|user_id:7/i));
+
+    await waitFor(() => {
+      expect(useExplorerStore.getState().recordEditor?.stack).toHaveLength(2);
+      expect(getTopEntry()?.table).toBe("_jt_order_tags");
+      expect(getTopEntry()?.status).toBe("ready");
+    });
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
+      ),
+    ).toBe(false);
+  });
+
+  it("patches an existing junction row from the N:M footer via the composite id route", async () => {
+    seedAuthenticated();
+    seedSchema(manyToManySnapshotWithNote);
+    seedExplorerView("orders", [baseOrderRow]);
+
+    const fetchMock = makeManyToManyFetchMock({
+      junctionRows: [{ order_id: 1, user_id: 7, note: "old" }],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderRecordEditor();
+    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+
+    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
+    const noteCell = within(relationGrid).getByText("old");
+    await userEvent.click(noteCell);
+
+    const noteInput = await within(relationGrid).findByRole("textbox", { name: /note/i });
+    await userEvent.clear(noteInput);
+    await userEvent.type(noteInput, "updated");
+    noteInput.blur();
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          ([url, init]) =>
+            String(url).includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7") &&
+            (init as RequestInit | undefined)?.method === "PATCH",
+        ),
+      ).toBe(true),
+    );
+  });
 });
 
 describe("RecordEditor — TASK-108 row cache isolation", () => {
@@ -712,7 +990,10 @@ describe("RecordEditor — TASK-101 relation sections", () => {
 
   it("renders no relation footer when the table has no incoming foreign keys", async () => {
     seedAuthenticated();
-    seedSchema();
+    seedSchema({
+      version: 3,
+      tables: explorerSnapshot.tables.filter((table) => table.name !== "_jt_order_tags"),
+    });
     seedExplorerView("orders", [baseOrderRow]);
 
     vi.stubGlobal("fetch", makeFetchMock());

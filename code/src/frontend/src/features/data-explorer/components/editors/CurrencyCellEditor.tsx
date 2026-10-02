@@ -30,7 +30,7 @@ export function CurrencyCellEditor({
 
   function commit() {
     setEditing(false);
-    const trimmed = draft.replace(/[^0-9.\-]/g, "").trim();
+    const trimmed = draft.replace(/[^0-9.-]/g, "").trim();
     if (trimmed === "" && (column.nullable ?? true)) {
       onCommit(null);
       return;

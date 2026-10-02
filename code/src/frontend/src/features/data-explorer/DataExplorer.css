@@ -287,6 +287,9 @@
 
 .data-controls__overlay-anchor {
     position: relative;
+    /* Distance between the bar's right edge and a floating panel's right
+       edge. Read by DataQueryControls to mirror the overhang on the left. */
+    --foldout-right-offset: 8px;
 }
 
 .data-controls__bar {
@@ -310,7 +313,10 @@
 .data-controls__menu-button {
     position: relative;
     min-width: 2.85rem;
-    min-height: 2.2rem;
+    /* Whole-pixel height (36px) so the attached foldout panel lines up
+       exactly with the tab's bottom edge; see .data-controls__panel--floating. */
+    height: 2.25rem;
+    min-height: 2.25rem;
     padding: 0 0.55rem;
     border-color: transparent;
     background: transparent;
@@ -346,6 +352,10 @@
 
 .data-controls__menu-button.data-controls__menu-button--active:hover {
     background: var(--surface);
+    /* Keep the tab outline identical to the panel border on hover instead
+       of the generic .btn:hover focus colour. */
+    border-color: var(--border);
+    border-bottom-color: transparent;
 }
 
 .data-controls__menu-button--active::after {
@@ -397,10 +407,17 @@
 
 .data-controls__panel--floating {
     position: absolute;
-    top: calc(100% - 0.5rem);
-    right: 0.5rem;
+    /* The menu row is vertically centred in the bar, so the tab's bottom edge
+       sits at 50% + half the tab height (2.25rem / 2). The panel starts 1px
+       above that edge so its top border lies under the active tab's
+       transparent bottom border, where the tab background (higher z-index)
+       paints over it and tab and panel merge into one shape. */
+    top: calc(50% + 1.125rem - 1px);
+    right: var(--foldout-right-offset);
     left: auto;
     width: max-content;
+    /* Set by DataQueryControls so the panel reaches the active tab's left edge. */
+    min-width: min(var(--foldout-min-width, 0px), calc(100vw - 2rem));
     max-width: min(calc(100vw - 2rem), 70rem);
     z-index: 8;
     border-top: 1px solid var(--border);
@@ -420,6 +437,11 @@
     display: flex;
     gap: 0.5rem;
     align-items: end;
+}
+
+/* Match the 2.5rem field control so input and submit button share one height. */
+.data-controls__search-actions .btn {
+    height: 2.5rem;
 }
 
 .data-controls__sort-builder {
@@ -850,17 +872,22 @@
     flex-shrink: 0;
 }
 
+/* Same attached-panel look as the Search/Sort/Filter foldouts: starts 1px
+   above the open Export tab's bottom edge so the tab background hides the
+   panel's top border and both merge into one shape. */
 .data-controls__export-menu {
     position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    min-width: 8rem;
-    padding: 0.3rem;
+    top: calc(100% - 1px);
+    /* Overhang the tab on the left by the same amount the right-anchored
+       foldouts overhang the last tab on the right. */
+    left: calc(-1 * var(--foldout-edge-inset, 0px));
+    min-width: max(calc(100% + var(--foldout-edge-inset, 0px)), 9rem);
+    padding: 0.4rem;
     border: 1px solid var(--border);
-    border-radius: var(--r-lg);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
     background: var(--surface);
     box-shadow: var(--shadow-lg);
-    z-index: 24;
+    z-index: 8;
 }
 
 .data-controls__export-option {
@@ -1376,7 +1403,7 @@
     width: 100%;
     padding-left: 0.46rem;
     padding-right: 0.46rem;
-    justify-content: center;
+    justify-content: flex-start;
 }
 
 .data-grid__header-trigger {
@@ -1397,6 +1424,12 @@
     display: flex;
     align-items: center;
     min-width: 0;
+}
+
+.data-grid__header-content--primary {
+    flex: 1;
+    justify-content: center;
+    padding-inline: 0.35rem;
 }
 
 .data-grid__header-name-row {
@@ -1469,6 +1502,13 @@
 }
 
 .data-grid__header-pk-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.7rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--surface-raised) 84%, var(--surface));
     font-size: 0.7rem;
     font-family: var(--font-mono);
     font-weight: 700;
@@ -1476,14 +1516,22 @@
     text-transform: uppercase;
     color: var(--text-3);
     line-height: 1;
+    white-space: nowrap;
 }
 
-.data-grid__header-cell--primary:hover .data-grid__header-pk-label,
-.data-grid__header-cell--primary:focus-within .data-grid__header-pk-label,
+.data-grid__header-primary-label-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.data-grid__header-cell--primary:hover .data-grid__header-content--primary,
+.data-grid__header-cell--primary:focus-within
+    .data-grid__header-content--primary,
 .data-grid__header-cell--primary:has(.data-grid__select-toggle--selected)
-    .data-grid__header-pk-label,
+    .data-grid__header-content--primary,
 .data-grid__header-cell--primary:has(.data-grid__select-toggle--partial)
-    .data-grid__header-pk-label {
+    .data-grid__header-content--primary {
     opacity: 0;
 }
 
@@ -1519,8 +1567,12 @@
 }
 
 .data-grid__cell {
+    /* Shared by the static cell and the inline editor's control so the
+       editor text sits exactly where the static text was. */
+    --data-grid-cell-pad-y: 0.44rem;
+    --data-grid-cell-pad-x: 0.72rem;
     min-height: 2.1rem;
-    padding: 0.44rem 0.72rem;
+    padding: var(--data-grid-cell-pad-y) var(--data-grid-cell-pad-x);
     font-size: 0.83rem;
     color: var(--text-2);
     line-height: 1.24;
@@ -1545,6 +1597,7 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    white-space: nowrap;
     transition: opacity var(--dur) var(--ease);
 }
 
@@ -1716,6 +1769,12 @@
     background: color-mix(in srgb, var(--surface-raised) 46%, var(--surface));
 }
 
+/* The + cell keeps the same column divider as the pk cells above it;
+   without it the cell visually merges with the "Add row" cell. */
+.data-grid__add-row td.data-grid__column--primary {
+    border-right: 1px solid color-mix(in srgb, var(--border) 86%, transparent);
+}
+
 .data-grid__add-row-trigger,
 .data-grid__add-row-copy {
     display: inline-flex;
@@ -1754,9 +1813,9 @@
 }
 
 .data-grid__column--primary {
-    width: 2.6rem;
+    width: max-content;
     min-width: 2.6rem;
-    max-width: 2.6rem;
+    max-width: none;
     white-space: nowrap;
     position: sticky;
     left: 0;
@@ -1823,10 +1882,23 @@
 }
 
 .data-grid__cell--editing {
+    position: relative;
+    z-index: 30;
     padding: 0;
     background: color-mix(in srgb, var(--surface-raised) 55%, var(--surface));
     box-shadow: inset 0 0 0 1px
         color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.data-grid td:has(.data-grid__cell--editing),
+.data-grid td:has(.cell-combobox[data-open]) {
+    position: relative;
+    z-index: 30;
+}
+
+.data-grid td.data-grid__column--primary:has(.data-grid__cell--editing),
+.data-grid td.data-grid__column--primary:has(.cell-combobox[data-open]) {
+    z-index: 31;
 }
 
 .data-grid__cell-editor,
@@ -1834,6 +1906,22 @@
     display: block;
     width: 100%;
     height: 100%;
+}
+
+/* Width-holding copy of the static content behind the editor (see
+   DataGrid.tsx). Same padding/typography as .data-grid__cell so it takes up
+   exactly the space the static value did; the editor floats on top. */
+.data-grid__cell-ghost {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+    min-height: 2.1rem;
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
+}
+
+.data-grid__cell--editing .data-grid__cell-editor {
+    position: absolute;
+    inset: 0;
 }
 
 /* Strip the EditorShell wrapper of any browser-default span layout so the
@@ -1890,13 +1978,21 @@
     left: 0;
     border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
     border-radius: 14px;
-    background:
-        linear-gradient(180deg, color-mix(in srgb, var(--surface-raised) 96%, white) 0%, var(--surface) 100%);
+    background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--surface-raised) 96%, white) 0%,
+        var(--surface) 100%
+    );
     box-shadow:
         0 16px 36px rgba(15, 23, 42, 0.16),
         0 2px 10px rgba(15, 23, 42, 0.08);
     padding: 0.72rem;
     z-index: 20;
+}
+
+.cell-temporal-editor__panel--up {
+    top: auto;
+    bottom: calc(100% + 0.42rem);
 }
 
 .cell-temporal-editor__panel--date {
@@ -2143,8 +2239,11 @@
 .data-grid__cell-editor textarea {
     box-sizing: border-box;
     width: 100%;
+    /* Same minimum height as .data-grid__cell so the editor box does not
+       shrink below the row it replaces. */
+    min-height: 2.1rem;
     margin: 0;
-    padding: 0.44rem 0.72rem;
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
     border: 0;
     background: transparent;
     color: var(--text);
@@ -2224,7 +2323,7 @@
 
 .cell-combobox__listbox {
     position: absolute;
-    z-index: 10;
+    z-index: 40;
     top: calc(100% + 0.3rem);
     left: 0;
     width: 100%;
@@ -2410,8 +2509,11 @@
         padding: 0.4rem 0.64rem;
     }
 
+    /* Only the variables change here so .data-grid__cell--editing keeps its
+       zero padding and the editor control picks up the compact spacing. */
     .data-grid__cell {
-        padding: 0.4rem 0.64rem;
+        --data-grid-cell-pad-y: 0.4rem;
+        --data-grid-cell-pad-x: 0.64rem;
     }
 
     .data-controls__menu-button-label {
@@ -3443,6 +3545,55 @@
     background: color-mix(in srgb, var(--surface) 86%, var(--surface-raised));
 }
 
+.record-editor__relation-section--grid {
+    position: relative;
+    z-index: 2;
+    overflow: visible;
+}
+
+.record-editor__relation-section--grid .data-grid__scroll {
+    overflow: visible;
+}
+
+.record-editor__relation-section--grid .data-grid__cell--editing {
+    z-index: 90;
+}
+
+.record-editor__relation-section--grid
+    .data-grid
+    td:has(.data-grid__cell--editing),
+.record-editor__relation-section--grid
+    .data-grid
+    td:has(.cell-combobox[data-open]) {
+    position: relative;
+    z-index: 90;
+}
+
+.record-editor__relation-section--grid
+    .data-grid
+    td.data-grid__column--primary:has(.data-grid__cell--editing),
+.record-editor__relation-section--grid
+    .data-grid
+    td.data-grid__column--primary:has(.cell-combobox[data-open]) {
+    z-index: 91;
+}
+
+.record-editor__relation-section--grid .cell-combobox__listbox {
+    z-index: 120;
+}
+
+.record-editor__relation-section,
+.data-grid__scroll {
+    border-right: 1px solid var(--border);
+    border-left: 1px solid var(--border);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+}
+
+.record-editor__relation-section table {
+    border-bottom: 0px !important;
+}
+
 .record-editor__relation-header {
     display: flex;
     align-items: center;
@@ -3535,13 +3686,12 @@
 .record-editor__relation-skeleton {
     height: 2.75rem;
     border-radius: 8px;
-    background:
-        linear-gradient(
-            90deg,
-            color-mix(in srgb, var(--border) 38%, transparent) 0%,
-            color-mix(in srgb, var(--surface-raised) 70%, var(--surface)) 50%,
-            color-mix(in srgb, var(--border) 38%, transparent) 100%
-        );
+    background: linear-gradient(
+        90deg,
+        color-mix(in srgb, var(--border) 38%, transparent) 0%,
+        color-mix(in srgb, var(--surface-raised) 70%, var(--surface)) 50%,
+        color-mix(in srgb, var(--border) 38%, transparent) 100%
+    );
     background-size: 200% 100%;
     animation: record-editor-skeleton 1.2s ease-in-out infinite;
 }

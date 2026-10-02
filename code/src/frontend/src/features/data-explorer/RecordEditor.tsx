@@ -1,10 +1,21 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { useNavigate } from "react-router-dom";
-import { buildQueryString, fetchTableRows } from "../../api/data";
+import { buildQueryString, createRow, fetchTableRows, patchRow } from "../../api/data";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
-import { useExplorerStore } from "../../stores/explorerStore";
+import {
+  buildCompositeRowId,
+  isWritableColumn,
+  useExplorerStore,
+} from "../../stores/explorerStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { DEFAULT_QUERY } from "../../types/explorer";
 import type { ModelColumn, ModelTable } from "../../types/api";
@@ -20,6 +31,7 @@ import {
   TextCellEditor,
 } from "./components/editors";
 import { renderCellValue } from "./components/cellValue";
+import { DataGrid } from "./components/DataGrid";
 import {
   lookupReferenceLabel,
   useReferenceLabels,
@@ -59,10 +71,6 @@ function pickEditorForColumn(column: ModelColumn) {
   }
 }
 
-function isWritableColumn(column: ModelColumn): boolean {
-  return !column.primaryKey && column.type !== "computed";
-}
-
 function getRecordTitle(table: ModelTable, row: Record<string, unknown> | null): string {
   if (!row) return table.displayName ?? table.name;
   const id = row.id;
@@ -85,6 +93,80 @@ function getFkTargetTable(column: ModelColumn): string | null {
   const relationTable = (column as unknown as { relationTable?: string })
     .relationTable;
   return typeof relationTable === "string" && relationTable ? relationTable : null;
+}
+
+function coerceColumnValue(column: ModelColumn | null, value: unknown): unknown {
+  if (
+    column &&
+    (column.type === "int64" ||
+      column.type === "integer" ||
+      column.type === "number") &&
+    typeof value === "string"
+  ) {
+    const asNumber = Number(value);
+    if (Number.isInteger(asNumber) && String(asNumber) === value) {
+      return asNumber;
+    }
+  }
+  return value;
+}
+
+function ensureRowId(table: ModelTable, row: Record<string, unknown>): Record<string, unknown> {
+  if (row.id !== null && row.id !== undefined && row.id !== "") return row;
+  const compositeId = buildCompositeRowId(table, row);
+  return compositeId ? { ...row, id: compositeId } : row;
+}
+
+function getPersistedRowId(
+  table: ModelTable,
+  row: Record<string, unknown>,
+  fallbackRowId?: string,
+): string {
+  const normalized = ensureRowId(table, row);
+  const normalizedId = normalized.id;
+  if (normalizedId !== null && normalizedId !== undefined && normalizedId !== "") {
+    return String(normalizedId);
+  }
+  if (fallbackRowId) return fallbackRowId;
+  return String(row.id ?? "");
+}
+
+function buildDraftJunctionRow(
+  table: ModelTable,
+  hiddenColumnName: string,
+  hiddenValue: unknown,
+): Record<string, unknown> {
+  const row: Record<string, unknown> = {};
+  for (const column of table.columns) {
+    row[column.name] = column.name === hiddenColumnName ? hiddenValue : null;
+  }
+  return row;
+}
+
+function isJunctionCreateReady(
+  table: ModelTable,
+  row: Record<string, unknown>,
+): boolean {
+  for (const column of table.columns.filter(isWritableColumn)) {
+    if (!column.primaryKey && column.nullable !== false) continue;
+    if (column.default !== undefined) continue;
+    const value = row[column.name];
+    if (value === undefined || value === null || value === "") return false;
+  }
+  return true;
+}
+
+function buildJunctionPayload(
+  table: ModelTable,
+  row: Record<string, unknown>,
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+  for (const column of table.columns.filter(isWritableColumn)) {
+    const value = row[column.name];
+    if (value === undefined || value === null || value === "") continue;
+    payload[column.name] = value;
+  }
+  return payload;
 }
 
 export function RecordEditor() {
@@ -341,10 +423,11 @@ export function RecordEditor() {
         {table && currentRow && incomingRelationSections.length > 0 ? (
           <RecordEditorRelations
             currentRowId={top.rowId}
+            currentRow={currentRow}
             sections={incomingRelationSections}
             snapshot={snapshot}
-            onOpenRecord={(targetTable, rowId) =>
-              void pushRecordEditor({ table: targetTable, rowId })
+            onOpenRecord={(targetTable, rowId, row) =>
+              void pushRecordEditor({ table: targetTable, rowId, row })
             }
             onViewAll={handleViewAllRelated}
           />
@@ -417,14 +500,20 @@ function RecordEditorBreadcrumbs({
 
 type RecordEditorRelationsProps = {
   currentRowId: string;
+  currentRow: Record<string, unknown>;
   sections: ReadonlyArray<IncomingRelationSection>;
   snapshot: ReturnType<typeof useSchemaStore.getState>["snapshot"];
-  onOpenRecord: (targetTable: string, rowId: string) => void;
+  onOpenRecord: (
+    targetTable: string,
+    rowId: string,
+    row?: Record<string, unknown>,
+  ) => void;
   onViewAll: (section: IncomingRelationSection) => void;
 };
 
 function RecordEditorRelations({
   currentRowId,
+  currentRow,
   sections,
   snapshot,
   onOpenRecord,
@@ -440,8 +529,9 @@ function RecordEditorRelations({
 
           return (
             <RecordEditorRelationSection
-              key={`${section.targetTable}:${section.filterColumn}`}
+              key={`${section.targetTable}:${section.filterColumn}:${section.relationType ?? "1:N"}`}
               currentRowId={currentRowId}
+              currentRow={currentRow}
               relatedTable={relatedTable}
               section={section}
               onOpenRecord={onOpenRecord}
@@ -459,18 +549,27 @@ type RelationSectionLoadState = {
   rows: Record<string, unknown>[];
   total: number | null;
   error: string | null;
+  pendingNewRowIds: string[];
+  editingCell: { rowId: string; columnName: string } | null;
+  cellErrors: Record<string, Record<string, string>>;
 };
 
 type RecordEditorRelationSectionProps = {
   currentRowId: string;
+  currentRow: Record<string, unknown>;
   relatedTable: ModelTable;
   section: IncomingRelationSection;
-  onOpenRecord: (targetTable: string, rowId: string) => void;
+  onOpenRecord: (
+    targetTable: string,
+    rowId: string,
+    row?: Record<string, unknown>,
+  ) => void;
   onViewAll: (section: IncomingRelationSection) => void;
 };
 
 function RecordEditorRelationSection({
   currentRowId,
+  currentRow,
   relatedTable,
   section,
   onOpenRecord,
@@ -481,6 +580,9 @@ function RecordEditorRelationSection({
     rows: [],
     total: null,
     error: null,
+    pendingNewRowIds: [],
+    editingCell: null,
+    cellErrors: {},
   });
 
   useEffect(() => {
@@ -491,6 +593,9 @@ function RecordEditorRelationSection({
       rows: [],
       total: null,
       error: null,
+      pendingNewRowIds: [],
+      editingCell: null,
+      cellErrors: {},
     });
 
     void fetchTableRows(relatedTable.name, {
@@ -508,9 +613,12 @@ function RecordEditorRelationSection({
         if (cancelled) return;
         setState({
           status: "ready",
-          rows: result.data,
+          rows: result.data.map((row) => ensureRowId(relatedTable, row)),
           total: result.meta.total,
           error: null,
+          pendingNewRowIds: [],
+          editingCell: null,
+          cellErrors: {},
         });
       })
       .catch((error) => {
@@ -520,6 +628,9 @@ function RecordEditorRelationSection({
           rows: [],
           total: null,
           error: error instanceof Error ? error.message : "Failed to load related rows.",
+          pendingNewRowIds: [],
+          editingCell: null,
+          cellErrors: {},
         });
       });
 
@@ -532,6 +643,20 @@ function RecordEditorRelationSection({
     () => pickRelationPreviewColumns(relatedTable, section.filterColumn),
     [relatedTable, section.filterColumn],
   );
+
+  if (section.relationType === "N:M") {
+    return (
+      <ManyToManyRelationSection
+        currentRowId={currentRowId}
+        currentRow={currentRow}
+        relatedTable={relatedTable}
+        section={section}
+        state={state}
+        setState={setState}
+        onOpenRecord={onOpenRecord}
+      />
+    );
+  }
 
   return (
     <section
@@ -606,6 +731,239 @@ function RecordEditorRelationSection({
           })}
         </ol>
       ) : null}
+    </section>
+  );
+}
+
+type ManyToManyRelationSectionProps = {
+  currentRowId: string;
+  currentRow: Record<string, unknown>;
+  relatedTable: ModelTable;
+  section: IncomingRelationSection;
+  state: RelationSectionLoadState;
+  setState: Dispatch<SetStateAction<RelationSectionLoadState>>;
+  onOpenRecord: (
+    targetTable: string,
+    rowId: string,
+    row?: Record<string, unknown>,
+  ) => void;
+};
+
+function ManyToManyRelationSection({
+  currentRowId,
+  currentRow,
+  relatedTable,
+  section,
+  state,
+  setState,
+  onOpenRecord,
+}: ManyToManyRelationSectionProps) {
+  const hiddenColumnName = section.hiddenColumn ?? section.filterColumn;
+  const hiddenColumn = relatedTable.columns.find(
+    (column) => column.name === hiddenColumnName,
+  );
+  const visibleTable = useMemo<ModelTable>(
+    () => ({
+      ...relatedTable,
+      columns: relatedTable.columns.filter((column) => column.name !== hiddenColumnName),
+    }),
+    [hiddenColumnName, relatedTable],
+  );
+  const rows = useMemo(
+    () => state.rows.map((row) => ensureRowId(relatedTable, row)),
+    [relatedTable, state.rows],
+  );
+
+  const hiddenValue = useMemo(() => {
+    const pkColumn = relatedTable.columns.find(
+      (column) => column.primaryKey && column.name === hiddenColumnName,
+    );
+    const raw = pkColumn ? currentRow[pkColumn.name] : currentRowId;
+    return coerceColumnValue(hiddenColumn ?? null, raw ?? currentRowId);
+  }, [currentRow, currentRowId, hiddenColumn, hiddenColumnName, relatedTable.columns]);
+
+  const firstWritableVisibleColumn = visibleTable.columns.find(isWritableColumn);
+
+  function updateRows(
+    updater: (rows: Record<string, unknown>[]) => Record<string, unknown>[],
+  ) {
+    setState((current) => ({ ...current, rows: updater(current.rows) }));
+  }
+
+  function clearCellError(rowId: string, columnName: string) {
+    setState((current) => {
+      const rowErrors = current.cellErrors[rowId];
+      if (!rowErrors?.[columnName]) return current;
+      const nextRowErrors = { ...rowErrors };
+      delete nextRowErrors[columnName];
+      const nextErrors = { ...current.cellErrors };
+      if (Object.keys(nextRowErrors).length > 0) {
+        nextErrors[rowId] = nextRowErrors;
+      } else {
+        delete nextErrors[rowId];
+      }
+      return { ...current, cellErrors: nextErrors };
+    });
+  }
+
+  function setCellError(rowId: string, columnName: string, message: string) {
+    setState((current) => ({
+      ...current,
+      cellErrors: {
+        ...current.cellErrors,
+        [rowId]: {
+          ...(current.cellErrors[rowId] ?? {}),
+          [columnName]: message,
+        },
+      },
+      editingCell: { rowId, columnName },
+    }));
+  }
+
+  return (
+    <section
+      className="record-editor__relation-section record-editor__relation-section--grid"
+      aria-labelledby={`record-editor-relation-${relatedTable.name}-${section.filterColumn}`}
+      data-testid={`record-editor-relation-grid-${relatedTable.name}`}
+    >
+      <header className="record-editor__relation-header">
+        <div className="record-editor__relation-title-group">
+          <h3
+            id={`record-editor-relation-${relatedTable.name}-${section.filterColumn}`}
+            className="record-editor__relation-title"
+          >
+            {section.label}
+          </h3>
+          <span className="record-editor__relation-count">
+            {state.total ?? "…"}
+          </span>
+        </div>
+      </header>
+
+      {state.status === "loading" ? (
+        <div className="record-editor__relation-skeletons">
+          <div className="record-editor__relation-skeleton" />
+          <div className="record-editor__relation-skeleton" />
+        </div>
+      ) : state.status === "error" ? (
+        <p
+          className="record-editor__relation-error"
+          role="alert"
+          data-testid={`record-editor-relation-error-${relatedTable.name}`}
+        >
+          {state.error ?? "Failed to load related rows."}
+        </p>
+      ) : (
+        <div className="record-editor__relation-grid">
+          <DataGrid
+            table={visibleTable}
+            rows={rows}
+            page={1}
+            perPage={5}
+            pendingNewRowIds={state.pendingNewRowIds}
+            editingCell={state.editingCell}
+            cellErrors={state.cellErrors}
+            onAddRow={() => {
+              if (!firstWritableVisibleColumn) return;
+              const draftId = `new:${relatedTable.name}:${Date.now()}`;
+              const draft = buildDraftJunctionRow(relatedTable, hiddenColumnName, hiddenValue);
+              setState((current) => ({
+                ...current,
+                rows: [...current.rows, { ...draft, id: draftId }],
+                total: (current.total ?? current.rows.length) + 1,
+                pendingNewRowIds: [...current.pendingNewRowIds, draftId],
+                editingCell: {
+                  rowId: draftId,
+                  columnName: firstWritableVisibleColumn.name,
+                },
+              }));
+            }}
+            onStartEdit={(row, column) => {
+              const rowId = String(row.id ?? "");
+              setState((current) => ({
+                ...current,
+                editingCell: { rowId, columnName: column.name },
+              }));
+            }}
+            onCancelEdit={() => {
+              setState((current) => ({ ...current, editingCell: null }));
+            }}
+            onCommitEdit={(row, column, nextValue) => {
+              const rowId = String(row.id ?? "");
+              const nextRow = {
+                ...row,
+                [hiddenColumnName]: hiddenValue,
+                [column.name]: nextValue,
+              };
+              const persistedRowId = getPersistedRowId(relatedTable, nextRow, rowId);
+              const isPending = state.pendingNewRowIds.includes(rowId);
+
+              if (isPending && !isJunctionCreateReady(relatedTable, nextRow)) {
+                updateRows((currentRows) =>
+                  currentRows.map((candidate) =>
+                    String(candidate.id ?? "") === rowId ? nextRow : candidate,
+                  ),
+                );
+                setState((current) => ({ ...current, editingCell: null }));
+                clearCellError(rowId, column.name);
+                return;
+              }
+
+              void (async () => {
+                try {
+                  if (isPending) {
+                    const created = await createRow(
+                      relatedTable.name,
+                      buildJunctionPayload(relatedTable, nextRow),
+                    );
+                    const createdWithId = ensureRowId(relatedTable, created);
+                    setState((current) => ({
+                      ...current,
+                      rows: current.rows.map((candidate) =>
+                        String(candidate.id ?? "") === rowId ? createdWithId : candidate,
+                      ),
+                      pendingNewRowIds: current.pendingNewRowIds.filter((id) => id !== rowId),
+                      editingCell: null,
+                    }));
+                    clearCellError(rowId, column.name);
+                    return;
+                  }
+
+                  const patched = await patchRow(relatedTable.name, persistedRowId, {
+                    [column.name]: nextValue,
+                  });
+                  const patchedWithId = ensureRowId(relatedTable, patched);
+                  setState((current) => ({
+                    ...current,
+                    rows: current.rows.map((candidate) =>
+                      String(candidate.id ?? "") === rowId ? patchedWithId : candidate,
+                    ),
+                    editingCell: null,
+                  }));
+                  clearCellError(rowId, column.name);
+                } catch (error) {
+                  setCellError(
+                    rowId,
+                    column.name,
+                    error instanceof Error ? error.message : "Failed to save value.",
+                  );
+                }
+              })();
+            }}
+            onOpenRecord={(row) => {
+              const rowId = String(row.id ?? "");
+              if (!rowId) return;
+              onOpenRecord(relatedTable.name, rowId, row);
+            }}
+            onNavigateReference={(column, value) => {
+              const targetTable = getFkTargetTable(column);
+              if (!targetTable) return;
+              if (value === null || value === undefined || value === "") return;
+              onOpenRecord(targetTable, String(value));
+            }}
+          />
+        </div>
+      )}
     </section>
   );
 }

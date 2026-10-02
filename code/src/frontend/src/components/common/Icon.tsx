@@ -9,11 +9,15 @@ export type IconName =
   | "sparkles"
   | "settings"
   | "search"
+  | "download"
+  | "list"
   | "user"
   | "chevron-right"
   | "chevron-left"
+  | "chevron-up"
   | "chevron-down"
   | "plus"
+  | "minus"
   | "logout"
   | "activity"
   | "layers"
@@ -108,6 +112,23 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M20 20l-3.5-3.5" />
     </>
   ),
+  download: (
+    <>
+      <path d="M12 4v11" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M5 19h14" />
+    </>
+  ),
+  list: (
+    <>
+      <path d="M9 6h11" />
+      <path d="M9 12h11" />
+      <path d="M9 18h11" />
+      <circle cx="4.5" cy="6" r="1" />
+      <circle cx="4.5" cy="12" r="1" />
+      <circle cx="4.5" cy="18" r="1" />
+    </>
+  ),
   user: (
     <>
       <circle cx="12" cy="8" r="4" />
@@ -116,6 +137,7 @@ const paths: Record<IconName, React.ReactNode> = {
   ),
   "chevron-right": <path d="M9 6l6 6-6 6" />,
   "chevron-left": <path d="M15 6l-6 6 6 6" />,
+  "chevron-up": <path d="m18 15-6-6-6 6" />,
   "chevron-down": <path d="m6 9 6 6 6-6" />,
   plus: (
     <>
@@ -123,6 +145,7 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M5 12h14" />
     </>
   ),
+  minus: <path d="M5 12h14" />,
   logout: (
     <>
       <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />

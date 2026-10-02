@@ -133,7 +133,6 @@ export function ViewRenderer({
   if (!entry) {
     if (!warnedTypes.has(type)) {
       warnedTypes.add(type);
-      // eslint-disable-next-line no-console
       console.warn(
         `[ViewRenderer] Unknown view type "${type}" — falling back to table grid.`,
       );

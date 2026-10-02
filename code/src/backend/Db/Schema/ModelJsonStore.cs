@@ -70,6 +70,35 @@ public class ModelJsonStore
         }
     }
 
+    /// <summary>
+    /// Update the current (latest) version's stored model JSON in place without
+    /// allocating a new version. Used for metadata-only changes (layout
+    /// position, color, and other schema-irrelevant table additional data) so
+    /// they are durable without inflating the migration history.
+    /// </summary>
+    public async Task<ModelJson?> UpdateCurrentMetadataAsync(ModelJson model)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        var current = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectCurrentSql(), transaction: tx);
+
+        if (current is null)
+        {
+            return null;
+        }
+
+        var versionedModel = model with { Version = current.Version };
+        var json = ModelJsonSerializer.Serialize(versionedModel);
+        await conn.ExecuteAsync(GetUpdateModelJsonSql(), new
+        {
+            Version = versionedModel.Version,
+            ModelJson = json
+        }, tx);
+        tx.Commit();
+
+        return versionedModel;
+    }
+
     public async Task DeleteVersionAsync(int version)
     {
         using var conn = await _systemPool.GetConnectionAsync();
@@ -136,6 +165,14 @@ public class ModelJsonStore
         return _systemPool.Provider == DatabaseProvider.Postgres
             ? $"INSERT INTO {table} (model_json, version) VALUES (CAST(@ModelJson AS JSONB), @Version);"
             : $"INSERT INTO {table} (model_json, version) VALUES (@ModelJson, @Version);";
+    }
+
+    private string GetUpdateModelJsonSql()
+    {
+        var table = GetSchemaVersionsTableName();
+        return _systemPool.Provider == DatabaseProvider.Postgres
+            ? $"UPDATE {table} SET model_json = CAST(@ModelJson AS JSONB) WHERE version = @Version;"
+            : $"UPDATE {table} SET model_json = @ModelJson WHERE version = @Version;";
     }
 
     private string GetSchemaVersionsTableName() =>

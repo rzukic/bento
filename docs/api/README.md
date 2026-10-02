@@ -108,6 +108,7 @@ Current admin contract:
 - the schema and migration admin endpoints require an authenticated admin in `standard` auth mode and run with the open-mode admin bypass in `open` mode
 - `GET /api/v1/admin/schema` returns an enriched schema snapshot with `application/json`; relation objects include runtime-only resolver metadata such as `resolvedFromAccessor`, `resolvedToAccessor`, and `resolvedJunctionTableName` for Data Explorer navigation
 - `GET /api/v1/admin/schema/model` returns canonical editable Model JSON with `application/json`; runtime-only `resolved*` relation metadata is omitted and this is the source used by the JSON workbench and export flow
+- both `GET` schema endpoints are readable by every authenticated role (`viewer`, `editor`, `admin`, `api`) so the browser UI can resolve tables and relations for non-admin users; `POST /schema/preview`, `PUT /schema`, `GET /migrations`, and `POST /migrations/rollback` remain `admin`-only
 - `POST /api/v1/admin/schema/preview` validates and normalizes the submitted Model JSON, diffs it against the current stored schema, and returns preview metadata without running SQL, changing schema history, or reloading the live schema cache
 - `PUT /api/v1/admin/schema` validates the submitted Model JSON, diffs it against the current schema, applies the generated migration, and reloads the live schema cache so `/api/v1/data/*` routes reflect the new schema immediately
 - destructive schema changes must be retried with `?confirm_destructive=true`; otherwise the endpoint returns `409 CONFLICT` with `CONFIRMATION_REQUIRED`
@@ -280,6 +281,7 @@ The response also includes the `X-Request-Id` header so callers can correlate fa
 Current Step 1.5 data contract:
 - tables and relation accessors come from the current Model JSON; route availability updates immediately after `PUT /api/v1/admin/schema`
 - all `/api/v1/data/*` endpoints require auth in `standard` mode and run with the open-mode admin bypass in `open` mode
+- read endpoints (`GET`) accept every authenticated role (`viewer`, `editor`, `admin`, `api`); write endpoints (`POST`, `PUT`, `PATCH`, `DELETE`) require `editor` or `admin`, or the `api` role, and return `403` with `error.details.requiredRole` / `error.details.actualRole` otherwise
 - `GET /api/v1/data/<table>` returns `{ data, meta }`, where `meta` includes `page`, `per_page`, `total`, and `total_pages`
 - `POST /api/v1/data/<table>` returns `201 Created` with `{ data }`
 - `PUT` is full replacement for writable columns; omitted optional writable columns may become `null`, while omitted non-nullable writable columns fail validation

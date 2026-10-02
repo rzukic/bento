@@ -269,7 +269,7 @@ describe("DateCellEditor", () => {
     const { onCommit, onCancel } = makeHandlers();
     render(
       <DateCellEditor
-        value=""
+        value="2026-04-01"
         column={col({ type: "date" })}
         onCommit={onCommit}
         onCancel={onCancel}

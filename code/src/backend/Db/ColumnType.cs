@@ -16,6 +16,7 @@ public enum ColumnType
     Computed,
     Currency,
     Enum,
+    Uuid,
     File
 }
 
@@ -50,6 +51,7 @@ public static class ColumnTypes
         ColumnType.Reference => "BIGINT",          // FK column
         ColumnType.Currency => "NUMERIC(19,4)",
         ColumnType.Enum => "TEXT",                  // checked by app, not DB constraint
+        ColumnType.Uuid => "UUID",
         ColumnType.File => "TEXT",                  // stores file path / S3 key
         ColumnType.Computed => throw new InvalidOperationException("Computed columns have no physical DB type"),
         _ => throw new ArgumentOutOfRangeException(nameof(type))
@@ -69,6 +71,7 @@ public static class ColumnTypes
         ColumnType.Reference => "INTEGER",          // FK column
         ColumnType.Currency => "REAL",
         ColumnType.Enum => "TEXT",
+        ColumnType.Uuid => "TEXT",
         ColumnType.File => "TEXT",
         ColumnType.Computed => throw new InvalidOperationException("Computed columns have no physical DB type"),
         _ => throw new ArgumentOutOfRangeException(nameof(type))
@@ -112,6 +115,7 @@ public static class ColumnTypes
         ColumnType.Json => "'{}'",
         ColumnType.Currency => "0.0",
         ColumnType.Enum => "''",
+        ColumnType.Uuid => $"'00000000-0000-0000-0000-000000000000'",
         ColumnType.File => "''",
         ColumnType.Reference => throw new InvalidOperationException("Reference columns should be nullable or have an explicit default"),
         ColumnType.Computed => throw new InvalidOperationException("Computed columns have no default"),
@@ -156,6 +160,7 @@ public static class ColumnTypes
             (ColumnType.Text, ColumnType.Currency) => CoercionKind.Lossy,
             (ColumnType.Text, ColumnType.Json) => CoercionKind.Lossy,
             (ColumnType.Text, ColumnType.Enum) => CoercionKind.Lossy,
+            (ColumnType.Text, ColumnType.Uuid) => CoercionKind.Lossy,
 
             // ── Date/DateTime ──
             (ColumnType.Date, ColumnType.DateTime) => CoercionKind.Safe,    // adds 00:00:00
@@ -195,8 +200,9 @@ public static class ColumnTypes
             ColumnType.Json => IsJsonString(value) ? null : "Expected a valid JSON string",
             ColumnType.Currency => IsNumeric(value) ? null : "Expected a numeric value",
             ColumnType.Enum => ValidateEnum(value, allowedValues),
+            ColumnType.Uuid => IsUuid(value) ? null : "Expected a UUID string",
             ColumnType.File => value is string ? null : "Expected a file path string",
-            ColumnType.Reference => IsInteger(value) ? null : "Expected an integer ID",
+            ColumnType.Reference => IsInteger(value) || IsUuid(value) ? null : "Expected an integer ID or UUID string",
             ColumnType.Computed => "Computed columns cannot have values set directly",
             _ => null
         };
@@ -213,6 +219,9 @@ public static class ColumnTypes
 
     private static bool IsDateTimeString(object value) =>
         value is string s && DateTimeOffset.TryParse(s, out _);
+
+    private static bool IsUuid(object value) =>
+        value is string s && Guid.TryParse(s, out _);
 
     private static bool IsJsonString(object value)
     {

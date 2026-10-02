@@ -11,6 +11,10 @@ Current implementation status:
 - the first reusable UI primitive layer now exists for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs
 - light/dark/system theme switching is available through the shared app store and shell controls
 - Phase 2 Step 2.2 now ships a real Data Explorer read path at `/data` and `/data/:tableId`
+- Phase 2 Steps 2.3 and 2.4 add saved views (table and kanban, shareable per table), inline cell editing with optimistic rollback, row add/duplicate/delete with undo, bulk selection, a full-screen record editor, and CSV/JSON export
+- Phase 2 Step 2.6 now ships the schema workbench at `/model`, including JSON and Visual modes backed by the same Model JSON draft
+- every authenticated role can browse the Data Explorer (the schema snapshot is readable by all roles); writes need `editor`/`admin`/`api`, and `/model` editing stays admin-only
+- the workspace is checked in CI on every pull request: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`
 
 ---
 
@@ -24,7 +28,7 @@ src/frontend/
 │   ├── router.tsx        ← Shared browser route tree
 │   ├── routes/           ← Page-level route placeholders
 │   ├── components/       ← Shared UI components and layout pieces
-│   ├── features/         ← Feature modules like the Data Explorer
+│   ├── features/         ← Feature modules like Data Explorer and Schema Workbench
 │   ├── stores/           ← Zustand state stores
 │   ├── api/              ← API client functions
 │   ├── hooks/            ← Custom React hooks
@@ -37,6 +41,11 @@ src/frontend/
 ├── tsconfig.app.json
 └── tsconfig.node.json
 ```
+
+Module layout inside the two feature areas:
+
+- `features/schema-workbench/` — `SchemaWorkbenchPage.tsx` is the page component only (state, effects, toolbar, layout). The visual designer lives in `visual/` (`erdRouting.ts` for node/edge geometry and orthogonal routing, `VisualSchemaMode.tsx` for the canvas, `VisualSchemaInspector.tsx`, `VisualRelationInspector.tsx`, `VisualRelationCreator.tsx`, `VisualPreviewDiagnostics.tsx`). JSON-mode pieces sit beside the page: `MiniErd.tsx`, `previewPresentation.tsx`, `workbenchDiagnostics.ts`, `draftJson.ts`, `JsonCodeEditor.tsx`. Pure draft mutations stay in `visualSchemaDraft.ts`.
+- `stores/explorerStore.ts` — a thin composition of Zustand slices from `stores/explorer/` (`querySlice`, `editingSlice`, `rowOpsSlice`, `viewSlice`, `recordEditorSlice`, plus `types.ts`, `helpers.ts`, `autoSave.ts`). Import `useExplorerStore` and its types from `stores/explorerStore` as before; the slice files are an implementation detail.
 
 ---
 
@@ -75,7 +84,8 @@ Current route behavior:
 - `/data` now renders the schema-driven Data Explorer landing with live table discovery and summary chips
 - `/data/:tableId` now renders the live explorer detail route with the read-only grid, Airtable-style foldout controls, pagination, row selection, column visibility controls, and relation browsing
 - `/dashboards`, `/forms`, and `/ai` already exist as placeholders so later modules can plug into a stable IA without route churn
-- the Schema Designer and later modules still remain placeholder shells beyond the shipped Data Explorer slice
+- `/model` renders the admin schema workbench with JSON and Visual modes sharing one draft, preview/apply safety, import/export, validation diagnostics, and live schema refresh
+- `/model` Visual mode uses a feature-local SVG ERD canvas and inspector; no third-party canvas library was introduced for Step 2.6
 
 ---
 
@@ -100,6 +110,7 @@ Current behavior:
 - auth routes use `anonymous` + `skipAuthRetry` to avoid recursive refresh attempts
 - normal protected calls can do a one-shot `401 -> /auth/refresh -> retry`
 - backend `{ error: { code, message, details } }` envelopes are surfaced as `ApiClientError`
+- schema workbench calls live in `api/schema.ts` and keep preview (`POST /admin/schema/preview`) separate from apply (`PUT /admin/schema`)
 
 ---
 
@@ -152,6 +163,25 @@ Those move into Step 2.3 and later Part 8 work.
 
 ---
 
+## Schema Workbench
+
+Phase 2 Step 2.6 ships the schema designer under `src/features/schema-workbench/`.
+
+Current structure:
+- `SchemaWorkbenchPage.tsx` owns the `/model` route, mode switch, shared draft state, preview/apply flow, Visual inspector, and ERD canvas rendering
+- `SchemaWorkbenchPage.css` contains the workbench, editor, inspector, canvas, relation-line, diagnostics, and review-modal styles
+- `visualSchemaDraft.ts` contains immutable helpers for table, column, relation, layout, and object-path draft mutations
+- JSON helpers such as `draftJson.ts`, `jsonPathLocation.ts`, and `jsonTextPosition.ts` remain the raw-draft support layer from Step 2.5
+
+Design and dependency notes:
+- The ERD canvas is rendered with React and inline SVG paths, not a new diagramming or canvas dependency.
+- Visual and JSON modes must continue to edit one canonical Model JSON draft. Do not add a visual-only save path.
+- Backend preview/apply remains the safety boundary. Frontend previews should not guess migration impact independently.
+- Table `layout` metadata is allowed in Model JSON and is inert for migrations. Layout-only apply should not imply a schema version bump.
+- Visual relation editing currently exposes guided `1:N`, self-referential `1:N`, visible `N:M`, relation selection, and relation renaming. Explicit N:M junction tables may use custom names as long as the relation's `junctionTable` points at the visible table and its reference columns match the relation endpoints. Advanced relation properties are still deferred.
+
+---
+
 ## Shared UI Primitives
 
 Step 2.1 now has a first reusable primitive layer under `src/components/ui/`.
@@ -176,19 +206,27 @@ Vite builds to `dist/`. The `repere/frontend` Docker container serves this with 
 
 nginx is configured with `try_files $uri /index.html` so React Router handles all routes client-side.
 
+The workspace uses **pnpm** (pinned via `packageManager` in `package.json`). CI runs typecheck, lint, and tests for every pull request that touches `code/**`.
+
 ```bash
+# Install dependencies
+pnpm install
+
 # Development (with Vite dev server + HMR)
-npm run dev
+pnpm run dev
 
 # Type-check the frontend workspace
-npm run typecheck
+pnpm run typecheck
+
+# Lint (ESLint flat config in eslint.config.js)
+pnpm run lint
 
 # Production build
-npm run build       # outputs to dist/
-npm run preview     # preview production build locally
+pnpm run build       # outputs to dist/
+pnpm run preview     # preview production build locally
 
 # Run the frontend test suite
-npm run test
+pnpm run test
 ```
 
 During development, `vite.config.ts` proxies `/api/v1/*` to `http://localhost:5000` so you can run the backend separately.

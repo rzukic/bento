@@ -37,6 +37,9 @@ public sealed record AdminSchemaChangeResponse
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public IReadOnlyList<AdminSchemaCastExampleResponse>? CastExamples { get; init; }
 
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public AdminSchemaChangeImpactResponse? Impact { get; init; }
+
     public bool IsDestructive { get; init; }
 }
 
@@ -48,6 +51,24 @@ public sealed record AdminSchemaCastExampleResponse
 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public string? Error { get; init; }
+}
+
+public sealed record AdminSchemaChangeImpactResponse
+{
+    public required string Kind { get; init; }
+    public required string ObjectType { get; init; }
+    public required string ObjectName { get; init; }
+
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public long? RowCount { get; init; }
+
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<IReadOnlyDictionary<string, object?>>? SampleRows { get; init; }
+
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyList<object?>? SampleValues { get; init; }
+
+    public required string Message { get; init; }
 }
 
 public sealed record AdminSchemaPlanResponse
@@ -62,6 +83,7 @@ public sealed record AdminSchemaPreviewResponse
 {
     public required bool IsValid { get; init; }
     public required bool HasChanges { get; init; }
+    public required bool MetadataOnly { get; init; }
     public required bool IsDestructive { get; init; }
     public required bool RequiresConfirmation { get; init; }
     public required int CurrentVersion { get; init; }

@@ -6,11 +6,16 @@ import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
 import { TextField } from "../components/ui/TextField";
 import { useAuthStore } from "../stores/authStore";
+import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import "./LoginPage.css";
 
 type LocationState = { from?: { pathname?: string } } | null;
 
 export function LoginPage() {
+  // The shell sets titles for app routes; /login lives outside the shell, so
+  // without this the tab keeps showing the title of the page the user left.
+  useDocumentTitle("Sign in · Repere");
+
   const status = useAuthStore((state) => state.status);
   const loginInFlight = useAuthStore((state) => state.loginInFlight);
   const error = useAuthStore((state) => state.error);

@@ -1,5 +1,6 @@
 import React, {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -28,6 +29,13 @@ type DataQueryControlsProps = {
   query: ExplorerQuery;
   disabled?: boolean;
   toolbarActions?: ReactNode;
+  /**
+   * True while a popover rendered inside `toolbarActions` (e.g. the Export
+   * menu) is open. Opening it closes any active foldout panel.
+   */
+  externalPopoverOpen?: boolean;
+  /** Fires whenever the active foldout panel changes, so the parent can close its own popovers. */
+  onActivePanelChange?: (panel: string | null) => void;
   hiddenColumnNames?: string[];
   selectionPanel?: { content: ReactNode; count?: number } | null;
   suppressAutoPanel?: boolean;
@@ -114,7 +122,7 @@ const defaultFilterOperatorOptions: FilterOperatorOption[] = [
 ];
 
 const nullaryFilterOps: FilterOp[] = ["null", "notnull"];
-const textLikeColumnTypes = new Set(["string", "text", "json", "relation"]);
+const textLikeColumnTypes = new Set(["string", "text", "json", "relation", "uuid"]);
 const numericColumnTypes = new Set(["integer", "float", "currency"]);
 const temporalColumnTypes = new Set(["date", "datetime"]);
 
@@ -133,6 +141,8 @@ function normalizeColumnType(type: string | undefined): string {
     case "string":
     case "text":
       return "text";
+    case "uuid":
+      return "uuid";
     case "datetime":
       return "datetime";
     case "date":
@@ -598,6 +608,8 @@ export function DataQueryControls({
   query,
   disabled = false,
   toolbarActions = null,
+  externalPopoverOpen = false,
+  onActivePanelChange,
   hiddenColumnNames = [],
   selectionPanel = null,
   suppressAutoPanel = false,
@@ -622,8 +634,6 @@ export function DataQueryControls({
   currentViewConfig = null,
   onSearch,
   onSortChange,
-  onPerPageChange,
-  onPageChange,
   onFiltersChange,
   onHiddenColumnsChange,
   onResetView,
@@ -632,6 +642,8 @@ export function DataQueryControls({
 }: DataQueryControlsProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const viewDropdownRef = useRef<HTMLDivElement | null>(null);
+  const overlayAnchorRef = useRef<HTMLDivElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   // ── Query controls state ──
   const [searchDraft, setSearchDraft] = useState(query.search);
@@ -651,6 +663,68 @@ export function DataQueryControls({
   const [activePanel, setActivePanel] = useState<UtilityPanel>(() =>
     suppressAutoPanel ? null : getInitialPanel(query),
   );
+
+  // The floating foldout panel is anchored to the right edge of the bar. For
+  // narrow panels (Search) its left edge would land inside the active tab, so
+  // the tab visually hangs over the panel corner. Stretch the panel's minimum
+  // width so it always reaches the active tab's left edge and the two merge
+  // into one shape.
+  useLayoutEffect(() => {
+    const anchor = overlayAnchorRef.current;
+    if (!anchor) return;
+
+    function syncPanelMinWidth() {
+      if (!anchor) return;
+
+      // How far the right-anchored panel overhangs the last (right-most) tab.
+      // Panels that start at a tab's left edge get the same overhang on the
+      // left so both sides of the toolbar look symmetric.
+      const anchorRect = anchor.getBoundingClientRect();
+      const rightOffset =
+        parseFloat(
+          getComputedStyle(anchor).getPropertyValue("--foldout-right-offset"),
+        ) || 0;
+      const menuButtons = menuRef.current?.querySelectorAll<HTMLElement>(
+        ".data-controls__menu-button",
+      );
+      const lastButton = menuButtons?.[menuButtons.length - 1];
+      const edgeInset = lastButton
+        ? Math.max(
+            0,
+            anchorRect.right - rightOffset - lastButton.getBoundingClientRect().right,
+          )
+        : 0;
+      anchor.style.setProperty("--foldout-edge-inset", `${edgeInset}px`);
+
+      const activeButton = menuRef.current?.querySelector<HTMLElement>(
+        '[aria-expanded="true"]',
+      );
+      const panel = anchor.querySelector<HTMLElement>(
+        ".data-controls__panel--floating",
+      );
+      if (!activeButton || !panel) {
+        anchor.style.removeProperty("--foldout-min-width");
+        return;
+      }
+
+      const minWidth =
+        panel.getBoundingClientRect().right -
+        activeButton.getBoundingClientRect().left +
+        edgeInset;
+      // Fractional widths are intentional so the panel edge lands exactly
+      // where the layout says, not on the nearest whole pixel.
+      anchor.style.setProperty(
+        "--foldout-min-width",
+        `${Math.max(0, minWidth)}px`,
+      );
+    }
+
+    syncPanelMinWidth();
+    window.addEventListener("resize", syncPanelMinWidth);
+    return () => {
+      window.removeEventListener("resize", syncPanelMinWidth);
+    };
+  }, [activePanel, externalPopoverOpen]);
 
   // ── View selector state ──
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -674,6 +748,20 @@ export function DataQueryControls({
     if (selectionPanel || activePanel !== "selection") return;
     setActivePanel(null);
   }, [activePanel, selectionPanel]);
+
+  // Only one toolbar popover may be open at a time: an external popover
+  // (Export menu) closes the active foldout, and the parent is told about
+  // foldout changes so it can close its popover in return.
+  useEffect(() => {
+    if (!externalPopoverOpen) return;
+    setActivePanel(null);
+  }, [externalPopoverOpen]);
+
+  const onActivePanelChangeRef = useRef(onActivePanelChange);
+  onActivePanelChangeRef.current = onActivePanelChange;
+  useEffect(() => {
+    onActivePanelChangeRef.current?.(activePanel);
+  }, [activePanel]);
 
   useEffect(() => {
     if (!activePanel) return;
@@ -1134,7 +1222,7 @@ export function DataQueryControls({
 
   return (
     <div className="data-controls" ref={rootRef}>
-      <div className="data-controls__overlay-anchor">
+      <div className="data-controls__overlay-anchor" ref={overlayAnchorRef}>
         <div className="data-controls__bar">
           {/* LEFT — view selector dropdown, settings, save actions */}
           <div className="data-controls__view-selector">
@@ -1315,7 +1403,7 @@ export function DataQueryControls({
               </Button>
             ) : null}
           </div>
-          <div className="data-controls__menu">
+          <div className="data-controls__menu" ref={menuRef}>
             {toolbarActions}
             {selectionPanel ? (
               <Button

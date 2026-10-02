@@ -68,7 +68,13 @@ type DataGridProps = {
 };
 
 function isColumnEditable(column: ModelColumn): boolean {
-  return !column.primaryKey && column.type !== "computed";
+  if (column.type === "computed") return false;
+  if (column.references || column.type === "relation") return true;
+  return !column.primaryKey;
+}
+
+function isPrimarySelectionColumn(column: ModelColumn): boolean {
+  return Boolean(column.primaryKey) && !column.references && column.type !== "relation";
 }
 
 function pickEditorForColumn(column: ModelColumn) {
@@ -110,13 +116,20 @@ function getColumnTypeIconName(column: ModelColumn) {
     case "json":
       return "braces" as const;
     case "enum":
+      return "list" as const;
     case "string":
+    case "text":
       return "type" as const;
     case "double":
     case "int64":
     case "integer":
+    case "int":
+    case "bigint":
     case "float":
     case "number":
+    case "decimal":
+    case "numeric":
+    case "currency":
       return "number" as const;
     default:
       return "type" as const;
@@ -139,11 +152,17 @@ function getColumnTypeLabel(column: ModelColumn) {
       return "JSON";
     case "enum":
       return "Choice";
+    case "currency":
+      return "Currency";
     case "double":
     case "int64":
     case "integer":
+    case "int":
+    case "bigint":
     case "float":
     case "number":
+    case "decimal":
+    case "numeric":
       return "Number";
     default:
       return "Text";
@@ -383,8 +402,6 @@ export function DataGrid({
       return;
     }
 
-    const rowId = String(row.id);
-
     if (event.shiftKey && onSetSelectedRowIds && selectionAnchorIndexRef.current !== null) {
       const startIndex = Math.min(selectionAnchorIndexRef.current, rowIndex);
       const endIndex = Math.max(selectionAnchorIndexRef.current, rowIndex);
@@ -511,7 +528,16 @@ export function DataGrid({
                       </span>
                     ) : null}
                     {column.primaryKey ? (
-                      <span className="data-grid__header-pk-label">PK</span>
+                      <span className="data-grid__header-content data-grid__header-content--primary">
+                        <span className="data-grid__header-name-row">
+                          <span className="data-grid__header-name">
+                            {column.displayName ?? column.name}
+                          </span>
+                        </span>
+                        <span className="data-grid__header-primary-label-group">
+                          <span className="data-grid__header-pk-label">PK</span>
+                        </span>
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -649,14 +675,14 @@ export function DataGrid({
                             .filter(Boolean)
                             .join(" ")}
                           onClick={
-                            column.primaryKey && onToggleRowSelection && !pendingNew
+                            isPrimarySelectionColumn(column) && onToggleRowSelection && !pendingNew
                               ? (event) => handlePrimarySelectionClick(event, row, index)
                               : editable && !isEditing
                                 ? () => onStartEdit?.(row, column)
                                 : undefined
                           }
                           onMouseDown={
-                            column.primaryKey && onSetSelectedRowIds && !pendingNew
+                            isPrimarySelectionColumn(column) && onSetSelectedRowIds && !pendingNew
                               ? (event) => {
                                   if (event.button !== 0) return;
                                   if (!event.shiftKey) {
@@ -671,7 +697,7 @@ export function DataGrid({
                               : undefined
                           }
                           onMouseEnter={
-                            column.primaryKey && onSetSelectedRowIds && !pendingNew
+                            isPrimarySelectionColumn(column) && onSetSelectedRowIds && !pendingNew
                               ? (event) => {
                                   if ((event.buttons & 1) !== 1) return;
                                   setDraggedRowRange(index);
@@ -682,7 +708,7 @@ export function DataGrid({
                           <div
                             className={[
                               "data-grid__cell",
-                              column.primaryKey && onToggleRowSelection && !pendingNew
+                              isPrimarySelectionColumn(column) && onToggleRowSelection && !pendingNew
                                 ? "data-grid__cell--interactive"
                                 : "",
                               editable && !isEditing
@@ -702,26 +728,48 @@ export function DataGrid({
                           >
                             {isEditing ? (() => {
                               const Editor = pickEditorForColumn(column);
+                              const isReference =
+                                column.type === "relation" || typeof column.references !== "undefined";
+                              const rawValue = row[column.name];
+                              // Invisible copy of the static cell content. It keeps the
+                              // column at its current width while the editor is open:
+                              // without it, editing the widest value in a column swaps
+                              // that value for an intrinsically narrow <input>, the auto
+                              // table layout shrinks the column, and the editor text is
+                              // clipped.
+                              const ghost =
+                                isReference && rawValue !== null && rawValue !== undefined && rawValue !== "" ? (
+                                  <span className="data-grid__reference">
+                                    {lookupReferenceLabel(referenceLabels, column, rawValue) ?? String(rawValue)}
+                                  </span>
+                                ) : (
+                                  renderCellValue(column, rawValue)
+                                );
                               return (
-                                <div
-                                  className="data-grid__cell-editor"
-                                  onKeyDown={(event) =>
-                                    handleEditorWrapperKeyDown(event, index, columnIndex)
-                                  }
-                                >
-                                  <Editor
-                                    value={row[column.name] as never}
-                                    column={column}
-                                    autoFocus
-                                    error={cellError ?? null}
-                                    onCommit={(next) =>
-                                      onCommitEdit?.(row, column, next)
+                                <>
+                                  <span className="data-grid__cell-ghost" aria-hidden="true">
+                                    {ghost}
+                                  </span>
+                                  <div
+                                    className="data-grid__cell-editor"
+                                    onKeyDown={(event) =>
+                                      handleEditorWrapperKeyDown(event, index, columnIndex)
                                     }
-                                    onCancel={() => onCancelEdit?.()}
-                                  />
-                                </div>
+                                  >
+                                    <Editor
+                                      value={rawValue as never}
+                                      column={column}
+                                      autoFocus
+                                      error={cellError ?? null}
+                                      onCommit={(next) =>
+                                        onCommitEdit?.(row, column, next)
+                                      }
+                                      onCancel={() => onCancelEdit?.()}
+                                    />
+                                  </div>
+                                </>
                               );
-                            })() : column.primaryKey ? (
+                            })() : isPrimarySelectionColumn(column) ? (
                               <span className="data-grid__primary-cell">
                                 <span className="data-grid__primary-value">
                                   {pendingNew ? (

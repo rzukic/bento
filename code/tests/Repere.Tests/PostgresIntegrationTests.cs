@@ -169,6 +169,107 @@ public sealed class PostgresIntegrationTests
         Assert.True(customerId > 0);
     }
 
+    private const string UuidSchema = """
+        {
+            "tables": [
+                {
+                    "name": "devices",
+                    "columns": [
+                        { "name": "id", "type": "integer", "primaryKey": true },
+                        { "name": "token", "type": "uuid", "nullable": false, "unique": true },
+                        { "name": "name", "type": "text", "nullable": false }
+                    ]
+                }
+            ],
+            "relations": []
+        }
+        """;
+
+    [PostgresFact]
+    public async Task UuidColumns_InsertFilterUpdateAndUniqueCheck_WorkAgainstPostgres()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var schemaResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(UuidSchema, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, schemaResponse.StatusCode);
+
+        var token = Guid.NewGuid().ToString();
+        var deviceId = await CreateAsync(host, "devices", new { token, name = "Sensor A" });
+        Assert.True(deviceId > 0);
+
+        // Non-primary-key uuid values must bind as uuid (not text) on Postgres.
+        var filtered = await host.Client.GetFromJsonAsync<JsonElement>($"/api/v1/data/devices?filter[token]={token}");
+        Assert.Equal(1, filtered.GetProperty("data").GetArrayLength());
+        Assert.Equal(token, filtered.GetProperty("data")[0].GetProperty("token").GetString());
+
+        // The unique pre-check compares uuid = uuid and reports a conflict.
+        using var duplicate = await host.Client.PostAsJsonAsync("/api/v1/data/devices", new { token, name = "Sensor B" });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+
+        var newToken = Guid.NewGuid().ToString();
+        using var patch = await host.Client.PatchAsJsonAsync($"/api/v1/data/devices/{deviceId}", new { token = newToken });
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(newToken, patched.GetProperty("data").GetProperty("token").GetString());
+    }
+
+    [PostgresFact]
+    public async Task DisablingUnique_OnColumnCreatedWithTheTable_AppliesAgainstPostgres()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var schemaResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(DemoSchema, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, schemaResponse.StatusCode);
+
+        // customers.email was created with an inline UNIQUE constraint. Turning
+        // unique off must drop that constraint, not a non-existent ux_ index.
+        var relaxedSchema = DemoSchema.Replace("\"unique\": true", "\"unique\": false");
+        using var relaxResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(relaxedSchema, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, relaxResponse.StatusCode);
+
+        var first = await CreateAsync(host, "customers", new { name = "Dup One", email = "same@example.com" });
+        var second = await CreateAsync(host, "customers", new { name = "Dup Two", email = "same@example.com" });
+        Assert.NotEqual(first, second);
+    }
+
+    [PostgresFact]
+    public async Task Rollback_AfterApply_RestoresEmptySchemaAgainstPostgres()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var schemaResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(DemoSchema, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, schemaResponse.StatusCode);
+
+        using var rollbackResponse = await host.Client.PostAsync("/api/v1/admin/migrations/rollback", null);
+        Assert.Equal(HttpStatusCode.OK, rollbackResponse.StatusCode);
+        var rollback = await rollbackResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.True(rollback.GetProperty("rolledBack").GetBoolean());
+
+        var schema = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/admin/schema");
+        Assert.Equal(0, schema.GetProperty("version").GetInt32());
+        Assert.Equal(0, schema.GetProperty("tables").GetArrayLength());
+
+        using var gone = await host.Client.GetAsync("/api/v1/data/customers");
+        Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
+    }
+
     private static async Task<long> CreateAsync(ApiIntegrationTestHost host, string table, object body)
     {
         using var response = await host.Client.PostAsJsonAsync($"/api/v1/data/{table}", body);

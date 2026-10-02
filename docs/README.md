@@ -9,7 +9,7 @@
 
 | Section | What's covered |
 |---------|---------------|
-| [User Guides](user/README.md) | Setup and practical MVP 1 usage without needing deep implementation knowledge |
+| [User Guides](user/README.md) | Setup and practical product usage without needing deep implementation knowledge |
 | [Architecture](architecture/README.md) | System topology, service boundaries, data flow diagrams |
 | [Backend](backend/README.md) | ASP.NET Core structure, DB access, formula engine, background workers |
 | [Frontend](frontend/README.md) | Vite/React structure, routing, state management, build pipeline |

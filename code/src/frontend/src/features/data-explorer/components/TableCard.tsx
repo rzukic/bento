@@ -26,9 +26,7 @@ export function TableCard({ table }: TableCardProps) {
         </span>
       </div>
 
-      {table.description ? (
-        <p className="table-card__description">{table.description}</p>
-      ) : null}
+      <p className="table-card__description">{table.description || " "}</p>
 
       <div className="table-card__meta">
         <span className="table-card__meta-item">
@@ -37,7 +35,15 @@ export function TableCard({ table }: TableCardProps) {
         </span>
         {pkColumns.length > 0 ? (
           <span className="table-card__meta-item">
-            PK: {pkColumns.map((c) => c.name).join(", ")}
+            PK:{" "}
+            {pkColumns.length == 1 ? (
+              pkColumns[0].name
+            ) : (
+              <>
+                <br />
+                {pkColumns.map((c) => c.name).join("\n")}
+              </>
+            )}
           </span>
         ) : null}
         {fkColumns.length > 0 ? (

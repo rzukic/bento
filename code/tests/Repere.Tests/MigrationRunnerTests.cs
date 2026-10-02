@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -109,6 +110,112 @@ public class MigrationRunnerTests
         await using var dataConn = await env.OpenDataAsync();
         Assert.True(await TableExistsAsync(dataConn, "accounts"));
         Assert.Equal(["id", "name"], await GetColumnNamesAsync(dataConn, "accounts"));
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_MigratesSavedViewsForTableAndColumnRenames()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        await using (var systemConn = await env.OpenSystemAsync())
+        {
+            var userId = await InsertSystemUserAsync(systemConn);
+            using var view = systemConn.CreateCommand();
+            view.CommandText = """
+                INSERT INTO system_views
+                    (name, table_name, owner_user_id, type, config, is_shared)
+                VALUES
+                    ($name, $table, $owner, $type, $config, 0);
+                """;
+            view.Parameters.AddWithValue("$name", "Customer Board");
+            view.Parameters.AddWithValue("$table", "customers");
+            view.Parameters.AddWithValue("$owner", userId);
+            view.Parameters.AddWithValue("$type", "kanban");
+            view.Parameters.AddWithValue("$config", """
+                {
+                  "type": "kanban",
+                  "search": "",
+                  "sort": [{ "column": "full_name", "dir": "asc" }],
+                  "filters": [{ "column": "full_name", "op": "like", "value": "Acme" }],
+                  "hiddenColumnNames": ["full_name"],
+                  "columnOrder": ["id", "full_name"],
+                  "kanbanColumn": "full_name",
+                  "cardFieldNames": ["full_name"],
+                  "hiddenLaneValues": []
+                }
+                """);
+            await view.ExecuteNonQueryAsync();
+
+            using var preferences = systemConn.CreateCommand();
+            preferences.CommandText = """
+                INSERT INTO user_table_explorer_preferences
+                    (user_id, table_name, default_view_id, auto_save)
+                VALUES
+                    ($owner, 'customers', 1, 1);
+                """;
+            preferences.Parameters.AddWithValue("$owner", userId);
+            await preferences.ExecuteNonQueryAsync();
+        }
+
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "accounts",
+                  "renamedFrom": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "renamedFrom": "full_name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        Assert.True(result.Applied);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameTable);
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+
+        await using var verifyConn = await env.OpenSystemAsync();
+        using var viewQuery = verifyConn.CreateCommand();
+        viewQuery.CommandText = "SELECT table_name, config FROM system_views WHERE name = 'Customer Board';";
+        await using var reader = await viewQuery.ExecuteReaderAsync();
+        Assert.True(await reader.ReadAsync());
+        Assert.Equal("accounts", reader.GetString(0));
+
+        using var configDocument = JsonDocument.Parse(reader.GetString(1));
+        var config = configDocument.RootElement;
+        Assert.Equal("name", config.GetProperty("sort")[0].GetProperty("column").GetString());
+        Assert.Equal("name", config.GetProperty("filters")[0].GetProperty("column").GetString());
+        Assert.Equal("name", config.GetProperty("hiddenColumnNames")[0].GetString());
+        Assert.Equal("name", config.GetProperty("columnOrder")[1].GetString());
+        Assert.Equal("name", config.GetProperty("kanbanColumn").GetString());
+        Assert.Equal("name", config.GetProperty("cardFieldNames")[0].GetString());
+
+        using var preferencesQuery = verifyConn.CreateCommand();
+        preferencesQuery.CommandText = "SELECT table_name FROM user_table_explorer_preferences WHERE user_id = 1;";
+        Assert.Equal("accounts", await preferencesQuery.ExecuteScalarAsync());
     }
 
     [Fact]
@@ -234,6 +341,90 @@ public class MigrationRunnerTests
         Assert.Contains("Keep the primary key column named 'id'", error.Message);
         Assert.Null(preview.Plan);
         Assert.Contains(preview.Changes, change => change.ChangeType == SchemaChangeType.RenameColumn);
+    }
+
+    [Fact]
+    public async Task SchemaService_PreviewSchema_BlocksPrimaryKeyFlagChangesEvenWhenDiffWouldBeEmpty()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var preview = await env.SchemaService.PreviewSchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "nullable": false },
+                    { "name": "name", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(preview.Errors);
+        Assert.Equal("primary_key_must_be_id", error.Code);
+        Assert.Equal("tables[0].columns[1].primaryKey", error.Path);
+        Assert.Empty(preview.Changes);
+        Assert.Null(preview.Plan);
+    }
+
+    [Fact]
+    public async Task SchemaService_PreviewSchema_BlocksMultiplePrimaryKeys()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        var preview = await env.SchemaService.PreviewSchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        var error = Assert.Single(preview.Errors);
+        Assert.Equal("multiple_primary_keys", error.Code);
+        Assert.Equal("tables[0].columns", error.Path);
+        Assert.Empty(preview.Changes);
+        Assert.Null(preview.Plan);
     }
 
     [Fact]
@@ -634,6 +825,186 @@ public class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task SchemaService_ApplySchema_RebuildsReferencedParentTable_WhileChildRowsExist()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        await using (var dataConn = await env.OpenDataAsync())
+        {
+            using var insertCustomer = dataConn.CreateCommand();
+            insertCustomer.CommandText = """INSERT INTO "customers" ("name") VALUES ('Acme'), ('Globex');""";
+            await insertCustomer.ExecuteNonQueryAsync();
+
+            using var insertOrder = dataConn.CreateCommand();
+            insertOrder.CommandText = """INSERT INTO "orders" ("customer_id") VALUES (1), (2), (2);""";
+            await insertOrder.ExecuteNonQueryAsync();
+        }
+
+        // Making customers.name unique forces a SQLite table rebuild of the
+        // parent table (create temp, copy, DROP old, rename). With foreign keys
+        // enforced the DROP used to fail because orders still reference it.
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false, "unique": true }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        Assert.True(result.Applied, string.Join("; ", result.Errors.Select(e => e.Message)));
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.AlterColumnUnique);
+
+        await using var verifyConn = await env.OpenDataAsync();
+        Assert.Equal(2, await CountRowsAsync(verifyConn, "customers"));
+        Assert.Equal(3, await CountRowsAsync(verifyConn, "orders"));
+
+        using var orphanCheck = verifyConn.CreateCommand();
+        orphanCheck.CommandText = "PRAGMA foreign_key_check;";
+        await using (var reader = await orphanCheck.ExecuteReaderAsync())
+        {
+            Assert.False(await reader.ReadAsync(), "foreign_key_check reported violations after the rebuild");
+        }
+
+        using var joined = verifyConn.CreateCommand();
+        joined.CommandText = """SELECT COUNT(*) FROM "orders" o JOIN "customers" c ON c."id" = o."customer_id";""";
+        Assert.Equal(3L, (long)(await joined.ExecuteScalarAsync() ?? 0L));
+
+        // Enforcement is back on for regular connections: an orphan insert must fail.
+        using var orphanInsert = verifyConn.CreateCommand();
+        orphanInsert.CommandText = """INSERT INTO "orders" ("customer_id") VALUES (999);""";
+        await Assert.ThrowsAsync<SqliteException>(() => orphanInsert.ExecuteNonQueryAsync());
+    }
+
+    [Fact]
+    public async Task SchemaService_ApplySchema_ConcurrentCallers_AreSerialised()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        var model = Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        // Two admins submit the same draft at the same time. Without the mutation
+        // gate both plan against version 0 and the loser fails on CREATE TABLE.
+        var results = await Task.WhenAll(
+            env.SchemaService.ApplySchemaAsync(model),
+            env.SchemaService.ApplySchemaAsync(model),
+            env.SchemaService.ApplySchemaAsync(model));
+
+        Assert.Equal(1, results.Count(r => r.Applied));
+        Assert.All(results.Where(r => !r.Applied), r =>
+        {
+            Assert.Empty(r.Errors);
+            Assert.Empty(r.Changes);
+        });
+
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal(1, current!.Version);
+
+        await using var systemConn = await env.OpenSystemAsync();
+        Assert.Equal(1, await CountRowsAsync(systemConn, "migrations"));
+    }
+
+    [Fact]
+    public async Task MigrationRunner_Rollback_WhenPreviousVersionIsMissing_LeavesDataSchemaUntouched()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false },
+                    { "name": "sku", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        // Simulate a corrupted history: the version we would roll back to is gone.
+        await using (var systemConn = await env.OpenSystemAsync())
+        {
+            await using var delete = systemConn.CreateCommand();
+            delete.CommandText = "DELETE FROM schema_versions WHERE version = 1;";
+            await delete.ExecuteNonQueryAsync();
+        }
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => env.SchemaService.RollbackLastAsync());
+        Assert.Contains("schema version 1 no longer exists", error.Message);
+
+        // The failure must happen before any down SQL ran, so data schema and
+        // Model JSON still agree on version 2.
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal(2, current!.Version);
+
+        await using var dataConn = await env.OpenDataAsync();
+        Assert.Equal(["id", "name", "sku"], await GetColumnNamesAsync(dataConn, "items"));
+    }
+
+    [Fact]
     public async Task SchemaAutoMigrationService_StartAsync_AppliesConfiguredSchema()
     {
         using var env = new SchemaTestEnvironment();
@@ -715,6 +1086,17 @@ public class MigrationRunnerTests
     {
         using var cmd = conn.CreateCommand();
         cmd.CommandText = $"SELECT COUNT(*) FROM \"{tableName}\";";
+        return Convert.ToInt32(await cmd.ExecuteScalarAsync());
+    }
+
+    private static async Task<int> InsertSystemUserAsync(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO users (username, password_hash, role)
+            VALUES ('saved-view-user', 'hash', 'admin');
+            SELECT last_insert_rowid();
+            """;
         return Convert.ToInt32(await cmd.ExecuteScalarAsync());
     }
 

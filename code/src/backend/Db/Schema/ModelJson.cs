@@ -127,6 +127,9 @@ public sealed record RelationDef
     [JsonPropertyName("toColumn")]
     public string? ToColumn { get; init; }
 
+    [JsonPropertyName("junctionTable")]
+    public string? JunctionTable { get; init; }
+
     [JsonExtensionData]
     public Dictionary<string, JsonElement>? AdditionalData { get; init; }
 }

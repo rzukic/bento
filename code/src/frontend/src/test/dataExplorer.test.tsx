@@ -441,6 +441,23 @@ describe("Table detail (/data/:tableId)", () => {
     expect(within(table).getAllByText("102").length).toBeGreaterThan(0);
   });
 
+  it("renders the table grid chrome and add-row affordance for empty tables", () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", []);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    const table = screen.getByRole("table");
+    expect(table).toBeInTheDocument();
+    expect(within(table).getByText("customer_id")).toBeInTheDocument();
+    expect(within(table).getByText("status")).toBeInTheDocument();
+    expect(within(table).getAllByRole("button", { name: "Add row" })).toHaveLength(2);
+    expect(screen.queryByText("No rows")).not.toBeInTheDocument();
+    expect(screen.queryByText(/has no data yet/i)).not.toBeInTheDocument();
+  });
+
   it("shows save actions immediately after kanban config changes", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
@@ -1572,9 +1589,7 @@ describe("Table detail (/data/:tableId)", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
 
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = typeof input === "string" ? input : input.toString();
-
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => {
       return new Response(
         JSON.stringify(
           mockListResponse(
@@ -1688,6 +1703,36 @@ describe("Table detail (/data/:tableId)", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole("menuitem", { name: /^orders$/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("selects rows whose primary key is a UUID string", async () => {
+    const uuid = "9fd3f09f-392e-478a-904b-f0811bba4655";
+    seedAuthenticated();
+    seedSchema({
+      version: 5,
+      tables: [
+        {
+          name: "accounts",
+          columns: [
+            { name: "id", type: "uuid", primaryKey: true },
+            { name: "name", type: "string" },
+          ],
+        },
+      ],
+      relations: [],
+    });
+    seedExplorerRows("accounts", [{ id: uuid, name: "Acme" }]);
+
+    const router = createTestRouter(["/data/accounts"]);
+    render(<RouterProvider router={router} />);
+
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: new RegExp(`select row ${uuid}`, "i") }));
+
+    expect(useExplorerStore.getState().views.accounts?.selectedRowIds).toEqual([uuid]);
+    expect(
+      screen.getByRole("button", { name: /selection operations/i }),
     ).toBeInTheDocument();
   });
 
@@ -2830,6 +2875,50 @@ describe("Table detail (/data/:tableId)", () => {
         "false",
       );
     });
+  });
+
+  it("keeps the export menu and the foldout panels mutually exclusive", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z",
+      },
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("table");
+
+    const user = userEvent.setup();
+    const exportButton = screen.getByRole("button", { name: /^export/i });
+    const searchButton = screen.getByRole("button", { name: /^search/i });
+
+    // Foldout open, then Export: the foldout must close.
+    await user.click(searchButton);
+    expect(searchButton).toHaveAttribute("aria-expanded", "true");
+    await user.click(exportButton);
+    await waitFor(() => {
+      expect(searchButton).toHaveAttribute("aria-expanded", "false");
+    });
+    expect(exportButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menu", { name: /export current view/i })).toBeInTheDocument();
+
+    // Export open, then a foldout: the export menu must close.
+    await user.click(screen.getByRole("button", { name: /^sort/i }));
+    await waitFor(() => {
+      expect(exportButton).toHaveAttribute("aria-expanded", "false");
+    });
+    expect(screen.queryByRole("menu", { name: /export current view/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sort/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
   });
 
   it("closes an open foldout when switching to another table tab", async () => {

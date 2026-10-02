@@ -208,7 +208,9 @@ Defaults contract:
 - unknown extension fields are preserved for forward compatibility, but are treated as inert metadata
 - engine-generated columns may carry internal-only SQL defaults (for example junction-table `created_at`), but that path is not part of the user-editable Model JSON contract
 
-SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`).
+SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`). `MigrationRunner` executes these with `PRAGMA foreign_keys=OFF` on the migration connection (set before the transaction, since the pragma is a no-op inside one), because the `DROP` of a referenced parent table would otherwise fail as soon as child rows exist. Before committing it runs `PRAGMA foreign_key_check`; any violation rolls the migration back with a message naming the affected tables. Regular pooled connections keep `foreign_keys=ON`.
+
+Unique columns: a column created together with its table carries an inline `UNIQUE` constraint (Postgres names it `<table>_<column>_key`); a column made unique later gets the named index `ux_<table>_<column>`. Disabling unique drops both forms with `IF EXISTS`, so the change works regardless of how the column was created.
 
 `SchemaService` is the single orchestration entry point for schema changes. It:
 - validates incoming Model JSON
@@ -224,7 +226,7 @@ SQLite-specific note: unsupported column alterations are handled by full table r
 - supports self-referential N:M junctions with asymmetric default column names (`left_*` / `right_*`) plus optional `fromColumn` / `toColumn` overrides
 - flags self-references and circular dependency sets for higher layers
 
-`MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback still uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
+`MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback resolves the target schema version first and refuses to run when that version no longer exists, so data schema and Model JSON cannot drift apart; it then uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
 
 `ModelJsonStore` allocates schema versions atomically inside the same system transaction as the insert, using a single-row counter table plus a database-level unique constraint on `schema_versions.version`.
 

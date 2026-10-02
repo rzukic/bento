@@ -58,10 +58,12 @@ public sealed class AdminController : ControllerBase
     }
 
     /// <summary>
-    /// Return the current Model JSON schema.
+    /// Return the current Model JSON schema. Readable by every authenticated
+    /// role because the browser UI needs the schema snapshot for navigation;
+    /// preview, apply, and rollback stay admin-only.
     /// </summary>
     [HttpGet("schema")]
-    [RequireRole("admin")]
+    [RequireRole("viewer", "api")]
     public async Task<IActionResult> GetSchema()
     {
         var model = await _modelJsonStore.GetCurrentAsync();
@@ -75,7 +77,7 @@ public sealed class AdminController : ControllerBase
     /// Return the current canonical Model JSON schema without runtime-only relation metadata.
     /// </summary>
     [HttpGet("schema/model")]
-    [RequireRole("admin")]
+    [RequireRole("viewer", "api")]
     public async Task<IActionResult> GetSchemaModel()
     {
         var model = await _modelJsonStore.GetCurrentAsync();
@@ -178,6 +180,7 @@ public sealed class AdminController : ControllerBase
         return Ok(new
         {
             applied = result.Applied,
+            metadataOnly = result.MetadataOnly,
             version = result.Applied ? result.TargetModel.Version : result.CurrentModel.Version,
             changes = result.Changes.Select(c => new
             {
@@ -284,17 +287,21 @@ public sealed class AdminController : ControllerBase
         var castPreviewLookup = result.CastPreviews.ToDictionary(
             preview => BuildCastPreviewKey(preview.ChangeType, preview.TableName, preview.ColumnName),
             preview => preview);
+        var impactLookup = result.Impacts.ToDictionary(
+            impact => BuildImpactKey(impact.ChangeType, impact.TableName, impact.RelationName),
+            impact => impact);
 
         return new AdminSchemaPreviewResponse
         {
             IsValid = result.Errors.Count == 0,
             HasChanges = result.Changes.Count > 0,
+            MetadataOnly = result.MetadataOnly,
             IsDestructive = result.Changes.Any(change => change.IsDestructive),
             RequiresConfirmation = result.RequiresConfirmation,
             CurrentVersion = result.CurrentModel.Version,
             Errors = result.Errors.Select(BuildSchemaIssueResponse).ToList(),
             Warnings = result.Warnings.Select(BuildSchemaIssueResponse).ToList(),
-            Changes = result.Changes.Select(change => BuildSchemaChangeResponse(change, castPreviewLookup)).ToList(),
+            Changes = result.Changes.Select(change => BuildSchemaChangeResponse(change, castPreviewLookup, impactLookup)).ToList(),
             NormalizedModel = result.TargetModel,
             Plan = plan
         };
@@ -307,11 +314,15 @@ public sealed class AdminController : ControllerBase
 
     private static AdminSchemaChangeResponse BuildSchemaChangeResponse(
         SchemaChange change,
-        IReadOnlyDictionary<string, SchemaChangeCastPreview> castPreviewLookup)
+        IReadOnlyDictionary<string, SchemaChangeCastPreview> castPreviewLookup,
+        IReadOnlyDictionary<string, SchemaChangeImpact> impactLookup)
     {
         castPreviewLookup.TryGetValue(
             BuildCastPreviewKey(change.ChangeType, change.TableName, change.ColumnName),
             out var castPreview);
+        impactLookup.TryGetValue(
+            BuildImpactKey(change.ChangeType, change.TableName, change.RelationName),
+            out var impact);
 
         return new AdminSchemaChangeResponse
         {
@@ -328,6 +339,7 @@ public sealed class AdminController : ControllerBase
             CastExamples = castPreview?.Examples.Count > 0
                 ? castPreview.Examples.Select(BuildSchemaCastExampleResponse).ToList()
                 : null,
+            Impact = impact is null ? null : BuildSchemaChangeImpactResponse(impact),
             IsDestructive = change.IsDestructive
         };
     }
@@ -340,6 +352,24 @@ public sealed class AdminController : ControllerBase
             CastValue = NormalizeSchemaChangeValue(example.CastValue),
             IsValid = example.IsValid,
             Error = example.Error
+        };
+    }
+
+    private static AdminSchemaChangeImpactResponse BuildSchemaChangeImpactResponse(SchemaChangeImpact impact)
+    {
+        return new AdminSchemaChangeImpactResponse
+        {
+            Kind = impact.Kind,
+            ObjectType = impact.ObjectType,
+            ObjectName = impact.ObjectName,
+            RowCount = impact.RowCount,
+            SampleRows = impact.SampleRows?.Select(row =>
+                (IReadOnlyDictionary<string, object?>)row.ToDictionary(
+                    pair => pair.Key,
+                    pair => NormalizeSchemaChangeValue(pair.Value),
+                    StringComparer.OrdinalIgnoreCase)).ToList(),
+            SampleValues = impact.SampleValues?.Select(NormalizeSchemaChangeValue).ToList(),
+            Message = impact.Message
         };
     }
 
@@ -360,6 +390,11 @@ public sealed class AdminController : ControllerBase
     private static string BuildCastPreviewKey(SchemaChangeType changeType, string tableName, string? columnName)
     {
         return $"{changeType}|{tableName}|{columnName}";
+    }
+
+    private static string BuildImpactKey(SchemaChangeType changeType, string tableName, string? relationName)
+    {
+        return $"{changeType}|{tableName}|{relationName}";
     }
 
     private static object? NormalizeSchemaChangeValue(object? value)

@@ -21,6 +21,9 @@ export type IncomingRelationSection = {
   description: string;
   filterColumn: string;
   filterColumnLabel: string;
+  relationType?: "1:N" | "N:M";
+  hiddenColumn?: string;
+  relatedColumn?: string;
 };
 
 export function deriveReferenceAccessor(column: ModelColumn): string {
@@ -126,6 +129,85 @@ export function getIncomingRelationSections(
     const fromTable = getRelationFromTable(relation);
     const toTable = getRelationToTable(relation);
     if (!fromTable || !toTable) continue;
+
+    if (relation.type === "N:M") {
+      const junctionTableName =
+        typeof relation.junctionTable === "string" && relation.junctionTable.trim()
+          ? relation.junctionTable.trim()
+          : typeof relation.resolvedJunctionTableName === "string" &&
+              relation.resolvedJunctionTableName.trim()
+            ? relation.resolvedJunctionTableName.trim()
+            : null;
+      const junctionTable = junctionTableName
+        ? tablesByName.get(junctionTableName.toLowerCase())
+        : null;
+      if (!junctionTable) continue;
+
+      if (equalsIgnoreCase(fromTable, currentTable.name)) {
+        const filterColumn =
+          typeof relation.fromColumn === "string" && relation.fromColumn.trim()
+            ? relation.fromColumn.trim()
+            : null;
+        const relatedColumn =
+          typeof relation.toColumn === "string" && relation.toColumn.trim()
+            ? relation.toColumn.trim()
+            : null;
+        if (filterColumn) {
+          const targetTable = tablesByName.get(toTable.toLowerCase());
+          addIncomingRelationSection(
+            sections,
+            junctionTable,
+            filterColumn,
+            junctionTable.columns.find((column) => column.name === filterColumn)?.displayName ??
+              filterColumn,
+            {
+              relationType: "N:M",
+              label:
+                getResolvedFromAccessor(relation) ??
+                targetTable?.displayName ??
+                targetTable?.name ??
+                toTable,
+              hiddenColumn: filterColumn,
+              relatedColumn: relatedColumn ?? undefined,
+            },
+          );
+        }
+      }
+
+      if (equalsIgnoreCase(toTable, currentTable.name)) {
+        const filterColumn =
+          typeof relation.toColumn === "string" && relation.toColumn.trim()
+            ? relation.toColumn.trim()
+            : null;
+        const relatedColumn =
+          typeof relation.fromColumn === "string" && relation.fromColumn.trim()
+            ? relation.fromColumn.trim()
+            : null;
+        if (filterColumn) {
+          const targetTable = tablesByName.get(fromTable.toLowerCase());
+          addIncomingRelationSection(
+            sections,
+            junctionTable,
+            filterColumn,
+            junctionTable.columns.find((column) => column.name === filterColumn)?.displayName ??
+              filterColumn,
+            {
+              relationType: "N:M",
+              label:
+                getResolvedToAccessor(relation) ??
+                targetTable?.displayName ??
+                targetTable?.name ??
+                fromTable,
+              hiddenColumn: filterColumn,
+              relatedColumn: relatedColumn ?? undefined,
+            },
+          );
+        }
+      }
+
+      continue;
+    }
+
     if (!equalsIgnoreCase(fromTable, currentTable.name)) continue;
     if (!isOneToManyRelation(relation)) continue;
 
@@ -147,6 +229,16 @@ export function getIncomingRelationSections(
     for (const column of table.columns) {
       const referencedTable = getReferenceTableNameFromColumn(column);
       if (!referencedTable || !equalsIgnoreCase(referencedTable, currentTable.name)) {
+        continue;
+      }
+
+      if (
+        Array.from(sections.values()).some(
+          (section) =>
+            equalsIgnoreCase(section.targetTable, table.name) &&
+            equalsIgnoreCase(section.filterColumn, column.name),
+        )
+      ) {
         continue;
       }
 
@@ -222,18 +314,27 @@ function addIncomingRelationSection(
   sections: Map<string, IncomingRelationSection>,
   targetTable: ModelTable,
   filterColumn: string,
-  filterColumnLabel?: string
+  filterColumnLabel?: string,
+  options?: {
+    relationType?: "1:N" | "N:M";
+    label?: string;
+    hiddenColumn?: string;
+    relatedColumn?: string;
+  }
 ): void {
-  const key = `${targetTable.name.toLowerCase()}:${filterColumn.toLowerCase()}`;
+  const key = `${targetTable.name.toLowerCase()}:${filterColumn.toLowerCase()}:${options?.relationType ?? "1:N"}`;
   if (sections.has(key)) return;
 
-  const label = targetTable.displayName ?? targetTable.name;
+  const label = options?.label ?? targetTable.displayName ?? targetTable.name;
   sections.set(key, {
     targetTable: targetTable.name,
     label,
     description: `Related ${label} where ${filterColumn} points at this record`,
     filterColumn,
-    filterColumnLabel: filterColumnLabel ?? filterColumn
+    filterColumnLabel: filterColumnLabel ?? filterColumn,
+    relationType: options?.relationType ?? "1:N",
+    hiddenColumn: options?.hiddenColumn,
+    relatedColumn: options?.relatedColumn
   });
 }
 

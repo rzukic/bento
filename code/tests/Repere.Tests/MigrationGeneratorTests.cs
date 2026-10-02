@@ -77,6 +77,58 @@ public class MigrationGeneratorTests
     }
 
     [Fact]
+    public void Generate_Postgres_DisablingUnique_DropsNamedIndexAndInlineConstraint()
+    {
+        // A column created together with its table carries an inline UNIQUE
+        // constraint (orders_total_key), a column made unique later carries the
+        // ux_ index. Disabling unique must handle both without failing.
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "total", "type": "integer", "nullable": false, "unique": true }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "total", "type": "integer", "nullable": false, "unique": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel);
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+
+        var plan = generator.Generate(oldModel, newModel, changes);
+        var up = string.Join("\n", plan.SqlUp);
+        var down = string.Join("\n", plan.SqlDown);
+
+        Assert.Contains("DROP INDEX IF EXISTS \"ux_orders_total\";", up);
+        Assert.Contains("ALTER TABLE \"orders\" DROP CONSTRAINT IF EXISTS \"orders_total_key\";", up);
+        Assert.Contains("CREATE UNIQUE INDEX \"ux_orders_total\" ON \"orders\" (\"total\");", down);
+    }
+
+    [Fact]
     public void Generate_Throws_ForImpossibleTypeConversion()
     {
         var oldModel = Normalize("""
@@ -365,6 +417,226 @@ public class MigrationGeneratorTests
     }
 
     [Fact]
+    public async Task Generate_Sqlite_ManyToManyRelation_WithExplicitJunctionTable_CreatesVisibleTableOnce()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "_jt_products_tags",
+                  "columns": [
+                    { "name": "product_id", "type": "reference", "references": "products", "primaryKey": true, "nullable": false },
+                    { "name": "tag_id", "type": "reference", "references": "tags", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime" },
+                    { "name": "role", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags", "fromColumn": "product_id", "toColumn": "tag_id", "junctionTable": "_jt_products_tags" }
+              ]
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Sqlite });
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+
+        Assert.Equal(1, plan.SqlUp.Count(sql => sql.Contains("CREATE TABLE \"_jt_products_tags\"", StringComparison.Ordinal)));
+
+        await using var conn = await OpenSqliteAsync();
+        await ExecuteStatementsAsync(conn, plan.SqlUp);
+
+        Assert.True(await TableExistsAsync(conn, "_jt_products_tags"));
+        Assert.Equal(
+            ["product_id", "tag_id", "created_at", "role"],
+            await GetTableColumnsAsync(conn, "_jt_products_tags"));
+    }
+
+    [Fact]
+    public void Generate_Postgres_ManyToManyRelation_WithCustomExplicitJunctionTable_AllowsCompositeReferencePrimaryKey()
+    {
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "products",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "tags",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "product_tag_links",
+                  "columns": [
+                    { "name": "product_id", "type": "reference", "references": "products", "primaryKey": true, "nullable": false },
+                    { "name": "tag_id", "type": "reference", "references": "tags", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime" },
+                    { "name": "role", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "product_tags", "type": "N:M", "from": "products", "to": "tags", "fromColumn": "product_id", "toColumn": "tag_id", "junctionTable": "product_tag_links" }
+              ]
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+        var sql = string.Join("\n", plan.SqlUp);
+
+        Assert.Contains("CREATE TABLE \"product_tag_links\"", sql);
+        Assert.Contains("PRIMARY KEY (\"product_id\", \"tag_id\")", sql);
+        Assert.Contains("\"product_id\" BIGINT NOT NULL REFERENCES \"products\"(\"id\")", sql);
+        Assert.Contains("\"tag_id\" BIGINT NOT NULL REFERENCES \"tags\"(\"id\")", sql);
+    }
+
+    [Fact]
+    public async Task Generate_Sqlite_ConvertingOneToManyToExplicitManyToMany_CopiesExistingLinksIntoJunctionTable()
+    {
+        var emptyModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [],
+              "relations": []
+            }
+            """);
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "_jt_customers_orders",
+                  "columns": [
+                    { "name": "customer_id", "type": "reference", "references": "customers", "primaryKey": true, "nullable": false },
+                    { "name": "order_id", "type": "reference", "references": "orders", "primaryKey": true, "nullable": false },
+                    { "name": "created_at", "type": "datetime" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "N:M", "from": "customers", "to": "orders", "fromColumn": "customer_id", "toColumn": "order_id", "junctionTable": "_jt_customers_orders" }
+              ]
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Sqlite });
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+        var setupPlan = generator.Generate(emptyModel, oldModel, _diff.Diff(emptyModel, oldModel));
+
+        await using var conn = await OpenSqliteAsync();
+        await ExecuteStatementsAsync(conn, setupPlan.SqlUp);
+        await ExecuteStatementsAsync(conn, [
+            """
+            INSERT INTO "customers" ("id") VALUES (1), (2);
+            INSERT INTO "orders" ("id", "customer_id") VALUES (10, 1), (11, NULL), (12, 2);
+            """
+        ]);
+
+        await ExecuteStatementsAsync(conn, plan.SqlUp);
+
+        Assert.True(await TableExistsAsync(conn, "_jt_customers_orders"));
+
+        using var query = conn.CreateCommand();
+        query.CommandText = """
+            SELECT "customer_id", "order_id"
+            FROM "_jt_customers_orders"
+            ORDER BY "order_id";
+            """;
+        await using var reader = await query.ExecuteReaderAsync();
+        var rows = new List<(long CustomerId, long OrderId)>();
+        while (await reader.ReadAsync())
+        {
+            rows.Add((reader.GetInt64(0), reader.GetInt64(1)));
+        }
+
+        Assert.Equal([(1L, 10L), (2L, 12L)], rows);
+    }
+
+    [Fact]
     public async Task Generate_Sqlite_SelfReferentialManyToMany_CreatesDistinctJunctionColumns()
     {
         var oldModel = Normalize("""
@@ -548,7 +820,7 @@ public class MigrationGeneratorTests
             new ModelJson { Version = 0, Tables = [], Relations = [] },
             model,
             [new SchemaChange { ChangeType = SchemaChangeType.AddTable, TableName = "memberships" }]));
-        Assert.Contains("exactly one integer primary key", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("exactly one integer or uuid primary key", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -578,7 +850,46 @@ public class MigrationGeneratorTests
             new ModelJson { Version = 0, Tables = [], Relations = [] },
             model,
             [new SchemaChange { ChangeType = SchemaChangeType.AddTable, TableName = "widgets" }]));
-        Assert.Contains("integer type", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("integer or uuid type", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Generate_Postgres_CreatesUuidPrimaryKeyAndUuidReference()
+    {
+        var oldModel = Normalize("""{"version":1,"tables":[],"relations":[]}""");
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "accounts",
+                  "columns": [
+                    { "name": "id", "type": "uuid", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text" }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "projects",
+                  "columns": [
+                    { "name": "id", "type": "uuid", "primaryKey": true, "nullable": false },
+                    { "name": "account_id", "type": "reference", "references": "accounts" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "account_projects", "type": "1:N", "from": "accounts", "to": "projects", "column": "account_id" }
+              ]
+            }
+            """);
+
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+        var plan = generator.Generate(oldModel, newModel, _diff.Diff(oldModel, newModel));
+        var sql = string.Join("\n", plan.SqlUp);
+
+        Assert.Contains("\"id\" UUID DEFAULT gen_random_uuid() PRIMARY KEY", sql);
+        Assert.Contains("\"account_id\" UUID REFERENCES \"accounts\"(\"id\")", sql);
     }
 
     private ModelJson Normalize(string json)
