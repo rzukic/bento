@@ -11,7 +11,10 @@ Current implementation status:
 - the first reusable UI primitive layer now exists for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs
 - light/dark/system theme switching is available through the shared app store and shell controls
 - Phase 2 Step 2.2 now ships a real Data Explorer read path at `/data` and `/data/:tableId`
+- Phase 2 Steps 2.3 and 2.4 add saved views (table and kanban, shareable per table), inline cell editing with optimistic rollback, row add/duplicate/delete with undo, bulk selection, a full-screen record editor, and CSV/JSON export
 - Phase 2 Step 2.6 now ships the schema workbench at `/model`, including JSON and Visual modes backed by the same Model JSON draft
+- every authenticated role can browse the Data Explorer (the schema snapshot is readable by all roles); writes need `editor`/`admin`/`api`, and `/model` editing stays admin-only
+- the workspace is checked in CI on every pull request: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`
 
 ---
 

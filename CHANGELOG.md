@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-02 — Harden Step 2.6 Before Merge
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-143. The Step 2.6 slice is committed and on PR #18, data routes enforce roles, non-admin users can use the UI, the frontend is covered by CI, and the Postgres and SQLite migration paths lost four correctness bugs found by the pre-merge review.
+
+**Highlights:**
+- `/api/v1/data/*` writes require `editor`/`admin`/`api`; schema reads work for every authenticated role while schema mutations stay admin-only
+- Frontend typecheck, lint and tests run in CI; ESLint configured; repository freed of tracked build artefacts and presentations
+- Postgres: disable-unique on table-created columns, non-PK uuid binding, rollback ordering; SQLite: table rebuilds with existing child rows
+- Data Explorer toolbar, inline editor, grid icons and ERD relation routing fixed after a full browser walkthrough
+
 ### 2026-05-27 — Ship the Visual Schema Designer
 
 > **Phase**: Phase 2 — Data Management
