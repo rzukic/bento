@@ -560,6 +560,9 @@ export function DataGrid({
                             <span className="data-grid__header-name">
                               {column.displayName ?? column.name}
                             </span>
+                            <span className="data-grid__header-type" aria-hidden="true">
+                              {getColumnTypeLabel(column)}
+                            </span>
                             {column.references || column.type === "relation" ? (
                               <span className="data-grid__header-key-badge data-grid__header-key-badge--inline">FK</span>
                             ) : null}

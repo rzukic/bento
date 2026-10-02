@@ -4127,3 +4127,131 @@
         border: 0;
     }
 }
+
+/* -------------------------------------------------------------------------
+   Step 2.8 follow-up — grid in the new language.
+   The id column (`.data-grid__column--primary`) keeps its width, padding,
+   content and sticky behaviour: none of the rules below change a dimension
+   of it. It only shares the row background (no more zebra stripes) and keeps
+   its right border as the one vertical separator in the grid.
+   ------------------------------------------------------------------------- */
+
+/* Plain rows with hairline dividers */
+.data-grid th,
+.data-grid td {
+    border-bottom-color: var(--line);
+}
+
+.data-grid tbody tr:nth-child(even) td {
+    background: transparent;
+}
+
+.data-grid tbody tr:hover td {
+    background: var(--hover);
+}
+
+.data-grid__row--selected td,
+.data-grid tbody tr.data-grid__row--selected:hover td {
+    background: var(--accent-soft);
+}
+
+.data-grid__row--pending-new td {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Vertical separators only after the id column */
+.data-grid th:not(:last-child),
+.data-grid td:not(:nth-last-child(-n + 2)) {
+    border-right: 0;
+}
+
+.data-grid th.data-grid__column--primary,
+.data-grid td.data-grid__column--primary {
+    border-right: 1px solid var(--line-2);
+}
+
+/* The sticky id cells need an opaque background so scrolled cells don't show
+   through; it matches the grid card instead of the old raised stripe. */
+.data-grid tbody td.data-grid__column--primary {
+    background: var(--surface);
+}
+
+.data-grid tbody tr:hover td.data-grid__column--primary {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+
+.data-grid tbody tr.data-grid__row--selected td.data-grid__column--primary {
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+/* Header on the ground colour, mono uppercase labels, faint type */
+.data-grid thead th {
+    background: var(--surface);
+    box-shadow: inset 0 -1px 0 var(--line-2);
+}
+
+.data-grid__column:not(.data-grid__column--primary) .data-grid__header-name {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+}
+
+.data-grid__header-type {
+    margin-left: 0.375rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    text-transform: lowercase;
+    color: var(--text-4);
+    white-space: nowrap;
+}
+
+.data-grid__header-type-icon {
+    color: var(--text-4);
+}
+
+/* Cell text: primary ink, numbers and dates in mono — outside the id column */
+.data-grid td:not(.data-grid__column--primary) .data-grid__cell {
+    color: var(--text);
+}
+
+.data-grid td:not(.data-grid__column--primary) .data-grid__mono {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text);
+}
+
+/* Enum and reference chips */
+/* Chips keep the old reference height (1.28rem) so row height is unchanged */
+.chip.data-grid__enum {
+    height: 1.28rem;
+    font-size: 0.72rem;
+}
+
+.data-grid__reference {
+    min-height: 1.28rem;
+    padding: 0 0.5625rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--hover);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.data-grid__reference--interactive:hover,
+.data-grid__reference--interactive:focus-visible {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--text);
+}
+
+/* Focused / editable cell: a 1.5 px accent ring */
+.data-grid__cell--editable:focus-visible,
+.data-grid__cell--editing {
+    outline: none;
+    box-shadow: inset 0 0 0 1.5px var(--accent);
+    border-radius: 4px;
+}
