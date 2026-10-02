@@ -3711,3 +3711,419 @@
         background-position: -100% 0;
     }
 }
+
+/* =========================================================================
+   Step 2.8 — UI language rollout
+   Presentation-only overrides for the explorer chrome: tabs, context strip,
+   toolbar, pagination, landing cards, kanban and the record editor. Grid
+   internals and the id column are deliberately untouched; the toolbar
+   fold-out seam rules above keep working because only colours and radii of
+   the inactive state change here.
+   ========================================================================= */
+
+/* Landing */
+.table-card {
+    border-radius: var(--r-xl);
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+    border-color: var(--line);
+    padding: 1rem 1.125rem;
+}
+
+.table-card:hover,
+.table-card:focus-visible {
+    border-color: var(--line-2);
+    background: color-mix(in srgb, var(--surface-raised) 80%, transparent);
+}
+
+.table-card__icon {
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--text-2);
+}
+
+.table-card:hover .table-card__icon {
+    background: transparent;
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.table-card__name {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.table-card:hover .table-card__arrow {
+    color: var(--text);
+}
+
+.explorer-summary__chip {
+    border-color: var(--line-2);
+    background: transparent;
+}
+
+/* Table tabs: underline tabs in the display face */
+.table-tabs {
+    gap: 1.375rem;
+    margin: 0 1.5rem;
+    padding: 0.25rem 0 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.table-tabs__tab {
+    min-width: 0;
+    padding: 0.5rem 0.125rem 0.625rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-4);
+    margin-bottom: -1px;
+}
+
+.table-tabs__tab + .table-tabs__tab {
+    margin-left: 0;
+}
+
+.table-tabs__tab:hover,
+.table-tabs__tab:focus-visible {
+    color: var(--text);
+    border-color: transparent;
+}
+
+.table-tabs__tab--active {
+    background: transparent;
+    color: var(--text);
+    border-bottom-color: var(--accent);
+}
+
+.table-tabs__tab--active::after {
+    display: none;
+}
+
+.table-tabs__tab-label {
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+/* Workspace: hairlines, no boxed frame */
+.table-detail__workspace {
+    border: 0;
+}
+
+.explorer-context__wrapper {
+    background: transparent;
+}
+
+.explorer-context {
+    margin: 1rem 1.5rem 0;
+    padding: 0.25rem 0 0.75rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    align-items: flex-end;
+}
+
+.explorer-context__title {
+    font-family: var(--font-display);
+    font-size: clamp(1.75rem, 2.6vw, 2.5rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+
+.explorer-context__eyebrow,
+.explorer-related__label {
+    color: var(--info);
+}
+
+.explorer-context__description {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-4);
+}
+
+/* Toolbar */
+.data-controls__bar {
+    background: transparent;
+    padding: 0.5rem 1.5rem;
+}
+
+.data-controls__menu-button {
+    border-color: var(--line-2);
+    color: var(--text-2);
+    height: 2rem;
+    min-height: 2rem;
+    padding: 0 0.75rem;
+}
+
+.data-controls__menu-button:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.data-controls__menu-button-label {
+    font-size: var(--fs-sm);
+}
+
+.data-controls__menu-button.data-controls__menu-button--active {
+    border-color: var(--line-2);
+    border-bottom-color: transparent;
+    background: var(--surface-raised);
+}
+
+.data-controls__menu-button.data-controls__menu-button--active:hover {
+    background: var(--surface-raised);
+    border-color: var(--line-2);
+    border-bottom-color: transparent;
+}
+
+.data-controls__menu-button--active::after {
+    background: var(--surface-raised);
+}
+
+.data-controls__menu-count {
+    position: static;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    margin-left: 0.125rem;
+    background: transparent;
+    color: var(--info);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.data-controls__panel {
+    border-color: var(--line-2);
+    background: var(--surface-raised);
+    border-radius: 0 0 var(--r-xl) var(--r-xl);
+}
+
+.data-controls__view-current {
+    height: 2rem;
+    padding: 0 0.625rem 0 0.875rem;
+    border: 0;
+    background: var(--hover);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+}
+
+.data-controls__view-current:hover {
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.data-controls__view-menu,
+.data-controls__export-menu {
+    border-color: var(--line-2);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+/* Grid card and pagination */
+.data-grid__scroll {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
+.data-grid table {
+    border-right-color: var(--line);
+    border-bottom-color: var(--line);
+}
+
+.data-panel__status {
+    border-color: var(--line);
+}
+
+.data-pagination--bottom {
+    background: transparent;
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 1.5rem 1rem;
+}
+
+/* Kanban: hairline lanes, display totals */
+.kanban-lane {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.kanban-lane__header {
+    padding: 0.25rem 0.25rem 0.75rem;
+    background: transparent;
+    border-bottom: 1px solid var(--line-2);
+}
+
+.kanban-lane__label {
+    color: var(--text);
+    font-size: var(--fs-sm);
+    letter-spacing: 0.06em;
+}
+
+.kanban-lane__count {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+.kanban-lane__list {
+    padding: 0.75rem 0 0;
+}
+
+.kanban-card {
+    border-radius: 12px;
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+    box-shadow: none;
+    padding: 0.875rem 0.875rem 0.875rem 0.625rem;
+}
+
+.kanban-card:hover {
+    border-color: var(--line-2);
+    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+}
+
+.kanban-card__field--primary .kanban-card__field-value {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.kanban-lane--drag-over .kanban-lane__list {
+    background: var(--accent-soft);
+    outline-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* Record editor: centred dialog instead of a side sheet */
+.record-editor {
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.record-editor__backdrop {
+    background: var(--overlay);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.record-editor__panel {
+    width: min(960px, 100%);
+    height: min(760px, 100%);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+}
+
+.record-editor__header {
+    padding: 1.5rem 2rem 1.25rem;
+    background: transparent;
+    border-bottom-color: var(--line);
+}
+
+.record-editor__eyebrow {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+.record-editor__title {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.record-editor__body {
+    padding: 1.5rem 2rem 1.75rem;
+}
+
+.record-editor__fields {
+    gap: 1.25rem;
+}
+
+.record-editor__field-label {
+    font-family: var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.record-editor__field-display {
+    border-radius: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line-2);
+    background: transparent;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.record-editor__field-display:hover {
+    border-bottom-color: color-mix(in srgb, var(--text) 32%, transparent);
+    background: transparent;
+}
+
+.record-editor__field-value {
+    font-size: var(--fs-md);
+}
+
+.record-editor .field__control {
+    height: 2.75rem;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line-2);
+    border-radius: 0;
+    background: transparent;
+    font-size: var(--fs-md);
+}
+
+.record-editor .field__control:focus {
+    box-shadow: 0 1px 0 var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.record-editor__footer {
+    background: transparent;
+    border-top-color: var(--line);
+    padding: 1.125rem 2rem 1.25rem;
+}
+
+.record-editor__relation-section {
+    border-color: var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+@media (max-width: 760px) {
+    .table-tabs,
+    .explorer-context {
+        margin-left: 1rem;
+        margin-right: 1rem;
+    }
+
+    .data-controls__bar,
+    .data-pagination--bottom {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .record-editor {
+        padding: 0;
+    }
+
+    .record-editor__panel {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        border: 0;
+    }
+}
