@@ -248,17 +248,6 @@ export function AppFrame({ children }: AppFrameProps) {
                   <p className="shell__page-subtitle">{currentSubtitle}</p>
                 ) : null}
               </div>
-              <div className="shell__page-actions">
-                <Button leadingIcon={<Icon name="activity" size={14} />}>
-                  View logs
-                </Button>
-                <Button
-                  variant="primary"
-                  leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
-                >
-                  New
-                </Button>
-              </div>
             </header>
           ) : null}
 

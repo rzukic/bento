@@ -1,9 +1,10 @@
 import { useEffect } from "react";
-import { Icon } from "../components/common/Icon";
-import { PlaceholderCard } from "../components/common/PlaceholderCard";
+import { Link } from "react-router-dom";
+import { Icon, type IconName } from "../components/common/Icon";
 import { Alert } from "../components/ui/Alert";
 import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
+import { useAuthStore } from "../stores/authStore";
 import { useSchemaStore } from "../stores/schemaStore";
 import "./HomePage.css";
 
@@ -15,25 +16,28 @@ type Stat = {
   tone?: "up" | "down" | "flat" | "pending";
 };
 
-const activity = [
-  { when: "just now", event: "Shell foundation rendered.", kind: "info" as const },
-  { when: "today", event: "Frontend workspace scaffolded (TASK-062).", kind: "done" as const },
-  { when: "today", event: "SPA shell and route tree wired (TASK-063).", kind: "done" as const },
-  { when: "today", event: "Browser auth and route guard landed (TASK-064).", kind: "done" as const },
-  { when: "today", event: "Typed API client + schema snapshot store (TASK-065).", kind: "done" as const }
+type QuickAction = {
+  icon: IconName;
+  label: string;
+  hint: string;
+  to: string;
+  adminOnly?: boolean;
+};
+
+const quickActions: QuickAction[] = [
+  { icon: "database", label: "Browse data", hint: "Explorer", to: "/data" },
+  { icon: "schema", label: "Design schema", hint: "Admin", to: "/model", adminOnly: true },
+  { icon: "settings", label: "Settings", hint: "Workspace", to: "/settings" }
 ];
 
-const quickActions = [
-  { icon: "schema" as const, label: "Define a schema", hint: "Model JSON" },
-  { icon: "database" as const, label: "Browse data", hint: "Read-only" },
-  { icon: "activity" as const, label: "Inspect health", hint: "GET /health" }
-];
+const MAX_TABLES_ON_HOME = 8;
 
 export function HomePage() {
   const status = useSchemaStore((state) => state.status);
   const snapshot = useSchemaStore((state) => state.snapshot);
   const error = useSchemaStore((state) => state.error);
   const load = useSchemaStore((state) => state.load);
+  const user = useAuthStore((state) => state.user);
 
   useEffect(() => {
     if (status === "idle") {
@@ -43,10 +47,12 @@ export function HomePage() {
 
   const loading = status === "loading" || status === "idle";
   const ready = status === "ready" && snapshot !== null;
+  const isAdmin = user?.role === "admin";
 
-  const tableCount = ready ? snapshot.tables.length : null;
+  const tables = ready ? snapshot.tables : [];
+  const tableCount = ready ? tables.length : null;
   const columnCount = ready
-    ? snapshot.tables.reduce((acc, table) => acc + table.columns.length, 0)
+    ? tables.reduce((acc, table) => acc + table.columns.length, 0)
     : null;
   const relationCount = ready ? snapshot.relations?.length ?? 0 : null;
   const schemaVersion = ready ? snapshot.version : null;
@@ -83,12 +89,16 @@ export function HomePage() {
       tone: loading ? "pending" : "flat"
     },
     {
-      label: "API calls · 24h",
-      value: "—",
-      delta: "metrics wiring pending",
+      label: "Signed in as",
+      value: user?.username ?? "—",
+      delta: user ? `role · ${user.role}` : "no session",
       tone: "flat"
     }
   ];
+
+  const visibleTables = tables.slice(0, MAX_TABLES_ON_HOME);
+  const hiddenTableCount = tables.length - visibleTables.length;
+  const visibleActions = quickActions.filter((action) => !action.adminOnly || isAdmin);
 
   return (
     <>
@@ -129,48 +139,72 @@ export function HomePage() {
       ) : null}
 
       <section className="home-split">
-        <Panel className="home-activity" title="Recent activity" actions={<span className="section-label">last 24h</span>}>
-          <ol className="home-activity__list">
-            {activity.map((row, i) => (
-              <li key={i} className="home-activity__row">
-                <span
-                  className={`home-activity__dot home-activity__dot--${row.kind}`}
-                  aria-hidden="true"
-                />
-                <span className="home-activity__when mono">{row.when}</span>
-                <span className="home-activity__event">{row.event}</span>
-              </li>
-            ))}
-          </ol>
+        <Panel
+          className="home-activity"
+          title="Tables"
+          actions={
+            tables.length > 0 ? (
+              <Link to="/data" className="section-label home-activity__all">
+                all tables
+              </Link>
+            ) : null
+          }
+        >
+          {ready && tables.length === 0 ? (
+            <p className="home-activity__empty">
+              {isAdmin ? (
+                <>
+                  No tables yet. <Link to="/model">Open the schema designer</Link> to create the first one.
+                </>
+              ) : (
+                "No tables yet. An administrator has to define the schema first."
+              )}
+            </p>
+          ) : (
+            <ol className="home-activity__list">
+              {visibleTables.map((table) => (
+                <li key={table.name} className="home-activity__row">
+                  <span className="home-activity__dot home-activity__dot--done" aria-hidden="true" />
+                  <span className="home-activity__when mono">
+                    {table.columns.length} {table.columns.length === 1 ? "column" : "columns"}
+                  </span>
+                  <span className="home-activity__event">
+                    <Link to={`/data/${encodeURIComponent(table.name)}`}>
+                      {table.displayName || table.name}
+                    </Link>
+                  </span>
+                </li>
+              ))}
+              {hiddenTableCount > 0 ? (
+                <li className="home-activity__row">
+                  <span className="home-activity__dot" aria-hidden="true" />
+                  <span className="home-activity__when mono">+{hiddenTableCount}</span>
+                  <span className="home-activity__event">
+                    <Link to="/data">more tables in the Data Explorer</Link>
+                  </span>
+                </li>
+              ) : null}
+            </ol>
+          )}
         </Panel>
 
         <Panel className="home-quick" title="Quick actions">
           <ul className="home-quick__list">
-            {quickActions.map((a) => (
-              <li key={a.label}>
-                <Button type="button" variant="ghost" className="home-quick__item">
+            {visibleActions.map((action) => (
+              <li key={action.label}>
+                <Link to={action.to} className="btn btn--ghost home-quick__item">
                   <span className="home-quick__icon">
-                    <Icon name={a.icon} size={15} />
+                    <Icon name={action.icon} size={15} />
                   </span>
-                  <span className="home-quick__label">{a.label}</span>
-                  <span className="home-quick__hint mono">{a.hint}</span>
+                  <span className="home-quick__label">{action.label}</span>
+                  <span className="home-quick__hint mono">{action.hint}</span>
                   <Icon name="chevron-right" size={14} />
-                </Button>
+                </Link>
               </li>
             ))}
           </ul>
         </Panel>
       </section>
-
-      <PlaceholderCard
-        title="Shell foundation is live"
-        description="The app now has a shared shell, grouped sidebar navigation, breadcrumbs, and a stable route structure for later modules."
-        bullets={[
-          "Use the sidebar to move between the first Phase 2 route groups.",
-          "Breadcrumbs now reflect the active route and dynamic table pages.",
-          "Later modules already have placeholder routes so the navigation structure is stable."
-        ]}
-      />
     </>
   );
 }
