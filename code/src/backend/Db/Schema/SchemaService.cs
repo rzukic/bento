@@ -189,8 +189,31 @@ public class SchemaService
         }
     }
 
+    /// <summary>
+    /// Serialises every schema mutation (apply, rollback) on this instance. Without it two
+    /// concurrent applies both plan against the same current version and the second one
+    /// fails half-way with "table already exists" (or worse, applies a stale diff). The
+    /// service is a singleton, so one gate covers the whole process.
+    /// </summary>
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
+
     public async Task<SchemaApplyResult> ApplySchemaAsync(ModelJson requestedModel, bool confirmDestructive = false)
     {
+        await _mutationGate.WaitAsync();
+        try
+        {
+            return await ApplySchemaCoreAsync(requestedModel, confirmDestructive);
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    private async Task<SchemaApplyResult> ApplySchemaCoreAsync(ModelJson requestedModel, bool confirmDestructive)
+    {
+        // Preview runs inside the gate on purpose: the diff must be computed against the
+        // version that is current at apply time, not against whatever a parallel caller saw.
         var preview = await PreviewSchemaAsync(requestedModel);
 
         if (preview.Errors.Count > 0)
@@ -279,9 +302,31 @@ public class SchemaService
         };
     }
 
-    public Task<MigrationApplyResult?> RollbackLastAsync() => _migrationRunner.RollbackLastAsync();
+    public async Task<MigrationApplyResult?> RollbackLastAsync()
+    {
+        await _mutationGate.WaitAsync();
+        try
+        {
+            return await _migrationRunner.RollbackLastAsync();
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
 
-    public Task<IReadOnlyList<MigrationApplyResult>> RollbackAsync(int steps) => _migrationRunner.RollbackAsync(steps);
+    public async Task<IReadOnlyList<MigrationApplyResult>> RollbackAsync(int steps)
+    {
+        await _mutationGate.WaitAsync();
+        try
+        {
+            return await _migrationRunner.RollbackAsync(steps);
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
 
     public Task<IReadOnlyList<MigrationHistoryEntry>> GetHistoryAsync() => _migrationRunner.GetHistoryAsync();
 

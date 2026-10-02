@@ -898,6 +898,51 @@ public class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task SchemaService_ApplySchema_ConcurrentCallers_AreSerialised()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        var model = Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        // Two admins submit the same draft at the same time. Without the mutation
+        // gate both plan against version 0 and the loser fails on CREATE TABLE.
+        var results = await Task.WhenAll(
+            env.SchemaService.ApplySchemaAsync(model),
+            env.SchemaService.ApplySchemaAsync(model),
+            env.SchemaService.ApplySchemaAsync(model));
+
+        Assert.Equal(1, results.Count(r => r.Applied));
+        Assert.All(results.Where(r => !r.Applied), r =>
+        {
+            Assert.Empty(r.Errors);
+            Assert.Empty(r.Changes);
+        });
+
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal(1, current!.Version);
+
+        await using var systemConn = await env.OpenSystemAsync();
+        Assert.Equal(1, await CountRowsAsync(systemConn, "migrations"));
+    }
+
+    [Fact]
     public async Task MigrationRunner_Rollback_WhenPreviousVersionIsMissing_LeavesDataSchemaUntouched()
     {
         using var env = new SchemaTestEnvironment();
