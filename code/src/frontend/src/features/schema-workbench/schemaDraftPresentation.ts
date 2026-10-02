@@ -85,7 +85,9 @@ function addIndexRenameHintField(index: SchemaIndex): SchemaIndex {
   };
 }
 
-function asSchemaModelDocument(value: unknown): SchemaModelDocument | null {
+export function asSchemaModelDocument(
+  value: unknown,
+): SchemaModelDocument | null {
   if (!value || typeof value !== "object") {
     return null;
   }

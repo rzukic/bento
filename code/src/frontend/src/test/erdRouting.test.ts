@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildErdRelationEdges,
   type ErdTableNode,
-} from "../features/schema-workbench/SchemaWorkbenchPage";
+} from "../features/schema-workbench/visual/erdRouting";
 import type { SchemaModelDocument, SchemaTable } from "../types/api";
 
 type Point = { x: number; y: number };
