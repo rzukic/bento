@@ -17,9 +17,12 @@ You do not need to build the .NET project manually for normal packaged usage.
 
 ## What You Are Starting
 
-Repere starts a backend service and, in the Phase 2 development workspace, a browser app can run beside it.
+Repere ships in two packaged shapes:
 
-You start the backend, then talk to it over HTTP:
+- **Full stack** (`code/docker-compose.yml`): a reverse proxy, the browser app and the backend. Open `http://localhost` and the setup wizard takes you from an empty installation to a signed-in admin with an optional demo workspace. Only the proxy publishes ports.
+- **Backend only** (`code/docker-compose.backend-only.yml`): just the API, published on port `5000`. This is the shape the rest of this guide uses.
+
+With the backend-only shape you start the service, then talk to it over HTTP:
 - health check
 - register first admin user
 - log in
@@ -32,7 +35,7 @@ By default, the API is available at:
 http://127.0.0.1:5000/api/v1
 ```
 
-If port `5000` is already in use on your machine, change the host port in your compose/env setup before starting.
+If port `5000` is already in use on your machine, change `HOST_BACKEND_PORT` in `code/.env` before starting. For the full stack the equivalent knobs are `HOST_HTTP_PORT` and `HOST_HTTPS_PORT`.
 
 ---
 
@@ -42,7 +45,7 @@ From the repository root:
 
 ```bash
 cp code/.env.example code/.env
-docker compose -f code/docker-compose.yml --env-file code/.env up -d --build
+docker compose -f code/docker-compose.backend-only.yml --env-file code/.env up -d --build
 ```
 
 This is the easiest way to try the system.
@@ -59,7 +62,7 @@ SQLite is a good fit if you want:
 If you want to run against PostgreSQL instead, first fill in the Postgres passwords in `code/.env`, then start:
 
 ```bash
-docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml --env-file code/.env up -d --build
+docker compose -f code/docker-compose.backend-only.yml -f code/docker-compose.postgres.yml --env-file code/.env up -d --build
 ```
 
 Use Postgres if you want:
@@ -166,13 +169,13 @@ The API guide shows how to:
 SQLite:
 
 ```bash
-docker compose -f code/docker-compose.yml --env-file code/.env down
+docker compose -f code/docker-compose.backend-only.yml --env-file code/.env down
 ```
 
 Postgres:
 
 ```bash
-docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml --env-file code/.env down
+docker compose -f code/docker-compose.backend-only.yml -f code/docker-compose.postgres.yml --env-file code/.env down
 ```
 
 If you also want to remove volumes, add `-v`.

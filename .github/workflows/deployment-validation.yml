@@ -6,22 +6,30 @@ on:
     paths:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
+      - 'code/docker-compose.backend-only.yml'
       - 'code/docker-compose.postgres.yml'
       - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
+      - 'code/.dockerignore'
       - 'code/init-db/**'
+      - 'code/proxy/**'
       - 'code/scripts/**'
       - 'code/src/backend/**'
+      - 'code/src/frontend/**'
   pull_request:
     paths:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
+      - 'code/docker-compose.backend-only.yml'
       - 'code/docker-compose.postgres.yml'
       - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
+      - 'code/.dockerignore'
       - 'code/init-db/**'
+      - 'code/proxy/**'
       - 'code/scripts/**'
       - 'code/src/backend/**'
+      - 'code/src/frontend/**'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +37,7 @@ permissions:
 
 jobs:
   deployment-sqlite:
-    name: Packaged SQLite
+    name: Backend-only SQLite
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -63,7 +71,7 @@ jobs:
             /tmp/repere-demo-*
 
   deployment-postgres:
-    name: Packaged Postgres
+    name: Backend-only Postgres
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -99,3 +107,56 @@ jobs:
             .artifacts/**
             /tmp/repere-smoke-*
             /tmp/repere-demo-*
+
+  deployment-full-stack:
+    name: Full stack (proxy + frontend + backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      COMPOSE_PROJECT_NAME: gha-full-stack
+      HOST_HTTP_PORT: "8080"
+      HOST_HTTPS_PORT: "8443"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
+        run: |
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Build and start the full stack
+        run: |
+          docker compose -f code/docker-compose.yml --env-file code/.env.example \
+            up -d --build --wait --wait-timeout 420
+
+      - name: Verify routing through the proxy
+        run: |
+          set -euxo pipefail
+          base="http://localhost:${HOST_HTTP_PORT}"
+          # SPA entry and a deep client route both come back as index.html
+          curl -fsS "$base/" | grep -q '<div id="root"'
+          curl -fsS "$base/data/customers" | grep -q '<div id="root"'
+          # API reaches the backend
+          curl -fsS "$base/api/v1/admin/health" | jq -e '.status == "healthy"'
+          curl -fsS "$base/api/v1/setup/status" \
+            | jq -e '.initialized == false and .database_provider == "sqlite"'
+          # Proxy and frontend liveness probes
+          curl -fsS "$base/proxy-healthz" | grep -qx ok
+          # Only the proxy publishes host ports
+          published="$(docker compose -f code/docker-compose.yml --env-file code/.env.example ps --format json \
+            | jq -r 'select((.Publishers // []) | map(select(.PublishedPort > 0)) | length > 0) | .Service' \
+            | sort -u)"
+          test "$published" = "proxy"
+
+      - name: Collect diagnostics
+        if: failure()
+        run: |
+          docker compose -f code/docker-compose.yml --env-file code/.env.example ps
+          docker compose -f code/docker-compose.yml --env-file code/.env.example logs --no-color --tail 200
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose -f code/docker-compose.yml --env-file code/.env.example down -v --remove-orphans

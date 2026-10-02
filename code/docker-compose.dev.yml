@@ -1,3 +1,8 @@
+# Development override: a published backend that accepts the Vite dev server
+# origin, plus a throwaway Postgres on 5432. Layer it on the backend-only base;
+# the frontend runs from `pnpm run dev` on 5173, not from a container.
+#
+#   docker compose -f code/docker-compose.backend-only.yml -f code/docker-compose.dev.yml up --build
 services:
   backend:
     environment:

@@ -20,8 +20,8 @@ Commands:
   status   Print compose status for the selected deployment
 
 Variants:
-  sqlite   Base packaged backend stack
-  postgres Base stack plus the Postgres override
+  sqlite   Backend-only packaged stack (docker-compose.backend-only.yml)
+  postgres Backend-only stack plus the Postgres override
 
 Options:
   --env-file <path>         Compose env file to use (default: code/.env.example)
@@ -280,7 +280,7 @@ fi
 
 mkdir -p "$LOG_DIR"
 
-COMPOSE_FILES=("${CODE_DIR}/docker-compose.yml")
+COMPOSE_FILES=("${CODE_DIR}/docker-compose.backend-only.yml")
 if [[ "$VARIANT" == "postgres" ]]; then
   COMPOSE_FILES+=("${CODE_DIR}/docker-compose.postgres.yml")
   if [[ -n "$HOST_POSTGRES_PORT" ]]; then

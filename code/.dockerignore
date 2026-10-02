@@ -10,7 +10,8 @@
 .vscode/
 docker-compose*.yml
 init-db/
-scripts/
+# Shell scripts only: scripts/fixtures is embedded into the backend image.
+scripts/*.sh
 tests/
 *.md
 data/

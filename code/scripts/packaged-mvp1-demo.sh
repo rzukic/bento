@@ -299,7 +299,7 @@ fi
 
 mkdir -p "$LOG_DIR"
 
-COMPOSE_FILES=("${CODE_DIR}/docker-compose.yml")
+COMPOSE_FILES=("${CODE_DIR}/docker-compose.backend-only.yml")
 if [[ "$VARIANT" == "postgres" ]]; then
   COMPOSE_FILES+=("${CODE_DIR}/docker-compose.postgres.yml")
   if [[ -n "$HOST_POSTGRES_PORT" ]]; then

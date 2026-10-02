@@ -144,19 +144,29 @@ For a non-technical path through the current product, start with [docs/user/READ
 
 ---
 
-## Quick Start (current MVP 1)
+## Quick Start
+
+Full stack (browser UI behind the Caddy proxy, backend not published):
 
 ```bash
 docker compose -f code/docker-compose.yml up --build
 ```
 
-For Postgres:
+Then open `http://localhost` — a fresh installation starts in the setup wizard, which creates the admin account and can load a demo workspace.
+
+For Postgres add the override:
 
 ```bash
 docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
 ```
 
-Then register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and start using the auto-generated CRUD endpoints.
+### API only (MVP 1 shape)
+
+```bash
+docker compose -f code/docker-compose.backend-only.yml up --build
+```
+
+This publishes just the backend on port 5000. Register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and use the auto-generated CRUD endpoints. The Postgres override works on this base too.
 
 ## Development (frontend + backend)
 
