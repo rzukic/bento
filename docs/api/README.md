@@ -96,7 +96,7 @@ Cross-origin and request-size behavior:
 | `GET` | `/api/v1/setup/status` | Public first-run status used by the `/setup` wizard |
 | `POST` | `/api/v1/setup/sample-data` | Load the demo workspace into an empty installation (admin only; Step 2.7, TASK-145) |
 
-`GET /api/v1/setup/status` is anonymous in every auth mode and shares the auth rate limit. It never contains secrets, file paths, or JWT details. Response:
+`GET /api/v1/setup/status` is anonymous in every auth mode; it is a cheap read the SPA calls on every route load, so it is not rate-limited (the `POST` setup routes share the auth rate limit). It never contains secrets, file paths, or JWT details. Response:
 
 ```json
 {
@@ -114,6 +114,18 @@ Cross-origin and request-size behavior:
 - `initialized` is `true` once the first (bootstrap) admin exists; in `open` mode it is always `true` because no account is needed
 - `auth_mode` and `database_provider` are deployment configuration and shown read-only by the wizard
 - `sample_data_available` is `true` only while the schema is still at version 0
+
+`POST /api/v1/setup/sample-data` (admin role) loads the embedded demo workspace: the `customers` / `orders` / `products` schema with two relations plus demo rows (6 customers, 10 orders across all statuses, 5 products). It runs through the normal schema apply and CRUD paths, so it produces schema version 1 and one migration history entry. It is a one-time convenience, not an import feature: once any schema exists (version > 0) it answers `409 CONFLICT` with `error.details.schemaVersion` and changes nothing. Response:
+
+```json
+{
+  "schema_version": 1,
+  "tables_created": ["customers", "orders", "products"],
+  "rows_inserted": { "customers": 6, "orders": 10, "products": 5 }
+}
+```
+
+The fixture files live in `code/scripts/fixtures/` and are embedded into the backend at build time, so the packaged smoke scripts and the wizard share one source.
 
 ---
 

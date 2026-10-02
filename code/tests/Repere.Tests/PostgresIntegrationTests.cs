@@ -297,6 +297,39 @@ public sealed class PostgresIntegrationTests
         Assert.False(initialised.RegistrationBootstrapOpen);
     }
 
+    [PostgresFact]
+    public async Task SampleData_LoadsDemoWorkspaceAgainstPostgres()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var response = await host.Client.PostAsync("/api/v1/setup/sample-data", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var summary = await response.Content.ReadFromJsonAsync<SampleDataResponse>();
+        summary = Assert.IsType<SampleDataResponse>(summary);
+        Assert.Equal(10, summary.RowsInserted["orders"]);
+
+        var orders = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?include=customer&filter[status]=paid");
+        Assert.Equal(4, orders.GetProperty("meta").GetProperty("total").GetInt64());
+
+        // TIMESTAMPTZ columns: filtering and patching with ISO strings must bind as timestamps, not text.
+        // Fixture: 5 of the 10 demo orders were placed on or after 2026-09-20.
+        var recent = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?filter[placed_at][gte]=2026-09-20T00:00:00Z");
+        Assert.Equal(5, recent.GetProperty("meta").GetProperty("total").GetInt64());
+
+        var firstOrderId = orders.GetProperty("data")[0].GetProperty("id").GetInt64();
+        using var patch = await host.Client.PatchAsJsonAsync($"/api/v1/data/orders/{firstOrderId}", new { placed_at = "2026-10-02T08:00:00Z" });
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.StartsWith("2026-10-02", patched.GetProperty("data").GetProperty("placed_at").GetString());
+
+        using var second = await host.Client.PostAsync("/api/v1/setup/sample-data", content: null);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
     private static async Task<long> CreateAsync(ApiIntegrationTestHost host, string table, object body)
     {
         using var response = await host.Client.PostAsJsonAsync($"/api/v1/data/{table}", body);

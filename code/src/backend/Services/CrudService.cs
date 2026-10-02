@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Dapper;
 using Repere.Api.Db;
@@ -341,7 +342,43 @@ public sealed class CrudService
                 return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
         }
 
+        // Postgres DATE / TIMESTAMPTZ columns reject text parameters; SQLite stores
+        // ISO 8601 strings. The validator has already checked the string shape.
+        if (column.Type is ColumnType.Date or ColumnType.DateTime && value.ValueKind == JsonValueKind.String)
+            return CoerceTemporalForProvider(value.GetString(), column.Type, _dbConfig.Provider);
+
         return CoerceValueStatic(value, column.Type);
+    }
+
+    /// <summary>
+    /// Converts an ISO 8601 string into the parameter type the provider expects for
+    /// a <see cref="ColumnType.Date"/> or <see cref="ColumnType.DateTime"/> column.
+    /// Postgres gets <see cref="DateOnly"/> / UTC <see cref="DateTime"/>, SQLite
+    /// keeps the string. Unparseable input is returned unchanged so the database
+    /// (or the validator upstream) reports it.
+    /// </summary>
+    internal static object? CoerceTemporalForProvider(string? raw, ColumnType type, DatabaseProvider provider)
+    {
+        if (raw is null || provider != DatabaseProvider.Postgres)
+            return raw;
+
+        if (type == ColumnType.Date)
+        {
+            if (DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                return date;
+            if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dateFromStamp))
+                return DateOnly.FromDateTime(dateFromStamp.UtcDateTime);
+            return raw;
+        }
+
+        if (type == ColumnType.DateTime)
+        {
+            return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var stamp)
+                ? stamp.UtcDateTime
+                : raw;
+        }
+
+        return raw;
     }
 
     private bool IsUuidReference(ColumnDef column)
@@ -791,6 +828,8 @@ public sealed class CrudService
             ColumnType.Uuid when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var guid) => guid,
             ColumnType.Reference when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var refGuid) => refGuid,
             ColumnType.Integer or ColumnType.Reference when long.TryParse(value, out var n) => n,
+            ColumnType.Date or ColumnType.DateTime when provider is not null
+                => CoerceTemporalForProvider(value, column.Type, provider.Value),
             _ => value
         };
     }

@@ -334,6 +334,8 @@ public sealed class RequestBodyValidator
             {
                 ColumnType.Reference => CoerceReferenceValue(value, col),
                 ColumnType.Uuid => CoerceUuidValue(value),
+                ColumnType.Date or ColumnType.DateTime when value.ValueKind == JsonValueKind.String
+                    => CrudService.CoerceTemporalForProvider(value.GetString(), col.Type, _dbConfig.Provider),
                 _ => CrudService.CoerceValueStatic(value, col.Type)
             };
             var query = scope.Db.Query(table.Name)

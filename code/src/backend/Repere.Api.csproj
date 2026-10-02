@@ -9,6 +9,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Demo workspace used by the first-run setup wizard (TASK-145). The same files
+         feed the packaged smoke scripts so the two cannot drift apart. -->
+    <EmbeddedResource Include="..\..\scripts\fixtures\mvp1-demo-schema.json" LogicalName="Repere.Api.SampleData.schema.json" />
+    <EmbeddedResource Include="..\..\scripts\fixtures\mvp1-demo-rows.json" LogicalName="Repere.Api.SampleData.rows.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />

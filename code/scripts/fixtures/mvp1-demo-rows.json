@@ -1,0 +1,29 @@
+{
+  "customers": [
+    { "name": "Acme Corp", "email": "acme@example.com", "tier": "gold", "notes": "Key account since 2024." },
+    { "name": "Globex GmbH", "email": "hello@globex.example", "tier": "silver", "notes": null },
+    { "name": "Initech", "email": "ops@initech.example", "tier": "bronze", "notes": "Prefers invoices by email." },
+    { "name": "Umbrella Ltd", "email": "orders@umbrella.example", "tier": "gold", "notes": null },
+    { "name": "Stark Industries", "email": "procurement@stark.example", "tier": "silver", "notes": "Net 30." },
+    { "name": "Wayne Enterprises", "email": "purchasing@wayne.example", "tier": "bronze", "notes": null }
+  ],
+  "orders": [
+    { "customer_id": 1, "total": 1250.00, "status": "paid", "placed_at": "2026-09-01T09:15:00Z" },
+    { "customer_id": 1, "total": 480.50, "status": "shipped", "placed_at": "2026-09-08T14:40:00Z" },
+    { "customer_id": 2, "total": 99.90, "status": "pending", "placed_at": "2026-09-12T11:05:00Z" },
+    { "customer_id": 3, "total": 2300.00, "status": "paid", "placed_at": "2026-09-15T16:20:00Z" },
+    { "customer_id": 4, "total": 760.00, "status": "cancelled", "placed_at": "2026-09-18T08:30:00Z" },
+    { "customer_id": 4, "total": 310.25, "status": "pending", "placed_at": "2026-09-21T10:00:00Z" },
+    { "customer_id": 5, "total": 5400.00, "status": "shipped", "placed_at": "2026-09-23T13:45:00Z" },
+    { "customer_id": 6, "total": 150.00, "status": "paid", "placed_at": "2026-09-26T09:00:00Z" },
+    { "customer_id": 2, "total": 875.00, "status": "pending", "placed_at": "2026-09-29T17:10:00Z" },
+    { "customer_id": 5, "total": 1999.99, "status": "paid", "placed_at": "2026-10-01T12:30:00Z" }
+  ],
+  "products": [
+    { "sku": "RP-001", "name": "Starter Plan", "price": 49.00 },
+    { "sku": "RP-002", "name": "Team Plan", "price": 149.00 },
+    { "sku": "RP-003", "name": "Enterprise Plan", "price": 999.00 },
+    { "sku": "RP-100", "name": "Onboarding Workshop", "price": 1200.00 },
+    { "sku": "RP-200", "name": "Priority Support (yearly)", "price": 2400.00 }
+  ]
+}

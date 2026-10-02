@@ -1,5 +1,6 @@
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
+using Repere.Api.Authorization;
 using Repere.Api.Configuration;
 using Repere.Api.Db;
 using Repere.Api.Db.Schema;
@@ -21,6 +22,9 @@ public sealed class SetupController : ControllerBase
     private readonly ISystemPool _systemPool;
     private readonly ModelJsonStore _modelJsonStore;
     private readonly AuthService _authService;
+    private readonly SchemaService _schemaService;
+    private readonly SchemaCache _schemaCache;
+    private readonly CrudService _crudService;
 
     public SetupController(
         BackendRuntimeOptions runtimeOptions,
@@ -28,7 +32,10 @@ public sealed class SetupController : ControllerBase
         DatabaseConfig databaseConfig,
         ISystemPool systemPool,
         ModelJsonStore modelJsonStore,
-        AuthService authService)
+        AuthService authService,
+        SchemaService schemaService,
+        SchemaCache schemaCache,
+        CrudService crudService)
     {
         _runtimeOptions = runtimeOptions;
         _runtimeInfo = runtimeInfo;
@@ -36,6 +43,31 @@ public sealed class SetupController : ControllerBase
         _systemPool = systemPool;
         _modelJsonStore = modelJsonStore;
         _authService = authService;
+        _schemaService = schemaService;
+        _schemaCache = schemaCache;
+        _crudService = crudService;
+    }
+
+    /// <summary>
+    /// Load the embedded demo workspace (customers, orders, products) into an
+    /// empty installation. Admin only; rejected with 409 once any schema exists.
+    /// </summary>
+    [HttpPost("sample-data")]
+    [RequireRole("admin")]
+    [ProducesResponseType<SampleDataResponse>(StatusCodes.Status200OK)]
+    public async Task<ActionResult<SampleDataResponse>> LoadSampleData(CancellationToken cancellationToken)
+    {
+        var result = await SampleDataLoader.LoadAsync(
+            _modelJsonStore,
+            _schemaService,
+            _schemaCache,
+            _crudService,
+            cancellationToken);
+
+        return Ok(new SampleDataResponse(
+            SchemaVersion: result.SchemaVersion,
+            TablesCreated: result.TablesCreated,
+            RowsInserted: result.RowsInserted));
     }
 
     /// <summary>
@@ -65,9 +97,9 @@ public sealed class SetupController : ControllerBase
             RegistrationBootstrapOpen: registrationBootstrapOpen,
             DatabaseProvider: _databaseConfig.Provider.ToString().ToLowerInvariant(),
             SchemaVersion: schemaVersion,
-            // The one-time sample data loader (TASK-145) only works on an empty
+            // The one-time sample data loader only works on an empty
             // installation; advertise it only while that is still the case.
-            SampleDataAvailable: schemaVersion == 0,
+            SampleDataAvailable: SampleDataLoader.IsAvailable(schemaVersion),
             Version: _runtimeInfo.Version));
     }
 

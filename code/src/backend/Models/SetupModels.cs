@@ -16,3 +16,9 @@ public sealed record SetupStatusResponse(
     [property: JsonPropertyName("schema_version")] int SchemaVersion,
     [property: JsonPropertyName("sample_data_available")] bool SampleDataAvailable,
     [property: JsonPropertyName("version")] string Version);
+
+/// <summary>Summary returned after the demo workspace has been loaded.</summary>
+public sealed record SampleDataResponse(
+    [property: JsonPropertyName("schema_version")] int SchemaVersion,
+    [property: JsonPropertyName("tables_created")] IReadOnlyList<string> TablesCreated,
+    [property: JsonPropertyName("rows_inserted")] IReadOnlyDictionary<string, int> RowsInserted);
