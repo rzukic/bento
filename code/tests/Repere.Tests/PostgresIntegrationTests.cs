@@ -270,6 +270,33 @@ public sealed class PostgresIntegrationTests
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
     }
 
+    [PostgresFact]
+    public async Task SetupStatus_ReportsPostgresProvider_AndTracksBootstrap()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "postgres-test-secret"
+        });
+
+        var fresh = await host.Client.GetFromJsonAsync<SetupStatusResponse>("/api/v1/setup/status");
+        fresh = Assert.IsType<SetupStatusResponse>(fresh);
+        Assert.False(fresh.Initialized);
+        Assert.Equal("postgres", fresh.DatabaseProvider);
+        Assert.Equal(0, fresh.SchemaVersion);
+
+        using var register = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, register.StatusCode);
+
+        var initialised = await host.Client.GetFromJsonAsync<SetupStatusResponse>("/api/v1/setup/status");
+        initialised = Assert.IsType<SetupStatusResponse>(initialised);
+        Assert.True(initialised.Initialized);
+        Assert.False(initialised.RegistrationBootstrapOpen);
+    }
+
     private static async Task<long> CreateAsync(ApiIntegrationTestHost host, string table, object body)
     {
         using var response = await host.Client.PostAsJsonAsync($"/api/v1/data/{table}", body);

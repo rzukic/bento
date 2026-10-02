@@ -89,6 +89,34 @@ Cross-origin and request-size behavior:
 
 ---
 
+### Setup
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/setup/status` | Public first-run status used by the `/setup` wizard |
+| `POST` | `/api/v1/setup/sample-data` | Load the demo workspace into an empty installation (admin only; Step 2.7, TASK-145) |
+
+`GET /api/v1/setup/status` is anonymous in every auth mode and shares the auth rate limit. It never contains secrets, file paths, or JWT details. Response:
+
+```json
+{
+  "initialized": false,
+  "auth_mode": "standard",
+  "auth_required": true,
+  "registration_bootstrap_open": true,
+  "database_provider": "sqlite",
+  "schema_version": 0,
+  "sample_data_available": true,
+  "version": "0.1.0"
+}
+```
+
+- `initialized` is `true` once the first (bootstrap) admin exists; in `open` mode it is always `true` because no account is needed
+- `auth_mode` and `database_provider` are deployment configuration and shown read-only by the wizard
+- `sample_data_available` is `true` only while the schema is still at version 0
+
+---
+
 ### Admin
 
 | Method | Path | Description |
