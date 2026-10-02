@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { LoginRequest, LoginResponse } from "../types/auth";
+import type { LoginRequest, LoginResponse, RegisterRequest, RegisterResponse } from "../types/auth";
 
 /**
  * Auth endpoints must opt out of the shared client's 401-refresh-retry loop —
@@ -15,4 +15,13 @@ export function postLogin(req: LoginRequest): Promise<LoginResponse> {
 
 export function postRefresh(): Promise<LoginResponse> {
   return apiClient.post<LoginResponse>("/auth/refresh", undefined, AUTH_INIT);
+}
+
+/**
+ * Anonymous only while the backend reports `registration_bootstrap_open`:
+ * the very first account becomes the admin. Later registrations need an
+ * admin token and live in the (future) user management UI, not here.
+ */
+export function postRegister(req: RegisterRequest): Promise<RegisterResponse> {
+  return apiClient.post<RegisterResponse>("/auth/register", req, AUTH_INIT);
 }

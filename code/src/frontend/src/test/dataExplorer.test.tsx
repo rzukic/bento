@@ -11,6 +11,7 @@ import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
+import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import {
   resetExplorerStoreForTest,
@@ -206,6 +207,7 @@ const sampleSnapshot: ModelSnapshot = {
 beforeEach(() => {
   resetAppStoreForTest();
   resetAuthStoreForTest();
+  seedSetupInitializedForTest();
   resetSchemaStoreForTest();
   resetExplorerStoreForTest();
   vi.stubGlobal(

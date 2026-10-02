@@ -4,6 +4,7 @@ import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
+import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetExplorerStoreForTest } from "../stores/explorerStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
@@ -33,6 +34,7 @@ function seedUnauthenticated() {
 beforeEach(() => {
   resetAppStoreForTest();
   resetAuthStoreForTest();
+  seedSetupInitializedForTest();
   resetSchemaStoreForTest();
   resetExplorerStoreForTest();
   // Fail any unmocked fetch loudly so a missing stub cannot hide a real
