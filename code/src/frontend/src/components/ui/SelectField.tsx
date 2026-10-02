@@ -14,6 +14,8 @@ type SelectFieldProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "size"> & 
   error?: string | null;
   hideLabel?: boolean;
   compact?: boolean;
+  /** Editorial underline style (login, record editor, inspectors). */
+  underline?: boolean;
 };
 
 export function SelectField({
@@ -25,6 +27,7 @@ export function SelectField({
   error,
   hideLabel = false,
   compact = false,
+  underline = false,
   className = "",
   id,
   ...props
@@ -33,7 +36,7 @@ export function SelectField({
   const messageText = error ?? message;
 
   return (
-    <label className={`field ${compact ? "field--inline" : ""}`}>
+    <label className={["field", compact ? "field--inline" : "", underline ? "field--underline" : ""].filter(Boolean).join(" ")}>
       <span className="field__label-row">
         <span className={hideLabel ? "field__label field__label--sr-only" : "field__label"}>
           {label}

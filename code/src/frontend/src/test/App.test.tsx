@@ -260,12 +260,13 @@ describe("Theme switching", () => {
     render(<RouterProvider router={router} />);
 
     const user = userEvent.setup();
-    const themeSelect = screen.getByRole("combobox", { name: /theme/i });
+    const appearance = screen.getByRole("group", { name: /appearance/i });
 
-    await user.selectOptions(themeSelect, "light");
+    await user.click(within(appearance).getByRole("button", { name: /^light$/i }));
     expect(document.documentElement.dataset.theme).toBe("light");
+    expect(within(appearance).getByRole("button", { name: /^light$/i })).toHaveAttribute("aria-pressed", "true");
 
-    await user.selectOptions(themeSelect, "dark");
+    await user.click(within(appearance).getByRole("button", { name: /^dark$/i }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });

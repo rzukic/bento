@@ -3,14 +3,12 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { postRegister } from "../../api/auth";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
+import { ThemeSwitch } from "../../components/common/ThemeSwitch";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { useAppStore, type ThemeMode } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
 import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
-import "@fontsource/space-grotesk/500.css";
-import "@fontsource/space-grotesk/700.css";
 import "./SetupPage.css";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
@@ -177,32 +175,6 @@ function Numeral({ value, tone }: { value: string; tone: NumeralTone }) {
           {value}
         </text>
       </svg>
-    </div>
-  );
-}
-
-const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-  { value: "system", label: "System" }
-];
-
-function ThemeSwitch() {
-  const themeMode = useAppStore((state) => state.themeMode);
-  const setThemeMode = useAppStore((state) => state.setThemeMode);
-  return (
-    <div className="setup__theme" role="group" aria-label="Appearance">
-      {THEME_OPTIONS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className="setup__theme-btn"
-          aria-pressed={themeMode === option.value}
-          onClick={() => setThemeMode(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
     </div>
   );
 }

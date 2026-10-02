@@ -1,14 +1,15 @@
 import { useMemo, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { useAppStore, type ThemeMode } from "../../stores/appStore";
+import { useAppStore } from "../../stores/appStore";
+import { useSetupStore } from "../../features/setup/setupStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { Icon, type IconName } from "../common/Icon";
 import type { AppRouteHandle } from "../../router";
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
-import { SelectField } from "../ui/SelectField";
+import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
 
@@ -25,6 +26,8 @@ type NavItem = {
 type NavSection = {
   title: string;
   items: NavItem[];
+  /** Modules that exist in the plan but not yet in the product render dimmed. */
+  dimmed?: boolean;
 };
 
 const navSections: NavSection[] = [
@@ -37,7 +40,8 @@ const navSections: NavSection[] = [
     ],
   },
   {
-    title: "Later Modules",
+    title: "Later modules",
+    dimmed: true,
     items: [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
@@ -55,8 +59,7 @@ export function AppFrame({ children }: AppFrameProps) {
   const navigate = useNavigate();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
-  const themeMode = useAppStore((state) => state.themeMode);
-  const setThemeMode = useAppStore((state) => state.setThemeMode);
+  const setupInfo = useSetupStore((state) => state.info);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const schemaSnapshot = useSchemaStore((state) => state.snapshot);
@@ -121,6 +124,17 @@ export function AppFrame({ children }: AppFrameProps) {
 
   return (
     <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"}`}>
+      <div className="shell__sky" aria-hidden="true">
+        <div className="shell__pool shell__pool--1" />
+        <div className="shell__pool shell__pool--2" />
+        <svg className="shell__grain" xmlns="http://www.w3.org/2000/svg">
+          <filter id="shell-grain">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#shell-grain)" />
+        </svg>
+      </div>
       <aside className="shell__sidebar" aria-label="Primary sidebar">
         <div className="shell__brand">
           <div className="shell__brand-mark" aria-hidden="true">
@@ -156,9 +170,13 @@ export function AppFrame({ children }: AppFrameProps) {
                       to={item.to}
                       end={item.to === "/"}
                       className={({ isActive }) =>
-                        isActive
-                          ? "shell__nav-link shell__nav-link--active"
-                          : "shell__nav-link"
+                        [
+                          "shell__nav-link",
+                          isActive ? "shell__nav-link--active" : "",
+                          section.dimmed ? "shell__nav-link--dimmed" : ""
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
                       }
                     >
                       <Icon name={item.icon} size={15} />
@@ -173,8 +191,8 @@ export function AppFrame({ children }: AppFrameProps) {
 
         <div className="shell__sidebar-footer">
           <div className="shell__user">
-            <div className="shell__user-avatar" aria-hidden="true">
-              <Icon name="user" size={14} />
+            <div className="shell__user-avatar display" aria-hidden="true">
+              {(user?.username ?? "?").slice(0, 1).toUpperCase()}
             </div>
             <div className="shell__user-text">
               <span className="shell__user-name">
@@ -215,24 +233,12 @@ export function AppFrame({ children }: AppFrameProps) {
 
           <div className="shell__topbar-spacer" />
 
-          <div className="shell__theme-picker">
-            <SelectField
-              label="Theme"
-              hideLabel
-              compact
-              value={themeMode}
-              onChange={(event) =>
-                setThemeMode(event.target.value as ThemeMode)
-              }
-              options={[
-                { label: "System", value: "system" },
-                { label: "Dark", value: "dark" },
-                { label: "Light", value: "light" },
-              ]}
-            />
-          </div>
-          <span className="badge">sqlite · dev</span>
-          <span className="badge">v0.1.0</span>
+          <span className="badge">
+            <span className="badge__dot badge__dot--ok" aria-hidden="true" />
+            {setupInfo?.database_provider ?? "sqlite"} · {import.meta.env.DEV ? "dev" : setupInfo?.auth_mode ?? "standard"}
+          </span>
+          <span className="badge">v{setupInfo?.version ?? "dev"}</span>
+          <ThemeSwitch className="shell__theme" />
         </header>
 
         <div
@@ -243,7 +249,7 @@ export function AppFrame({ children }: AppFrameProps) {
           {!hidePageHeader ? (
             <header className="shell__page-header">
               <div className="shell__page-heading">
-                <h1 className="shell__page-title">{currentTitle}</h1>
+                <h1 className="shell__page-title display">{currentTitle}</h1>
                 {currentSubtitle ? (
                   <p className="shell__page-subtitle">{currentSubtitle}</p>
                 ) : null}

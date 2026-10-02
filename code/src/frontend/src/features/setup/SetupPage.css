@@ -198,38 +198,6 @@
   color: var(--setup-ink-4);
 }
 
-.setup__theme {
-  display: inline-flex;
-  padding: 2px;
-  border: 1px solid var(--setup-line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--bg) 60%, transparent);
-  backdrop-filter: blur(10px);
-}
-
-.setup__theme-btn {
-  height: 28px;
-  padding: 0 0.75rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--setup-ink-3);
-  font: 500 var(--fs-xs) var(--font-mono);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-
-.setup__theme-btn:hover {
-  color: var(--setup-ink);
-}
-
-.setup__theme-btn[aria-pressed="true"] {
-  background: var(--setup-ink);
-  color: var(--bg);
-}
-
 /* body: content left, actions right */
 
 .setup__body {
