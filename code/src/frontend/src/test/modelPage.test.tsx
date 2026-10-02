@@ -3724,12 +3724,14 @@ describe("Model workbench route (/model)", () => {
       name: "Review and apply schema changes",
     });
     const confirmButton = within(dialog).getByRole("button", { name: "Apply" });
+    // The dialog opens with Apply disabled and enables it on the next animation
+    // frame once the review scroll position has been measured. Clicking before
+    // that frame is a no-op, so wait for the button to become enabled.
+    await waitFor(() => expect(confirmButton).toBeEnabled());
     await user.click(confirmButton);
 
-    // Preview + dialog + apply + refresh is the longest flow in this suite and
-    // exceeded the default 1s findBy timeout under full-suite load.
     expect(
-      await screen.findByText("No schema changes applied", {}, { timeout: 4000 }),
+      await screen.findByText("No schema changes applied"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("Applied schema version 3"),
