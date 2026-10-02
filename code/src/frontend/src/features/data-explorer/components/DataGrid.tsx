@@ -535,7 +535,13 @@ export function DataGrid({
                           </span>
                         </span>
                         <span className="data-grid__header-primary-label-group">
-                          <span className="data-grid__header-pk-label">PK</span>
+                          <span
+                            className="data-grid__header-pk-label"
+                            title="Primary key"
+                          >
+                            <Icon name="key" size={11} />
+                            <span className="data-grid__header-pk-text">PK</span>
+                          </span>
                         </span>
                       </span>
                     ) : (

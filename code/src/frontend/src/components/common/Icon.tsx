@@ -11,6 +11,7 @@ export type IconName =
   | "search"
   | "download"
   | "list"
+  | "key"
   | "user"
   | "chevron-right"
   | "chevron-left"
@@ -127,6 +128,14 @@ const paths: Record<IconName, React.ReactNode> = {
       <circle cx="4.5" cy="6" r="1" />
       <circle cx="4.5" cy="12" r="1" />
       <circle cx="4.5" cy="18" r="1" />
+    </>
+  ),
+  key: (
+    <>
+      <circle cx="8" cy="15" r="4" />
+      <path d="m10.8 12.2 9.2-9.2" />
+      <path d="M17 6l3 3" />
+      <path d="M14 9l2.5 2.5" />
     </>
   ),
   user: (
