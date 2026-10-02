@@ -120,6 +120,23 @@ public static class BackendHost
 
     public static void ConfigureMiddleware(WebApplication app)
     {
+        // --- Proxy awareness (TASK-146) ---------------------------------------------
+        // Forwarded headers are honoured only for the explicit TRUSTED_PROXIES list; with
+        // an empty list no X-Forwarded-* header is trusted. The cookie policy upgrades the
+        // refresh cookie to Secure whenever the (possibly forwarded) request is HTTPS,
+        // on top of the environment-aware default decided at configuration time.
+        var runtimeOptions = app.Services.GetRequiredService<BackendRuntimeOptions>();
+        if (runtimeOptions.HasTrustedProxies)
+        {
+            app.UseForwardedHeaders(TrustedProxyConfiguration.CreateForwardedHeadersOptions(runtimeOptions.TrustedProxies));
+        }
+
+        app.UseCookiePolicy(new CookiePolicyOptions
+        {
+            Secure = CookieSecurePolicy.SameAsRequest
+        });
+        // -----------------------------------------------------------------------------
+
         app.UseMiddleware<RequestIdMiddleware>();
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<ErrorHandlingMiddleware>();

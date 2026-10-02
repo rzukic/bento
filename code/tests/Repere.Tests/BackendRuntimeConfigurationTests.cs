@@ -300,6 +300,120 @@ public sealed class BackendRuntimeConfigurationTests
     }
 
     [Fact]
+    public void BuildEnvironmentOverrides_MapsTrustedProxies_AsIndexedList()
+    {
+        var env = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["TRUSTED_PROXIES"] = "172.18.0.0/16, 10.0.0.5 ,fd00::/8"
+        };
+
+        var overrides = BackendRuntimeConfiguration.BuildEnvironmentOverrides(
+            name => env.TryGetValue(name, out var value) ? value : null);
+
+        Assert.Equal("172.18.0.0/16", overrides["Backend:TrustedProxies:0"]);
+        Assert.Equal("10.0.0.5", overrides["Backend:TrustedProxies:1"]);
+        Assert.Equal("fd00::/8", overrides["Backend:TrustedProxies:2"]);
+        Assert.DoesNotContain("Backend:TrustedProxies:3", overrides.Keys);
+
+        var emptyOverrides = BackendRuntimeConfiguration.BuildEnvironmentOverrides(_ => null);
+        Assert.DoesNotContain(emptyOverrides.Keys, key => key.StartsWith("Backend:TrustedProxies", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void BindAndValidateRuntimeOptions_ParsesTrustedProxies_AndDefaultsToNone()
+    {
+        var withProxies = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            BuildMinimalConfiguration(new Dictionary<string, string?>
+            {
+                ["Backend:TrustedProxies:0"] = "172.18.0.0/16",
+                ["Backend:TrustedProxies:1"] = "10.0.0.5"
+            }),
+            new FakeHostEnvironment("Production"));
+
+        Assert.True(withProxies.HasTrustedProxies);
+        Assert.Equal(["172.18.0.0/16", "10.0.0.5"], withProxies.TrustedProxies);
+
+        var withoutProxies = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            BuildMinimalConfiguration(),
+            new FakeHostEnvironment("Production"));
+
+        Assert.False(withoutProxies.HasTrustedProxies);
+        Assert.Empty(withoutProxies.TrustedProxies);
+    }
+
+    [Theory]
+    [InlineData("not-an-ip")]
+    [InlineData("10.0.0.0/33")]
+    [InlineData("10.0.0.0/-1")]
+    [InlineData("10.0.0.0/abc")]
+    [InlineData("fd00::/129")]
+    [InlineData("proxy")]
+    public void BindAndValidateRuntimeOptions_RejectsInvalidTrustedProxyEntry(string entry)
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+                BuildMinimalConfiguration(new Dictionary<string, string?>
+                {
+                    ["Backend:TrustedProxies:0"] = "10.0.0.5",
+                    ["Backend:TrustedProxies:1"] = entry
+                }),
+                new FakeHostEnvironment("Development")));
+
+        Assert.Contains("TRUSTED_PROXIES", ex.Message, StringComparison.Ordinal);
+        Assert.Contains(entry, ex.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void TrustedProxyConfiguration_BuildsForwardedHeaderOptions_WithoutLoopbackDefaults()
+    {
+        var options = TrustedProxyConfiguration.CreateForwardedHeadersOptions(["172.18.0.0/16", "10.0.0.5", "fd00::/8"]);
+
+        Assert.Equal(
+            Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor
+            | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+            | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedHost,
+            options.ForwardedHeaders);
+
+        var proxy = Assert.Single(options.KnownProxies);
+        Assert.Equal(System.Net.IPAddress.Parse("10.0.0.5"), proxy);
+        Assert.DoesNotContain(System.Net.IPAddress.IPv6Loopback, options.KnownProxies);
+
+        Assert.Equal(2, options.KnownNetworks.Count);
+        Assert.Contains(options.KnownNetworks, network => network.Contains(System.Net.IPAddress.Parse("172.18.5.9")));
+        Assert.Contains(options.KnownNetworks, network => network.Contains(System.Net.IPAddress.Parse("fd00::1")));
+        Assert.DoesNotContain(options.KnownNetworks, network => network.Contains(System.Net.IPAddress.Loopback));
+
+        Assert.Throws<InvalidOperationException>(() => TrustedProxyConfiguration.CreateForwardedHeadersOptions([]));
+    }
+
+    private static IConfiguration BuildMinimalConfiguration(IReadOnlyDictionary<string, string?>? extra = null)
+    {
+        var values = new Dictionary<string, string?>
+        {
+            ["Backend:Port"] = "5000",
+            ["Backend:LogLevel"] = "Information",
+            ["Backend:MaxBodySize"] = "10mb",
+            ["Backend:AuthMode"] = "standard",
+            ["Backend:Jwt:Issuer"] = "repere-api",
+            ["Backend:Jwt:Audience"] = "repere-clients",
+            ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+            ["Backend:AuthCookie:SameSite"] = "Strict",
+            ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+            ["Backend:DataDir"] = "./data"
+        };
+
+        if (extra is not null)
+        {
+            foreach (var pair in extra)
+            {
+                values[pair.Key] = pair.Value;
+            }
+        }
+
+        return new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+    }
+
+    [Fact]
     public void BuildPersistentRuntimeOverrides_GeneratesJwtSecret_File_WhenMissing()
     {
         using var tempDir = new TemporaryDirectory();

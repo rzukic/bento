@@ -42,6 +42,12 @@ public static class BackendRuntimeConfiguration
             overrides[$"Backend:AllowedOrigins:{i}"] = allowedOrigins[i];
         }
 
+        var trustedProxies = SplitCsv(getEnvironmentVariable("TRUSTED_PROXIES"));
+        for (var i = 0; i < trustedProxies.Length; i++)
+        {
+            overrides[$"Backend:TrustedProxies:{i}"] = trustedProxies[i];
+        }
+
         var dataDir = getEnvironmentVariable("DATA_DIR");
         if (!string.IsNullOrWhiteSpace(dataDir))
         {
@@ -225,6 +231,9 @@ public static class BackendRuntimeConfiguration
         }
 
         ParseByteSize(options.MaxBodySize);
+
+        // Fail fast on malformed TRUSTED_PROXIES entries instead of silently trusting nothing.
+        _ = TrustedProxyConfiguration.Parse(options.TrustedProxies);
 
         if (options.AuthMode == BackendAuthMode.Vault)
         {

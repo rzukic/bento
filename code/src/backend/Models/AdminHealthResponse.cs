@@ -12,7 +12,8 @@ public sealed record AdminHealthRuntimeStatus(
     [property: JsonPropertyName("log_level")] string LogLevel,
     [property: JsonPropertyName("data_dir")] string DataDir,
     [property: JsonPropertyName("config_path")] string ConfigPath,
-    [property: JsonPropertyName("jwt_configured")] bool JwtConfigured);
+    [property: JsonPropertyName("jwt_configured")] bool JwtConfigured,
+    [property: JsonPropertyName("trusted_proxies_configured")] bool TrustedProxiesConfigured);
 
 public sealed record AdminHealthPublicResponse(
     string Status,
