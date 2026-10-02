@@ -355,12 +355,6 @@
     border-bottom-color: transparent;
 }
 
-/* Dropdown-style menu buttons (Export) get a pressed look while open. */
-.data-controls__menu-button[aria-haspopup="menu"][aria-expanded="true"] {
-    background: var(--surface-raised);
-    color: var(--text);
-}
-
 .data-controls__menu-button--active::after {
     content: "";
     position: absolute;
@@ -875,17 +869,20 @@
     flex-shrink: 0;
 }
 
+/* Same attached-panel look as the Search/Sort/Filter foldouts: starts 1px
+   above the open Export tab's bottom edge so the tab background hides the
+   panel's top border and both merge into one shape. */
 .data-controls__export-menu {
     position: absolute;
-    top: calc(100% + 4px);
+    top: calc(100% - 1px);
     left: 0;
-    min-width: 100%;
-    padding: 0.3rem;
+    min-width: max(100%, 9rem);
+    padding: 0.4rem;
     border: 1px solid var(--border);
-    border-radius: var(--r-md);
+    border-radius: 0 0 var(--r-lg) var(--r-lg);
     background: var(--surface);
-    box-shadow: var(--shadow-md);
-    z-index: 24;
+    box-shadow: var(--shadow-lg);
+    z-index: 8;
 }
 
 .data-controls__export-option {

@@ -920,7 +920,11 @@ export function TableDetailPage() {
                   <Button
                     type="button"
                     variant="ghost"
-                    className="data-controls__menu-button"
+                    className={
+                      exportMenuOpen
+                        ? "data-controls__menu-button data-controls__menu-button--active"
+                        : "data-controls__menu-button"
+                    }
                     aria-label="Export"
                     aria-haspopup="menu"
                     aria-expanded={exportMenuOpen}
