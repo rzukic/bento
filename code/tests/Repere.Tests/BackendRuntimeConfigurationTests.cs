@@ -29,6 +29,7 @@ public sealed class BackendRuntimeConfigurationTests
             ["AUTH_REFRESH_COOKIE_SAME_SITE"] = "Lax",
             ["AUTH_REFRESH_COOKIE_PATH"] = "/api/v1/auth",
             ["AUTH_RATE_LIMIT_PER_MINUTE"] = "9",
+            ["AUTH_SESSION_RATE_LIMIT_PER_MINUTE"] = "240",
             ["DATA_DIR"] = "/srv/repere"
         };
 
@@ -82,6 +83,7 @@ public sealed class BackendRuntimeConfigurationTests
         Assert.Equal("Lax", runtimeOptions.AuthCookie.SameSite);
         Assert.Equal("/api/v1/auth", runtimeOptions.AuthCookie.Path);
         Assert.Equal(9, runtimeOptions.AuthRateLimitPerMinute);
+        Assert.Equal(240, runtimeOptions.AuthSessionRateLimitPerMinute);
         Assert.Equal("/srv/repere", runtimeOptions.DataDir);
         Assert.Equal(20L * 1024L * 1024L, runtimeOptions.GetMaxBodySizeBytes());
         Assert.Equal("/srv/repere", dbConfig.SystemConnection);
@@ -611,4 +613,38 @@ public sealed class BackendRuntimeConfigurationTests
         {
         }
     }
+
+    [Fact]
+    public void BindAndValidateRuntimeOptions_DefaultsSessionRateLimit_And_RejectsNonPositiveValues()
+    {
+        IConfigurationRoot Build(string? sessionLimit) => new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Backend:Port"] = "5000",
+                ["Backend:LogLevel"] = "Information",
+                ["Backend:MaxBodySize"] = "10mb",
+                ["Backend:AuthMode"] = "standard",
+                ["Backend:Jwt:Issuer"] = "repere-api",
+                ["Backend:Jwt:Audience"] = "repere-clients",
+                ["Backend:AuthCookie:RefreshCookieName"] = "repere_refresh",
+                ["Backend:AuthCookie:SameSite"] = "Strict",
+                ["Backend:AuthCookie:Path"] = "/api/v1/auth",
+                ["Backend:DataDir"] = "./data",
+                ["Backend:AuthSessionRateLimitPerMinute"] = sessionLimit
+            })
+            .Build();
+
+        var defaults = BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+            Build(null),
+            new FakeHostEnvironment("Development"));
+        Assert.Equal(120, defaults.AuthSessionRateLimitPerMinute);
+        Assert.Equal(5, defaults.AuthRateLimitPerMinute);
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => BackendRuntimeConfiguration.BindAndValidateRuntimeOptions(
+                Build("0"),
+                new FakeHostEnvironment("Development")));
+        Assert.Contains("AUTH_SESSION_RATE_LIMIT_PER_MINUTE", ex.Message, StringComparison.Ordinal);
+    }
+
 }

@@ -50,6 +50,24 @@ type AuthStoreState = {
   clearError: () => void;
 };
 
+/** Longest pause before retrying a rate-limited refresh during bootstrap. */
+const MAX_BOOTSTRAP_RETRY_DELAY_MS = 5_000;
+const BOOTSTRAP_ATTEMPTS = 3;
+
+/**
+ * A 429 says nothing about whether the session is valid, only that the
+ * backend wants us to slow down. Returns the delay to wait before retrying,
+ * or null when the error is not a rate limit.
+ */
+export function rateLimitRetryDelayMs(cause: unknown): number | null {
+  if (!(cause instanceof ApiClientError) || cause.status !== 429) return null;
+  const details = cause.details as { retryAfterSeconds?: unknown } | undefined;
+  const seconds = typeof details?.retryAfterSeconds === "number" ? details.retryAfterSeconds : 1;
+  return Math.min(Math.max(seconds, 0.25) * 1000, MAX_BOOTSTRAP_RETRY_DELAY_MS);
+}
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 function applySession(response: LoginResponse): Pick<
   AuthStoreState,
   "status" | "user" | "accessToken" | "expiresAt" | "error"
@@ -76,10 +94,23 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
     const status = get().status;
     if (status !== "idle") return;
     set({ status: "bootstrapping" });
-    try {
-      const response = await postRefresh();
-      set(applySession(response));
-    } catch {
+    for (let attempt = 1; attempt <= BOOTSTRAP_ATTEMPTS; attempt++) {
+      try {
+        const response = await postRefresh();
+        set(applySession(response));
+        return;
+      } catch (cause) {
+        // Rate-limited: the session may well be valid, so wait and try again
+        // instead of sending the user to the login page.
+        const delay = rateLimitRetryDelayMs(cause);
+        if (delay !== null && attempt < BOOTSTRAP_ATTEMPTS) {
+          await sleep(delay);
+          continue;
+        }
+        break;
+      }
+    }
+    {
       // no valid refresh cookie — that's fine, user simply needs to log in
       set({
         status: "unauthenticated",

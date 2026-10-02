@@ -153,6 +153,29 @@ describe("apiClient", () => {
     expect(useAuthStore.getState().accessToken).toBeNull();
   });
 
+  it("keeps the session when the refresh is only rate-limited", async () => {
+    authenticated("stale-token");
+
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/admin/schema")) return unauthorizedResponse();
+      if (url.endsWith("/auth/refresh")) {
+        return jsonResponse(
+          { error: { code: "TOO_MANY_REQUESTS", message: "Too many auth attempts. Try again later.", details: { retryAfterSeconds: 12 } } },
+          429
+        );
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await apiClient.get("/admin/schema").catch((cause: unknown) => cause);
+    expect(error).toBeInstanceOf(ApiClientError);
+    expect((error as ApiClientError).status).toBe(429);
+    expect(useAuthStore.getState().status).toBe("authenticated");
+    expect(useAuthStore.getState().accessToken).toBe("stale-token");
+  });
+
   it("does not attempt refresh for 401s when skipAuthRetry is set (auth endpoints)", async () => {
     authenticated("stale-token");
 

@@ -108,7 +108,12 @@ export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Pr
       try {
         await auth.refresh();
         response = await doFetch(path, { ...init, skipAuthRetry: true });
-      } catch {
+      } catch (refreshError) {
+        // A rate-limited refresh says nothing about the session; keep it and
+        // surface the 429 so the caller can retry later.
+        if (refreshError instanceof ApiClientError && refreshError.status === 429) {
+          throw refreshError;
+        }
         // The refresh itself was rejected, so the cookie is already unusable.
         auth.logout({ revokeSession: false });
         throw await parseErrorBody(response);

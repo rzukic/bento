@@ -12,6 +12,13 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-02 — Stop Rate-Limiting Session Refresh at the Login Limit
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.7 — Setup Wizard & Frontend Packaging](working-steps/2.7-setup-wizard-and-frontend-packaging.md) (follow-up)
+
+Closed TASK-161. Five page loads within a minute no longer sign a user out: refresh and logout have their own per-client limit (default 120/min, `AUTH_SESSION_RATE_LIMIT_PER_MINUTE`) while login, register and setup keep the strict 5/min, and the SPA retries a rate-limited refresh instead of treating it as signed out.
+
 ### 2026-10-02 — Ship the Setup Wizard and the Packaged Browser Stack
 
 > **Phase**: Phase 2 — Data Management

@@ -203,6 +203,48 @@ public sealed class ProxyAwarenessTests
     }
 
     [Fact]
+    public async Task AuthRateLimitMiddleware_GivesSessionRoutesTheirOwnGenerousLimit()
+    {
+        var middleware = new AuthRateLimitMiddleware(
+            _ => Task.CompletedTask,
+            CreateRuntimeOptions(authRateLimitPerMinute: 1, sessionRateLimitPerMinute: 50),
+            new AuthRateLimiter());
+
+        // A page-load storm from one client: far beyond the credential limit of 1.
+        for (var i = 0; i < 50; i++)
+        {
+            await middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/refresh", "10.0.0.1"));
+        }
+
+        // Logout has its own session bucket and is not starved by the refreshes.
+        await middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/logout", "10.0.0.1"));
+
+        // Credential routes keep the strict limit and are not consumed by refreshes.
+        await middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/login", "10.0.0.1"));
+        await Assert.ThrowsAsync<ApiTooManyRequestsException>(
+            () => middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/login", "10.0.0.1")));
+    }
+
+    [Fact]
+    public async Task AuthRateLimitMiddleware_StillCapsAbusiveRefreshLoops()
+    {
+        var middleware = new AuthRateLimitMiddleware(
+            _ => Task.CompletedTask,
+            CreateRuntimeOptions(authRateLimitPerMinute: 5, sessionRateLimitPerMinute: 2),
+            new AuthRateLimiter());
+
+        await middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/refresh", "10.0.0.1"));
+        await middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/refresh", "10.0.0.1"));
+        var ex = await Assert.ThrowsAsync<ApiTooManyRequestsException>(
+            () => middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/api/v1/auth/refresh", "10.0.0.1")));
+        Assert.Equal(2, ex.Details?["limitPerMinute"]);
+
+        // Path casing does not open a second bucket.
+        await Assert.ThrowsAsync<ApiTooManyRequestsException>(
+            () => middleware.InvokeAsync(CreateHttpContext(HttpMethods.Post, "/API/v1/Auth/Refresh", "10.0.0.1")));
+    }
+
+    [Fact]
     public async Task AuthRateLimitMiddleware_DoesNotLimitSetupStatusReads()
     {
         var middleware = new AuthRateLimitMiddleware(
@@ -322,7 +364,7 @@ public sealed class ProxyAwarenessTests
         return context;
     }
 
-    private static BackendRuntimeOptions CreateRuntimeOptions(int authRateLimitPerMinute)
+    private static BackendRuntimeOptions CreateRuntimeOptions(int authRateLimitPerMinute, int sessionRateLimitPerMinute = 120)
     {
         return new BackendRuntimeOptions
         {
@@ -331,6 +373,7 @@ public sealed class ProxyAwarenessTests
             MaxBodySize = "10mb",
             AuthMode = BackendAuthMode.Standard,
             AuthRateLimitPerMinute = authRateLimitPerMinute,
+            AuthSessionRateLimitPerMinute = sessionRateLimitPerMinute,
             DataDir = "./data"
         };
     }

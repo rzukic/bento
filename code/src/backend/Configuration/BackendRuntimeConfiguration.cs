@@ -22,6 +22,7 @@ public static class BackendRuntimeConfiguration
         SetIfPresent("AUTH_REFRESH_COOKIE_SAME_SITE", "Backend:AuthCookie:SameSite");
         SetIfPresent("AUTH_REFRESH_COOKIE_PATH", "Backend:AuthCookie:Path");
         SetIfPresent("AUTH_RATE_LIMIT_PER_MINUTE", "Backend:AuthRateLimitPerMinute");
+        SetIfPresent("AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "Backend:AuthSessionRateLimitPerMinute");
         SetIfPresent("MAX_BODY_SIZE", "Backend:MaxBodySize");
         SetIfPresent("DATABASE_URL", "Backend:DatabaseUrl");
         SetIfPresent("DATABASE_PROVIDER", "Database:Provider");
@@ -248,6 +249,11 @@ public static class BackendRuntimeConfiguration
         if (options.AuthRateLimitPerMinute <= 0)
         {
             throw new InvalidOperationException("AUTH_RATE_LIMIT_PER_MINUTE must be greater than 0.");
+        }
+
+        if (options.AuthSessionRateLimitPerMinute <= 0)
+        {
+            throw new InvalidOperationException("AUTH_SESSION_RATE_LIMIT_PER_MINUTE must be greater than 0.");
         }
 
         if (options.Jwt.AccessTokenLifetimeMinutes <= 0)
