@@ -941,7 +941,7 @@ export function SchemaWorkbenchPage() {
         </Button>
         <Button
           size="sm"
-          variant="primary"
+          variant="accent"
           disabled={!canOpenApplyDialog}
           onClick={openApplyDialog}
         >

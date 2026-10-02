@@ -1951,3 +1951,116 @@
   }
 
 }
+
+/* =========================================================================
+   Step 2.8 — UI language rollout
+   Presentation-only overrides for the workbench chrome: toolbar, mode
+   switch, panels, ERD canvas, preview and apply dialog. Behaviour and the
+   draft/preview/apply flow are untouched.
+   ========================================================================= */
+
+.schema-workbench__toolbar {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 0.5rem;
+}
+
+.schema-workbench__mode-switch {
+  gap: 0;
+  padding: 2px;
+  border-color: var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+
+.schema-workbench__mode-button {
+  min-width: 4.25rem;
+  border-color: transparent;
+  color: var(--text-3);
+}
+
+.schema-workbench__mode-button:hover {
+  background: transparent;
+  color: var(--text);
+}
+
+.schema-workbench__mode-button--active,
+.schema-workbench__mode-button--active:hover {
+  background: var(--text);
+  color: var(--bg);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.schema-workbench__editor-panel .panel__header,
+.schema-workbench__side-panel .panel__header {
+  padding: 1.125rem 1.25rem 0;
+}
+
+/* ERD canvas */
+.schema-workbench__erd-viewport {
+  background-color: transparent;
+  background-image: radial-gradient(var(--line-2) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+  border-radius: var(--r-xl);
+}
+
+.schema-workbench__erd-table {
+  border-color: var(--line-2);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  box-shadow: none;
+}
+
+.schema-workbench__erd-table--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.schema-workbench__erd-table--relation-target {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 24%, transparent);
+}
+
+.schema-workbench__erd-table-header {
+  border-bottom-color: var(--line-2);
+}
+
+.schema-workbench__erd-table-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.schema-workbench__erd-relation-handle {
+  border-color: var(--bg);
+  box-shadow: none;
+}
+
+/* Preview changes and the apply dialog */
+.schema-workbench__preview-change {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+.schema-workbench__preview-change--drop-destructive {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.schema-workbench__apply-dialog-hint {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+.schema-workbench__apply-dialog-hint-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
