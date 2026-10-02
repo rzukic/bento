@@ -728,24 +728,46 @@ export function DataGrid({
                           >
                             {isEditing ? (() => {
                               const Editor = pickEditorForColumn(column);
+                              const isReference =
+                                column.type === "relation" || typeof column.references !== "undefined";
+                              const rawValue = row[column.name];
+                              // Invisible copy of the static cell content. It keeps the
+                              // column at its current width while the editor is open:
+                              // without it, editing the widest value in a column swaps
+                              // that value for an intrinsically narrow <input>, the auto
+                              // table layout shrinks the column, and the editor text is
+                              // clipped.
+                              const ghost =
+                                isReference && rawValue !== null && rawValue !== undefined && rawValue !== "" ? (
+                                  <span className="data-grid__reference">
+                                    {lookupReferenceLabel(referenceLabels, column, rawValue) ?? String(rawValue)}
+                                  </span>
+                                ) : (
+                                  renderCellValue(column, rawValue)
+                                );
                               return (
-                                <div
-                                  className="data-grid__cell-editor"
-                                  onKeyDown={(event) =>
-                                    handleEditorWrapperKeyDown(event, index, columnIndex)
-                                  }
-                                >
-                                  <Editor
-                                    value={row[column.name] as never}
-                                    column={column}
-                                    autoFocus
-                                    error={cellError ?? null}
-                                    onCommit={(next) =>
-                                      onCommitEdit?.(row, column, next)
+                                <>
+                                  <span className="data-grid__cell-ghost" aria-hidden="true">
+                                    {ghost}
+                                  </span>
+                                  <div
+                                    className="data-grid__cell-editor"
+                                    onKeyDown={(event) =>
+                                      handleEditorWrapperKeyDown(event, index, columnIndex)
                                     }
-                                    onCancel={() => onCancelEdit?.()}
-                                  />
-                                </div>
+                                  >
+                                    <Editor
+                                      value={rawValue as never}
+                                      column={column}
+                                      autoFocus
+                                      error={cellError ?? null}
+                                      onCommit={(next) =>
+                                        onCommitEdit?.(row, column, next)
+                                      }
+                                      onCancel={() => onCancelEdit?.()}
+                                    />
+                                  </div>
+                                </>
                               );
                             })() : isPrimarySelectionColumn(column) ? (
                               <span className="data-grid__primary-cell">

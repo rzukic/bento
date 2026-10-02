@@ -1902,6 +1902,22 @@
     height: 100%;
 }
 
+/* Width-holding copy of the static content behind the editor (see
+   DataGrid.tsx). Same padding/typography as .data-grid__cell so it takes up
+   exactly the space the static value did; the editor floats on top. */
+.data-grid__cell-ghost {
+    display: block;
+    visibility: hidden;
+    pointer-events: none;
+    min-height: 2.1rem;
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
+}
+
+.data-grid__cell--editing .data-grid__cell-editor {
+    position: absolute;
+    inset: 0;
+}
+
 /* Strip the EditorShell wrapper of any browser-default span layout so the
  * input fills the cell exactly like the static text it replaces. */
 .data-grid__cell-editor .cell-editor {
