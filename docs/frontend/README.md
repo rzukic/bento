@@ -42,6 +42,11 @@ src/frontend/
 └── tsconfig.node.json
 ```
 
+Module layout inside the two feature areas:
+
+- `features/schema-workbench/` — `SchemaWorkbenchPage.tsx` is the page component only (state, effects, toolbar, layout). The visual designer lives in `visual/` (`erdRouting.ts` for node/edge geometry and orthogonal routing, `VisualSchemaMode.tsx` for the canvas, `VisualSchemaInspector.tsx`, `VisualRelationInspector.tsx`, `VisualRelationCreator.tsx`, `VisualPreviewDiagnostics.tsx`). JSON-mode pieces sit beside the page: `MiniErd.tsx`, `previewPresentation.tsx`, `workbenchDiagnostics.ts`, `draftJson.ts`, `JsonCodeEditor.tsx`. Pure draft mutations stay in `visualSchemaDraft.ts`.
+- `stores/explorerStore.ts` — a thin composition of Zustand slices from `stores/explorer/` (`querySlice`, `editingSlice`, `rowOpsSlice`, `viewSlice`, `recordEditorSlice`, plus `types.ts`, `helpers.ts`, `autoSave.ts`). Import `useExplorerStore` and its types from `stores/explorerStore` as before; the slice files are an implementation detail.
+
 ---
 
 ## Routing
