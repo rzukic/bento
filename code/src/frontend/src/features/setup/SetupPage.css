@@ -4,8 +4,8 @@
   --setup-display: "Space Grotesk", var(--font-ui);
   --setup-ink: var(--text);
   --setup-ink-2: color-mix(in srgb, var(--text) 72%, transparent);
-  --setup-ink-3: color-mix(in srgb, var(--text) 48%, transparent);
-  --setup-ink-4: color-mix(in srgb, var(--text) 32%, transparent);
+  --setup-ink-3: color-mix(in srgb, var(--text) 60%, transparent);
+  --setup-ink-4: color-mix(in srgb, var(--text) 50%, transparent);
   --setup-line: color-mix(in srgb, var(--text) 12%, transparent);
   --setup-line-strong: color-mix(in srgb, var(--text) 20%, transparent);
   --pool-opacity: 0.5;

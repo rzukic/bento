@@ -21,8 +21,8 @@
     /* Text */
     --text: #f4f4f5;
     --text-2: #a1a1aa;
-    --text-3: #71717a;
-    --text-4: #52525b;
+    --text-3: #8a8a94; /* ≥ 5.5:1 on the ground */
+    --text-4: #7c7c86; /* quiet labels and hints, still ≥ 4.5:1 on the ground */
 
     /* Accent — used extremely sparingly */
     --accent: #3b82f6; /* blue-500, only for primary CTAs + live marker */
@@ -108,8 +108,8 @@
 
     --text: #141815;
     --text-2: #415045;
-    --text-3: #627165;
-    --text-4: #809082;
+    --text-3: #5c6b60; /* ≥ 5:1 on the light ground */
+    --text-4: #5f6e63; /* quiet labels and hints, ≥ 4.5:1 on the light ground */
 
     --accent: #2563eb;
     --accent-deep: #1d4ed8;

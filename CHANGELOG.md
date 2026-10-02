@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-02 — Roll the UI Language Out to the Whole App
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.8 — UI Language Rollout](working-steps/2.8-ui-language-rollout.md)
+
+Closed TASK-154 through TASK-160. The language chosen on the design canvas for the setup wizard now covers the shell, login, Home, the Data Explorer, kanban, the record editor and the schema workbench, in dark and light.
+
+**Highlights:**
+- Tokens and primitives: hairlines derived from the ink colour, aurora gradient, display face, pill buttons with an ink-filled `primary` and a blue `accent` reserved for one action per screen, chips, underline fields, hairline panels and dialogs
+- Shell: confined light pool and grain, translucent sidebar with the blue position dot, status badges from the setup status, shared segmented theme switch
+- Login as the wizard's sibling (shared `Atmosphere` sky and glyph); Home with a greeting hero, outlined-numeral stat cards with real row counts and an empty-workspace entry to the sample data
+- Data Explorer and schema workbench chrome restyled as CSS overrides on top of the tokens; grid internals and the id column untouched; record editor becomes a centred dialog
+- Contrast pass: quiet text tones raised to ≥ 4.5:1 in both themes; reduced motion respected everywhere
+
 ### 2026-10-02 — Ship the Setup Wizard and the Packaged Browser Stack
 
 > **Phase**: Phase 2 — Data Management
