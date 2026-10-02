@@ -117,13 +117,16 @@ public class MigrationRunner
         if (migration is null)
             return null;
 
-        await ExecuteDataStatementsAsync(migration.SqlDownStatements);
-
+        // Resolve the target model before touching the data schema: if the
+        // previous version is gone we must fail without having rolled back the
+        // tables, otherwise schema and Model JSON would diverge.
         var previousModel = migration.VersionFrom == 0
             ? new ModelJson { Version = 0 }
             : await _modelJsonStore.GetVersionAsync(migration.VersionFrom);
         if (previousModel is null)
             throw new InvalidOperationException($"Cannot rollback migration {migration.Id}: schema version {migration.VersionFrom} no longer exists.");
+
+        await ExecuteDataStatementsAsync(migration.SqlDownStatements);
 
         try
         {

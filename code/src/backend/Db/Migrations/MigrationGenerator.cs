@@ -1181,18 +1181,36 @@ public class MigrationGenerator
             return [];
 
         var indexName = UniqueIndexName(tableName, column.Name);
-        return
-        [
-            enable
-                ? $"CREATE UNIQUE INDEX {Quote(indexName)} ON {Quote(tableName)} ({Quote(column.Name)});"
-                : $"DROP INDEX {Quote(indexName)};"
-        ];
+        return enable
+            ? [$"CREATE UNIQUE INDEX {Quote(indexName)} ON {Quote(tableName)} ({Quote(column.Name)});"]
+            : BuildDisableUniqueSql(tableName, column.Name);
     }
 
+    /// <summary>
+    /// A unique column is backed either by the named index this generator creates
+    /// for ADD COLUMN / enable-unique changes, or by the inline UNIQUE constraint
+    /// that CREATE TABLE emits (Postgres names it <c>&lt;table&gt;_&lt;column&gt;_key</c>).
+    /// Disabling unique must drop whichever one exists, otherwise turning unique
+    /// off for a column created with the table fails with "index does not exist".
+    /// </summary>
     private IEnumerable<string> BuildDisableUniqueSql(string tableName, string columnName)
     {
-        return [$"DROP INDEX {Quote(UniqueIndexName(tableName, columnName))};"];
+        var statements = new List<string>
+        {
+            $"DROP INDEX IF EXISTS {Quote(UniqueIndexName(tableName, columnName))};"
+        };
+
+        if (_provider == DatabaseProvider.Postgres)
+        {
+            statements.Add(
+                $"ALTER TABLE {Quote(tableName)} DROP CONSTRAINT IF EXISTS {Quote(InlineUniqueConstraintName(tableName, columnName))};");
+        }
+
+        return statements;
     }
+
+    /// <summary>Postgres' default name for an inline <c>UNIQUE</c> column constraint.</summary>
+    private static string InlineUniqueConstraintName(string tableName, string columnName) => $"{tableName}_{columnName}_key";
 
     private string BuildAlterDefaultSql(string tableName, ColumnDef column, DatabaseProvider provider)
     {

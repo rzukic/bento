@@ -314,6 +314,21 @@ public sealed class CrudService
 
     private object? CoerceValue(JsonElement value, ColumnDef column)
     {
+        // Postgres uuid columns need a Guid parameter; a string parameter is sent
+        // as text and the insert/update fails with "column is of type uuid but
+        // expression is of type text". SQLite stores uuids as text.
+        if (column.Type == ColumnType.Uuid && _dbConfig.Provider == DatabaseProvider.Postgres)
+        {
+            if (value.ValueKind == JsonValueKind.Null)
+                return null;
+
+            var raw = value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : value.GetRawText();
+            if (raw is not null && Guid.TryParse(raw, out var guid))
+                return guid;
+        }
+
         if (column.Type == ColumnType.Reference && IsUuidReference(column))
         {
             if (value.ValueKind == JsonValueKind.Null)

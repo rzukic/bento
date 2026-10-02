@@ -328,7 +328,14 @@ public sealed class RequestBodyValidator
             if (!bodyProps.TryGetValue(col.Name, out var value) || value.ValueKind == JsonValueKind.Null)
                 continue;
 
-            var coerced = CrudService.CoerceValueStatic(value, col.Type);
+            // Provider-aware so uuid-backed columns compare as uuid on Postgres
+            // instead of failing with "operator does not exist: uuid = text".
+            var coerced = col.Type switch
+            {
+                ColumnType.Reference => CoerceReferenceValue(value, col),
+                ColumnType.Uuid => CoerceUuidValue(value),
+                _ => CrudService.CoerceValueStatic(value, col.Type)
+            };
             var query = scope.Db.Query(table.Name)
                 .Where(col.Name, coerced)
                 .SelectRaw("1");
@@ -402,6 +409,17 @@ public sealed class RequestBodyValidator
             JsonValueKind.Object => "object",
             _ => element.ValueKind.ToString()
         };
+    }
+
+    private object? CoerceUuidValue(JsonElement value)
+    {
+        var raw = value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : value.GetRawText();
+        if (raw is not null && Guid.TryParse(raw, out var guid))
+            return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
+
+        return CrudService.CoerceValueStatic(value, ColumnType.Uuid);
     }
 
     private object? CoerceReferenceValue(JsonElement value, ColumnDef column)

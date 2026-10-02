@@ -825,6 +825,68 @@ public class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task MigrationRunner_Rollback_WhenPreviousVersionIsMissing_LeavesDataSchemaUntouched()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "items",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false },
+                    { "name": "sku", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """));
+
+        // Simulate a corrupted history: the version we would roll back to is gone.
+        await using (var systemConn = await env.OpenSystemAsync())
+        {
+            await using var delete = systemConn.CreateCommand();
+            delete.CommandText = "DELETE FROM schema_versions WHERE version = 1;";
+            await delete.ExecuteNonQueryAsync();
+        }
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => env.SchemaService.RollbackLastAsync());
+        Assert.Contains("schema version 1 no longer exists", error.Message);
+
+        // The failure must happen before any down SQL ran, so data schema and
+        // Model JSON still agree on version 2.
+        var current = await env.ModelJsonStore.GetCurrentAsync();
+        Assert.NotNull(current);
+        Assert.Equal(2, current!.Version);
+
+        await using var dataConn = await env.OpenDataAsync();
+        Assert.Equal(["id", "name", "sku"], await GetColumnNamesAsync(dataConn, "items"));
+    }
+
+    [Fact]
     public async Task SchemaAutoMigrationService_StartAsync_AppliesConfiguredSchema()
     {
         using var env = new SchemaTestEnvironment();

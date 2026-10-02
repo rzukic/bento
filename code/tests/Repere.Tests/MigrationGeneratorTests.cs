@@ -77,6 +77,58 @@ public class MigrationGeneratorTests
     }
 
     [Fact]
+    public void Generate_Postgres_DisablingUnique_DropsNamedIndexAndInlineConstraint()
+    {
+        // A column created together with its table carries an inline UNIQUE
+        // constraint (orders_total_key), a column made unique later carries the
+        // ux_ index. Disabling unique must handle both without failing.
+        var oldModel = Normalize("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "total", "type": "integer", "nullable": false, "unique": true }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var newModel = Normalize("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "total", "type": "integer", "nullable": false, "unique": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var changes = _diff.Diff(oldModel, newModel);
+        var generator = new MigrationGenerator(new DatabaseConfig { Provider = DatabaseProvider.Postgres });
+
+        var plan = generator.Generate(oldModel, newModel, changes);
+        var up = string.Join("\n", plan.SqlUp);
+        var down = string.Join("\n", plan.SqlDown);
+
+        Assert.Contains("DROP INDEX IF EXISTS \"ux_orders_total\";", up);
+        Assert.Contains("ALTER TABLE \"orders\" DROP CONSTRAINT IF EXISTS \"orders_total_key\";", up);
+        Assert.Contains("CREATE UNIQUE INDEX \"ux_orders_total\" ON \"orders\" (\"total\");", down);
+    }
+
+    [Fact]
     public void Generate_Throws_ForImpossibleTypeConversion()
     {
         var oldModel = Normalize("""
