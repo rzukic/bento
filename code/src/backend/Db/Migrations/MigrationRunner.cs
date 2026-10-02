@@ -176,23 +176,74 @@ public class MigrationRunner
 
     private async Task ExecuteDataStatementsAsync(IReadOnlyList<string> statements)
     {
+        var isSqlite = _dataPool.Provider == DatabaseProvider.Sqlite;
+
         using var conn = await OpenMigrationConnectionAsync();
-        using var tx = conn.BeginTransaction();
+
+        // SQLite cannot ALTER most column properties, so the generator rebuilds
+        // the table: create temp, copy rows, DROP the old table, rename. With
+        // foreign_keys=ON that DROP runs an implicit DELETE and fails as soon as
+        // a child table still references the parent rows. SQLite's documented
+        // procedure is to turn enforcement off for the duration (the pragma is a
+        // no-op inside a transaction, so it must happen before BEGIN), run the
+        // statements, and verify integrity with foreign_key_check before commit.
+        if (isSqlite)
+        {
+            await conn.ExecuteAsync("PRAGMA foreign_keys=OFF;");
+        }
 
         try
         {
-            foreach (var statement in statements)
-            {
-                await conn.ExecuteAsync(statement, transaction: tx);
-            }
+            using var tx = conn.BeginTransaction();
 
-            tx.Commit();
+            try
+            {
+                foreach (var statement in statements)
+                {
+                    await conn.ExecuteAsync(statement, transaction: tx);
+                }
+
+                if (isSqlite)
+                {
+                    await EnsureNoSqliteForeignKeyViolationsAsync(conn, tx);
+                }
+
+                tx.Commit();
+            }
+            catch
+            {
+                tx.Rollback();
+                throw;
+            }
         }
-        catch
+        finally
         {
-            tx.Rollback();
-            throw;
+            if (isSqlite)
+            {
+                await conn.ExecuteAsync("PRAGMA foreign_keys=ON;");
+            }
         }
+    }
+
+    private static async Task EnsureNoSqliteForeignKeyViolationsAsync(IDbConnection conn, IDbTransaction tx)
+    {
+        // Columns: table, rowid, parent, fkid. Read dynamically: with zero rows
+        // SQLite reports no column types and Dapper cannot map a typed record.
+        var violations = (await conn.QueryAsync("PRAGMA foreign_key_check;", transaction: tx))
+            .Cast<IDictionary<string, object?>>()
+            .Select(row => (
+                Table: row.TryGetValue("table", out var table) ? table?.ToString() ?? "?" : "?",
+                Parent: row.TryGetValue("parent", out var parent) ? parent?.ToString() ?? "?" : "?"))
+            .ToList();
+        if (violations.Count == 0)
+            return;
+
+        var summary = string.Join(", ", violations
+            .GroupBy(v => (v.Table, v.Parent))
+            .Select(g => $"{g.Key.Table} -> {g.Key.Parent} ({g.Count()} row(s))"));
+
+        throw new InvalidOperationException(
+            $"Migration would leave {violations.Count} foreign key violation(s) and was rolled back: {summary}.");
     }
 
     private async Task TryCompensateAsync(IReadOnlyList<string> statements, string operation, Exception originalException)

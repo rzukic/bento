@@ -825,6 +825,79 @@ public class MigrationRunnerTests
     }
 
     [Fact]
+    public async Task SchemaService_ApplySchema_RebuildsReferencedParentTable_WhileChildRowsExist()
+    {
+        using var env = new SchemaTestEnvironment();
+        await env.InitializeAsync();
+
+        await ApplyReferencedCustomerOrderSchemaAsync(env);
+
+        await using (var dataConn = await env.OpenDataAsync())
+        {
+            using var insertCustomer = dataConn.CreateCommand();
+            insertCustomer.CommandText = """INSERT INTO "customers" ("name") VALUES ('Acme'), ('Globex');""";
+            await insertCustomer.ExecuteNonQueryAsync();
+
+            using var insertOrder = dataConn.CreateCommand();
+            insertOrder.CommandText = """INSERT INTO "orders" ("customer_id") VALUES (1), (2), (2);""";
+            await insertOrder.ExecuteNonQueryAsync();
+        }
+
+        // Making customers.name unique forces a SQLite table rebuild of the
+        // parent table (create temp, copy, DROP old, rename). With foreign keys
+        // enforced the DROP used to fail because orders still reference it.
+        var result = await env.SchemaService.ApplySchemaAsync(Parse("""
+            {
+              "version": 2,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text", "nullable": false, "unique": true }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "customer_id", "type": "reference", "references": "customers", "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "1:N", "from": "customers", "to": "orders", "column": "customer_id" }
+              ]
+            }
+            """));
+
+        Assert.True(result.Applied, string.Join("; ", result.Errors.Select(e => e.Message)));
+        Assert.Contains(result.Changes, change => change.ChangeType == SchemaChangeType.AlterColumnUnique);
+
+        await using var verifyConn = await env.OpenDataAsync();
+        Assert.Equal(2, await CountRowsAsync(verifyConn, "customers"));
+        Assert.Equal(3, await CountRowsAsync(verifyConn, "orders"));
+
+        using var orphanCheck = verifyConn.CreateCommand();
+        orphanCheck.CommandText = "PRAGMA foreign_key_check;";
+        await using (var reader = await orphanCheck.ExecuteReaderAsync())
+        {
+            Assert.False(await reader.ReadAsync(), "foreign_key_check reported violations after the rebuild");
+        }
+
+        using var joined = verifyConn.CreateCommand();
+        joined.CommandText = """SELECT COUNT(*) FROM "orders" o JOIN "customers" c ON c."id" = o."customer_id";""";
+        Assert.Equal(3L, (long)(await joined.ExecuteScalarAsync() ?? 0L));
+
+        // Enforcement is back on for regular connections: an orphan insert must fail.
+        using var orphanInsert = verifyConn.CreateCommand();
+        orphanInsert.CommandText = """INSERT INTO "orders" ("customer_id") VALUES (999);""";
+        await Assert.ThrowsAsync<SqliteException>(() => orphanInsert.ExecuteNonQueryAsync());
+    }
+
+    [Fact]
     public async Task MigrationRunner_Rollback_WhenPreviousVersionIsMissing_LeavesDataSchemaUntouched()
     {
         using var env = new SchemaTestEnvironment();
