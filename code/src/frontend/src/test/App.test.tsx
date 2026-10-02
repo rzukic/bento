@@ -100,7 +100,7 @@ describe("Route guard", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
     expect(screen.getByText(/Stable public route: \/login/i)).toBeInTheDocument();
   });
 
@@ -112,7 +112,7 @@ describe("Route guard", () => {
 
     // Landed back on the workspace shell instead of the login card.
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Welcome back." })).not.toBeInTheDocument();
   });
 
   it("shows the resuming-session splash while bootstrap is in flight", async () => {
@@ -242,7 +242,7 @@ describe("Logout", () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().accessToken).toBeNull();
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
     });
     // The HttpOnly refresh cookie can only be ended server-side.
     expect(fetchMock).toHaveBeenCalledWith(

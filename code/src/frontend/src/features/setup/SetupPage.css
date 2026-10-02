@@ -8,11 +8,7 @@
   --setup-ink-4: color-mix(in srgb, var(--text) 32%, transparent);
   --setup-line: color-mix(in srgb, var(--text) 12%, transparent);
   --setup-line-strong: color-mix(in srgb, var(--text) 20%, transparent);
-  --setup-pool-opacity: 0.5;
-  --setup-pool-blend: screen;
-  --setup-grain-opacity: 0.16;
-  --setup-grain-blend: overlay;
-  --setup-glyph-opacity: 0.55;
+  --pool-opacity: 0.5;
   --setup-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   position: relative;
@@ -25,123 +21,12 @@
 }
 
 :root[data-theme="light"] .setup {
-  --setup-pool-opacity: 0.28;
-  --setup-pool-blend: multiply;
-  --setup-grain-opacity: 0.1;
-  --setup-grain-blend: multiply;
-  --setup-glyph-opacity: 0.7;
+  --pool-opacity: 0.28;
 }
 
 .setup--splash {
   display: grid;
   place-items: center;
-}
-
-/* ── sky ───────────────────────────────────────────────────────────────── */
-
-.setup__sky {
-  position: absolute;
-  inset: 0;
-  overflow: hidden;
-  pointer-events: none;
-  transition: filter 1.6s var(--setup-ease);
-}
-
-.setup__pool {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(90px);
-  mix-blend-mode: var(--setup-pool-blend);
-  opacity: var(--setup-pool-opacity);
-  will-change: transform;
-}
-
-.setup__pool--1 {
-  width: 62vw;
-  height: 62vw;
-  left: -20vw;
-  top: -28vw;
-  background: radial-gradient(circle, #1d4ed8 0%, rgba(29, 78, 216, 0) 60%);
-  animation: setup-drift-1 24s ease-in-out infinite alternate;
-}
-
-.setup__pool--2 {
-  width: 48vw;
-  height: 48vw;
-  left: 8vw;
-  top: 42vh;
-  background: radial-gradient(circle, #0f766e 0%, rgba(15, 118, 110, 0) 60%);
-  animation: setup-drift-2 28s ease-in-out infinite alternate;
-}
-
-.setup__pool--3 {
-  width: 36vw;
-  height: 36vw;
-  right: -8vw;
-  top: -18vh;
-  background: radial-gradient(circle, #4338ca 0%, rgba(67, 56, 202, 0) 60%);
-  animation: setup-drift-3 32s ease-in-out infinite alternate;
-}
-
-.setup__vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(120% 90% at 50% 40%, transparent 40%, color-mix(in srgb, var(--bg) 85%, transparent) 100%);
-}
-
-.setup__grain {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  opacity: var(--setup-grain-opacity);
-  mix-blend-mode: var(--setup-grain-blend);
-}
-
-@keyframes setup-drift-1 {
-  from { transform: translate(0, 0) scale(1); }
-  to { transform: translate(11vw, 13vh) scale(1.12); }
-}
-@keyframes setup-drift-2 {
-  from { transform: translate(0, 0) scale(1.05); }
-  to { transform: translate(-7vw, -18vh) scale(0.9); }
-}
-@keyframes setup-drift-3 {
-  from { transform: translate(0, 0); }
-  to { transform: translate(-10vw, 13vh) scale(1.2); }
-}
-
-/* ── numeral ───────────────────────────────────────────────────────────── */
-
-.setup__numeral {
-  position: absolute;
-  left: clamp(0.5rem, 1.5vw, 1.5rem);
-  bottom: clamp(-3rem, -6vw, -6rem);
-  width: min(62vw, 900px);
-  aspect-ratio: 900 / 660;
-  pointer-events: none;
-  user-select: none;
-  opacity: var(--setup-glyph-opacity);
-  animation: setup-emerge 1.1s var(--setup-ease) both;
-}
-
-.setup__numeral svg {
-  display: block;
-  width: 100%;
-  height: 100%;
-  overflow: visible;
-}
-
-.setup__glyph {
-  font-family: var(--setup-display);
-  font-weight: 700;
-  font-size: 640px;
-  letter-spacing: -0.07em;
-}
-
-@keyframes setup-emerge {
-  from { opacity: 0; transform: translateY(60px); }
-  to { opacity: var(--setup-glyph-opacity); transform: none; }
 }
 
 /* ── frame ─────────────────────────────────────────────────────────────── */
@@ -704,14 +589,6 @@
     text-align: left;
   }
 
-  .setup__numeral {
-    width: min(90vw, 600px);
-    right: -10vw;
-    left: auto;
-    bottom: 2rem;
-    opacity: calc(var(--setup-glyph-opacity) * 0.5);
-  }
-
   .setup__hint--env {
     display: none;
   }
@@ -745,8 +622,6 @@
 /* ── motion preferences ────────────────────────────────────────────────── */
 
 @media (prefers-reduced-motion: reduce) {
-  .setup__pool,
-  .setup__numeral,
   .setup__line > span,
   .rise,
   .setup__fact dd,
@@ -768,9 +643,5 @@
 
   .setup__wire {
     stroke-dashoffset: 0;
-  }
-
-  .setup__sky {
-    transition: none;
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { postRegister } from "../../api/auth";
 import { ApiClientError } from "../../api/client";
+import { Glyph, Sky, type GlyphTone } from "../../components/common/Atmosphere";
 import { Icon } from "../../components/common/Icon";
 import { ThemeSwitch } from "../../components/common/ThemeSwitch";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
@@ -73,7 +74,7 @@ export function SetupPage() {
   if ((status === "idle" || status === "loading") && !info) {
     return (
       <main className="setup setup--splash" role="status" aria-live="polite">
-        <Sky hue={0} />
+        <Sky />
         <span className="setup__hint">Checking installation…</span>
       </main>
     );
@@ -121,63 +122,9 @@ export function SetupPage() {
   return <SetupWizard info={info} />;
 }
 
-// ── Frame: sky, numeral, header, footer ──────────────────────────────────────
+// ── Frame: header, footer ───────────────────────────────────────────────────
 
-function Sky({ hue }: { hue: number }) {
-  return (
-    <div className="setup__sky" aria-hidden="true" style={{ filter: `hue-rotate(${hue}deg)` }}>
-      <div className="setup__pool setup__pool--1" />
-      <div className="setup__pool setup__pool--2" />
-      <div className="setup__pool setup__pool--3" />
-      <div className="setup__vignette" />
-      <svg className="setup__grain" xmlns="http://www.w3.org/2000/svg">
-        <filter id="setup-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#setup-grain)" />
-      </svg>
-    </div>
-  );
-}
-
-type NumeralTone = "default" | "ok" | "warn";
-
-/** The step number as a hairline outline stroked with a slowly rotating gradient. */
-function Numeral({ value, tone }: { value: string; tone: NumeralTone }) {
-  const gradientId = useId();
-  const stops =
-    tone === "ok"
-      ? ["#bbf7d0", "#34d399", "#2dd4bf", "#166534"]
-      : tone === "warn"
-        ? ["#fde68a", "#f59e0b", "#fb7185", "#b45309"]
-        : ["#93c5fd", "#3b82f6", "#2dd4bf", "#4338ca"];
-  return (
-    <div className="setup__numeral" aria-hidden="true" key={value}>
-      <svg viewBox="0 0 900 660" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor={stops[0]} />
-            <stop offset="0.4" stopColor={stops[1]} />
-            <stop offset="0.7" stopColor={stops[2]} />
-            <stop offset="1" stopColor={stops[3]} />
-            <animateTransform
-              attributeName="gradientTransform"
-              type="rotate"
-              from="0 0.5 0.5"
-              to="360 0.5 0.5"
-              dur="18s"
-              repeatCount="indefinite"
-            />
-          </linearGradient>
-        </defs>
-        <text className="setup__glyph" x="0" y="600" fill="none" stroke={`url(#${gradientId})`} strokeWidth="1.25">
-          {value}
-        </text>
-      </svg>
-    </div>
-  );
-}
+type NumeralTone = GlyphTone;
 
 type FrameProps = {
   children: ReactNode;
@@ -195,7 +142,7 @@ function SetupFrame({ children, hue, numeral, tone, info, steps, current }: Fram
   return (
     <main className="setup" aria-labelledby="setup-title">
       <Sky hue={hue} />
-      <Numeral value={numeral} tone={tone} />
+      <Glyph value={numeral} tone={tone} />
       <div className="setup__frame">
         <header className="setup__header">
           <div className="setup__brand">
