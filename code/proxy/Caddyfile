@@ -1,0 +1,67 @@
+# Repère reverse proxy (Part 13 R13.3).
+#
+# DOMAIN unset / "localhost": plain HTTP on :80, no certificate prompts. Caddy also
+# serves https://localhost on :443 with a self-signed internal certificate, which
+# is harmless but not needed.
+# DOMAIN=myserver.example: automatic HTTPS on :443 via Let's Encrypt, with HTTP on
+# :80 redirected to HTTPS. Ports 80 and 443 must be reachable from the internet
+# for the ACME challenge. The explicit http://localhost block below keeps working
+# alongside it (useful for container-local probes).
+{
+	# No admin API: port 2019 is never exposed and the config is immutable at run time.
+	admin off
+	# Do not try to install the internal CA into the container's trust store.
+	skip_install_trust
+
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 5m
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Shared routes. Caddy's reverse_proxy sets X-Forwarded-For, X-Forwarded-Proto and
+# X-Forwarded-Host by default; the backend honours them when TRUSTED_PROXIES covers
+# this container's network (TASK-146).
+(repere) {
+	log {
+		output stdout
+		format json
+	}
+
+	encode zstd gzip
+
+	# Proxy's own liveness probe; distinct from the frontend's /healthz.
+	handle /proxy-healthz {
+		header Content-Type text/plain
+		respond "ok" 200
+	}
+
+	# API and WebSocket — straight to the backend, no SPA involvement.
+	handle /api/v1/* {
+		reverse_proxy backend:5000
+	}
+	handle /ws* {
+		reverse_proxy backend:5000
+	}
+
+	# Everything else — Vite SPA via nginx (SPA fallback happens there).
+	handle {
+		reverse_proxy frontend:80
+	}
+}
+
+http://localhost {
+	import repere
+}
+
+{$DOMAIN:localhost} {
+	import repere
+}
