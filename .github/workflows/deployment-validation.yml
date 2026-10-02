@@ -108,14 +108,10 @@ jobs:
             /tmp/repere-smoke-*
             /tmp/repere-demo-*
 
-  deployment-full-stack:
-    name: Full stack (proxy + frontend + backend)
+  deployment-full-stack-sqlite:
+    name: Full stack SQLite (proxy + frontend + backend)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    env:
-      COMPOSE_PROJECT_NAME: gha-full-stack
-      HOST_HTTP_PORT: "8080"
-      HOST_HTTPS_PORT: "8443"
 
     steps:
       - uses: actions/checkout@v4
@@ -126,37 +122,56 @@ jobs:
           docker compose version
           jq --version
 
-      - name: Build and start the full stack
+      - name: Run packaged MVP 2 smoke (SQLite)
         run: |
-          docker compose -f code/docker-compose.yml --env-file code/.env.example \
-            up -d --build --wait --wait-timeout 420
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp2-smoke.sh sqlite \
+            --host-http-port 8080 \
+            --host-https-port 8443 \
+            --project-name gha-mvp2-sqlite \
+            --log-dir .artifacts/packaged-mvp2-sqlite
 
-      - name: Verify routing through the proxy
-        run: |
-          set -euxo pipefail
-          base="http://localhost:${HOST_HTTP_PORT}"
-          # SPA entry and a deep client route both come back as index.html
-          curl -fsS "$base/" | grep -q '<div id="root"'
-          curl -fsS "$base/data/customers" | grep -q '<div id="root"'
-          # API reaches the backend
-          curl -fsS "$base/api/v1/admin/health" | jq -e '.status == "healthy"'
-          curl -fsS "$base/api/v1/setup/status" \
-            | jq -e '.initialized == false and .database_provider == "sqlite"'
-          # Proxy and frontend liveness probes
-          curl -fsS "$base/proxy-healthz" | grep -qx ok
-          # Only the proxy publishes host ports
-          published="$(docker compose -f code/docker-compose.yml --env-file code/.env.example ps --format json \
-            | jq -r 'select((.Publishers // []) | map(select(.PublishedPort > 0)) | length > 0) | .Service' \
-            | sort -u)"
-          test "$published" = "proxy"
-
-      - name: Collect diagnostics
-        if: failure()
-        run: |
-          docker compose -f code/docker-compose.yml --env-file code/.env.example ps
-          docker compose -f code/docker-compose.yml --env-file code/.env.example logs --no-color --tail 200
-
-      - name: Tear down
+      - name: Upload full-stack SQLite diagnostics
         if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-full-stack-sqlite
+          if-no-files-found: ignore
+          retention-days: 7
+          path: .artifacts/**
+
+  deployment-full-stack-postgres:
+    name: Full stack Postgres (proxy + frontend + backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
         run: |
-          docker compose -f code/docker-compose.yml --env-file code/.env.example down -v --remove-orphans
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Run packaged MVP 2 smoke (Postgres)
+        env:
+          POSTGRES_SUPERUSER_PASSWORD: gha-postgres-superuser-secret
+          REPERE_SYSTEM_PASSWORD: gha-postgres-system-secret
+          REPERE_DATA_PASSWORD: gha-postgres-data-secret
+        run: |
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp2-smoke.sh postgres \
+            --host-http-port 8081 \
+            --host-https-port 8444 \
+            --project-name gha-mvp2-postgres \
+            --log-dir .artifacts/packaged-mvp2-postgres
+
+      - name: Upload full-stack Postgres diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-full-stack-postgres
+          if-no-files-found: ignore
+          retention-days: 7
+          path: .artifacts/**

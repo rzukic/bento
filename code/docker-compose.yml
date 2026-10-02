@@ -46,9 +46,11 @@ services:
       BACKEND_PORT: "5000"
       DATA_DIR: /data
       LOG_LEVEL: "${LOG_LEVEL:-Information}"
-      # Trust X-Forwarded-* from the compose network the proxy runs on. Must match
-      # the subnet below (REPERE_NETWORK_SUBNET) unless you set TRUSTED_PROXIES yourself.
-      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-172.28.0.0/16}"
+      # Trust X-Forwarded-* from the proxy. The backend publishes no host port, so
+      # the only traffic that can reach it comes from containers on the compose
+      # network; trusting the private ranges Docker allocates from covers that
+      # without pinning a subnet that could collide with other networks.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8}"
     volumes:
       - repere-data:/data
     healthcheck:
@@ -57,15 +59,6 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 5
-
-networks:
-  # Fixed subnet so the backend can trust the proxy's forwarded headers by range.
-  # Override REPERE_NETWORK_SUBNET (and TRUSTED_PROXIES) if it collides with an
-  # existing Docker network on this host.
-  default:
-    ipam:
-      config:
-        - subnet: "${REPERE_NETWORK_SUBNET:-172.28.0.0/16}"
 
 volumes:
   repere-data:
