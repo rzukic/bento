@@ -914,6 +914,10 @@ export function TableDetailPage() {
             table={resolvedTable}
             query={query}
             disabled={dataStatus === "loading" && view.rows.length === 0}
+            externalPopoverOpen={exportMenuOpen}
+            onActivePanelChange={(panel) => {
+              if (panel !== null) setExportMenuOpen(false);
+            }}
             toolbarActions={
               <>
                 <div className="data-controls__export" ref={exportMenuRef}>

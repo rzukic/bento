@@ -287,6 +287,9 @@
 
 .data-controls__overlay-anchor {
     position: relative;
+    /* Distance between the bar's right edge and a floating panel's right
+       edge. Read by DataQueryControls to mirror the overhang on the left. */
+    --foldout-right-offset: 8px;
 }
 
 .data-controls__bar {
@@ -410,7 +413,7 @@
        transparent bottom border, where the tab background (higher z-index)
        paints over it and tab and panel merge into one shape. */
     top: calc(50% + 1.125rem - 1px);
-    right: 0.5rem;
+    right: var(--foldout-right-offset);
     left: auto;
     width: max-content;
     /* Set by DataQueryControls so the panel reaches the active tab's left edge. */
@@ -875,8 +878,10 @@
 .data-controls__export-menu {
     position: absolute;
     top: calc(100% - 1px);
-    left: 0;
-    min-width: max(100%, 9rem);
+    /* Overhang the tab on the left by the same amount the right-anchored
+       foldouts overhang the last tab on the right. */
+    left: calc(-1 * var(--foldout-edge-inset, 0px));
+    min-width: max(calc(100% + var(--foldout-edge-inset, 0px)), 9rem);
     padding: 0.4rem;
     border: 1px solid var(--border);
     border-radius: 0 0 var(--r-lg) var(--r-lg);

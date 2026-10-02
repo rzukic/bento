@@ -29,6 +29,13 @@ type DataQueryControlsProps = {
   query: ExplorerQuery;
   disabled?: boolean;
   toolbarActions?: ReactNode;
+  /**
+   * True while a popover rendered inside `toolbarActions` (e.g. the Export
+   * menu) is open. Opening it closes any active foldout panel.
+   */
+  externalPopoverOpen?: boolean;
+  /** Fires whenever the active foldout panel changes, so the parent can close its own popovers. */
+  onActivePanelChange?: (panel: string | null) => void;
   hiddenColumnNames?: string[];
   selectionPanel?: { content: ReactNode; count?: number } | null;
   suppressAutoPanel?: boolean;
@@ -601,6 +608,8 @@ export function DataQueryControls({
   query,
   disabled = false,
   toolbarActions = null,
+  externalPopoverOpen = false,
+  onActivePanelChange,
   hiddenColumnNames = [],
   selectionPanel = null,
   suppressAutoPanel = false,
@@ -666,6 +675,27 @@ export function DataQueryControls({
 
     function syncPanelMinWidth() {
       if (!anchor) return;
+
+      // How far the right-anchored panel overhangs the last (right-most) tab.
+      // Panels that start at a tab's left edge get the same overhang on the
+      // left so both sides of the toolbar look symmetric.
+      const anchorRect = anchor.getBoundingClientRect();
+      const rightOffset =
+        parseFloat(
+          getComputedStyle(anchor).getPropertyValue("--foldout-right-offset"),
+        ) || 0;
+      const menuButtons = menuRef.current?.querySelectorAll<HTMLElement>(
+        ".data-controls__menu-button",
+      );
+      const lastButton = menuButtons?.[menuButtons.length - 1];
+      const edgeInset = lastButton
+        ? Math.max(
+            0,
+            anchorRect.right - rightOffset - lastButton.getBoundingClientRect().right,
+          )
+        : 0;
+      anchor.style.setProperty("--foldout-edge-inset", `${edgeInset}px`);
+
       const activeButton = menuRef.current?.querySelector<HTMLElement>(
         '[aria-expanded="true"]',
       );
@@ -679,9 +709,10 @@ export function DataQueryControls({
 
       const minWidth =
         panel.getBoundingClientRect().right -
-        activeButton.getBoundingClientRect().left;
-      // Fractional widths are intentional: the panel's left border must sit
-      // exactly on the tab's left border, not on the nearest whole pixel.
+        activeButton.getBoundingClientRect().left +
+        edgeInset;
+      // Fractional widths are intentional so the panel edge lands exactly
+      // where the layout says, not on the nearest whole pixel.
       anchor.style.setProperty(
         "--foldout-min-width",
         `${Math.max(0, minWidth)}px`,
@@ -693,7 +724,7 @@ export function DataQueryControls({
     return () => {
       window.removeEventListener("resize", syncPanelMinWidth);
     };
-  }, [activePanel]);
+  }, [activePanel, externalPopoverOpen]);
 
   // ── View selector state ──
   const [viewDropdownOpen, setViewDropdownOpen] = useState(false);
@@ -717,6 +748,20 @@ export function DataQueryControls({
     if (selectionPanel || activePanel !== "selection") return;
     setActivePanel(null);
   }, [activePanel, selectionPanel]);
+
+  // Only one toolbar popover may be open at a time: an external popover
+  // (Export menu) closes the active foldout, and the parent is told about
+  // foldout changes so it can close its popover in return.
+  useEffect(() => {
+    if (!externalPopoverOpen) return;
+    setActivePanel(null);
+  }, [externalPopoverOpen]);
+
+  const onActivePanelChangeRef = useRef(onActivePanelChange);
+  onActivePanelChangeRef.current = onActivePanelChange;
+  useEffect(() => {
+    onActivePanelChangeRef.current?.(activePanel);
+  }, [activePanel]);
 
   useEffect(() => {
     if (!activePanel) return;

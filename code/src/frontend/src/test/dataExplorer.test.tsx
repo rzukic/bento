@@ -2877,6 +2877,50 @@ describe("Table detail (/data/:tableId)", () => {
     });
   });
 
+  it("keeps the export menu and the foldout panels mutually exclusive", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedExplorerRows("orders", [
+      {
+        id: 101,
+        customer_id: 7,
+        total: 149.5,
+        status: "pending",
+        created_at: "2026-04-12T08:45:00Z",
+      },
+    ]);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("table");
+
+    const user = userEvent.setup();
+    const exportButton = screen.getByRole("button", { name: /^export/i });
+    const searchButton = screen.getByRole("button", { name: /^search/i });
+
+    // Foldout open, then Export: the foldout must close.
+    await user.click(searchButton);
+    expect(searchButton).toHaveAttribute("aria-expanded", "true");
+    await user.click(exportButton);
+    await waitFor(() => {
+      expect(searchButton).toHaveAttribute("aria-expanded", "false");
+    });
+    expect(exportButton).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("menu", { name: /export current view/i })).toBeInTheDocument();
+
+    // Export open, then a foldout: the export menu must close.
+    await user.click(screen.getByRole("button", { name: /^sort/i }));
+    await waitFor(() => {
+      expect(exportButton).toHaveAttribute("aria-expanded", "false");
+    });
+    expect(screen.queryByRole("menu", { name: /export current view/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^sort/i })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
   it("closes an open foldout when switching to another table tab", async () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
