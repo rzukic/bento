@@ -488,9 +488,22 @@
   }
 
   .shell__nav {
+    flex: 1 1 0;
+    min-width: 0;
     flex-direction: row;
     gap: 0.5rem;
     padding: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+  }
+
+  .shell__nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .shell__nav-section {
+    flex-shrink: 0;
   }
 
   .shell__nav-section-title {
@@ -506,9 +519,18 @@
   }
 
   .shell__topbar {
-    flex-wrap: wrap;
-    height: auto;
-    padding: 0.5rem 0.75rem;
+    height: 48px;
+    padding: 0 0.75rem;
+  }
+
+  /* Provider and version are already on the setup and login pages; on a
+     phone the top bar keeps breadcrumbs and the theme switch only. */
+  .shell__topbar .badge {
+    display: none;
+  }
+
+  .shell__brand-text {
+    display: none;
   }
 
   .shell__page-header {

@@ -189,6 +189,13 @@
   }
 }
 
+@media (max-width: 640px) {
+  /* The outlined glyph would sit under the sign-in button on a phone. */
+  .login .atmo-glyph {
+    display: none;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .login__line > span,
   .login__form {
