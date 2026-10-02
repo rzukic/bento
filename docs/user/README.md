@@ -9,7 +9,7 @@
 
 If you want to get Repere running and try the current product without reading the technical internals first, use these guides:
 
-- [Getting Started](getting-started.md) — start the backend with Docker, create the first admin user, and log in
+- [Getting Started](getting-started.md) — start the packaged stack with Docker, finish the setup wizard in the browser (admin account, optional sample data), or run the API-only shape
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 
@@ -17,12 +17,12 @@ If you want to get Repere running and try the current product without reading th
 
 ## What Repere Is Right Now
 
-Repere now includes the Phase 2 browser shell for authenticated data management.
+Repere is a packaged browser product (MVP 2 "Spreadsheet+"): one `docker compose up`, open `http://localhost`, and a setup wizard creates your admin account and can load a demo workspace.
 
 That means:
-- you can use the web UI to browse data and design schemas
+- you can use the web UI to browse and edit data, save views and kanban boards, and design schemas
 - you can still use the system through HTTP API calls
-- you can define your data model visually or as JSON
+- you can define your data model visually or as JSON, preview the migration, and apply it
 - Repere creates the API routes for your tables automatically
 
 If you are comfortable with `curl`, Postman, Insomnia, Bruno, or another API client, the API remains fully usable alongside the browser app.
@@ -43,7 +43,8 @@ If you are comfortable with `curl`, Postman, Insomnia, Bruno, or another API cli
 - No dashboard builder yet
 - Visual schema designer advanced relation properties are still limited
 - Computed column formula editing is not yet a rich visual flow
-- JWT login is the current auth path
-- API key auth and logout are not finished yet
+- JWT login with a refresh cookie is the current auth path; signing out revokes the session
+- API key auth, user management in the UI and vault mode are not finished yet
+- The database provider and auth mode are chosen in the deployment configuration, not in the wizard
 
 That is expected for the current Phase 2 product.

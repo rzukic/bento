@@ -12,6 +12,21 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-02 — Ship the Setup Wizard and the Packaged Browser Stack
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.7 — Setup Wizard & Frontend Packaging](working-steps/2.7-setup-wizard-and-frontend-packaging.md)
+
+Closed TASK-144 through TASK-153. `docker compose up` now starts the browser product: a Caddy proxy, the static frontend and the backend, with a first-run setup wizard that creates the administrator and can load a demo workspace. Phase 2 and MVP 2 "Spreadsheet+" are complete; the v0.2.0 release record is prepared.
+
+**Highlights:**
+- Public `GET /api/v1/setup/status` and admin-only, one-time `POST /api/v1/setup/sample-data` (embedded demo schema and rows applied through the normal schema and CRUD paths)
+- `/setup` wizard (Welcome → Environment → Admin account → Sample data → Done) with a `SetupGate` that redirects uninitialised installations from every route and bootstrap-race handling
+- `repere/frontend` (nginx, 14.7 MB) and `repere/proxy` (Caddy, plain-HTTP local mode or automatic HTTPS for `DOMAIN`) images; full-stack `docker-compose.yml` with only the proxy publishing ports, backend-only shape moved to `docker-compose.backend-only.yml`
+- Backend proxy awareness: `TRUSTED_PROXIES` forwarded headers, per-client rate limiting with bucket eviction, refresh cookie following the request scheme; `POST /auth/logout` revoking the refresh session
+- Packaged MVP 2 smoke through the proxy for SQLite and Postgres in CI plus an executed manual browser checklist; the validation found and fixed a forced-`Secure` cookie, Postgres saved-view binding and non-revoking sign-out
+- Docs, Part 7/13, plan re-baseline and the v0.2.0 release record synced
+
 ### 2026-10-02 — Harden Step 2.6 Before Merge
 
 > **Phase**: Phase 2 — Data Management
