@@ -1401,8 +1401,8 @@
 
 .data-grid__header-cell--primary {
     width: 100%;
-    padding-left: 0.4rem;
-    padding-right: 0.4rem;
+    padding-left: 0.46rem;
+    padding-right: 0.46rem;
     justify-content: flex-start;
 }
 
@@ -1429,7 +1429,7 @@
 .data-grid__header-content--primary {
     flex: 1;
     justify-content: center;
-    padding-inline: 0;
+    padding-inline: 0.35rem;
 }
 
 .data-grid__header-name-row {
@@ -1505,11 +1505,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    /* The badge is the widest thing in the pk header and therefore sets the
-       width of the whole pk column (and the + add-row cell). It shows a key
-       icon; the "PK" text stays in the DOM for screen readers and tests. */
-    min-width: 0;
-    padding: 0.15rem;
+    min-width: 1.7rem;
+    padding: 0.1rem 0.35rem;
     border-radius: 999px;
     background: color-mix(in srgb, var(--surface-raised) 84%, var(--surface));
     font-size: 0.7rem;
@@ -1525,20 +1522,7 @@
 .data-grid__header-primary-label-group {
     display: inline-flex;
     align-items: center;
-    gap: 0.3rem;
-}
-
-.data-grid__header-pk-text {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    margin: -1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    clip-path: inset(50%);
-    white-space: nowrap;
-    border: 0;
+    gap: 0.45rem;
 }
 
 .data-grid__header-cell--primary:hover .data-grid__header-content--primary,
@@ -2517,11 +2501,6 @@
 
     .data-grid__header-cell {
         padding: 0.4rem 0.64rem;
-    }
-
-    .data-grid__header-cell--primary {
-        padding-left: 0.4rem;
-        padding-right: 0.4rem;
     }
 
     /* Only the variables change here so .data-grid__cell--editing keeps its
