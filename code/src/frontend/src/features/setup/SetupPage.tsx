@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent, type InputHTMLAttributes, type ReactNode } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { postRegister } from "../../api/auth";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
-import { Alert } from "../../components/ui/Alert";
-import { Button } from "../../components/ui/Button";
-import { Panel } from "../../components/ui/Panel";
-import { Spinner } from "../../components/ui/Spinner";
-import { TextField } from "../../components/ui/TextField";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { useAppStore, type ThemeMode } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
 import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
+import "@fontsource/space-grotesk/500.css";
+import "@fontsource/space-grotesk/700.css";
 import "./SetupPage.css";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
@@ -24,6 +22,9 @@ const STEP_LABELS: Record<StepId, string> = {
   sample: "Sample data",
   done: "Done"
 };
+
+/** The sky shifts hue as the wizard advances; one value per step position. */
+const STEP_HUES = [0, 18, 40, 70, 110];
 
 /**
  * Which steps the wizard shows depends on the deployment: open auth mode has
@@ -40,6 +41,10 @@ export function buildSetupSteps(info: SetupStatus): StepId[] {
 
 function describeError(cause: unknown, fallback: string): string {
   return cause instanceof ApiClientError ? cause.message : fallback;
+}
+
+function pad(index: number): string {
+  return String(index + 1).padStart(2, "0");
 }
 
 export function SetupPage() {
@@ -70,30 +75,38 @@ export function SetupPage() {
   if ((status === "idle" || status === "loading") && !info) {
     return (
       <main className="setup setup--splash" role="status" aria-live="polite">
-        <Spinner label="Checking installation" />
+        <Sky hue={0} />
+        <span className="setup__hint">Checking installation…</span>
       </main>
     );
   }
 
   if (status === "error" && !info) {
     return (
-      <SetupFrame>
-        <h1 id="setup-title" className="setup__title">
-          Setup unavailable
-        </h1>
-        <p className="setup__lede">
-          The backend could not report the installation state. Make sure the API is running and try
-          again.
-        </p>
-        <Alert tone="error" message={statusError ?? "Unknown error."} />
-        <div className="setup__actions">
-          <Button variant="primary" onClick={() => void load({ force: true })}>
-            Retry
-          </Button>
-          <Link className="btn" to="/login">
-            Go to sign in
-          </Link>
-        </div>
+      <SetupFrame hue={0} numeral="!" tone="warn" info={null}>
+        <section className="setup__content">
+          <span className="setup__eyebrow rise">Setup</span>
+          <h1 id="setup-title" className="setup__title setup__title--md">
+            <Line>Setup unavailable.</Line>
+          </h1>
+          <p className="setup__lede rise d2">
+            The backend could not report the installation state. Make sure the API is running and try
+            again.
+          </p>
+          <p className="setup__error rise d3" role="alert">
+            {statusError ?? "Unknown error."}
+          </p>
+        </section>
+        <aside className="setup__actions rise d3">
+          <div className="setup__row">
+            <Link className="setup-btn setup-btn--ghost" to="/login">
+              Go to sign in
+            </Link>
+            <button type="button" className="setup-btn setup-btn--accent" onClick={() => void load({ force: true })}>
+              Retry
+            </button>
+          </div>
+        </aside>
       </SetupFrame>
     );
   }
@@ -110,50 +123,178 @@ export function SetupPage() {
   return <SetupWizard info={info} />;
 }
 
-function SetupFrame({ children, steps, current }: { children: React.ReactNode; steps?: StepId[]; current?: StepId }) {
+// ── Frame: sky, numeral, header, footer ──────────────────────────────────────
+
+function Sky({ hue }: { hue: number }) {
+  return (
+    <div className="setup__sky" aria-hidden="true" style={{ filter: `hue-rotate(${hue}deg)` }}>
+      <div className="setup__pool setup__pool--1" />
+      <div className="setup__pool setup__pool--2" />
+      <div className="setup__pool setup__pool--3" />
+      <div className="setup__vignette" />
+      <svg className="setup__grain" xmlns="http://www.w3.org/2000/svg">
+        <filter id="setup-grain">
+          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+          <feColorMatrix type="saturate" values="0" />
+        </filter>
+        <rect width="100%" height="100%" filter="url(#setup-grain)" />
+      </svg>
+    </div>
+  );
+}
+
+type NumeralTone = "default" | "ok" | "warn";
+
+/** The step number as a hairline outline stroked with a slowly rotating gradient. */
+function Numeral({ value, tone }: { value: string; tone: NumeralTone }) {
+  const gradientId = useId();
+  const stops =
+    tone === "ok"
+      ? ["#bbf7d0", "#34d399", "#2dd4bf", "#166534"]
+      : tone === "warn"
+        ? ["#fde68a", "#f59e0b", "#fb7185", "#b45309"]
+        : ["#93c5fd", "#3b82f6", "#2dd4bf", "#4338ca"];
+  return (
+    <div className="setup__numeral" aria-hidden="true" key={value}>
+      <svg viewBox="0 0 900 660" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stopColor={stops[0]} />
+            <stop offset="0.4" stopColor={stops[1]} />
+            <stop offset="0.7" stopColor={stops[2]} />
+            <stop offset="1" stopColor={stops[3]} />
+            <animateTransform
+              attributeName="gradientTransform"
+              type="rotate"
+              from="0 0.5 0.5"
+              to="360 0.5 0.5"
+              dur="18s"
+              repeatCount="indefinite"
+            />
+          </linearGradient>
+        </defs>
+        <text className="setup__glyph" x="0" y="600" fill="none" stroke={`url(#${gradientId})`} strokeWidth="1.25">
+          {value}
+        </text>
+      </svg>
+    </div>
+  );
+}
+
+const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
+  { value: "dark", label: "Dark" },
+  { value: "light", label: "Light" },
+  { value: "system", label: "System" }
+];
+
+function ThemeSwitch() {
+  const themeMode = useAppStore((state) => state.themeMode);
+  const setThemeMode = useAppStore((state) => state.setThemeMode);
+  return (
+    <div className="setup__theme" role="group" aria-label="Appearance">
+      {THEME_OPTIONS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          className="setup__theme-btn"
+          aria-pressed={themeMode === option.value}
+          onClick={() => setThemeMode(option.value)}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+type FrameProps = {
+  children: ReactNode;
+  hue: number;
+  numeral: string;
+  tone: NumeralTone;
+  info: SetupStatus | null;
+  steps?: StepId[];
+  current?: StepId;
+};
+
+function SetupFrame({ children, hue, numeral, tone, info, steps, current }: FrameProps) {
+  const currentIndex = steps && current ? steps.indexOf(current) : -1;
+  const progress = steps && currentIndex >= 0 ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
   return (
     <main className="setup" aria-labelledby="setup-title">
-      <Panel className="setup__panel" bodyClassName="setup__panel-body">
-        <header className="setup__brand">
-          <span className="setup__brand-mark" aria-hidden="true">
-            <Icon name="layers" size={16} />
-          </span>
-          <span className="setup__brand-name">Repere</span>
-          <span className="setup__brand-env mono">first-run setup</span>
+      <Sky hue={hue} />
+      <Numeral value={numeral} tone={tone} />
+      <div className="setup__frame">
+        <header className="setup__header">
+          <div className="setup__brand">
+            <span className="setup__brand-mark" aria-hidden="true">
+              <Icon name="layers" size={15} />
+            </span>
+            <span className="setup__brand-name">Repere</span>
+          </div>
+          <div className="setup__header-right">
+            {info ? (
+              <span className="setup__hint setup__hint--env">
+                {info.database_provider} · {info.auth_mode} · v{info.version}
+              </span>
+            ) : null}
+            <ThemeSwitch />
+          </div>
         </header>
-        {steps && current ? <StepIndicator steps={steps} current={current} /> : null}
+
         <div className="setup__body">{children}</div>
-        <footer className="setup__footer mono">
-          <span>Stable public route: /setup</span>
-          <span>© Repere</span>
-        </footer>
-      </Panel>
+
+        {steps && current ? (
+          <footer className="setup__footer">
+            <div className="setup__track" aria-hidden="true">
+              <i style={{ width: `${progress}%` }} />
+              <b />
+            </div>
+            <div className="setup__footer-row">
+              <ol className="setup__steps" aria-label="Setup progress">
+                {steps.map((step, index) => {
+                  const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
+                  return (
+                    <li
+                      key={step}
+                      className={`setup__step setup__step--${state}`}
+                      aria-current={state === "current" ? "step" : undefined}
+                    >
+                      <span className="setup__step-num">{pad(index)}</span>
+                      <span>{STEP_LABELS[step]}</span>
+                    </li>
+                  );
+                })}
+              </ol>
+              <span className="setup__hint">
+                step {pad(currentIndex)} of {pad(steps.length - 1)}
+              </span>
+            </div>
+          </footer>
+        ) : (
+          <footer className="setup__footer">
+            <div className="setup__track" aria-hidden="true" />
+            <div className="setup__footer-row">
+              <span className="setup__hint">Stable public route: /setup</span>
+              <span className="setup__hint">© Repere</span>
+            </div>
+          </footer>
+        )}
+      </div>
     </main>
   );
 }
 
-function StepIndicator({ steps, current }: { steps: StepId[]; current: StepId }) {
-  const currentIndex = steps.indexOf(current);
+/** One headline line revealed from behind a clipping edge. */
+function Line({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
   return (
-    <ol className="setup__steps" aria-label="Setup progress">
-      {steps.map((step, index) => {
-        const state = index < currentIndex ? "done" : index === currentIndex ? "current" : "upcoming";
-        return (
-          <li
-            key={step}
-            className={`setup__step setup__step--${state}`}
-            aria-current={state === "current" ? "step" : undefined}
-          >
-            <span className="setup__step-index mono" aria-hidden="true">
-              {state === "done" ? <Icon name="check" size={12} /> : index + 1}
-            </span>
-            <span className="setup__step-label">{STEP_LABELS[step]}</span>
-          </li>
-        );
-      })}
-    </ol>
+    <span className="setup__line">
+      <span style={delay ? { animationDelay: `${delay}s` } : undefined}>{children}</span>
+    </span>
   );
 }
+
+// ── Wizard ───────────────────────────────────────────────────────────────────
 
 function SetupWizard({ info }: { info: SetupStatus }) {
   // Steps are fixed when the wizard opens so completing the admin step (which
@@ -161,13 +302,21 @@ function SetupWizard({ info }: { info: SetupStatus }) {
   // the user is standing on them.
   const steps = useMemo(() => buildSetupSteps(info), [info]);
   const [stepIndex, setStepIndex] = useState(0);
-  const current = steps[Math.min(stepIndex, steps.length - 1)];
+  const index = Math.min(stepIndex, steps.length - 1);
+  const current = steps[index];
 
-  const goNext = () => setStepIndex((index) => Math.min(index + 1, steps.length - 1));
-  const goBack = () => setStepIndex((index) => Math.max(index - 1, 0));
+  const goNext = () => setStepIndex((i) => Math.min(i + 1, steps.length - 1));
+  const goBack = () => setStepIndex((i) => Math.max(i - 1, 0));
 
   return (
-    <SetupFrame steps={steps} current={current}>
+    <SetupFrame
+      hue={STEP_HUES[Math.min(index, STEP_HUES.length - 1)]}
+      numeral={pad(index)}
+      tone={current === "done" ? "ok" : "default"}
+      info={info}
+      steps={steps}
+      current={current}
+    >
       {current === "welcome" ? <WelcomeStep onNext={goNext} /> : null}
       {current === "environment" ? <EnvironmentStep info={info} onNext={goNext} onBack={goBack} /> : null}
       {current === "admin" ? <AdminStep onNext={goNext} onBack={goBack} /> : null}
@@ -177,59 +326,97 @@ function SetupWizard({ info }: { info: SetupStatus }) {
   );
 }
 
+function ArrowIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14" />
+      <path d="m13 6 6 6-6 6" />
+    </svg>
+  );
+}
+
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <>
-      <h1 id="setup-title" className="setup__title">
-        Welcome to Repere
-      </h1>
-      <p className="setup__lede">
-        This installation has not been set up yet. The next steps review the deployment, create the
-        first administrator and optionally load a small demo workspace so you can explore the schema
-        designer and the Data Explorer right away.
-      </p>
-      <div className="setup__actions setup__actions--end">
-        <Button variant="primary" onClick={onNext} trailingIcon={<Icon name="expand" size={14} />}>
-          Get started
-        </Button>
-      </div>
+      <section className="setup__content">
+        <span className="setup__eyebrow rise">Welcome</span>
+        <h1 id="setup-title" className="setup__title">
+          <Line>Your data,</Line>
+          <Line delay={0.1}>one place</Line>
+          <Line delay={0.2}>to shape it.</Line>
+        </h1>
+        <p className="setup__lede rise d2">
+          This installation has not been set up yet. Five short steps: the deployment, your
+          administrator, an optional demo workspace.
+        </p>
+      </section>
+      <aside className="setup__actions rise d3">
+        <div className="setup__row setup__row--end">
+          <span className="setup__hint">Enter ↵</span>
+          <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
+            Get started <ArrowIcon />
+          </button>
+        </div>
+      </aside>
     </>
   );
 }
 
 function EnvironmentStep({ info, onNext, onBack }: { info: SetupStatus; onNext: () => void; onBack: () => void }) {
-  const rows: Array<[string, string]> = [
-    ["Database provider", info.database_provider],
-    ["Authentication mode", info.auth_mode],
-    ["Backend version", info.version],
-    ["Schema version", String(info.schema_version)]
+  const facts: Array<[string, string]> = [
+    ["Database", info.database_provider],
+    ["Auth mode", info.auth_mode],
+    ["Backend", info.version],
+    ["Schema", info.schema_version === 0 ? "version 0 · empty" : `version ${info.schema_version}`]
   ];
   return (
     <>
-      <h1 id="setup-title" className="setup__title">
-        Environment
-      </h1>
-      <p className="setup__lede">
-        These values come from the deployment configuration (environment variables or Docker Compose)
-        and cannot be changed from the browser.
-      </p>
-      <dl className="setup__facts">
-        {rows.map(([label, value]) => (
-          <div key={label} className="setup__fact">
-            <dt>{label}</dt>
-            <dd className="mono">{value}</dd>
-          </div>
-        ))}
-      </dl>
-      <div className="setup__actions">
-        <Button variant="ghost" onClick={onBack}>
-          Back
-        </Button>
-        <Button variant="primary" onClick={onNext}>
-          Continue
-        </Button>
-      </div>
+      <section className="setup__content">
+        <span className="setup__eyebrow rise">Environment</span>
+        <h1 id="setup-title" className="setup__title setup__title--md">
+          <Line>Read from</Line>
+          <Line delay={0.1}>your deployment.</Line>
+        </h1>
+        <dl className="setup__readout rise d2">
+          {facts.map(([label, value], i) => (
+            <div key={label} className="setup__fact">
+              <dt>{label}</dt>
+              <dd style={{ "--len": value.length, animationDelay: `${0.3 + i * 0.5}s, 0s` } as CSSProperties}>{value}</dd>
+            </div>
+          ))}
+        </dl>
+        <p className="setup__note rise d3">Set in the environment or Docker Compose; not editable here.</p>
+      </section>
+      <aside className="setup__actions rise d3">
+        <div className="setup__row setup__row--end">
+          <button type="button" className="setup-btn setup-btn--ghost" onClick={onBack}>
+            Back
+          </button>
+          <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
+            Continue
+          </button>
+        </div>
+      </aside>
     </>
+  );
+}
+
+function Field({
+  id,
+  label,
+  error,
+  ...input
+}: { id: string; label: string; error?: string | null } & InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <div className="setup-field">
+      <label htmlFor={id}>{label}</label>
+      <input id={id} aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined} {...input} />
+      {error ? (
+        <p id={`${id}-error`} className="setup__error" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -237,6 +424,7 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const login = useAuthStore((state) => state.login);
   const markInitialized = useSetupStore((state) => state.markInitialized);
   const reloadStatus = useSetupStore((state) => state.load);
+  const ids = useId();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -286,68 +474,82 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 
   return (
     <>
-      <h1 id="setup-title" className="setup__title">
-        Create the administrator
-      </h1>
-      <p className="setup__lede">
-        The first account becomes the administrator. Further users can be added later through the
-        API.
-      </p>
-
-      {error ? <Alert tone="error" message={error} /> : null}
-
-      <form className="setup__form" onSubmit={handleSubmit} noValidate>
-        <TextField
-          label="Username"
-          name="username"
-          autoComplete="username"
-          placeholder="admin"
-          value={username}
-          onChange={(event) => setUsername(event.target.value)}
-          disabled={submitting}
-          required
-        />
-        <TextField
-          label="Password"
-          type="password"
-          name="password"
-          autoComplete="new-password"
-          placeholder="••••••••"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          disabled={submitting}
-          required
-        />
-        <TextField
-          label="Confirm password"
-          type="password"
-          name="confirm"
-          autoComplete="new-password"
-          placeholder="••••••••"
-          value={confirm}
-          onChange={(event) => setConfirm(event.target.value)}
-          error={mismatch ? "Passwords do not match." : null}
-          disabled={submitting}
-          required
-        />
-        <div className="setup__actions">
-          <Button variant="ghost" type="button" onClick={onBack} disabled={submitting}>
-            Back
-          </Button>
-          {bootstrapClosed ? (
-            <Link className="btn btn--primary" to="/login">
-              Go to sign in
-            </Link>
-          ) : (
-            <Button variant="primary" type="submit" disabled={!canSubmit}>
-              {submitting ? "Creating account…" : "Create account and continue"}
-            </Button>
-          )}
-        </div>
-      </form>
+      <section className="setup__content">
+        <span className="setup__eyebrow rise">Admin account</span>
+        <h1 id="setup-title" className="setup__title setup__title--md">
+          <Line>The first account</Line>
+          <Line delay={0.1}>runs the place.</Line>
+        </h1>
+        <p className="setup__lede rise d2">
+          It becomes the administrator and signs you in right away. Further users can be added later
+          through the API.
+        </p>
+      </section>
+      <aside className="setup__actions rise d2">
+        <form className="setup__form" onSubmit={handleSubmit} noValidate>
+          {error ? (
+            <p className="setup__error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <Field
+            id={`${ids}-username`}
+            label="Username"
+            name="username"
+            autoComplete="username"
+            placeholder="admin"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            disabled={submitting}
+            required
+            autoFocus
+          />
+          <Field
+            id={`${ids}-password`}
+            label="Password"
+            type="password"
+            name="password"
+            autoComplete="new-password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            disabled={submitting}
+            required
+          />
+          <Field
+            id={`${ids}-confirm`}
+            label="Confirm password"
+            type="password"
+            name="confirm"
+            autoComplete="new-password"
+            placeholder="••••••••"
+            value={confirm}
+            onChange={(event) => setConfirm(event.target.value)}
+            error={mismatch ? "Passwords do not match." : null}
+            disabled={submitting}
+            required
+          />
+          <div className="setup__row setup__row--end">
+            <button type="button" className="setup-btn setup-btn--ghost" onClick={onBack} disabled={submitting}>
+              Back
+            </button>
+            {bootstrapClosed ? (
+              <Link className="setup-btn setup-btn--primary" to="/login">
+                Go to sign in
+              </Link>
+            ) : (
+              <button type="submit" className="setup-btn setup-btn--accent" disabled={!canSubmit}>
+                {submitting ? "Creating account…" : "Create account and continue"}
+              </button>
+            )}
+          </div>
+        </form>
+      </aside>
     </>
   );
 }
+
+const SAMPLE_TABLES = ["customers", "orders", "products"];
 
 function SampleDataStep({ onNext }: { onNext: () => void }) {
   const [loading, setLoading] = useState(false);
@@ -367,54 +569,80 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
   }
 
   const totalRows = result ? Object.values(result.rows_inserted).reduce((sum, count) => sum + count, 0) : 0;
+  const tables = result ? result.tables_created : SAMPLE_TABLES;
 
   return (
     <>
-      <h1 id="setup-title" className="setup__title">
-        Sample data
-      </h1>
-      <p className="setup__lede">
-        Optionally load a small demo workspace — customers, orders and products with relations and
-        a status column suited for a kanban view. This is only possible while the installation is
-        empty; you can skip it and start from a blank schema.
-      </p>
-
-      {error ? <Alert tone="error" message={error} /> : null}
-
-      {result ? (
-        <Alert
-          tone="success"
-          title="Demo workspace loaded"
-          message={
-            <span>
-              {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows,
-              schema version {result.schema_version}.
-            </span>
-          }
-        />
-      ) : null}
-
-      <div className={result ? "setup__actions setup__actions--end" : "setup__actions"}>
+      <section className="setup__content">
+        <span className="setup__eyebrow rise">Sample data</span>
+        <h1 id="setup-title" className="setup__title setup__title--md">
+          <Line>Start with</Line>
+          <Line delay={0.1}>something to see.</Line>
+        </h1>
+        <div className="setup__constellation rise d2" aria-hidden="true">
+          {result ? (
+            <svg className="setup__wires" viewBox="0 0 560 200" xmlns="http://www.w3.org/2000/svg">
+              <path className="setup__wire" d="M 150 40 C 220 40, 200 130, 240 130" />
+              <path className="setup__wire setup__wire--2" d="M 380 130 C 430 130, 400 30, 430 30" />
+            </svg>
+          ) : null}
+          {tables.slice(0, 3).map((table, i) => (
+            <div key={table} className={`setup__node setup__node--${i + 1}`}>
+              <span>{table}</span>
+              {result ? <span className="setup__node-count">{result.rows_inserted[table] ?? 0} rows</span> : null}
+            </div>
+          ))}
+        </div>
+      </section>
+      <aside className="setup__actions rise d3">
+        {error ? (
+          <p className="setup__error" role="alert">
+            {error}
+          </p>
+        ) : null}
         {result ? (
-          <Button variant="primary" onClick={onNext}>
-            Continue
-          </Button>
+          <div className="setup__stack setup__stack--end">
+            <div className="setup__success">
+              <span className="setup__tick" aria-hidden="true">
+                <Icon name="check" size={12} />
+              </span>
+              <span>
+                <strong>Demo workspace loaded.</strong>{" "}
+                {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows,
+                schema version {result.schema_version}.
+              </span>
+            </div>
+            <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
+              Continue
+            </button>
+          </div>
         ) : (
-          <>
-            <Button variant="ghost" onClick={onNext} disabled={loading}>
-              Skip for now
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => void handleLoad()}
-              disabled={loading}
-              leadingIcon={<Icon name="database" size={14} />}
-            >
-              {loading ? "Loading sample data…" : "Load sample data"}
-            </Button>
-          </>
+          <div className="setup__stack setup__stack--end">
+            <p className="setup__note setup__note--right">
+              A small demo workspace: customers, orders and products with relations and an order
+              status made for a kanban board. Only possible while the installation is empty.
+            </p>
+            <div className="setup__row setup__row--end">
+              <button type="button" className="setup-btn setup-btn--ghost" onClick={onNext} disabled={loading}>
+                Skip for now
+              </button>
+              <button type="button" className="setup-btn setup-btn--accent" onClick={() => void handleLoad()} disabled={loading}>
+                {loading ? (
+                  <>
+                    <span className="setup__spin" aria-hidden="true" />
+                    Applying schema and rows…
+                  </>
+                ) : (
+                  <>
+                    <Icon name="database" size={14} />
+                    Load sample data
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
         )}
-      </div>
+      </aside>
     </>
   );
 }
@@ -423,6 +651,7 @@ function DoneStep({ info }: { info: SetupStatus }) {
   const navigate = useNavigate();
   const completeWizard = useSetupStore((state) => state.completeWizard);
   const authStatus = useAuthStore((state) => state.status);
+  const user = useAuthStore((state) => state.user);
   const signedIn = authStatus === "authenticated" || !info.auth_required;
 
   function finish() {
@@ -432,19 +661,25 @@ function DoneStep({ info }: { info: SetupStatus }) {
 
   return (
     <>
-      <h1 id="setup-title" className="setup__title">
-        Setup complete
-      </h1>
-      <p className="setup__lede">
-        {signedIn
-          ? "Repere is ready. Open the workspace to design your schema and start working with data."
-          : "Repere is ready. Sign in with the administrator account you just created to open the workspace."}
-      </p>
-      <div className="setup__actions setup__actions--end">
-        <Button variant="primary" onClick={finish} trailingIcon={<Icon name="expand" size={14} />}>
-          {signedIn ? "Open workspace" : "Go to sign in"}
-        </Button>
-      </div>
+      <section className="setup__content">
+        <span className="setup__eyebrow setup__eyebrow--ok rise">Done</span>
+        <h1 id="setup-title" className="setup__title setup__title--xl">
+          <Line>Ready.</Line>
+        </h1>
+        <p className="setup__lede rise d2">
+          {signedIn
+            ? "Open the workspace to design your schema and start working with data."
+            : "Sign in with the administrator account you just created to open the workspace."}
+        </p>
+      </section>
+      <aside className="setup__actions rise d3">
+        <div className="setup__row setup__row--end">
+          {user ? <span className="setup__hint">signed in as {user.username}</span> : null}
+          <button type="button" className="setup-btn setup-btn--primary" onClick={finish} autoFocus>
+            {signedIn ? "Open workspace" : "Go to sign in"} <ArrowIcon />
+          </button>
+        </div>
+      </aside>
     </>
   );
 }

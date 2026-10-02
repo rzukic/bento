@@ -115,7 +115,7 @@ describe("First-run routing", () => {
     const router = createTestRouter(["/"]);
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole("heading", { name: /welcome to repere/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /one place to shape it/i })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/setup");
     // The gate decided before auth even tried to resume a session.
     expect(useAuthStore.getState().status).toBe("idle");
@@ -126,7 +126,7 @@ describe("First-run routing", () => {
     const router = createTestRouter(["/login"]);
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByRole("heading", { name: /welcome to repere/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /one place to shape it/i })).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/setup");
   });
 
@@ -168,7 +168,7 @@ describe("First-run routing", () => {
     expect(screen.getByText(/database is starting/i)).toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: /retry/i }));
-    expect(await screen.findByRole("heading", { name: /welcome to repere/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /one place to shape it/i })).toBeInTheDocument();
   });
 });
 
@@ -215,18 +215,18 @@ describe("Setup wizard", () => {
     const user = userEvent.setup();
 
     // Welcome
-    await screen.findByRole("heading", { name: /welcome to repere/i });
+    await screen.findByRole("heading", { name: /one place to shape it/i });
     await user.click(screen.getByRole("button", { name: /get started/i }));
 
     // Environment: read-only facts from the status endpoint
-    await screen.findByRole("heading", { name: /^environment$/i });
+    await screen.findByRole("heading", { name: /read from your deployment/i });
     expect(screen.getByText("sqlite")).toBeInTheDocument();
     expect(screen.getByText("standard")).toBeInTheDocument();
     expect(screen.getByText("0.2.0-test")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
     // Admin account: confirm must match before the submit enables
-    await screen.findByRole("heading", { name: /create the administrator/i });
+    await screen.findByRole("heading", { name: /first account runs the place/i });
     await user.type(screen.getByRole("textbox", { name: /username/i }), "root");
     await user.type(screen.getByLabelText(/^password/i), "correct horse battery");
     await user.type(screen.getByLabelText(/confirm password/i), "wrong");
@@ -237,7 +237,7 @@ describe("Setup wizard", () => {
     await user.click(screen.getByRole("button", { name: /create account and continue/i }));
 
     // Sample data: loaded via the authenticated client
-    await screen.findByRole("heading", { name: /^sample data$/i });
+    await screen.findByRole("heading", { name: /start with something to see/i });
     expect(registered).toEqual([{ username: "root", password: "correct horse battery" }]);
     expect(useAuthStore.getState().status).toBe("authenticated");
     expect(useSetupStore.getState().info?.initialized).toBe(true);
@@ -252,7 +252,7 @@ describe("Setup wizard", () => {
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
     // Done → workspace
-    await screen.findByRole("heading", { name: /setup complete/i });
+    await screen.findByRole("heading", { name: /^ready\.$/i });
     await user.click(screen.getByRole("button", { name: /open workspace/i }));
 
     await waitFor(() => {
@@ -271,7 +271,7 @@ describe("Setup wizard", () => {
     await user.click(await screen.findByRole("button", { name: /get started/i }));
     await user.click(await screen.findByRole("button", { name: /continue/i }));
 
-    expect(await screen.findByRole("heading", { name: /^sample data$/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /start with something to see/i })).toBeInTheDocument();
     expect(screen.queryByText(/admin account/i)).not.toBeInTheDocument();
   });
 
@@ -285,7 +285,7 @@ describe("Setup wizard", () => {
     await user.click(await screen.findByRole("button", { name: /continue/i }));
     await user.click(await screen.findByRole("button", { name: /skip for now/i }));
 
-    expect(await screen.findByRole("heading", { name: /setup complete/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /^ready\.$/i })).toBeInTheDocument();
   });
 
   it("explains when another admin was registered first and points to sign-in", async () => {
@@ -310,7 +310,7 @@ describe("Setup wizard", () => {
 
     await user.click(await screen.findByRole("button", { name: /get started/i }));
     await user.click(await screen.findByRole("button", { name: /continue/i }));
-    await screen.findByRole("heading", { name: /create the administrator/i });
+    await screen.findByRole("heading", { name: /first account runs the place/i });
     await user.type(screen.getByRole("textbox", { name: /username/i }), "late");
     await user.type(screen.getByLabelText(/^password/i), "pw-123456");
     await user.type(screen.getByLabelText(/confirm password/i), "pw-123456");
@@ -335,7 +335,7 @@ describe("Setup wizard", () => {
 
     await user.click(await screen.findByRole("button", { name: /get started/i }));
     await user.click(await screen.findByRole("button", { name: /continue/i }));
-    await screen.findByRole("heading", { name: /create the administrator/i });
+    await screen.findByRole("heading", { name: /first account runs the place/i });
     await user.type(screen.getByRole("textbox", { name: /username/i }), "root");
     await user.type(screen.getByLabelText(/^password/i), "short");
     await user.type(screen.getByLabelText(/confirm password/i), "short");
