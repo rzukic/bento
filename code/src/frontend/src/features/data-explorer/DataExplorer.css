@@ -5509,3 +5509,114 @@
     min-height: 1.6rem;
     cursor: default;
 }
+
+/* ── Many-to-many links in the record editor's side column ──
+   One card, one row per linked record: name + extra link fields, an open
+   arrow and a remove cross. A row opens to edit the link's own fields;
+   a new link is a small stacked form at the bottom. Everything fits the
+   narrow column, nothing scrolls sideways. */
+.record-editor__link-row {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding-right: 0.375rem;
+}
+
+.record-editor__relation-list > li + li .record-editor__link-row {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-list > li + li .record-editor__link-main {
+    border-top: 0;
+}
+
+.record-editor__link-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.record-editor__link-main .record-editor__relation-row-title,
+.record-editor__link-main .record-editor__relation-row-meta {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.record-editor__link-action {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--text-4);
+    cursor: pointer;
+}
+
+.record-editor__link-action:hover,
+.record-editor__link-action:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.record-editor__link-action--remove:hover {
+    color: var(--danger);
+}
+
+.record-editor__link--open > .record-editor__link-row {
+    background: var(--hover);
+}
+
+.record-editor__link-fields {
+    padding: 0.75rem 0.875rem 0.875rem;
+}
+
+.record-editor__link--draft {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-list > li:first-child.record-editor__link--draft {
+    border-top: 0;
+}
+
+.record-editor__link-draft-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 0.5rem 0.5rem;
+}
+
+/* Compact fields: the static value and its editor share one smaller box. */
+.record-editor__link-fields .record-editor__fields {
+    gap: 0.875rem;
+}
+
+.record-editor__link-fields .record-editor__field-display,
+.record-editor__link-fields .record-editor__field-readonly,
+.record-editor__link-fields .record-editor__field-editor .cell-editor input,
+.record-editor__link-fields .record-editor__field-editor .cell-editor select {
+    height: 2.25rem;
+    min-height: 2.25rem;
+    font-size: 0.9375rem;
+}
+
+.record-editor__relation-empty,
+.record-editor__relation-more {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 0.8125rem;
+}
+
+.record-editor__link-main .record-editor__relation-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.75rem;
+}
+
+.record-editor__link-meta-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.375rem;
+}

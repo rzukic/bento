@@ -76,7 +76,8 @@ export function useReferenceLabels(
       return;
     }
     let cancelled = false;
-    void Promise.all(
+    // Each FK column on its own: one failed lookup must not drop the others.
+    void Promise.allSettled(
       plans.map(async (plan) => {
         const res = await fetchTableRows(plan.refTable, {
           ...DEFAULT_QUERY,
@@ -94,9 +95,13 @@ export function useReferenceLabels(
         return [plan.columnName, byId] as const;
       }),
     )
-      .then((entries) => {
+      .then((results) => {
         if (cancelled) return;
-        setLabels(Object.fromEntries(entries));
+        setLabels(
+          Object.fromEntries(
+            results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])),
+          ),
+        );
       })
       .catch(() => {
         /* ignore — chip falls back to id */

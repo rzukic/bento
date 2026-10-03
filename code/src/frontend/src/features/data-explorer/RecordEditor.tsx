@@ -4,10 +4,11 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type ReactNode,
   type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { buildQueryString, createRow, fetchTableRows, patchRow } from "../../api/data";
+import { buildQueryString, createRow, deleteRow, fetchTableRows, patchRow } from "../../api/data";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/Dialog";
@@ -22,7 +23,6 @@ import { DEFAULT_QUERY } from "../../types/explorer";
 import type { ModelColumn, ModelTable } from "../../types/api";
 import { pickEditorForColumn } from "./components/editors";
 import { renderCellValue } from "./components/cellValue";
-import { DataGrid } from "./components/DataGrid";
 import {
   lookupReferenceLabel,
   useReferenceLabels,
@@ -108,19 +108,6 @@ function buildDraftJunctionRow(
     row[column.name] = column.name === hiddenColumnName ? hiddenValue : null;
   }
   return row;
-}
-
-function isJunctionCreateReady(
-  table: ModelTable,
-  row: Record<string, unknown>,
-): boolean {
-  for (const column of table.columns.filter(isWritableColumn)) {
-    if (!column.primaryKey && column.nullable !== false) continue;
-    if (column.default !== undefined) continue;
-    const value = row[column.name];
-    if (value === undefined || value === null || value === "") return false;
-  }
-  return true;
 }
 
 function buildJunctionPayload(
@@ -824,6 +811,13 @@ type ManyToManyRelationSectionProps = {
   ) => void;
 };
 
+/**
+ * Many-to-many links, built for the editor's narrow side column: one row per
+ * linked record (its name, plus any extra link fields underneath), "Link" to
+ * add one through a search picker, a row opens to edit the link's own fields,
+ * the arrow opens the linked record and the cross removes the link. No grid,
+ * no horizontal scrolling.
+ */
 function ManyToManyRelationSection({
   currentRowId,
   currentRow,
@@ -833,86 +827,235 @@ function ManyToManyRelationSection({
   setState,
   onOpenRecord,
 }: ManyToManyRelationSectionProps) {
+  const junction = relatedTable;
   const hiddenColumnName = section.hiddenColumn ?? section.filterColumn;
-  const hiddenColumn = relatedTable.columns.find(
-    (column) => column.name === hiddenColumnName,
+  const hiddenColumn = junction.columns.find((column) => column.name === hiddenColumnName);
+  const linkColumn =
+    junction.columns.find((column) => column.name === section.relatedColumn) ??
+    junction.columns.find(
+      (column) =>
+        column.name !== hiddenColumnName &&
+        (Boolean(column.references) || column.type === "relation"),
+    ) ??
+    null;
+  const linkTargetTable = linkColumn ? getFkTargetTable(linkColumn) : null;
+  const snapshotTables = useSchemaStore((store) => store.snapshot?.tables);
+  const linkTargetModel = snapshotTables?.find((table) => table.name === linkTargetTable);
+  const linkTargetLabel =
+    linkTargetModel?.displayName ?? linkTargetModel?.name ?? linkColumn?.displayName ?? linkColumn?.name;
+  const extraColumns = useMemo(
+    () =>
+      junction.columns.filter(
+        (column) => column.name !== hiddenColumnName && column.name !== linkColumn?.name,
+      ),
+    [hiddenColumnName, junction.columns, linkColumn?.name],
   );
-  const visibleTable = useMemo<ModelTable>(
-    () => ({
-      ...relatedTable,
-      columns: relatedTable.columns.filter((column) => column.name !== hiddenColumnName),
-    }),
-    [hiddenColumnName, relatedTable],
+  // Fields a new link asks for. A junction's created_at is filled by the
+  // database (every junction the server builds has it with a default).
+  const draftExtraColumns = useMemo(
+    () =>
+      extraColumns.filter(
+        (column) =>
+          isWritableColumn(column) &&
+          !(column.name === "created_at" && column.type === "datetime"),
+      ),
+    [extraColumns],
   );
-  const rows = useMemo(
-    () => state.rows.map((row) => ensureRowId(relatedTable, row)),
-    [relatedTable, state.rows],
+  const extraTable = useMemo<ModelTable>(
+    () => ({ ...junction, columns: extraColumns }),
+    [extraColumns, junction],
   );
-
   const hiddenValue = useMemo(() => {
-    const pkColumn = relatedTable.columns.find(
+    const pkColumn = junction.columns.find(
       (column) => column.primaryKey && column.name === hiddenColumnName,
     );
     const raw = pkColumn ? currentRow[pkColumn.name] : currentRowId;
     return coerceColumnValue(hiddenColumn ?? null, raw ?? currentRowId);
-  }, [currentRow, currentRowId, hiddenColumn, hiddenColumnName, relatedTable.columns]);
+  }, [currentRow, currentRowId, hiddenColumn, hiddenColumnName, junction.columns]);
 
-  const firstWritableVisibleColumn = visibleTable.columns.find(isWritableColumn);
+  const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
+  const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
+  const draftRows = useMemo(
+    () => (draft ? [...state.rows, draft] : state.rows),
+    [draft, state.rows],
+  );
+  const labels = useReferenceLabels(junction, draftRows);
+  const sectionId = `record-editor-relation-${junction.name}-${section.filterColumn}`;
+  const draftRowId = "draft";
 
-  function updateRows(
-    updater: (rows: Record<string, unknown>[]) => Record<string, unknown>[],
-  ) {
-    setState((current) => ({ ...current, rows: updater(current.rows) }));
+  function linkLabel(row: Record<string, unknown>): string {
+    if (!linkColumn) return String(row.id ?? "");
+    const value = row[linkColumn.name];
+    return lookupReferenceLabel(labels, linkColumn, value) ?? String(value ?? "");
   }
 
-  function clearCellError(rowId: string, columnName: string) {
+  /** The link's own values under its name, formatted like everywhere else. */
+  function linkMeta(row: Record<string, unknown>): ReactNode {
+    const parts = draftExtraColumns
+      .map((column) => {
+        const value = row[column.name];
+        if (value === null || value === undefined || value === "") return null;
+        return (
+          <span key={column.name} className="record-editor__link-meta-item">
+            {column.displayName ?? column.name} {renderCellValue(column, value)}
+          </span>
+        );
+      })
+      .filter(Boolean);
+    return parts.length > 0 ? parts : null;
+  }
+
+  function setRowError(rowId: string, columnName: string, message: string | null) {
     setState((current) => {
-      const rowErrors = current.cellErrors[rowId];
-      if (!rowErrors?.[columnName]) return current;
-      const nextRowErrors = { ...rowErrors };
-      delete nextRowErrors[columnName];
-      const nextErrors = { ...current.cellErrors };
-      if (Object.keys(nextRowErrors).length > 0) {
-        nextErrors[rowId] = nextRowErrors;
-      } else {
-        delete nextErrors[rowId];
-      }
-      return { ...current, cellErrors: nextErrors };
+      const rowErrors = { ...(current.cellErrors[rowId] ?? {}) };
+      if (message) rowErrors[columnName] = message;
+      else delete rowErrors[columnName];
+      const cellErrors = { ...current.cellErrors };
+      if (Object.keys(rowErrors).length > 0) cellErrors[rowId] = rowErrors;
+      else delete cellErrors[rowId];
+      return { ...current, cellErrors };
     });
   }
 
-  function setCellError(rowId: string, columnName: string, message: string) {
+  /** The first required field the draft is still missing (link target first). */
+  function nextMissingField(row: Record<string, unknown>): ModelColumn | null {
+    const candidates = [linkColumn, ...draftExtraColumns].filter(
+      (column): column is ModelColumn => Boolean(column) && isWritableColumn(column!),
+    );
+    return (
+      candidates.find((column) => {
+        const required =
+          column.name === linkColumn?.name ||
+          (column.nullable === false && column.default === undefined);
+        const value = row[column.name];
+        return required && (value === undefined || value === null || value === "");
+      }) ?? null
+    );
+  }
+
+  function startLink() {
+    if (!linkColumn) return;
+    setExpandedRowId(null);
+    setDraft(buildDraftJunctionRow(junction, hiddenColumnName, hiddenValue));
     setState((current) => ({
       ...current,
-      cellErrors: {
-        ...current.cellErrors,
-        [rowId]: {
-          ...(current.cellErrors[rowId] ?? {}),
-          [columnName]: message,
-        },
-      },
-      editingCell: { rowId, columnName },
+      editingCell: { rowId: draftRowId, columnName: linkColumn.name },
     }));
   }
 
+  function cancelDraft() {
+    setDraft(null);
+    setRowError(draftRowId, linkColumn?.name ?? "", null);
+    setState((current) => ({ ...current, editingCell: null }));
+  }
+
+  async function commitDraftField(column: ModelColumn, value: unknown) {
+    if (!draft) return;
+    const next = { ...draft, [hiddenColumnName]: hiddenValue, [column.name]: value };
+    setDraft(next);
+    setRowError(draftRowId, column.name, null);
+    const missing = nextMissingField(next);
+    if (missing) {
+      setState((current) => ({
+        ...current,
+        editingCell: missing ? { rowId: draftRowId, columnName: missing.name } : null,
+      }));
+      return;
+    }
+    try {
+      const created = ensureRowId(junction, await createRow(junction.name, buildJunctionPayload(junction, next)));
+      setDraft(null);
+      setState((current) => ({
+        ...current,
+        rows: [...current.rows, created],
+        total: (current.total ?? current.rows.length) + 1,
+        editingCell: null,
+      }));
+    } catch (error) {
+      setRowError(
+        draftRowId,
+        column.name,
+        error instanceof Error ? error.message : "Could not add the link.",
+      );
+      setState((current) => ({
+        ...current,
+        editingCell: { rowId: draftRowId, columnName: column.name },
+      }));
+    }
+  }
+
+  async function commitRowField(row: Record<string, unknown>, column: ModelColumn, value: unknown) {
+    const rowId = String(row.id ?? "");
+    try {
+      const patched = ensureRowId(
+        junction,
+        await patchRow(junction.name, getPersistedRowId(junction, row, rowId), {
+          [column.name]: value,
+        }),
+      );
+      setRowError(rowId, column.name, null);
+      setState((current) => ({
+        ...current,
+        rows: current.rows.map((candidate) =>
+          String(candidate.id ?? "") === rowId ? patched : candidate,
+        ),
+        editingCell: null,
+      }));
+    } catch (error) {
+      setRowError(
+        rowId,
+        column.name,
+        error instanceof Error ? error.message : "Failed to save value.",
+      );
+    }
+  }
+
+  async function removeLink(row: Record<string, unknown>) {
+    const rowId = String(row.id ?? "");
+    try {
+      await deleteRow(junction.name, getPersistedRowId(junction, row, rowId));
+      if (expandedRowId === rowId) setExpandedRowId(null);
+      setState((current) => ({
+        ...current,
+        rows: current.rows.filter((candidate) => String(candidate.id ?? "") !== rowId),
+        total: Math.max(0, (current.total ?? current.rows.length) - 1),
+      }));
+    } catch (error) {
+      setState((current) => ({
+        ...current,
+        error: error instanceof Error ? error.message : "Could not remove the link.",
+      }));
+    }
+  }
+
+  const hiddenRows = Math.max(0, (state.total ?? state.rows.length) - state.rows.length);
+
   return (
     <section
-      className="record-editor__relation-section record-editor__relation-section--grid"
-      aria-labelledby={`record-editor-relation-${relatedTable.name}-${section.filterColumn}`}
-      data-testid={`record-editor-relation-grid-${relatedTable.name}`}
+      className="record-editor__relation-section record-editor__relation-section--links"
+      aria-labelledby={sectionId}
+      data-testid={`record-editor-relation-links-${junction.name}`}
     >
       <header className="record-editor__relation-header">
         <div className="record-editor__relation-title-group">
-          <h3
-            id={`record-editor-relation-${relatedTable.name}-${section.filterColumn}`}
-            className="record-editor__relation-title"
-          >
+          <h3 id={sectionId} className="record-editor__relation-title">
             {section.label}
           </h3>
-          <span className="record-editor__relation-count">
-            {state.total ?? "…"}
-          </span>
+          <span className="record-editor__relation-count">{state.total ?? "…"}</span>
         </div>
+        {linkColumn ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            leadingIcon={<Icon name="plus" size={13} />}
+            aria-label={`Link ${section.label}`}
+            disabled={draft !== null || state.status !== "ready"}
+            onClick={startLink}
+          >
+            Link
+          </Button>
+        ) : null}
       </header>
 
       {state.status === "loading" ? (
@@ -924,120 +1067,155 @@ function ManyToManyRelationSection({
         <p
           className="record-editor__relation-error"
           role="alert"
-          data-testid={`record-editor-relation-error-${relatedTable.name}`}
+          data-testid={`record-editor-relation-error-${junction.name}`}
         >
           {state.error ?? "Failed to load related rows."}
         </p>
       ) : (
-        <div className="record-editor__relation-grid">
-          <DataGrid
-            table={visibleTable}
-            rows={rows}
-            page={1}
-            perPage={5}
-            pendingNewRowIds={state.pendingNewRowIds}
-            editingCell={state.editingCell}
-            cellErrors={state.cellErrors}
-            onAddRow={() => {
-              if (!firstWritableVisibleColumn) return;
-              const draftId = `new:${relatedTable.name}:${Date.now()}`;
-              const draft = buildDraftJunctionRow(relatedTable, hiddenColumnName, hiddenValue);
-              setState((current) => ({
-                ...current,
-                rows: [...current.rows, { ...draft, id: draftId }],
-                total: (current.total ?? current.rows.length) + 1,
-                pendingNewRowIds: [...current.pendingNewRowIds, draftId],
-                editingCell: {
-                  rowId: draftId,
-                  columnName: firstWritableVisibleColumn.name,
-                },
-              }));
-            }}
-            onStartEdit={(row, column) => {
-              const rowId = String(row.id ?? "");
-              setState((current) => ({
-                ...current,
-                editingCell: { rowId, columnName: column.name },
-              }));
-            }}
-            onCancelEdit={() => {
-              setState((current) => ({ ...current, editingCell: null }));
-            }}
-            onCommitEdit={(row, column, nextValue) => {
-              const rowId = String(row.id ?? "");
-              const nextRow = {
-                ...row,
-                [hiddenColumnName]: hiddenValue,
-                [column.name]: nextValue,
-              };
-              const persistedRowId = getPersistedRowId(relatedTable, nextRow, rowId);
-              const isPending = state.pendingNewRowIds.includes(rowId);
-
-              if (isPending && !isJunctionCreateReady(relatedTable, nextRow)) {
-                updateRows((currentRows) =>
-                  currentRows.map((candidate) =>
-                    String(candidate.id ?? "") === rowId ? nextRow : candidate,
-                  ),
+        <>
+          {state.error ? (
+            <p className="record-editor__relation-error" role="alert">
+              {state.error}
+            </p>
+          ) : null}
+          {state.rows.length > 0 || draft ? (
+            <ol className="record-editor__relation-list">
+              {state.rows.map((row) => {
+                const rowId = String(row.id ?? "");
+                const label = linkLabel(row);
+                const meta = linkMeta(row);
+                const expanded = expandedRowId === rowId && extraColumns.length > 0;
+                const targetId = linkColumn ? row[linkColumn.name] : null;
+                return (
+                  <li
+                    key={rowId}
+                    className={expanded ? "record-editor__link record-editor__link--open" : "record-editor__link"}
+                  >
+                    <div className="record-editor__link-row">
+                      <button
+                        type="button"
+                        className="record-editor__relation-row record-editor__link-main"
+                        aria-expanded={extraColumns.length > 0 ? expanded : undefined}
+                        onClick={() => {
+                          if (extraColumns.length === 0) {
+                            if (linkTargetTable && targetId != null) {
+                              onOpenRecord(linkTargetTable, String(targetId));
+                            }
+                            return;
+                          }
+                          setExpandedRowId(expanded ? null : rowId);
+                          setState((current) => ({ ...current, editingCell: null }));
+                        }}
+                      >
+                        <span className="record-editor__relation-row-title">{label}</span>
+                        {meta ? <span className="record-editor__relation-row-meta">{meta}</span> : null}
+                      </button>
+                      {linkTargetTable && targetId != null ? (
+                        <button
+                          type="button"
+                          className="record-editor__link-action"
+                          aria-label={`Open ${label}`}
+                          title={`Open ${label}`}
+                          onClick={() => onOpenRecord(linkTargetTable, String(targetId))}
+                        >
+                          <Icon name="arrow-right" size={13} />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="record-editor__link-action record-editor__link-action--remove"
+                        aria-label={`Remove link to ${label}`}
+                        title="Remove link"
+                        onClick={() => void removeLink(row)}
+                      >
+                        <Icon name="x" size={13} />
+                      </button>
+                    </div>
+                    {expanded ? (
+                      <div className="record-editor__link-fields">
+                        <RecordFieldList
+                          table={extraTable}
+                          row={row}
+                          cellErrors={state.cellErrors[rowId] ?? EMPTY_CELL_ERRORS}
+                          pendingCellSaves={EMPTY_PENDING_SAVES}
+                          editingCell={state.editingCell}
+                          referenceLabels={labels}
+                          onStartEdit={(column) =>
+                            setState((current) => ({
+                              ...current,
+                              editingCell: { rowId, columnName: column.name },
+                            }))
+                          }
+                          onOpenReference={(column, value) => {
+                            const target = getFkTargetTable(column);
+                            if (target && value != null && value !== "") {
+                              onOpenRecord(target, String(value));
+                            }
+                          }}
+                          onCancelEdit={() =>
+                            setState((current) => ({ ...current, editingCell: null }))
+                          }
+                          onCommitField={(column, value) => void commitRowField(row, column, value)}
+                        />
+                      </div>
+                    ) : null}
+                  </li>
                 );
-                setState((current) => ({ ...current, editingCell: null }));
-                clearCellError(rowId, column.name);
-                return;
-              }
-
-              void (async () => {
-                try {
-                  if (isPending) {
-                    const created = await createRow(
-                      relatedTable.name,
-                      buildJunctionPayload(relatedTable, nextRow),
-                    );
-                    const createdWithId = ensureRowId(relatedTable, created);
-                    setState((current) => ({
-                      ...current,
-                      rows: current.rows.map((candidate) =>
-                        String(candidate.id ?? "") === rowId ? createdWithId : candidate,
-                      ),
-                      pendingNewRowIds: current.pendingNewRowIds.filter((id) => id !== rowId),
-                      editingCell: null,
-                    }));
-                    clearCellError(rowId, column.name);
-                    return;
-                  }
-
-                  const patched = await patchRow(relatedTable.name, persistedRowId, {
-                    [column.name]: nextValue,
-                  });
-                  const patchedWithId = ensureRowId(relatedTable, patched);
-                  setState((current) => ({
-                    ...current,
-                    rows: current.rows.map((candidate) =>
-                      String(candidate.id ?? "") === rowId ? patchedWithId : candidate,
-                    ),
-                    editingCell: null,
-                  }));
-                  clearCellError(rowId, column.name);
-                } catch (error) {
-                  setCellError(
-                    rowId,
-                    column.name,
-                    error instanceof Error ? error.message : "Failed to save value.",
-                  );
-                }
-              })();
-            }}
-            onOpenRecord={(row) => {
-              const rowId = String(row.id ?? "");
-              if (!rowId) return;
-              onOpenRecord(relatedTable.name, rowId, row);
-            }}
-            onNavigateReference={(column, value) => {
-              const targetTable = getFkTargetTable(column);
-              if (!targetTable) return;
-              if (value === null || value === undefined || value === "") return;
-              onOpenRecord(targetTable, String(value));
-            }}
-          />
-        </div>
+              })}
+              {draft && linkColumn ? (
+                <li className="record-editor__link record-editor__link--open record-editor__link--draft">
+                  <div className="record-editor__link-fields">
+                    <RecordFieldList
+                      table={{
+                        ...junction,
+                        // The picker reads as the linked table, not as a key column.
+                        columns: [
+                          {
+                            ...linkColumn,
+                            primaryKey: false,
+                            displayName: linkTargetLabel,
+                          },
+                          ...draftExtraColumns,
+                        ],
+                      }}
+                      row={{ ...draft, id: draftRowId }}
+                      cellErrors={state.cellErrors[draftRowId] ?? EMPTY_CELL_ERRORS}
+                      pendingCellSaves={EMPTY_PENDING_SAVES}
+                      editingCell={state.editingCell}
+                      referenceLabels={labels}
+                      onStartEdit={(column) =>
+                        setState((current) => ({
+                          ...current,
+                          editingCell: { rowId: draftRowId, columnName: column.name },
+                        }))
+                      }
+                      onOpenReference={() => undefined}
+                      onCancelEdit={() => {
+                        const chosen = draft[linkColumn.name];
+                        if (chosen === null || chosen === undefined || chosen === "") {
+                          cancelDraft();
+                          return;
+                        }
+                        setState((current) => ({ ...current, editingCell: null }));
+                      }}
+                      onCommitField={(column, value) => void commitDraftField(column, value)}
+                    />
+                  </div>
+                  <div className="record-editor__link-draft-actions">
+                    <Button type="button" variant="ghost" size="sm" onClick={cancelDraft}>
+                      Cancel
+                    </Button>
+                  </div>
+                </li>
+              ) : null}
+            </ol>
+          ) : (
+            <p className="record-editor__relation-empty">No linked {section.label} yet.</p>
+          )}
+          {hiddenRows > 0 ? (
+            <p className="record-editor__relation-more">+{hiddenRows} more</p>
+          ) : null}
+        </>
       )}
     </section>
   );
