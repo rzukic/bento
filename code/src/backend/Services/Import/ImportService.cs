@@ -17,6 +17,8 @@ public sealed class ImportService
 {
     public const int MaxReturnedRows = 1000;
     private const int AnalyzeSampleRows = 200;
+    private const int InferenceRows = 5000;
+    private const int MaxDistinctValues = 100;
     private const int PreviewRows = 20;
 
     private static readonly JsonSerializerOptions BodyJson = new(JsonSerializerDefaults.Web);
@@ -46,16 +48,21 @@ public sealed class ImportService
         var document = ReadDocument(request.Content, request.Settings);
         var locale = ResolveLocale(document, request.Settings);
         var headers = document.Headers;
-        var sampleRecords = document.DataRecords.Take(AnalyzeSampleRows).Select(record => record.Cells).ToList();
+        var records = document.DataRecords.Take(InferenceRows).Select(record => record.Cells).ToList();
 
         var columns = headers.Select((name, index) =>
         {
-            var values = sampleRecords.Select(cells => index < cells.Length ? cells[index] : "").ToList();
+            var values = records.Select(cells => index < cells.Length ? cells[index] : "").ToList();
+            var filled = values.Where(v => !ImportValueParser.IsBlank(v)).Select(v => v.Trim()).ToList();
+            var distinct = filled.Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             return new ImportAnalyzedColumn(
                 index,
                 name,
-                values.Where(v => !ImportValueParser.IsBlank(v)).Select(v => v.Trim()).Distinct().Take(5).ToList(),
-                ImportValueParser.InferType(values, locale).ToString().ToLowerInvariant());
+                distinct.Take(5).ToList(),
+                ImportValueParser.InferType(values, locale).ToString().ToLowerInvariant(),
+                values.Count - filled.Count,
+                distinct.Count,
+                distinct.Take(MaxDistinctValues).ToList());
         }).ToList();
 
         return new ImportAnalyzeResponse(
@@ -86,7 +93,7 @@ public sealed class ImportService
         foreach (var (line, cells) in document.DataRecords)
             rows.Add(ConvertRow(line, cells, mapping, locale, references));
 
-        await MarkDuplicatesAsync(table, rows, keyColumns);
+        await MarkDuplicatesAsync(table, rows, keyColumns, request.DistinctKeys);
         MarkUniqueConflictsInFile(table, rows);
         foreach (var row in rows.Where(r => r.Status == ImportRowStatus.New))
             await ValidateAsync(table, row);
@@ -483,7 +490,7 @@ public sealed class ImportService
     /// on the same day imports both, unless the table already has them —
     /// re-importing an overlapping statement adds only what is missing.
     /// </summary>
-    private async Task MarkDuplicatesAsync(TableDef table, List<PendingRow> rows, List<ColumnDef> keyColumns)
+    private async Task MarkDuplicatesAsync(TableDef table, List<PendingRow> rows, List<ColumnDef> keyColumns, bool distinctKeys)
     {
         if (keyColumns.Count == 0)
             return;
@@ -494,7 +501,7 @@ public sealed class ImportService
             var select = $"SELECT {string.Join(", ", keyColumns.Select(c => Quote(c.Name)))} FROM {Quote(table.Name)}";
             foreach (IDictionary<string, object?> record in await scope.Db.Connection.QueryAsync(select))
             {
-                var key = KeyOf(keyColumns, column => record.TryGetValue(column.Name, out var v) ? v : null);
+                var key = KeyOf(keyColumns, column => record.TryGetValue(column.Name, out var v) ? v : null, distinctKeys);
                 existing[key] = existing.GetValueOrDefault(key) + 1;
             }
         }
@@ -502,16 +509,24 @@ public sealed class ImportService
         var seen = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var row in rows.Where(r => r.Status == ImportRowStatus.New))
         {
-            var key = KeyOf(keyColumns, column => row.Values.GetValueOrDefault(column.Name));
+            var key = KeyOf(keyColumns, column => row.Values.GetValueOrDefault(column.Name), distinctKeys);
             var count = seen.GetValueOrDefault(key);
             seen[key] = count + 1;
-            if (count < existing.GetValueOrDefault(key))
+            if (count < existing.GetValueOrDefault(key) || (distinctKeys && count > 0))
                 row.Status = ImportRowStatus.Duplicate;
         }
     }
 
-    private static string KeyOf(List<ColumnDef> keyColumns, Func<ColumnDef, object?> valueOf) =>
-        string.Join("\u001F", keyColumns.Select(column => Canonical(valueOf(column), column.Type)));
+    /// <summary>
+    /// The key of a row. For lookup values (<paramref name="ignoreCase"/>)
+    /// "Lebensmittel" and "lebensmittel" are one entry, as reference lookups
+    /// match names without regard to case.
+    /// </summary>
+    private static string KeyOf(List<ColumnDef> keyColumns, Func<ColumnDef, object?> valueOf, bool ignoreCase = false)
+    {
+        var key = string.Join("\u001F", keyColumns.Select(column => Canonical(valueOf(column), column.Type)));
+        return ignoreCase ? key.ToLowerInvariant() : key;
+    }
 
     /// <summary>One text form per value, whatever the provider returned (double, decimal, DateTime, 0/1 …).</summary>
     private static string Canonical(object? value, ColumnType type)

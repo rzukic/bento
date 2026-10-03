@@ -47,10 +47,10 @@ const snapshot = {
 const analysis: ImportAnalysis = {
   settings: { encoding: "windows-1252", delimiter: ";", headerLine: 2, decimalSeparator: ",", dateFormat: "dd.MM.yyyy" },
   columns: [
-    { index: 0, name: "Buchungstag", samples: ["01.09.2026"], inferredType: "date" },
-    { index: 1, name: "Verwendungszweck", samples: ["Einkauf"], inferredType: "text" },
-    { index: 2, name: "Betrag (EUR)", samples: ["-45,90"], inferredType: "float" },
-    { index: 3, name: "Kategorie", samples: ["Lebensmittel"], inferredType: "text" },
+    { index: 0, name: "Buchungstag", samples: ["01.09.2026"], inferredType: "date", blank: 0, distinctCount: 3, distinct: ["01.09.2026", "02.09.2026", "15.09.2026"] },
+    { index: 1, name: "Verwendungszweck", samples: ["Einkauf"], inferredType: "text", blank: 0, distinctCount: 3, distinct: ["Einkauf", "Gehalt", "Haftpflicht"] },
+    { index: 2, name: "Betrag (EUR)", samples: ["-45,90"], inferredType: "float", blank: 0, distinctCount: 3, distinct: ["-45,90", "3.250,00", "-58,20"] },
+    { index: 3, name: "Kategorie", samples: ["Lebensmittel"], inferredType: "text", blank: 0, distinctCount: 2, distinct: ["Lebensmittel", "Gehalt"] },
   ],
   preamble: [["Kontonummer:", "DE00 1234"], ["Kontostand:", "2.481,37 EUR"]],
   previewRows: [],

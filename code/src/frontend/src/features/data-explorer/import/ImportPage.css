@@ -479,3 +479,48 @@
         margin-left: 0;
     }
 }
+
+/* ── New table from CSV ── */
+
+.import-plan__names {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 0.75rem 1rem;
+    max-width: 40rem;
+}
+
+.import-plan .import-map__column {
+    width: 26%;
+}
+
+.import-plan .import-map__type {
+    display: block;
+    max-width: 16rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.import-plan__input {
+    width: 100%;
+    max-width: 14rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+}
+
+.import-plan__store {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+
+.import-plan__store select {
+    max-width: 14rem;
+}
+
+.import-plan__problems {
+    margin: 0;
+    padding-left: 1.25rem;
+    color: var(--warning);
+    font-size: var(--fs-sm);
+}

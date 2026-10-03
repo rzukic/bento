@@ -37,13 +37,27 @@ public sealed record ImportRunRequest
     public IReadOnlyList<ImportColumnMapping>? Mapping { get; init; }
     /// <summary>Target columns that identify a row; rows already in the table are skipped.</summary>
     public IReadOnlyList<string>? KeyColumns { get; init; }
+    /// <summary>
+    /// Also skip rows whose key repeats an earlier row of the same file — for
+    /// filling a lookup table (one category per name) from a column.
+    /// </summary>
+    public bool DistinctKeys { get; init; }
 }
 
+/// <summary>
+/// A file column. <c>Blank</c> counts empty cells; <c>Distinct</c> lists up
+/// to 100 distinct values (trimmed, case-insensitive) and
+/// <c>DistinctCount</c> how many there are in total — enough to propose a
+/// required flag and lookup tables when a table is created from the file.
+/// </summary>
 public sealed record ImportAnalyzedColumn(
     int Index,
     string Name,
     IReadOnlyList<string> Samples,
-    string InferredType);
+    string InferredType,
+    int Blank,
+    int DistinctCount,
+    IReadOnlyList<string> Distinct);
 
 public sealed record ImportResolvedSettings(
     string Encoding,

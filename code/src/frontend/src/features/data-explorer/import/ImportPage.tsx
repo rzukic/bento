@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   analyzeImport,
   createImportProfile,
@@ -10,8 +10,10 @@ import {
   runImport,
   updateImportProfile,
   type ImportAnalysis,
+  type ImportColumnMapping,
   type ImportFileSettings,
   type ImportProfile,
+  type ImportProfileConfig,
   type ImportRowStatus,
   type ImportRunPayload,
   type ImportRunResult,
@@ -35,32 +37,24 @@ import {
   toMappingPayload,
   type MappingState,
 } from "./importMapping";
+import { FileDrop, ReadSettings } from "./ImportSections";
 import "./ImportPage.css";
 
+/**
+ * Router state from "New table from CSV": the file and the mapping into the
+ * table just created, so the import continues without choosing anything again.
+ */
+export type ImportHandOff = {
+  content: string;
+  fileName: string;
+  fileType: string;
+  settings: ImportFileSettings;
+  mapping: ImportColumnMapping[];
+  keyColumns: string[];
+  notice: string;
+};
+
 type ReviewFilter = "all" | ImportRowStatus;
-
-const ENCODING_LABELS: Record<string, string> = {
-  "utf-8": "UTF-8",
-  "windows-1252": "Windows-1252",
-  "iso-8859-1": "ISO-8859-1",
-  "utf-16": "UTF-16",
-};
-
-const DELIMITER_LABELS: Record<string, string> = {
-  ";": "Semicolon  ;",
-  ",": "Comma  ,",
-  "\\t": "Tab",
-  "|": "Pipe  |",
-};
-
-const DATE_EXAMPLES: Record<string, string> = {
-  "dd.MM.yyyy": "31.12.2026",
-  "dd.MM.yy": "31.12.26",
-  "yyyy-MM-dd": "2026-12-31",
-  "dd/MM/yyyy": "31/12/2026",
-  "MM/dd/yyyy": "12/31/2026",
-  "dd-MM-yyyy": "31-12-2026",
-};
 
 const REVIEW_ROW_LIMIT = 200;
 
@@ -84,12 +78,6 @@ function skippedSummary(result: ImportRunResult): string {
   return parts.length === 0
     ? "Every row of the file is in the table now."
     : `Skipped ${parts.join(" and ")}.`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 export function ImportPage() {
@@ -122,7 +110,6 @@ export function ImportPage() {
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
   const [busy, setBusy] = useState<"analyze" | "preview" | "import" | "profile" | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [dragging, setDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const mappingRef = useRef(mapping);
   const keyColumnsRef = useRef(keyColumns);
@@ -146,7 +133,7 @@ export function ImportPage() {
   }, []);
 
   const analyze = useCallback(
-    async (fileContent: string, nextSettings: ImportFileSettings, profile: ImportProfile | null, fileName?: string) => {
+    async (fileContent: string, nextSettings: ImportFileSettings, preset: ImportProfileConfig | null, fileName?: string): Promise<boolean> => {
       setBusy("analyze");
       setError(null);
       invalidate();
@@ -155,8 +142,8 @@ export function ImportPage() {
         const nextHeaders = next.columns.map((c) => c.name);
         setAnalysis(next);
         setSettings(next.settings);
-        if (profile) {
-          const applied = applyProfile(profile.config, nextHeaders, columns);
+        if (preset) {
+          const applied = applyProfile(preset, nextHeaders, columns);
           setMapping(applied.mapping);
           setKeyColumns(applied.keyColumns);
         } else {
@@ -168,9 +155,11 @@ export function ImportPage() {
           setMapping(nextMapping);
           setKeyColumns(keptKeys.length > 0 ? keptKeys : suggestKeyColumns(nextMapping, columns));
         }
+        return true;
       } catch (cause) {
         setAnalysis(null);
         setError(errorMessage(cause, "The file could not be read."));
+        return false;
       } finally {
         setBusy(null);
       }
@@ -189,13 +178,32 @@ export function ImportPage() {
       try {
         const base64 = await readFileAsBase64(next);
         setContent(base64);
-        await analyze(base64, selectedProfile?.config.settings ?? {}, selectedProfile, next.name);
+        await analyze(base64, selectedProfile?.config.settings ?? {}, selectedProfile?.config ?? null, next.name);
       } catch {
         setError("The file could not be read.");
       }
     },
     [analyze, selectedProfile],
   );
+
+  // Coming from "New table from CSV": read the same file with the same
+  // settings and mapping, then check the rows right away.
+  const location = useLocation();
+  const handOff = (location.state as { importHandOff?: ImportHandOff } | null)?.importHandOff ?? null;
+  const handOffStarted = useRef(false);
+  const [autoCheck, setAutoCheck] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!handOff || handOffStarted.current || columns.length === 0) return;
+    handOffStarted.current = true;
+    const bytes = Uint8Array.from(atob(handOff.content), (c) => c.charCodeAt(0));
+    setFile(new File([bytes], handOff.fileName, { type: handOff.fileType || "text/csv" }));
+    setContent(handOff.content);
+    setNotice(handOff.notice);
+    void analyze(handOff.content, handOff.settings, { mapping: handOff.mapping, keyColumns: handOff.keyColumns }, handOff.fileName).then(
+      (ok) => setAutoCheck(ok),
+    );
+  }, [handOff, columns, analyze]);
 
   const changeSetting = (patch: ImportFileSettings) => {
     if (!content) return;
@@ -208,7 +216,7 @@ export function ImportPage() {
     setProfileNotice(null);
     const profile = profiles.find((p) => p.id === id) ?? null;
     setProfileName(profile?.name ?? "");
-    if (content && profile) void analyze(content, profile.config.settings ?? {}, profile, file?.name);
+    if (content && profile) void analyze(content, profile.config.settings ?? {}, profile.config, file?.name);
   };
 
   const payload = (): ImportRunPayload | null =>
@@ -237,6 +245,14 @@ export function ImportPage() {
       setBusy(null);
     }
   };
+
+  const runCheckRef = useRef(runCheck);
+  runCheckRef.current = runCheck;
+  useEffect(() => {
+    if (!autoCheck || !analysis || !content) return;
+    setAutoCheck(false);
+    void runCheckRef.current();
+  }, [autoCheck, analysis, content]);
 
   const runImportNow = async () => {
     const body = payload();
@@ -298,13 +314,6 @@ export function ImportPage() {
     }
   };
 
-  const onDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setDragging(false);
-    const dropped = event.dataTransfer.files?.[0];
-    if (dropped) void chooseFile(dropped);
-  };
-
   const mappedColumns = columns.filter((c) => mapping[c.name]);
   const missingRequired = columns.filter((c) => isRequiredColumn(c) && !mapping[c.name]);
   const samplesByHeader = useMemo(
@@ -343,6 +352,7 @@ export function ImportPage() {
       </header>
 
       {error ? <Alert tone="error" message={error} /> : null}
+      {notice && !error && !result ? <Alert tone="success" message={notice} /> : null}
 
       <section className="import-section" aria-labelledby="import-file-heading">
         <div className="import-section__head">
@@ -361,48 +371,12 @@ export function ImportPage() {
           ) : null}
         </div>
 
-        <div
-          className={["import-drop", dragging ? "import-drop--active" : "", file ? "import-drop--chosen" : ""].filter(Boolean).join(" ")}
-          onDragOver={(event) => {
-            event.preventDefault();
-            setDragging(true);
-          }}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-        >
-          <input
-            ref={fileInputRef}
-            className="import-drop__input"
-            type="file"
-            accept=".csv,.txt,text/csv,text/plain"
-            aria-label="CSV file"
-            onChange={(event) => {
-              const chosen = event.target.files?.[0];
-              if (chosen) void chooseFile(chosen);
-              event.target.value = "";
-            }}
-          />
-          {file ? (
-            <div className="import-drop__file">
-              <Icon name="table" size={16} />
-              <span className="import-drop__name">{file.name}</span>
-              <span className="import-drop__meta">
-                {formatBytes(file.size)}
-                {analysis ? ` · ${analysis.rowCount} rows` : ""}
-              </span>
-              <Button type="button" variant="ghost" size="sm" onClick={() => fileInputRef.current?.click()}>
-                Choose another
-              </Button>
-            </div>
-          ) : (
-            <button type="button" className="import-drop__prompt" onClick={() => fileInputRef.current?.click()}>
-              <Icon name="upload" size={18} className="import-drop__icon" />
-              <span>
-                <strong>Choose a CSV file</strong> or drop it here
-              </span>
-            </button>
-          )}
-        </div>
+        <FileDrop
+          file={file}
+          rowCount={analysis?.rowCount ?? null}
+          inputRef={fileInputRef}
+          onChoose={(chosen) => void chooseFile(chosen)}
+        />
         {busy === "analyze" ? <Spinner label="Reading the file" /> : null}
       </section>
 
@@ -414,64 +388,7 @@ export function ImportPage() {
               <h2 id="import-read-heading" className="import-section__title">How the file is read</h2>
               <span className="import-section__note">Detected; change anything that looks wrong.</span>
             </div>
-            <div className="import-settings">
-              <SelectField
-                label="Encoding"
-                compact
-                value={settings.encoding}
-                onChange={(event) => changeSetting({ encoding: event.target.value })}
-                options={analysis.options.encodings.map((value) => ({ value, label: ENCODING_LABELS[value] ?? value }))}
-              />
-              <SelectField
-                label="Separator"
-                compact
-                value={settings.delimiter}
-                onChange={(event) => changeSetting({ delimiter: event.target.value })}
-                options={analysis.options.delimiters.map((value) => ({ value, label: DELIMITER_LABELS[value] ?? value }))}
-              />
-              <SelectField
-                label="Header row"
-                compact
-                value={String(settings.headerLine)}
-                onChange={(event) => changeSetting({ headerLine: Number(event.target.value) })}
-                options={Array.from({ length: analysis.preamble.length + 6 }, (_, index) => ({
-                  value: String(index),
-                  label: `Row ${index + 1}`,
-                }))}
-              />
-              <SelectField
-                label="Decimal separator"
-                compact
-                value={settings.decimalSeparator}
-                onChange={(event) => changeSetting({ decimalSeparator: event.target.value })}
-                options={[
-                  { value: ",", label: "Comma  1.234,56" },
-                  { value: ".", label: "Point  1,234.56" },
-                ]}
-              />
-              <SelectField
-                label="Dates"
-                compact
-                value={settings.dateFormat}
-                onChange={(event) => changeSetting({ dateFormat: event.target.value })}
-                options={analysis.options.dateFormats.map((value) => ({
-                  value,
-                  label: DATE_EXAMPLES[value] ? `${DATE_EXAMPLES[value]}  (${value})` : value,
-                }))}
-              />
-            </div>
-            {analysis.preamble.length > 0 ? (
-              <details className="import-preamble">
-                <summary>
-                  {analysis.preamble.length} {analysis.preamble.length === 1 ? "line" : "lines"} above the header are skipped
-                </summary>
-                <ul>
-                  {analysis.preamble.map((cells, index) => (
-                    <li key={index}>{cells.filter(Boolean).join("  ·  ")}</li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
+            <ReadSettings analysis={analysis} settings={settings} onChange={changeSetting} />
           </section>
 
           <section className="import-section" aria-labelledby="import-map-heading">
