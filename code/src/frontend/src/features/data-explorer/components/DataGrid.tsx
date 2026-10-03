@@ -300,6 +300,9 @@ export function DataGrid({
     onStartEdit(rows[next.rowIndex]!, table.columns[next.columnIndex]!);
   }
   const [menuColumn, setMenuColumn] = useState<string | null>(null);
+  // Column menus only where there is something to do (the record editor's
+  // embedded grids pass no sort/filter/hide handlers).
+  const hasColumnMenu = Boolean(onRequestSortColumn || onRequestFilterColumn || onRequestHideColumn);
   const [selectionMenu, setSelectionMenu] = useState<{
     x: number;
     y: number;
@@ -564,6 +567,25 @@ export function DataGrid({
                           <span className="data-grid__header-pk-label">PK</span>
                         </span>
                       </span>
+                    ) : !hasColumnMenu ? (
+                      <span className="data-grid__header-trigger data-grid__header-trigger--static">
+                        <span className="data-grid__header-content">
+                          <span className="data-grid__header-name-row">
+                            <span
+                              className="data-grid__header-type-icon"
+                              title={getColumnTypeLabel(column)}
+                            >
+                              <Icon name={getColumnTypeIconName(column)} size={13} />
+                            </span>
+                            <span className="data-grid__header-name">
+                              {column.displayName ?? column.name}
+                            </span>
+                            {column.references || column.type === "relation" ? (
+                              <span className="data-grid__header-key-badge data-grid__header-key-badge--inline">FK</span>
+                            ) : null}
+                          </span>
+                        </span>
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -599,42 +621,48 @@ export function DataGrid({
 
                     {!isPrimarySelectionColumn(column) && menuColumn === column.name ? (
                       <div className="data-grid__header-menu" role="menu">
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="data-grid__header-menu-item"
-                          onClick={() => {
-                            onRequestSortColumn?.(column);
-                            setMenuColumn(null);
-                          }}
-                        >
-                          <Icon name="arrow-up-down" size={14} />
-                          Sort by column
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="data-grid__header-menu-item"
-                          onClick={() => {
-                            onRequestFilterColumn?.(column);
-                            setMenuColumn(null);
-                          }}
-                        >
-                          <Icon name="funnel" size={14} />
-                          Filter column
-                        </button>
-                        <button
-                          type="button"
-                          role="menuitem"
-                          className="data-grid__header-menu-item"
-                          onClick={() => {
-                            onRequestHideColumn?.(column);
-                            setMenuColumn(null);
-                          }}
-                        >
-                          <Icon name="columns" size={14} />
-                          Hide column
-                        </button>
+                        {onRequestSortColumn ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="data-grid__header-menu-item"
+                            onClick={() => {
+                              onRequestSortColumn?.(column);
+                              setMenuColumn(null);
+                            }}
+                          >
+                            <Icon name="arrow-up-down" size={14} />
+                            Sort by column
+                          </button>
+                        ) : null}
+                        {onRequestFilterColumn ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="data-grid__header-menu-item"
+                            onClick={() => {
+                              onRequestFilterColumn?.(column);
+                              setMenuColumn(null);
+                            }}
+                          >
+                            <Icon name="funnel" size={14} />
+                            Filter column
+                          </button>
+                        ) : null}
+                        {onRequestHideColumn ? (
+                          <button
+                            type="button"
+                            role="menuitem"
+                            className="data-grid__header-menu-item"
+                            onClick={() => {
+                              onRequestHideColumn?.(column);
+                              setMenuColumn(null);
+                            }}
+                          >
+                            <Icon name="columns" size={14} />
+                            Hide column
+                          </button>
+                        ) : null}
                       </div>
                     ) : null}
                   </div>

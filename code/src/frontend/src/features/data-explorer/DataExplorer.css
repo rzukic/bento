@@ -5502,3 +5502,10 @@
     opacity: 0;
     pointer-events: none;
 }
+
+/* A header without a column menu (embedded grids): same height as one
+   with the "…" button, nothing to click. */
+.data-grid__header-trigger--static {
+    min-height: 1.6rem;
+    cursor: default;
+}
