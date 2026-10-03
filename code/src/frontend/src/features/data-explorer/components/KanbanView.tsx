@@ -317,10 +317,14 @@ export function KanbanView({
                           {allFields.map((col, i) => (
                             <div
                               key={col.name}
-                              className={["kanban-card__field", i === 0 ? "kanban-card__field--primary" : ""].filter(Boolean).join(" ")}
+                              className={[
+                                "kanban-card__field",
+                                i === 0 ? "kanban-card__field--primary" : "",
+                                col.type === "relation" || col.references ? "kanban-card__field--reference" : "",
+                              ].filter(Boolean).join(" ")}
                             >
-                              {/* Values speak for themselves on a card; the
-                                  label stays for screen readers. */}
+                              {/* The headline value needs no label on screen;
+                                  the other fields show a small one. */}
                               <dt className="kanban-card__field-label">
                                 {col.displayName ?? col.name}
                               </dt>
