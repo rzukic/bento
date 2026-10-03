@@ -678,12 +678,42 @@ export function getErdContentBounds(nodes: ErdTableNode[]) {
  * The routed (orthogonal) path drawn with rounded bends, so relation lines
  * read as soft curves. Hit-testing and tests keep using the plain path.
  */
+/**
+ * Drops repeated points and middle points on a straight run. The router can
+ * emit a run that doubles back on itself (down, up, down on one x); rounded
+ * corners turn those into small loops.
+ */
+function simplifyOrthogonalPoints(points: Array<{ x: number; y: number }>) {
+  const same = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const out: Array<{ x: number; y: number }> = [];
+  for (const point of points) {
+    const last = out[out.length - 1];
+    if (last && same(last.x, point.x) && same(last.y, point.y)) continue;
+    out.push(point);
+    while (out.length >= 3) {
+      const a = out[out.length - 3]!;
+      const b = out[out.length - 2]!;
+      const c = out[out.length - 1]!;
+      const straight = (same(a.x, b.x) && same(b.x, c.x)) || (same(a.y, b.y) && same(b.y, c.y));
+      if (!straight) break;
+      out.splice(out.length - 2, 1);
+    }
+  }
+  return out;
+}
+
 export function smoothErdPath(path: string, radius = 18): string {
   const points = [...path.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({
     x: Number(match[1]),
     y: Number(match[2]),
   }));
-  if (points.length < 3) return path;
+  const simplified = simplifyOrthogonalPoints(points);
+  if (simplified.length < 3) {
+    return simplified
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" ");
+  }
+  points.splice(0, points.length, ...simplified);
   const parts = [`M ${points[0]!.x} ${points[0]!.y}`];
   for (let index = 1; index < points.length - 1; index += 1) {
     const previous = points[index - 1]!;
@@ -705,4 +735,49 @@ export function smoothErdPath(path: string, radius = 18): string {
   const last = points[points.length - 1]!;
   parts.push(`L ${last.x} ${last.y}`);
   return parts.join(" ");
+}
+
+/** Free space kept around a table that was dropped onto another. */
+const erdDropGap = 48;
+
+/**
+ * Where a dropped table can sit without covering another one: its own spot
+ * when that is free, otherwise the nearest free grid spot. Tables on top of
+ * each other leave no room for relation lines.
+ */
+export function findFreeErdPosition(
+  nodes: ErdTableNode[],
+  tableName: string,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  const node = nodes.find((candidate) => candidate.table.name === tableName);
+  if (!node) return { x, y };
+  const others = nodes.filter((candidate) => candidate.table.name !== tableName);
+  const isFree = (left: number, top: number) =>
+    others.every(
+      (other) =>
+        left + node.width + erdDropGap <= other.x ||
+        other.x + other.width + erdDropGap <= left ||
+        top + node.height + erdDropGap <= other.y ||
+        other.y + other.height + erdDropGap <= top,
+    );
+  if (isFree(x, y)) return { x, y };
+
+  const step = erdSnapSize * 2;
+  for (let distance = step; distance <= 4000; distance += step) {
+    const candidates = [
+      { x: x + distance, y },
+      { x: x - distance, y },
+      { x, y: y + distance },
+      { x, y: y - distance },
+      { x: x + distance, y: y + distance },
+      { x: x - distance, y: y + distance },
+      { x: x + distance, y: y - distance },
+      { x: x - distance, y: y - distance },
+    ];
+    const free = candidates.find((candidate) => isFree(candidate.x, candidate.y));
+    if (free) return { x: snapToErdGrid(free.x), y: snapToErdGrid(free.y) };
+  }
+  return { x, y };
 }

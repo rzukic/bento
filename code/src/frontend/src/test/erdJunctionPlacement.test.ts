@@ -52,3 +52,27 @@ describe("ERD placement of junction tables without a saved position", () => {
     expect(junction.x).toBeGreaterThan(products.x + products.width);
   });
 });
+
+describe("ERD drop and line drawing", () => {
+  it("moves a table dropped onto another to the nearest free spot", async () => {
+    const { findFreeErdPosition } = await import("../features/schema-workbench/visual/erdRouting");
+    const nodes = buildErdTableNodes(junctionDocument({ x: 0, y: 0 }, { x: 800, y: 0 }));
+    const free = findFreeErdPosition(nodes, "_jt_orders_products", 20, 20);
+    const orders = nodes[0];
+    const junction = nodes[2];
+    const overlaps =
+      free.x < orders.x + orders.width &&
+      orders.x < free.x + junction.width &&
+      free.y < orders.y + orders.height &&
+      orders.y < free.y + junction.height;
+    expect(overlaps).toBe(false);
+    expect(findFreeErdPosition(nodes, "_jt_orders_products", 400, 600)).toEqual({ x: 400, y: 600 });
+  });
+
+  it("draws a run that doubles back on itself as one straight segment", async () => {
+    const { smoothErdPath } = await import("../features/schema-workbench/visual/erdRouting");
+    const smoothed = smoothErdPath("M 0 0 L 100 0 L 100 50 L 100 20 L 100 80 L 200 80");
+    // One bend down at x=100, one bend right at y=80: two curves, no loops.
+    expect(smoothed.match(/Q/g)).toHaveLength(2);
+  });
+});

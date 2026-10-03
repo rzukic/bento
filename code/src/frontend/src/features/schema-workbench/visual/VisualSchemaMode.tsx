@@ -23,6 +23,7 @@ import {
   buildErdRelationEdges,
   buildErdTableNodes,
   getErdCanvasSize,
+  findFreeErdPosition,
   getErdContentBounds,
   getErdDragPath,
   getErdDropTargetTableName,
@@ -77,6 +78,8 @@ type ErdCanvasPanState = {
 };
 
 type ErdTableDragState = {
+  lastX: number;
+  lastY: number;
   originX: number;
   originY: number;
   startClientX: number;
@@ -452,6 +455,8 @@ export function VisualSchemaMode({
       startClientY: event.clientY,
       originX: layout?.x ?? fallbackLayout.x,
       originY: layout?.y ?? fallbackLayout.y,
+      lastX: layout?.x ?? fallbackLayout.x,
+      lastY: layout?.y ?? fallbackLayout.y,
     };
 
     function handlePointerMove(moveEvent: PointerEvent) {
@@ -463,10 +468,12 @@ export function VisualSchemaMode({
       const deltaX = (moveEvent.clientX - currentDrag.startClientX) / viewport.zoom;
       const deltaY = (moveEvent.clientY - currentDrag.startClientY) / viewport.zoom;
 
+      currentDrag.lastX = snapToErdGrid(currentDrag.originX + deltaX);
+      currentDrag.lastY = snapToErdGrid(currentDrag.originY + deltaY);
       onDocumentChange(
         setTableLayout(visualDocument, currentDrag.tableName, {
-          x: snapToErdGrid(currentDrag.originX + deltaX),
-          y: snapToErdGrid(currentDrag.originY + deltaY),
+          x: currentDrag.lastX,
+          y: currentDrag.lastY,
         }),
       );
     }
@@ -478,6 +485,20 @@ export function VisualSchemaMode({
       }
 
       tableDragRef.current = null;
+      // A table dropped onto another moves to the nearest free spot.
+      const moved =
+        currentDrag.lastX !== currentDrag.originX || currentDrag.lastY !== currentDrag.originY;
+      if (moved) {
+        const free = findFreeErdPosition(
+          nodes,
+          currentDrag.tableName,
+          currentDrag.lastX,
+          currentDrag.lastY,
+        );
+        if (free.x !== currentDrag.lastX || free.y !== currentDrag.lastY) {
+          onDocumentChange(setTableLayout(visualDocument, currentDrag.tableName, free));
+        }
+      }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     }
