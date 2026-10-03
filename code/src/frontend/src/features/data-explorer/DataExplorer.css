@@ -5657,3 +5657,13 @@
     -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
     mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
 }
+
+/* A record label's secondary value (e.g. a SKU) next to the name in pickers. */
+.cell-combobox__option-secondary {
+    margin-left: auto;
+    padding-left: 0.75rem;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}

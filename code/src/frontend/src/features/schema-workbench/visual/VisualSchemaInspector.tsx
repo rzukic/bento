@@ -445,6 +445,19 @@ export function VisualSchemaInspector({
                 })
               }
             />
+            <VisualRecordLabelFields
+              table={activeTable}
+              onChange={(recordLabel) =>
+                commit(
+                  updateTable(document, activeTable.name, (table) => {
+                    const next = { ...table };
+                    if (recordLabel) next.recordLabel = recordLabel;
+                    else delete next.recordLabel;
+                    return next;
+                  }),
+                )
+              }
+            />
             {/* Renames are tracked automatically; the engine field stays
                 reachable for the rare manual case. */}
             <details className="schema-workbench__advanced">
@@ -830,4 +843,75 @@ function normalizeVisualColumnType(
   }
 
   return nextColumn;
+}
+
+type RecordLabelValue = { column: string; secondary?: string };
+
+/**
+ * How a record of this table is named across the app: FK chips, pickers,
+ * linked records, the record editor title. Designer metadata only.
+ */
+function VisualRecordLabelFields({
+  table,
+  onChange,
+}: {
+  table: SchemaTable;
+  onChange: (recordLabel: RecordLabelValue | null) => void;
+}) {
+  const current = table.recordLabel as { column?: string; secondary?: string | null } | undefined;
+  const labelColumns = table.columns.filter(
+    (column) => !column.primaryKey && column.type !== "json",
+  );
+  const column = current?.column ?? "";
+  const secondary = current?.secondary ?? "";
+  return (
+    <>
+      <SelectField
+        underline
+        label="Record label"
+        message="Names a record in links, pickers and the record editor."
+        options={[
+          { label: "Automatic", value: "" },
+          ...labelColumns.map((candidate) => ({
+            label: candidate.displayName ?? candidate.name,
+            value: candidate.name,
+          })),
+        ]}
+        value={column}
+        onChange={(event) => {
+          const nextColumn = event.currentTarget.value;
+          if (!nextColumn) {
+            onChange(null);
+            return;
+          }
+          onChange({
+            column: nextColumn,
+            ...(secondary && secondary !== nextColumn ? { secondary } : {}),
+          });
+        }}
+      />
+      {column ? (
+        <SelectField
+          underline
+          label="Shown with it"
+          options={[
+            { label: "Nothing", value: "" },
+            ...labelColumns
+              .filter((candidate) => candidate.name !== column)
+              .map((candidate) => ({
+                label: candidate.displayName ?? candidate.name,
+                value: candidate.name,
+              })),
+          ]}
+          value={secondary}
+          onChange={(event) =>
+            onChange({
+              column,
+              ...(event.currentTarget.value ? { secondary: event.currentTarget.value } : {}),
+            })
+          }
+        />
+      ) : null}
+    </>
+  );
 }

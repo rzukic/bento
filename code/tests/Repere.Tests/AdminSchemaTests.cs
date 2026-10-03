@@ -562,6 +562,37 @@ public sealed class AdminSchemaTests
     }
 
     [Fact]
+    public async Task PutSchema_RecordLabel_IsDesignerMetadataThatRoundTrips()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var getResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var schema = System.Text.Json.Nodes.JsonNode.Parse(await getResponse.Content.ReadAsStringAsync())!;
+        var products = schema["tables"]!.AsArray().First(t => t!["name"]!.GetValue<string>() == "products")!;
+        products["recordLabel"] = new System.Text.Json.Nodes.JsonObject { ["column"] = "name" };
+        var withLabel = schema.ToJsonString();
+
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(withLabel, Encoding.UTF8, "application/json"));
+        var preview = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(preview.GetProperty("hasChanges").GetBoolean());
+        Assert.True(preview.GetProperty("metadataOnly").GetBoolean());
+
+        using var putResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(withLabel, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, putResponse.StatusCode);
+
+        using var afterResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var after = await afterResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var savedProducts = after.GetProperty("tables").EnumerateArray()
+            .Single(t => t.GetProperty("name").GetString() == "products");
+        Assert.Equal("name", savedProducts.GetProperty("recordLabel").GetProperty("column").GetString());
+    }
+
+    [Fact]
     public async Task GetSchema_ManyToManyWithoutJunctionTable_ListsTheJunctionTableAndRoundTripsWithoutChanges()
     {
         await using var host = await CreateHostAsync();

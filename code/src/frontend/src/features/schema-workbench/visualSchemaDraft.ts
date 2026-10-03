@@ -715,19 +715,40 @@ export function updateColumn(
       return table;
     }
 
-    return {
-      ...table,
-      columns: table.columns.map((column) => {
-        if (column.name !== columnName) {
-          return column;
-        }
+    let nextName = columnName;
+    const columns = table.columns.map((column) => {
+      if (column.name !== columnName) {
+        return column;
+      }
 
-        return typeof update === "function"
-          ? update(column)
-          : { ...column, ...update };
-      }),
-    };
+      const next = typeof update === "function" ? update(column) : { ...column, ...update };
+      nextName = next.name;
+      return next;
+    });
+    return retargetRecordLabel({ ...table, columns }, columnName, nextName);
   });
+}
+
+/**
+ * Keeps a table's record label pointing at its columns: follows a rename,
+ * drops a reference to a removed column (the label then falls back to the
+ * default choice).
+ */
+function retargetRecordLabel(
+  table: SchemaTable,
+  fromColumn: string,
+  toColumn: string | null,
+): SchemaTable {
+  const label = table.recordLabel as { column?: string; secondary?: string | null } | undefined;
+  if (!label || fromColumn === toColumn) return table;
+  const column = label.column === fromColumn ? toColumn : label.column;
+  const secondary = label.secondary === fromColumn ? toColumn : label.secondary;
+  if (!column) {
+    const rest = { ...table };
+    delete rest.recordLabel;
+    return rest;
+  }
+  return { ...table, recordLabel: { column, ...(secondary ? { secondary } : {}) } };
 }
 
 export function removeColumn(
@@ -737,10 +758,14 @@ export function removeColumn(
 ): SchemaModelDocument {
   return cloneTables(document, (table) =>
     table.name === tableName
-      ? {
-          ...table,
-          columns: table.columns.filter((column) => column.name !== columnName),
-        }
+      ? retargetRecordLabel(
+          {
+            ...table,
+            columns: table.columns.filter((column) => column.name !== columnName),
+          },
+          columnName,
+          null,
+        )
       : table,
   );
 }

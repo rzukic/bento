@@ -491,7 +491,7 @@ export function SchemaWorkbenchPage() {
             : previewState.response.hasChanges
               ? countLabel(previewState.response.changes.length, "unapplied change")
               : isLayoutOnlyDraft
-                ? "Layout changes not saved yet"
+                ? "Designer settings not saved yet"
                 : "No unapplied changes"
           : "Unapplied changes";
   const inspectorOpen =
@@ -760,10 +760,10 @@ export function SchemaWorkbenchPage() {
       setApplyFeedback({
         tone: "success",
         title: applyResult.metadataOnly
-          ? "Layout saved"
+          ? "Designer settings saved"
           : "Schema changes applied",
         message: applyResult.metadataOnly
-          ? "Table colors and positions saved."
+          ? "Colours, positions and record labels saved. Your data is unchanged."
           : `${countLabel(applyResult.changes.length, "change")} applied.`,
       });
     } catch (error) {

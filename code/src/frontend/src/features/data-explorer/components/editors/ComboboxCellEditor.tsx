@@ -15,6 +15,8 @@ export type ComboboxOption = {
   value: string;
   /** Human label shown in the listbox and trigger. */
   label: string;
+  /** Optional second line in the listbox (e.g. a record's SKU). */
+  description?: string;
 };
 
 type Props = {

@@ -3731,7 +3731,7 @@ describe("Model workbench route (/model)", () => {
       screen.queryByText("Schema changes applied"),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Layout saved"),
+      screen.queryByText("Designer settings saved"),
     ).not.toBeInTheDocument();
   });
 

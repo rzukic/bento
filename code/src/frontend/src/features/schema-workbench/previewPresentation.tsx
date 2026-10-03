@@ -202,8 +202,8 @@ export function PreviewSummary({
         >
           {isLayoutOnlyDraft ? (
             <EmptyState
-              title="Layout-only changes"
-              description="Only colors or positions changed. Applying won't touch your data."
+              title="Designer settings only"
+              description="Only colours, positions or record labels changed. Applying won't touch your data."
               icon="check"
             />
           ) : (

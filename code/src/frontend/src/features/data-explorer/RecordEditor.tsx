@@ -22,9 +22,11 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { DEFAULT_QUERY } from "../../types/explorer";
 import type { ModelColumn, ModelTable } from "../../types/api";
 import { pickEditorForColumn } from "./components/editors";
+import { getDisplayColumnForTable } from "./components/editors/referenceMetadata";
 import { renderCellValue } from "./components/cellValue";
 import {
   lookupReferenceLabel,
+  lookupReferenceSecondary,
   useReferenceLabels,
   type ReferenceLabelMap,
 } from "./components/useReferenceLabels";
@@ -41,9 +43,17 @@ const EMPTY_RELATION_SECTIONS = Object.freeze([]) as ReadonlyArray<IncomingRelat
 function getRecordTitle(table: ModelTable, row: Record<string, unknown> | null): string {
   if (!row) return table.displayName ?? table.name;
   const id = row.id;
-  const label = table.columns.find(
-    (column) => !column.primaryKey && column.type === "string",
-  );
+  // The table's record label; without one, a text column (a number or a
+  // foreign key is no name, the title then reads "Orders #1").
+  const configured = table.recordLabel?.column
+    ? getDisplayColumnForTable(table)
+    : null;
+  const label = configured
+    ? table.columns.find((column) => column.name === configured && !column.primaryKey)
+    : table.columns.find(
+        (column) =>
+          !column.primaryKey && (column.type === "text" || column.type === "string"),
+      );
   const labelValue = label ? row[label.name] : null;
   if (labelValue !== null && labelValue !== undefined && labelValue !== "") {
     return `${labelValue}`;
@@ -896,9 +906,19 @@ function ManyToManyRelationSection({
     return lookupReferenceLabel(labels, linkColumn, value) ?? String(value ?? "");
   }
 
-  /** The link's own values under its name, formatted like everywhere else. */
+  /** The record label's secondary value, then the link's own values. */
   function linkMeta(row: Record<string, unknown>): ReactNode {
-    const parts = draftExtraColumns
+    const secondary = linkColumn
+      ? lookupReferenceSecondary(labels, linkColumn, row[linkColumn.name])
+      : null;
+    const parts: ReactNode[] = secondary
+      ? [
+          <span key="__secondary" className="record-editor__link-meta-item">
+            {secondary}
+          </span>,
+        ]
+      : [];
+    const fieldParts = draftExtraColumns
       .map((column) => {
         const value = row[column.name];
         if (value === null || value === undefined || value === "") return null;
@@ -909,6 +929,7 @@ function ManyToManyRelationSection({
         );
       })
       .filter(Boolean);
+    parts.push(...fieldParts);
     return parts.length > 0 ? parts : null;
   }
 

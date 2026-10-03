@@ -7,16 +7,28 @@ import {
   findTable,
   getDisplayColumnForTable,
   getReferencePrimaryKey,
+  getSecondaryColumnForTable,
   getReferenceTableName,
 } from "./editors/referenceMetadata";
 
-export type ReferenceLabelMap = Record<string, Record<string, string>>;
+/** Where the secondary label values sit inside a label map. */
+const SECONDARY = Symbol("secondary-labels");
+
+/**
+ * Column name → id → label. The record label's secondary values (when the
+ * referenced table sets one) ride along under a private key; read them with
+ * lookupReferenceSecondary.
+ */
+export type ReferenceLabelMap = Record<string, Record<string, string>> & {
+  [SECONDARY]?: Record<string, Record<string, string>>;
+};
 
 type FkPlan = {
   columnName: string;
   refTable: string;
   pkColumn: string;
   displayColumn: string;
+  secondaryColumn: string | null;
   ids: string[];
 };
 
@@ -32,6 +44,7 @@ function planFkLookups(
     if (!refTable) continue;
     const refTableModel = findTable(snapshot, refTable);
     const displayColumn = getDisplayColumnForTable(refTableModel);
+    const secondaryColumn = getSecondaryColumnForTable(refTableModel);
     const pkColumn = getReferencePrimaryKey(column);
     const ids = new Set<string>();
     for (const row of rows) {
@@ -45,6 +58,7 @@ function planFkLookups(
       refTable,
       pkColumn,
       displayColumn,
+      secondaryColumn,
       ids: [...ids],
     });
   }
@@ -67,7 +81,10 @@ export function useReferenceLabels(
   // Stable signature so we re-fetch only when the visible id-set changes.
   const plans = planFkLookups(table, rows, snapshot);
   const signature = plans
-    .map((p) => `${p.columnName}:${p.refTable}:${p.ids.slice().sort().join(",")}`)
+    .map(
+      (p) =>
+        `${p.columnName}:${p.refTable}:${p.displayColumn}:${p.secondaryColumn ?? ""}:${p.ids.slice().sort().join(",")}`,
+    )
     .join("|");
 
   useEffect(() => {
@@ -85,23 +102,33 @@ export function useReferenceLabels(
           filters: [{ column: plan.pkColumn, op: "in", value: plan.ids.join(",") }],
         });
         const byId: Record<string, string> = {};
+        const secondaryById: Record<string, string> = {};
         for (const row of res.data) {
           const pk = row[plan.pkColumn];
           if (pk === null || pk === undefined) continue;
           const labelRaw = row[plan.displayColumn];
           byId[String(pk)] =
             labelRaw === null || labelRaw === undefined ? String(pk) : String(labelRaw);
+          const secondaryRaw = plan.secondaryColumn ? row[plan.secondaryColumn] : null;
+          if (secondaryRaw !== null && secondaryRaw !== undefined && secondaryRaw !== "") {
+            secondaryById[String(pk)] = String(secondaryRaw);
+          }
         }
-        return [plan.columnName, byId] as const;
+        return [plan.columnName, byId, secondaryById] as const;
       }),
     )
       .then((results) => {
         if (cancelled) return;
-        setLabels(
-          Object.fromEntries(
-            results.flatMap((result) => (result.status === "fulfilled" ? [result.value] : [])),
-          ),
+        const fulfilled = results.flatMap((result) =>
+          result.status === "fulfilled" ? [result.value] : [],
         );
+        const next: ReferenceLabelMap = Object.fromEntries(
+          fulfilled.map(([column, byId]) => [column, byId]),
+        );
+        next[SECONDARY] = Object.fromEntries(
+          fulfilled.map(([column, , secondaryById]) => [column, secondaryById]),
+        );
+        setLabels(next);
       })
       .catch(() => {
         /* ignore — chip falls back to id */
@@ -123,4 +150,14 @@ export function lookupReferenceLabel(
   if (value === null || value === undefined || value === "") return null;
   const id = String(value);
   return labels[column.name]?.[id] ?? null;
+}
+
+/** The record label's secondary value for an FK value, when there is one. */
+export function lookupReferenceSecondary(
+  labels: ReferenceLabelMap,
+  column: ModelColumn,
+  value: unknown,
+): string | null {
+  if (value === null || value === undefined || value === "") return null;
+  return labels[SECONDARY]?.[column.name]?.[String(value)] ?? null;
 }

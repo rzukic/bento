@@ -6,6 +6,7 @@ import { ComboboxCellEditor, type ComboboxOption } from "./ComboboxCellEditor";
 import {
   findTable,
   getDisplayColumnForTable,
+  getSecondaryColumnForTable,
   getReferencePrimaryKey,
   getReferenceTableName,
 } from "./referenceMetadata";
@@ -28,6 +29,7 @@ export function ReferenceCellEditor({
   const refTableName = getReferenceTableName(column);
   const refTable = findTable(snapshot, refTableName);
   const displayColumn = getDisplayColumnForTable(refTable);
+  const secondaryColumn = getSecondaryColumnForTable(refTable);
   const pkColumn = getReferencePrimaryKey(column);
   const nullable = column.nullable ?? true;
 
@@ -82,11 +84,17 @@ export function ReferenceCellEditor({
           const labelRaw = row[displayColumn];
           const label =
             labelRaw === null || labelRaw === undefined ? id : String(labelRaw);
-          return { value: id, label };
+          const secondaryRaw = secondaryColumn ? row[secondaryColumn] : null;
+          const description =
+            secondaryRaw === null || secondaryRaw === undefined || secondaryRaw === ""
+              ? undefined
+              : String(secondaryRaw);
+          const option: ComboboxOption = description ? { value: id, label, description } : { value: id, label };
+          return option;
         })
         .filter((c): c is ComboboxOption => c !== null);
     },
-    [refTableName, pkColumn, displayColumn],
+    [refTableName, pkColumn, displayColumn, secondaryColumn],
   );
 
   const stringValue =
@@ -103,7 +111,14 @@ export function ReferenceCellEditor({
       error={error}
       autoFocus={autoFocus}
       renderValue={(_current, label) => <span className="data-grid__reference">{label}</span>}
-      renderOption={(option) => <span className="data-grid__reference">{option.label}</span>}
+      renderOption={(option) => (
+        <>
+          <span className="data-grid__reference">{option.label}</span>
+          {option.description ? (
+            <span className="cell-combobox__option-secondary">{option.description}</span>
+          ) : null}
+        </>
+      )}
       onCommit={(next) => {
         if (next === null) {
           onCommit(null);

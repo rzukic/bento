@@ -61,6 +61,18 @@ export type ModelIndex = {
   unique?: boolean;
 };
 
+/**
+ * How a record of a table is named across the app (FK chips, pickers,
+ * linked records, the record editor title). Designer metadata: stored on
+ * the table in Model JSON, no database change.
+ */
+export type RecordLabel = {
+  /** Column whose value names the record. */
+  column: string;
+  /** Optional column shown smaller next to or under the name. */
+  secondary?: string | null;
+};
+
 export type ModelTable = {
   name: string;
   displayName?: string | null;
@@ -68,6 +80,7 @@ export type ModelTable = {
   renamedFrom?: string | null;
   columns: ModelColumn[];
   indexes?: ModelIndex[];
+  recordLabel?: RecordLabel | null;
 };
 
 export type ModelRelation = {
