@@ -5620,3 +5620,40 @@
     align-items: baseline;
     gap: 0.375rem;
 }
+
+/* Lanes run the full height of the board, so a card can be dropped
+   anywhere in a lane, not only on the strip its cards happen to cover.
+   The card list scrolls inside the lane and keeps a little room on every
+   side, so the last card's border, hover and focus ring are not clipped
+   by the scroll box. */
+.kanban-board {
+    align-items: stretch;
+}
+
+.kanban-lane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.kanban-lane__list {
+    flex: 1;
+    min-height: 6rem;
+    padding: 0.75rem 3px 1rem;
+    margin-inline: -3px;
+}
+
+/* Hover marks the card with its border, not a grey fill: the grey FK chips
+   sat on a grey card and the card read as disabled. */
+.kanban-card:hover {
+    border-color: color-mix(in srgb, var(--text) 22%, transparent);
+    background: var(--surface-raised);
+}
+
+/* A lane taller than the window fades out at the bottom instead of cutting
+   its last card off; the fade is as tall as the list's bottom padding, so
+   a fully scrolled lane shows its last card whole. */
+.kanban-lane__list {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+}
