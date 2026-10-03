@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
+import { ConfirmDialog } from "../../../components/ui/Dialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SelectField } from "../../../components/ui/SelectField";
 import { TextField } from "../../../components/ui/TextField";
@@ -137,6 +138,13 @@ export function VisualSchemaInspector({
   const [relationDraftIssues, setRelationDraftIssues] = useState<
     VisualSchemaDraftIssue[]
   >([]);
+  // Deleting a table or column asks in the app's own dialog.
+  const [pendingDelete, setPendingDelete] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    run: () => void;
+  } | null>(null);
 
   function commit(nextDocument: SchemaModelDocument) {
     onDocumentChange(nextDocument);
@@ -248,26 +256,29 @@ export function VisualSchemaInspector({
   }
 
   function deleteSelectedTable() {
-    const impact = getTableDeleteImpact(document, activeTable.name);
-    const details = [
-      `Delete table "${activeTable.name}"?`,
+    const tableName = activeTable.name;
+    const impact = getTableDeleteImpact(document, tableName);
+    const description = [
       impact.relationCount > 0
         ? `${countLabel(impact.relationCount, "relation")} will be removed.`
         : null,
       impact.referenceColumnCount > 0
         ? `${countLabel(impact.referenceColumnCount, "reference column")} will be removed.`
         : null,
+      "Its rows are dropped when you apply the draft.",
     ]
       .filter(Boolean)
       .join(" ");
 
-    const confirmed = window.confirm(details);
-    if (!confirmed) {
-      return;
-    }
-
-    commit(deleteTableWithDependents(document, activeTable.name));
-    onSelectionChange(null);
+    setPendingDelete({
+      title: `Delete table "${tableName}"?`,
+      description,
+      confirmLabel: "Delete table",
+      run: () => {
+        commit(deleteTableWithDependents(document, tableName));
+        onSelectionChange(null);
+      },
+    });
   }
 
   function updateSelectedColumn(
@@ -329,15 +340,16 @@ export function VisualSchemaInspector({
   }
 
   function deleteSelectedColumn(column: SchemaColumn) {
-    const confirmed = window.confirm(
-      `Delete column "${activeTable.name}.${column.name}"?`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    commit(removeColumn(document, activeTable.name, column.name));
-    onSelectionChange({ type: "table", tableName: activeTable.name });
+    const tableName = activeTable.name;
+    setPendingDelete({
+      title: `Delete column "${tableName}.${column.name}"?`,
+      description: "Its values are dropped when you apply the draft.",
+      confirmLabel: "Delete column",
+      run: () => {
+        commit(removeColumn(document, tableName, column.name));
+        onSelectionChange({ type: "table", tableName });
+      },
+    });
   }
 
   const activeRelationDraft =
@@ -598,6 +610,19 @@ export function VisualSchemaInspector({
           </section>
         </>
       )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.title ?? ""}
+        description={pendingDelete?.description ?? ""}
+        confirmLabel={pendingDelete?.confirmLabel ?? "Delete"}
+        cancelLabel="Keep"
+        confirmVariant="danger"
+        onConfirm={() => {
+          pendingDelete?.run();
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </aside>
   );
 }

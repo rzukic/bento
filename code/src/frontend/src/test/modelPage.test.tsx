@@ -923,6 +923,46 @@ describe("Model workbench route (/model)", () => {
     expect(screen.queryByRole("complementary", { name: /Edit selection|Changes/ })).not.toBeInTheDocument();
   });
 
+  it("asks before leaving the page with an unapplied draft", async () => {
+    seedAuthenticated("admin");
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(populatedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    await screen.findByRole("textbox", { name: /schema json editor/i });
+    replaceModelEditorValue(
+      getVisibleSchemaDraftText({
+        ...populatedSchema,
+        tables: [
+          ...populatedSchema.tables,
+          { name: "gadgets", columns: [{ name: "id", type: "integer", primaryKey: true }], indexes: [] },
+        ],
+      }),
+    );
+
+    const user = userEvent.setup();
+    await act(async () => {
+      await router.navigate("/data");
+    });
+    const dialog = await screen.findByRole("dialog", { name: "Leave without applying?" });
+    await user.click(within(dialog).getByRole("button", { name: "Keep editing" }));
+    expect(router.state.location.pathname).toBe("/model");
+    expect(screen.getByRole("textbox", { name: /schema json editor/i })).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate("/data");
+    });
+    await user.click(
+      within(await screen.findByRole("dialog", { name: "Leave without applying?" })).getByRole(
+        "button",
+        { name: "Discard changes" },
+      ),
+    );
+    await waitFor(() => expect(router.state.location.pathname).toBe("/data"));
+  });
+
   it("switches between JSON and Visual modes against the same draft", async () => {
     seedAuthenticated("admin");
     const fetchMock = vi.fn().mockResolvedValue(jsonResponse(populatedSchema));
@@ -2487,12 +2527,17 @@ describe("Model workbench route (/model)", () => {
 
     await user.click(getTableButton("organizations"));
     inspector = screen.getByLabelText("Visual schema inspector");
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(
       within(inspector).getByRole("button", { name: /delete table/i }),
     );
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete table "organizations"? 1 relation will be removed. 2 reference columns will be removed.',
+    const deleteTableDialog = await screen.findByRole("dialog", {
+      name: 'Delete table "organizations"?',
+    });
+    expect(deleteTableDialog).toHaveTextContent(
+      "1 relation will be removed. 2 reference columns will be removed.",
+    );
+    await user.click(
+      within(deleteTableDialog).getByRole("button", { name: "Delete table" }),
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
@@ -2588,12 +2633,14 @@ describe("Model workbench route (/model)", () => {
     );
     inspector = screen.getByLabelText("Visual schema inspector");
 
-    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     await user.click(
       within(inspector).getByRole("button", { name: "Delete column" }),
     );
-    expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete column "widgets.color"?',
+    const deleteColumnDialog = await screen.findByRole("dialog", {
+      name: 'Delete column "widgets.color"?',
+    });
+    await user.click(
+      within(deleteColumnDialog).getByRole("button", { name: "Delete column" }),
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));

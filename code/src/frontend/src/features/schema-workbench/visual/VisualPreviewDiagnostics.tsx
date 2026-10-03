@@ -6,7 +6,7 @@ type VisualDiagnosticTarget = {
   selection: VisualCanvasSelection | null;
 };
 
-function getVisualDiagnosticTarget(
+export function getVisualDiagnosticTarget(
   document: SchemaModelDocument,
   path: string | null,
 ): VisualDiagnosticTarget {

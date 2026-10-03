@@ -406,6 +406,7 @@ function RelationImpact({ impact }: RelationImpactProps) {
 type DiagnosticsSectionProps = {
   activeDiagnosticId: string | null;
   diagnostics: WorkbenchDiagnostic[];
+  locate?: (diagnostic: WorkbenchDiagnostic) => string | null;
   onSelect: (diagnostic: WorkbenchDiagnostic) => void;
   singularLabel: "error" | "warning";
 };
@@ -413,6 +414,8 @@ type DiagnosticsSectionProps = {
 type PreviewDiagnosticsProps = {
   activeDiagnosticId: string | null;
   errorDiagnostics: WorkbenchDiagnostic[];
+  /** Where a problem is, in words (e.g. "widgets.name"); JSON line otherwise. */
+  locate?: (diagnostic: WorkbenchDiagnostic) => string | null;
   onSelect: (diagnostic: WorkbenchDiagnostic) => void;
   warningDiagnostics: WorkbenchDiagnostic[];
 };
@@ -420,6 +423,7 @@ type PreviewDiagnosticsProps = {
 export function PreviewDiagnostics({
   activeDiagnosticId,
   errorDiagnostics,
+  locate,
   onSelect,
   warningDiagnostics,
 }: PreviewDiagnosticsProps) {
@@ -431,6 +435,7 @@ export function PreviewDiagnostics({
     <div className="schema-workbench__preview-diagnostics">
       <DiagnosticsSection
         singularLabel="error"
+        locate={locate}
         diagnostics={errorDiagnostics}
         activeDiagnosticId={activeDiagnosticId}
         onSelect={onSelect}
@@ -438,6 +443,7 @@ export function PreviewDiagnostics({
 
       <DiagnosticsSection
         singularLabel="warning"
+        locate={locate}
         diagnostics={warningDiagnostics}
         activeDiagnosticId={activeDiagnosticId}
         onSelect={onSelect}
@@ -449,6 +455,7 @@ export function PreviewDiagnostics({
 function DiagnosticsSection({
   activeDiagnosticId,
   diagnostics,
+  locate,
   onSelect,
   singularLabel,
 }: DiagnosticsSectionProps) {
@@ -469,7 +476,9 @@ function DiagnosticsSection({
 
       <div className="schema-workbench__diagnostic-list">
         {diagnostics.map((diagnostic) => {
-          const locationLabel = diagnostic.location
+          const locationLabel = locate
+            ? locate(diagnostic)
+            : diagnostic.location
             ? `${diagnostic.locationExact ? "Line" : "Near line"} ${diagnostic.location.line}`
             : null;
 

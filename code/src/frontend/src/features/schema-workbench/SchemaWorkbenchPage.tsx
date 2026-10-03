@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useBlocker } from "react-router-dom";
+import { getVisualDiagnosticTarget } from "./visual/VisualPreviewDiagnostics";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -348,6 +350,22 @@ export function SchemaWorkbenchPage() {
     }
   }, [state.loadedText, state.status]);
   const dirty = state.draftText !== state.loadedText;
+
+  // Leaving the page drops the draft, so ask first: inside the app through
+  // the router, and for a reload or closed tab through the browser.
+  const leaveBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+  useEffect(() => {
+    if (!dirty) return;
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
   const syntaxDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
     if (draftParse?.status !== "invalid") {
       return [];
@@ -477,6 +495,12 @@ export function SchemaWorkbenchPage() {
     (previewState.response.hasChanges || isLayoutOnlyDraft) &&
     backendErrorDiagnostics.length === 0 &&
     !applyInFlight;
+  // A draft whose preview drops tables, columns or links: Apply turns red.
+  const draftDeletesData =
+    dirty &&
+    previewState.status === "ready" &&
+    previewState.response?.isDestructive === true &&
+    previewState.response.hasChanges;
   const previewContentHiddenByErrors =
     draftParse?.status !== "valid" || previewState.status === "error";
   const draftStatus = !dirty
@@ -489,7 +513,8 @@ export function SchemaWorkbenchPage() {
           ? backendErrorDiagnostics.length > 0
             ? countLabel(backendErrorDiagnostics.length, "problem") + " to fix"
             : previewState.response.hasChanges
-              ? countLabel(previewState.response.changes.length, "unapplied change")
+              ? countLabel(previewState.response.changes.length, "unapplied change") +
+                (previewState.response.isDestructive ? " · deletes data" : "")
               : isLayoutOnlyDraft
                 ? "Designer settings not saved yet"
                 : "No unapplied changes"
@@ -972,7 +997,12 @@ export function SchemaWorkbenchPage() {
           </button>
           <button
             type="button"
-            className="schema-workbench__pill schema-workbench__pill--accent"
+            className={
+              draftDeletesData
+                ? "schema-workbench__pill schema-workbench__pill--danger"
+                : "schema-workbench__pill schema-workbench__pill--accent"
+            }
+            title={draftDeletesData ? "Some of these changes delete data" : undefined}
             disabled={!canOpenApplyDialog}
             onClick={openApplyDialog}
           >
@@ -1156,6 +1186,12 @@ export function SchemaWorkbenchPage() {
                 errorDiagnostics={previewErrorDiagnostics}
                 onSelect={focusDiagnostic}
                 warningDiagnostics={backendWarningDiagnostics}
+                locate={
+                  activeMode === "visual" && visualDraftDocument
+                    ? (diagnostic) =>
+                        getVisualDiagnosticTarget(visualDraftDocument, diagnostic.path).label
+                    : undefined
+                }
               />
 
               {previewContentHiddenByErrors ? null : previewState.status ===
@@ -1319,6 +1355,16 @@ export function SchemaWorkbenchPage() {
         onCancel={() => setPendingImport(null)}
       />
 
+      <ConfirmDialog
+        open={leaveBlocker.state === "blocked"}
+        title="Leave without applying?"
+        description="Your schema draft has changes that are not applied yet. Leaving this page discards them."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        confirmVariant="danger"
+        onConfirm={() => leaveBlocker.proceed?.()}
+        onCancel={() => leaveBlocker.reset?.()}
+      />
       <ConfirmDialog
         open={refreshConfirmOpen}
         title="Discard local draft edits?"

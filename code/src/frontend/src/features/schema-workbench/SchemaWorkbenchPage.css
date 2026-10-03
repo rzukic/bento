@@ -3054,3 +3054,20 @@
 .schema-workbench .schema-workbench__erd-column-list > li:first-child {
     border-top: 0;
 }
+
+/* Apply for a draft that deletes data: red instead of the accent. */
+.schema-workbench__pill--danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+.schema-workbench__pill--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, #000);
+}
+
+.schema-workbench__pill--danger:disabled {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  color: var(--text-2);
+}
