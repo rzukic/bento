@@ -17,6 +17,7 @@ src/backend/
 │   └── BackendRuntimeConfiguration.cs ← Env-var adapter, validation, and DB override helpers
 ├── Controllers/          ← API route handlers (one per resource area)
 │   ├── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+│   ├── QueryController.cs ← Aggregation queries (`/api/v1/query`) and saved queries (`/api/v1/queries`)
 │   └── ImportController.cs ← CSV import and mapping profiles (`/api/v1/import/*`)
 ├── Exceptions/
 │   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses
@@ -29,6 +30,7 @@ src/backend/
 ├── Services/             ← Business logic, injected into controllers
 │   ├── BackendRuntimeInfo.cs ← Captured startup time + version for operational endpoints
 │   ├── AdminHealthService.cs ← Backend readiness check used by admin health route
+│   ├── AggregationQueryService.cs ← Group/measure/bucket SQL per provider, running totals, carry-in
 │   └── Import/           ← CSV import (Step 3.1)
 │       ├── CsvDocument.cs ← Decoding, separator and header detection, RFC 4180 split with file lines
 │       ├── ImportValueParser.cs ← Locale-aware numbers/dates/booleans, type and locale inference
@@ -82,6 +84,7 @@ src/backend/
 | API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | [`../../wiki/parts/02-backend-api/README.md`](../../wiki/parts/02-backend-api/README.md) |
 | Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
+| Aggregation queries | `Controllers/QueryController.cs`, `Services/AggregationQueryService.cs` | [Part 6 R6.9](../../wiki/parts/06-auto-api/README.md), [Using the API](../user/using-the-api.md#aggregate-data) |
 | CSV import | `Controllers/ImportController.cs`, `Services/Import/ImportService.cs` | [Importing Data](../user/importing-data.md), [Part 11 R11.5](../../wiki/parts/11-integration-engine/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
 | JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |

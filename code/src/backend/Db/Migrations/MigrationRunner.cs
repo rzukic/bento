@@ -325,6 +325,8 @@ public class MigrationRunner
             }
         }
 
+        await MigrateSavedQueryReferencesAsync(conn, transaction, tableRenames, columnRenames);
+
         var views = await conn.QueryAsync<SystemViewReferenceRow>(
             $"SELECT id AS Id, table_name AS TableName, config AS Config FROM {GetViewsTableName()};",
             transaction: transaction);
@@ -504,6 +506,72 @@ public class MigrationRunner
         _systemPool.Provider == DatabaseProvider.Postgres
             ? "_system.user_table_explorer_preferences"
             : "user_table_explorer_preferences";
+
+    /// <summary>
+    /// Saved queries name their table and columns in their config: renames
+    /// rewrite <c>source</c>, filter keys, group and measure columns.
+    /// </summary>
+    private async Task MigrateSavedQueryReferencesAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        IReadOnlyDictionary<string, string> tableRenames,
+        IReadOnlyList<SchemaChange> columnRenames)
+    {
+        var table = _systemPool.Provider == DatabaseProvider.Postgres ? "_system.saved_queries" : "saved_queries";
+        var rows = await conn.QueryAsync<SavedQueryReferenceRow>(
+            $"SELECT id AS Id, source_table AS SourceTable, config AS Config FROM {table};",
+            transaction: transaction);
+
+        foreach (var row in rows)
+        {
+            var source = tableRenames.TryGetValue(row.SourceTable, out var renamedTable) ? renamedTable : row.SourceTable;
+            var columns = columnRenames
+                .Where(change => string.Equals(change.TableName, source, StringComparison.OrdinalIgnoreCase))
+                .GroupBy(change => change.PreviousColumnName!, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.Last().ColumnName!, StringComparer.OrdinalIgnoreCase);
+            if (source == row.SourceTable && columns.Count == 0)
+                continue;
+            if (JsonNode.Parse(row.Config) is not JsonObject config)
+                continue;
+
+            config["source"] = source;
+            string Rename(string name) => columns.TryGetValue(name, out var renamed) ? renamed : name;
+            if (config["filter"] is JsonObject filter)
+            {
+                foreach (var key in filter.Select(pair => pair.Key).ToList())
+                {
+                    var renamed = Rename(key);
+                    if (renamed == key)
+                        continue;
+                    var value = filter[key];
+                    filter.Remove(key);
+                    filter[renamed] = value;
+                }
+            }
+            foreach (var listName in new[] { "groupBy", "measures" })
+            {
+                if (config[listName] is not JsonArray list)
+                    continue;
+                foreach (var item in list.OfType<JsonObject>())
+                {
+                    if (item["column"]?.GetValue<string>() is { } column)
+                        item["column"] = Rename(column);
+                }
+            }
+
+            await conn.ExecuteAsync(
+                $"UPDATE {table} SET source_table = @Source, config = {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id;",
+                new { Id = row.Id, Source = source, Config = config.ToJsonString(), Now = UtcNowIso() },
+                transaction);
+        }
+    }
+
+    private sealed class SavedQueryReferenceRow
+    {
+        public long Id { get; init; }
+        public string SourceTable { get; init; } = "";
+        public string Config { get; init; } = "{}";
+    }
 
     private string GetImportProfilesTableName() =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.import_profiles" : "import_profiles";

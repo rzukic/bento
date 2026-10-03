@@ -286,6 +286,40 @@ curl -fsS "$API_ROOT/data/_jt_orders_products?filter[order_id]=1" \
 
 ---
 
+## Aggregate Data
+
+`POST $API_ROOT/query` sums, counts and averages a table, grouped by columns, linked records or months — without SQL. Every role that can read data can use it.
+
+```bash
+# Spending per category and month in 2026, and the running balance per month
+curl -fsS "$API_ROOT/query" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{
+  "source": "transactions",
+  "filter": { "booked_on": { "gte": "2026-01-01" }, "amount": { "lt": 0 } },
+  "groupBy": [ { "column": "category_id" }, { "column": "booked_on", "bucket": "month", "as": "month" } ],
+  "measures": [ { "name": "spent", "fn": "sum", "column": "amount" }, { "name": "bookings", "fn": "count" } ],
+  "sort": [ "month", "spent" ]
+}'
+```
+
+```json
+{
+  "data": [
+    { "category_id": 3, "category_id_label": "Lebensmittel", "month": "2026-09-01", "spent": -49.1, "bookings": 2 }
+  ],
+  "meta": { "columns": [ { "name": "category_id", "type": "reference", "role": "group" }, "…" ], "truncated": false }
+}
+```
+
+- `filter` uses the list operators (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `in` with an array, `null`, `notnull`); a plain value means `eq`
+- `bucket` groups dates by `day`, `week` (from Monday), `month`, `quarter` or `year`; the value is the first day of the bucket
+- a link column (here `category_id`) also returns `<name>_label`, the linked record's name
+- `fn` is `count`, `sum`, `avg`, `min`, `max` or `count_distinct`
+- `"running": true` turns a sum or count into a running total over the date group; add `"carryIn": true` to start from the rows before the date range — a balance from September on then starts at the end-of-August balance
+
+Save a query to run it again (also from dashboards later): `POST $API_ROOT/queries` with `{ "name": "Monthly spending", "isShared": true, "query": { … } }`, then `POST $API_ROOT/queries/<id>/run`, optionally with `{ "filter": { … } }` to narrow it further. `GET $API_ROOT/queries` lists your queries and shared ones; only the owner changes or deletes a query.
+
+---
+
 ## Import CSV Files
 
 The browser import ([Importing Data](importing-data.md)) uses these routes; scripts can call them directly. Files travel base64-encoded so the encoding can be detected. Every route needs `editor`, `admin` or `api`.

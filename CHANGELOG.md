@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-03 — Aggregate Data With The Query API
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.2 — Query API & Saved Queries](working-steps/3.2-query-api.md)
+
+The data layer for dashboards: sums, counts and averages of any table, grouped by columns, linked records or date buckets, with running totals — identical on SQLite and Postgres.
+
+**Highlights:**
+- `POST /api/v1/query`: list-endpoint filters, groups (day/week/month/quarter/year buckets, linked records with their names), measures, sort, limit
+- Running totals per group, optionally starting from the rows before the date range (balances)
+- Saved queries, private or shared, with extra filters at run time; they follow table and column renames
+- Fixes Postgres number and yes/no filters on the list endpoint (they were sent as text and failed)
+
 ### 2026-10-03 — Create Tables From CSV Files
 
 > **Phase**: Phase 3 — Visualization
