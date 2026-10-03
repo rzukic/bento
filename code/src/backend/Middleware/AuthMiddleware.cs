@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Bento.Api.Configuration;
 using Bento.Api.Exceptions;
+using Bento.Api.Services;
 
 namespace Bento.Api.Middleware;
 
@@ -21,7 +22,7 @@ public sealed class AuthMiddleware
         _runtimeOptions = runtimeOptions;
     }
 
-    public async Task InvokeAsync(HttpContext context)
+    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys)
     {
         if (!IsVersionedApiRoute(context.Request.Path))
         {
@@ -42,6 +43,19 @@ public sealed class AuthMiddleware
             return;
         }
 
+        // API keys (Part 3 R3.3): X-API-Key or "Authorization: Bearer bento_…".
+        var apiKey = ReadApiKey(context.Request);
+        if (apiKey is not null)
+        {
+            if (!_runtimeOptions.IsStandardAuthMode)
+                throw Unauthorized("This auth mode is not available yet.");
+            var identity = await apiKeys.AuthenticateAsync(apiKey);
+            EnsureScopeAllows(identity.Scope, context.Request);
+            context.User = CreateApiKeyPrincipal(identity);
+            await _next(context);
+            return;
+        }
+
         var isAuthRoute = IsAuthRoute(context.Request.Path);
         if (isAuthRoute && string.IsNullOrWhiteSpace(context.Request.Headers.Authorization))
         {
@@ -52,6 +66,52 @@ public sealed class AuthMiddleware
         context.User = CreateAuthenticatedPrincipal(context.Request.Headers.Authorization);
 
         await _next(context);
+    }
+
+    private static string? ReadApiKey(HttpRequest request)
+    {
+        var header = request.Headers["X-API-Key"].ToString();
+        if (!string.IsNullOrWhiteSpace(header))
+            return header.Trim();
+        var authorization = request.Headers.Authorization.ToString();
+        if (authorization.StartsWith(BearerPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            var token = authorization[BearerPrefix.Length..].Trim();
+            if (ApiKeyService.LooksLikeKey(token))
+                return token;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Read keys read: GET requests, plus running queries (POST, but no
+    /// change). Write keys may do what their role allows; admin routes stay
+    /// closed to every key because keys never carry the admin role.
+    /// </summary>
+    private static void EnsureScopeAllows(string scope, HttpRequest request)
+    {
+        if (scope == ApiKeyService.ReadWriteScope)
+            return;
+        if (HttpMethods.IsGet(request.Method) || HttpMethods.IsHead(request.Method) || HttpMethods.IsOptions(request.Method))
+            return;
+        var path = request.Path.Value ?? "";
+        var runsQuery = HttpMethods.IsPost(request.Method) &&
+            (path.Equals("/" + ApiRoutes.Query, StringComparison.OrdinalIgnoreCase) ||
+             (path.StartsWith("/" + ApiRoutes.SavedQueries + "/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/run", StringComparison.OrdinalIgnoreCase)));
+        if (!runsQuery)
+            throw new ApiForbiddenException("This API key can only read.", new Dictionary<string, object?> { ["scope"] = scope });
+    }
+
+    private static ClaimsPrincipal CreateApiKeyPrincipal(ApiKeyService.ApiKeyIdentity identity)
+    {
+        return new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, identity.UserId.ToString(CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Name, identity.Username),
+            new Claim(ClaimTypes.Role, identity.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"),
+            new Claim("auth_method", "api_key"),
+            new Claim("api_key_id", identity.KeyId.ToString(CultureInfo.InvariantCulture))
+        ], "ApiKey"));
     }
 
     private static bool IsVersionedApiRoute(PathString path)

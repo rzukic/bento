@@ -16,5 +16,7 @@ public static class ApiRoutes
     public const string Setup = Prefix + "/setup";
     public const string SetupStatus = Setup + "/status";
     public const string AdminHealth = Admin + "/health";
+    public const string ApiKeys = Admin + "/api-keys";
+    public const string OpenApi = Prefix + "/openapi.json";
     public const string AdminHealthDetails = AdminHealth + "/details";
 }

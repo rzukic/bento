@@ -229,6 +229,13 @@ public class DatabaseBootstrap : IHostedService
             ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
             ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT FALSE;
             """);
+
+        // API keys (Part 3 R3.3): the table predates prefixes, last use and revocation.
+        await conn.ExecuteAsync("""
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS prefix VARCHAR(32);
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -427,5 +434,14 @@ public class DatabaseBootstrap : IHostedService
             await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN owner_user_id INTEGER;");
         if (!dashboardColumns.Contains("is_shared"))
             await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0;");
+
+        // API keys (Part 3 R3.3): prefixes, last use and revocation came later.
+        var apiKeyColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('api_keys');"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (column, type) in new[] { ("prefix", "TEXT"), ("last_used_at", "TEXT"), ("revoked_at", "TEXT") })
+        {
+            if (!apiKeyColumns.Contains(column))
+                await conn.ExecuteAsync($"ALTER TABLE api_keys ADD COLUMN {column} {type};");
+        }
     }
 }
