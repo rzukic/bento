@@ -217,3 +217,126 @@ export function sushiSvg(kind: SushiKind): string {
     .join("");
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -1.5 16 16" shape-rendering="crispEdges">${cells}</svg>`;
 }
+
+// ── Faces ───────────────────────────────────────────────────────────────
+
+type Cell = { x: number; y: number };
+
+export type SushiFace = {
+  eyes: [Cell, Cell];
+  /** "K" on light bodies, "X" on dark nori. */
+  eyeColor: string;
+  mouth: Cell[];
+};
+
+const isFeature = (cell: string) => cell === "K" || cell === "X";
+
+/**
+ * Finds the face in a sprite: the first row with exactly two lone dark (or,
+ * on nori, light) pixels inside the outline are the eyes; the pair below
+ * them is the mouth.
+ */
+export function findFace(sprite: readonly string[]): SushiFace | null {
+  const inner = (row: string) => {
+    const marks = [...row].flatMap((cell, x) => (isFeature(cell) ? [x] : []));
+    return marks.slice(1, -1);
+  };
+  for (let y = 0; y < sprite.length - 1; y++) {
+    const row = sprite[y];
+    const candidates = inner(row).filter((x) => !isFeature(row[x - 1]) && !isFeature(row[x + 1]));
+    if (candidates.length !== 2) continue;
+    const below = sprite[y + 1];
+    const mouth = inner(below).filter((x) => isFeature(below[x]) && (isFeature(below[x - 1]) || isFeature(below[x + 1])));
+    if (mouth.length !== 2) continue;
+    return {
+      eyes: [
+        { x: candidates[0], y },
+        { x: candidates[1], y },
+      ],
+      eyeColor: row[candidates[0]],
+      mouth: mouth.map((x) => ({ x, y: y + 1 })),
+    };
+  }
+  return null;
+}
+
+export type SushiExpression = "neutral" | "blink" | "happy" | "excited" | "dizzy";
+
+/**
+ * The sprite with a face: eyes looking left or right by a pixel, closed
+ * (blink, dizzy), "^ ^" (happy) or "^ ^" with an open mouth (excited).
+ */
+export function spriteWith(kind: SushiKind, expression: SushiExpression, look: -1 | 0 | 1 = 0): readonly string[] {
+  const sprite = SUSHI_SPRITES[kind];
+  const face = findFace(sprite);
+  if (!face || (expression === "neutral" && look === 0)) return sprite;
+
+  const rows = sprite.map((row) => [...row]);
+  const set = (x: number, y: number, cell: string) => {
+    if (rows[y]?.[x] !== undefined) rows[y][x] = cell;
+  };
+  const { eyes, eyeColor, mouth } = face;
+  // The body colour beside each eye is what an eye leaves behind when it moves.
+  const body = eyes.map((eye) => sprite[eye.y][eye.x - 1]);
+  eyes.forEach((eye, index) => set(eye.x, eye.y, body[index]));
+
+  eyes.forEach((eye, index) => {
+    const x = eye.x + (expression === "neutral" ? look : 0);
+    switch (expression) {
+      case "blink":
+      case "dizzy":
+        // A short line; the left eye reaches left, the right eye right.
+        set(x, eye.y, eyeColor);
+        set(index === 0 ? x - 1 : x + 1, eye.y, eyeColor);
+        break;
+      case "happy":
+      case "excited":
+        set(x - 1, eye.y, eyeColor);
+        set(x, eye.y - 1, eyeColor);
+        set(x + 1, eye.y, eyeColor);
+        break;
+      default:
+        set(x, eye.y, eyeColor);
+    }
+  });
+  if (expression === "excited") for (const cell of mouth) set(cell.x, cell.y + 1, eyeColor);
+  return rows.map((row) => row.join(""));
+}
+
+// ── The sushi of this session, shared by every mascot ───────────────────
+
+let current: SushiKind = SESSION_SUSHI;
+const listeners = new Set<() => void>();
+
+export function currentSushi(): SushiKind {
+  return current;
+}
+
+export function subscribeSushi(listener: () => void): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
+}
+
+/** Switches every mascot (and the favicon) to another sushi. */
+export function setCurrentSushi(kind: SushiKind) {
+  if (kind === current) return;
+  current = kind;
+  writeLast(kind);
+  applyFavicon(kind);
+  listeners.forEach((listener) => listener());
+}
+
+/** Points the tab icon at a sushi. */
+export function applyFavicon(kind: SushiKind) {
+  if (typeof document === "undefined") return;
+  let link = document.querySelector<HTMLLinkElement>('link[rel="icon"][data-sushi]');
+  if (!link) {
+    link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/svg+xml";
+    link.dataset.sushi = "";
+    document.head.appendChild(link);
+  }
+  link.dataset.sushi = kind;
+  link.href = `data:image/svg+xml,${encodeURIComponent(sushiSvg(kind))}`;
+}

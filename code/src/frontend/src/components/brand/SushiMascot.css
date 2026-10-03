@@ -28,9 +28,84 @@
   }
 }
 
+/* ── Interactive mascot ── */
+
+.sushi-mascot-box {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Hover: one small hop. */
+.sushi-mascot--hop {
+  transform-origin: 50% 100%;
+  animation: sushi-hop-once 420ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+
+@keyframes sushi-hop-once {
+  0% { transform: translateY(0) scale(1, 1); }
+  20% { transform: translateY(0) scale(1.08, 0.88); }
+  55% { transform: translateY(-22%) scale(0.96, 1.05); }
+  85% { transform: translateY(0) scale(1.04, 0.94); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+/* Click: crouch, a higher jump with a wiggle, a squashy landing. */
+.sushi-mascot--jump {
+  transform-origin: 50% 100%;
+  animation: sushi-jump 620ms cubic-bezier(0.25, 0.8, 0.35, 1);
+}
+
+@keyframes sushi-jump {
+  0% { transform: translateY(0) scale(1, 1) rotate(0); }
+  15% { transform: translateY(0) scale(1.14, 0.8) rotate(0); }
+  45% { transform: translateY(-48%) scale(0.92, 1.1) rotate(-8deg); }
+  62% { transform: translateY(-40%) scale(0.95, 1.06) rotate(8deg); }
+  82% { transform: translateY(0) scale(1.12, 0.86) rotate(0); }
+  92% { transform: translateY(0) scale(0.97, 1.03); }
+  100% { transform: translateY(0) scale(1, 1); }
+}
+
+/* Five quick clicks: a spin that hides the swap to another sushi. */
+.sushi-mascot--spin {
+  transform-origin: 50% 60%;
+  animation: sushi-spin 560ms cubic-bezier(0.45, 0, 0.3, 1);
+}
+
+@keyframes sushi-spin {
+  0% { transform: rotate(0) scale(1); }
+  50% { transform: rotate(180deg) scale(0.6); }
+  100% { transform: rotate(360deg) scale(1); }
+}
+
+/* A pixel heart floats up from the mascot and fades. */
+.sushi-mascot__heart {
+  position: absolute;
+  left: 50%;
+  bottom: 70%;
+  pointer-events: none;
+  image-rendering: pixelated;
+  animation: sushi-heart 950ms cubic-bezier(0.2, 0.7, 0.4, 1) forwards;
+}
+
+@keyframes sushi-heart {
+  0% { transform: translate(-50%, 0) scale(0.4); opacity: 0; }
+  20% { transform: translate(calc(-50% + var(--drift) * 0.3), -40%) scale(1.1); opacity: 1; }
+  100% { transform: translate(calc(-50% + var(--drift)), -260%) scale(0.9); opacity: 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .sushi-mascot--bounce {
+  .sushi-mascot--bounce,
+  .sushi-mascot--hop,
+  .sushi-mascot--jump,
+  .sushi-mascot--spin {
     animation: none;
+  }
+
+  .sushi-mascot__heart {
+    display: none;
   }
 }
 
