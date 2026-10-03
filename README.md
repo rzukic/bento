@@ -1,7 +1,9 @@
-# DataForge (Repere)
+# Bento
 
 > Self-hosted, open-source, all-in-one data management platform.
 > Relational DB backbone. Built for lean companies. Easy to start, deep when needed.
+
+> Technical identifiers still carry the earlier working name `repere` (the `Repere.Api` project, `repere/*` images, the `repere-data` volume); they move to Bento in a later step with an upgrade path for existing data.
 
 Define your schema as JSON, deploy, and get a full REST API with auth, filtering, relations, and dashboards — no code required.
 

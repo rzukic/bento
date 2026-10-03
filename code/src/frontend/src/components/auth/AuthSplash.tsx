@@ -1,6 +1,6 @@
 import { Sky } from "../common/Atmosphere";
-import { Icon } from "../common/Icon";
 import "./RequireAuth.css";
+import { SushiMascot } from "../brand";
 
 /**
  * Full-screen placeholder shown while the app works out where to send the
@@ -13,7 +13,7 @@ export function AuthSplash({ label }: { label: string }) {
       <Sky />
       <div className="auth-splash__body">
         <span className="auth-splash__mark" aria-hidden="true">
-          <Icon name="layers" size={17} />
+          <SushiMascot width={64} bounce />
         </span>
         <span className="auth-splash__track" aria-hidden="true">
           <span className="auth-splash__bar" />
