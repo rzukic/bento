@@ -7,7 +7,9 @@ import { seedSetupInitializedForTest } from "../features/setup";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
+import { resetExplorerStoreForTest, useExplorerStore } from "../stores/explorerStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
+import { freshTableView } from "../stores/explorer/helpers";
 import type { ModelSnapshot } from "../types/api";
 
 const api = vi.hoisted(() => ({
@@ -90,6 +92,7 @@ beforeEach(() => {
   resetAuthStoreForTest();
   seedSetupInitializedForTest();
   resetSchemaStoreForTest();
+  resetExplorerStoreForTest();
   useAuthStore.setState({
     status: "authenticated",
     user: { id: 1, username: "admin", role: "admin" },
@@ -155,10 +158,15 @@ describe("CSV import page", () => {
     expect(review.queryByText("Einkauf")).not.toBeInTheDocument();
     expect(review.getByText("Haftpflicht")).toBeInTheDocument();
 
+    // The table was open before: its cached rows must be reloaded after the import.
+    useExplorerStore.setState((state) => ({
+      views: { ...state.views, transactions: { ...freshTableView(), status: "ready" } },
+    }));
     await user.click(screen.getByRole("button", { name: "Import 1 row" }));
 
     expect(api.runImport).toHaveBeenCalledWith("transactions", payload);
     expect(await screen.findByText("1 row imported into Transactions")).toBeInTheDocument();
+    expect(useExplorerStore.getState().views.transactions?.status).toBe("idle");
     expect(screen.getByText("Skipped 1 row already in the table and 1 row with problems.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Transactions" })).toBeInTheDocument();
   });

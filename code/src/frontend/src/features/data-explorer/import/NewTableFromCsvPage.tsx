@@ -14,6 +14,7 @@ import { Alert } from "../../../components/ui/Alert";
 import { Button } from "../../../components/ui/Button";
 import { Spinner } from "../../../components/ui/Spinner";
 import { TextField } from "../../../components/ui/TextField";
+import { useExplorerStore } from "../../../stores/explorerStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import type { ModelTable, SchemaColumnType } from "../../../types/api";
 import type { ImportHandOff } from "./ImportPage";
@@ -142,6 +143,7 @@ export function NewTableFromCsvPage() {
           keyColumns: [lookup.labelColumn],
           distinctKeys: true,
         });
+        if (result.inserted > 0) useExplorerStore.getState().markTableStale(lookup.table);
         filled.push(`${result.inserted} ${result.inserted === 1 ? "value" : "values"} added to ${lookup.displayName}`);
       }
 

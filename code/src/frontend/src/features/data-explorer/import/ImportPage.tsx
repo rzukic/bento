@@ -25,6 +25,7 @@ import { Button } from "../../../components/ui/Button";
 import { SelectField } from "../../../components/ui/SelectField";
 import { Spinner } from "../../../components/ui/Spinner";
 import { TextField } from "../../../components/ui/TextField";
+import { useExplorerStore } from "../../../stores/explorerStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import type { ModelColumn } from "../../../types/api";
 import {
@@ -261,6 +262,7 @@ export function ImportPage() {
     setError(null);
     try {
       const done = await runImport(tableId, body);
+      if (done.inserted > 0) useExplorerStore.getState().markTableStale(tableId);
       setResult(done);
       setPreview(done);
     } catch (cause) {
