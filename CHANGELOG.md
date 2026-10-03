@@ -21,7 +21,7 @@ The working name "Repère" is replaced by Bento, visibly and in every technical 
 **Highlights:**
 - UI, page title and docs say Bento; a pixel sushi mascot (a different kind on every load) is the logo and favicon
 - `Bento.Api` / `Bento.Tests` projects and namespaces, `Bento.sln`, images `bento/frontend|backend|proxy`, data volume `bento-data`
-- Postgres defaults `bento` / `bento_admin` / `bento_system` / `bento_data`; role names configurable via `BENTO_SYSTEM_ROLE` / `BENTO_DATA_ROLE`; env vars `BENTO_SYSTEM_PASSWORD` / `BENTO_DATA_PASSWORD` (old `REPERE_*` names still read)
+- Postgres defaults `bento` / `bento_admin` / `bento_system` / `bento_data`; role names configurable via `BENTO_SYSTEM_ROLE` / `BENTO_DATA_ROLE`; env vars `BENTO_SYSTEM_PASSWORD` / `BENTO_DATA_PASSWORD` (formerly `REPERE_*`)
 - JWT issuer/audience `bento-api` / `bento-clients`, refresh cookie `bento_refresh`
 - Upgrade path: `code/scripts/migrate-volume-from-repere.sh` copies the old data volume; the old refresh cookie is accepted once and replaced; browser settings move from `repere.*` to `bento.*` keys on first load
 

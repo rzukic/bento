@@ -229,7 +229,7 @@ Bento was called "Repère" up to v0.2.0. The technical names moved with it: imag
   ```
 
   The script copies `code_repere-data` into `code_bento-data` and leaves the old volume untouched; pass the project name if the stack was started with `-p <name>`. Remove the old volume yourself once everything is there.
-- **Postgres**: the Postgres volume keeps its name. Keep the old database and role names in `code/.env`: `POSTGRES_DB=repere`, `POSTGRES_SUPERUSER=repere_admin`, `BENTO_SYSTEM_ROLE=repere_system`, `BENTO_DATA_ROLE=repere_data`. `REPERE_SYSTEM_PASSWORD` / `REPERE_DATA_PASSWORD` are still read when the `BENTO_*` passwords are unset.
+- **Postgres**: the Postgres volume keeps its name. Keep the old database and role names in `code/.env`: `POSTGRES_DB=repere`, `POSTGRES_SUPERUSER=repere_admin`, `BENTO_SYSTEM_ROLE=repere_system`, `BENTO_DATA_ROLE=repere_data`. Rename `REPERE_SYSTEM_PASSWORD` / `REPERE_DATA_PASSWORD` to `BENTO_SYSTEM_PASSWORD` / `BENTO_DATA_PASSWORD`.
 - **Browser**: signed-in sessions carry over (the old refresh cookie is accepted once and replaced), and theme, sidebar and schema mode settings are moved to their new keys on the first load.
 
 ---

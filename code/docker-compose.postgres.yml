@@ -2,14 +2,14 @@
 #
 # Installs created before the rename to Bento keep their Postgres names: set
 # POSTGRES_DB=repere, POSTGRES_SUPERUSER=repere_admin, BENTO_SYSTEM_ROLE=repere_system
-# and BENTO_DATA_ROLE=repere_data. The old REPERE_SYSTEM_PASSWORD and
-# REPERE_DATA_PASSWORD variables are still read when the BENTO_* ones are unset.
+# and BENTO_DATA_ROLE=repere_data, and rename REPERE_SYSTEM_PASSWORD /
+# REPERE_DATA_PASSWORD to BENTO_SYSTEM_PASSWORD / BENTO_DATA_PASSWORD.
 services:
   backend:
     environment:
       DATABASE_PROVIDER: Postgres
-      DATABASE_SYSTEM_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-bento};Username=${BENTO_SYSTEM_ROLE:-bento_system};Password=${BENTO_SYSTEM_PASSWORD:-${REPERE_SYSTEM_PASSWORD:?BENTO_SYSTEM_PASSWORD is required}}"
-      DATABASE_DATA_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-bento};Username=${BENTO_DATA_ROLE:-bento_data};Password=${BENTO_DATA_PASSWORD:-${REPERE_DATA_PASSWORD:?BENTO_DATA_PASSWORD is required}}"
+      DATABASE_SYSTEM_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-bento};Username=${BENTO_SYSTEM_ROLE:-bento_system};Password=${BENTO_SYSTEM_PASSWORD:?BENTO_SYSTEM_PASSWORD is required (formerly REPERE_SYSTEM_PASSWORD)}"
+      DATABASE_DATA_CONNECTION: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-bento};Username=${BENTO_DATA_ROLE:-bento_data};Password=${BENTO_DATA_PASSWORD:?BENTO_DATA_PASSWORD is required (formerly REPERE_DATA_PASSWORD)}"
       POSTGRES_SUPERUSER_PASSWORD: "${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD is required}"
     depends_on:
       postgres:
@@ -24,8 +24,8 @@ services:
       POSTGRES_PASSWORD: "${POSTGRES_SUPERUSER_PASSWORD:?POSTGRES_SUPERUSER_PASSWORD is required}"
       BENTO_SYSTEM_ROLE: "${BENTO_SYSTEM_ROLE:-bento_system}"
       BENTO_DATA_ROLE: "${BENTO_DATA_ROLE:-bento_data}"
-      BENTO_SYSTEM_PASSWORD: "${BENTO_SYSTEM_PASSWORD:-${REPERE_SYSTEM_PASSWORD:?BENTO_SYSTEM_PASSWORD is required}}"
-      BENTO_DATA_PASSWORD: "${BENTO_DATA_PASSWORD:-${REPERE_DATA_PASSWORD:?BENTO_DATA_PASSWORD is required}}"
+      BENTO_SYSTEM_PASSWORD: "${BENTO_SYSTEM_PASSWORD:?BENTO_SYSTEM_PASSWORD is required (formerly REPERE_SYSTEM_PASSWORD)}"
+      BENTO_DATA_PASSWORD: "${BENTO_DATA_PASSWORD:?BENTO_DATA_PASSWORD is required (formerly REPERE_DATA_PASSWORD)}"
     volumes:
       - pg-data:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d:ro
