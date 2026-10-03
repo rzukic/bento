@@ -5465,3 +5465,14 @@
     left: auto;
     right: 0;
 }
+
+/* Neutral, not the warm raised tone: the open-record button's backing
+   matches the hovered row exactly; the PK badge is a plain grey (colour
+   only, the id column's geometry is untouched). */
+.data-grid__cell--actions {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+
+.data-grid__header-pk-label {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
