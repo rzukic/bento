@@ -106,6 +106,25 @@ async function loadRecordEditorEntry(
   }
 }
 
+/**
+ * A field edit started in the record editor lives in the same view state as
+ * grid edits; when its record leaves the editor the edit must end too, or
+ * the grid behind would pick it up as a stray open editor.
+ */
+function endEditsOn(
+  views: ExplorerStoreState["views"],
+  entries: ReadonlyArray<{ table: string; rowId: string }>,
+): ExplorerStoreState["views"] {
+  let next = views;
+  for (const entry of entries) {
+    const view = next[entry.table];
+    if (view?.editingCell && view.editingCell.rowId === entry.rowId) {
+      next = { ...next, [entry.table]: { ...view, editingCell: null } };
+    }
+  }
+  return next;
+}
+
 export const createRecordEditorSlice: StateCreator<
   ExplorerStoreState,
   [],
@@ -203,17 +222,23 @@ export const createRecordEditorSlice: StateCreator<
     set((state) => {
       const editor = state.recordEditor;
       if (!editor) return state;
+      const popped = editor.stack.slice(-1);
+      const views = endEditsOn(state.views, popped);
       if (editor.stack.length <= 1) {
-        return { recordEditor: null };
+        return { recordEditor: null, views };
       }
       return {
         recordEditor: { ...editor, stack: editor.stack.slice(0, -1) },
+        views,
       };
     });
   },
 
   closeRecordEditor: () => {
-    set({ recordEditor: null });
+    set((state) => ({
+      recordEditor: null,
+      views: endEditsOn(state.views, state.recordEditor?.stack ?? []),
+    }));
   },
 
   retryRecordEditorLoad: async () => {

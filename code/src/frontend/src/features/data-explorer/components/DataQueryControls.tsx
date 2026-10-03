@@ -1081,6 +1081,29 @@ export function DataQueryControls({
     setActivePanel("search");
   }
 
+  // ⌘F / Ctrl+F opens the table search instead of the browser's find bar
+  // (unless a dialog such as the record editor is open).
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "f" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.shiftKey || event.altKey || disabled) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      setEditingFilterIndex(null);
+      setActivePanel("search");
+      // Already open: focus and select the field again.
+      requestAnimationFrame(() => {
+        const field = document.querySelector<HTMLInputElement>(
+          '#data-controls-search-panel input[name="search"]',
+        );
+        field?.focus();
+        field?.select();
+      });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [disabled]);
+
   function handleClearSearch() {
     setEditingFilterIndex(null);
     setSearchDraft("");
@@ -1726,6 +1749,7 @@ export function DataQueryControls({
                 label="Search rows"
                 name="search"
                 placeholder="Search this table"
+                autoFocus
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
                 disabled={disabled}

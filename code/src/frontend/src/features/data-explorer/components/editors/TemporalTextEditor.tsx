@@ -61,6 +61,32 @@ export function TemporalTextEditor({
   );
   const panelRef = useRef<HTMLDivElement | null>(null);
   const separator = useMemo(() => getDateTimeSeparator(locale), [locale]);
+
+  // Open the time list at the current time (or the nearest step), not 00:00.
+  useEffect(() => {
+    if (openPanel !== "time") return;
+    const frame = requestAnimationFrame(() => {
+      const list = panelRef.current?.querySelector<HTMLElement>(".cell-temporal-editor__time-list");
+      const current = parseTimeDraft(timeDraft);
+      if (!list || !current) return;
+      const [hour, minute] = current.split(":").map(Number) as [number, number];
+      const minutes = hour * 60 + minute;
+      let best: HTMLElement | null = null;
+      let bestDistance = Infinity;
+      for (const option of list.querySelectorAll<HTMLElement>(".cell-temporal-editor__time-option")) {
+        const [h, m] = (option.textContent ?? "").split(":").map(Number) as [number, number];
+        const distance = Math.abs(h * 60 + m - minutes);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = option;
+        }
+      }
+      if (best) list.scrollTop = best.offsetTop - list.clientHeight / 2 + best.offsetHeight / 2;
+    });
+    return () => cancelAnimationFrame(frame);
+    // Only when the list opens; typing should not jump it around.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPanel]);
   // Date and time are as wide as their text, so "08. Sept. 2026, 14:40"
   // reads exactly as it did before the field was entered.
   // The date input is exactly its text wide so the separator and time land
@@ -260,7 +286,7 @@ export function TemporalTextEditor({
         ) : null}
 
         {openPanel === "date" ? (
-          <FloatingPanel anchorRef={rootRef} panelRef={panelRef}>
+          <FloatingPanel anchorRef={dateInputRef} panelRef={panelRef}>
           <div
             className="cell-temporal-editor__panel cell-temporal-editor__panel--date"
             role="dialog"
@@ -427,7 +453,7 @@ export function TemporalTextEditor({
         ) : null}
 
         {isDateTime && openPanel === "time" ? (
-          <FloatingPanel anchorRef={rootRef} panelRef={panelRef} align="end">
+          <FloatingPanel anchorRef={timeInputRef} panelRef={panelRef}>
           <div
             className="cell-temporal-editor__panel cell-temporal-editor__panel--time"
             role="dialog"

@@ -36,7 +36,7 @@ export function BooleanCellEditor({
       displayLabel={displayLabel}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder={displayLabel ?? "Select…"}
+      searchPlaceholder="Yes or no"
       loadOptions={loadOptions}
       error={error}
       autoFocus={autoFocus}

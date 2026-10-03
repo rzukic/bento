@@ -30,7 +30,7 @@ export function EnumCellEditor({
       displayLabel={value ?? null}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder="Filter values…"
+      searchPlaceholder="Type to filter"
       loadOptions={loadOptions}
       error={error}
       autoFocus={autoFocus}

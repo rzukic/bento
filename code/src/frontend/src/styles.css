@@ -10,6 +10,9 @@
     --bg: #0b0b0c;
     --surface: #111113;
     --surface-raised: #16161a;
+    /* Popovers, menus and foldout panels */
+    --popover: #16161a;
+    --popover-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
     --surface-sunken: #09090a;
     --surface-overlay: rgba(11, 11, 12, 0.72);
 
@@ -99,6 +102,9 @@
     --bg: #f5f6f2;
     --surface: #ffffff;
     --surface-raised: #f6f7f1;
+    /* Popovers, menus and foldout panels: neutral white, not the warm raised tone */
+    --popover: #ffffff;
+    --popover-shadow: 0 16px 40px rgba(20, 24, 21, 0.12), 0 2px 8px rgba(20, 24, 21, 0.06);
     --surface-sunken: #eceee5;
     --surface-overlay: rgba(255, 255, 255, 0.76);
 
