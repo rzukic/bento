@@ -5290,3 +5290,28 @@
 .record-editor__field-editor .cell-temporal-editor--datetime input {
     height: 100%;
 }
+
+/* Editor popovers rendered on document.body (FloatingPanel): the wrapper is
+   fixed-positioned by script; the card inside drops its own offsets. */
+.floating-panel {
+    position: fixed;
+    z-index: 200;
+}
+
+.floating-panel > .cell-combobox__listbox,
+.floating-panel > .cell-temporal-editor__panel {
+    position: static;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: auto;
+}
+
+.floating-panel > .cell-temporal-editor__panel--date {
+    width: 18rem;
+}
+
+.floating-panel > .cell-temporal-editor__panel--time {
+    width: 6.25rem;
+}

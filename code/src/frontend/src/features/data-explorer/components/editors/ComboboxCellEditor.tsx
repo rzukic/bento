@@ -7,6 +7,7 @@ import {
 } from "react";
 import { Icon } from "../../../../components/common/Icon";
 import { EditorShell } from "./editorShell";
+import { FloatingPanel } from "./FloatingPanel";
 
 export type ComboboxOption = {
   /** Stable identity used by the consumer when committing. */
@@ -66,21 +67,9 @@ export function ComboboxCellEditor({
   const [query, setQuery] = useState("");
   const [options, setOptions] = useState<ComboboxOption[]>([]);
   const [highlight, setHighlight] = useState(0);
-  const [placement, setPlacement] = useState<"down" | "up">("down");
   const inputRef = useRef<HTMLInputElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
-
-  // Flip the listbox above the trigger when there isn't enough room below.
-  useEffect(() => {
-    if (!open) return;
-    const root = rootRef.current;
-    if (!root) return;
-    const rect = root.getBoundingClientRect();
-    const maxListHeight = 16 * 16; // matches CSS max-height
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    setPlacement(spaceBelow < maxListHeight && spaceAbove > spaceBelow ? "up" : "down");
-  }, [open, options.length]);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (autoFocus) inputRef.current?.focus();
@@ -95,6 +84,8 @@ export function ComboboxCellEditor({
       const root = rootRef.current;
       if (!root) return;
       if (event.target instanceof Node && root.contains(event.target)) return;
+      // The listbox lives in a portal on document.body.
+      if (event.target instanceof Node && listRef.current?.contains(event.target)) return;
       setOpen(false);
       onCancel();
     }
@@ -218,10 +209,11 @@ export function ComboboxCellEditor({
           ) : null}
         </div>
         {open ? (
+          <FloatingPanel anchorRef={rootRef} panelRef={listRef} matchAnchorWidth>
           <ul
             role="listbox"
             aria-label={ariaLabel}
-            className={`cell-combobox__listbox cell-combobox__listbox--${placement}`}
+            className="cell-combobox__listbox"
           >
             {options.length === 0 ? (
               <li
@@ -263,6 +255,7 @@ export function ComboboxCellEditor({
               })
             )}
           </ul>
+          </FloatingPanel>
         ) : null}
       </div>
     </EditorShell>

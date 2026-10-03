@@ -641,8 +641,9 @@ describe("RecordEditor — N:M relation mini table", () => {
     await userEvent.click(within(relationGrid).getByRole("button", { name: /add row/i }));
 
     await within(relationGrid).findByRole("combobox", { name: /user/i });
-    await waitFor(() => expect(within(relationGrid).getByText("Alice")).toBeInTheDocument());
-    await userEvent.click(within(relationGrid).getByText("Alice"));
+    // The option list is a popover on document.body, outside the grid.
+    await waitFor(() => expect(screen.getByRole("option", { name: "Alice" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("option", { name: "Alice" }));
 
     await waitFor(() =>
       expect(
