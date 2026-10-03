@@ -22,6 +22,7 @@ internal sealed class ColumnTypeJsonConverter : JsonConverter<ColumnType>
             "computed" => ColumnType.Computed,
             "currency" => ColumnType.Currency,
             "enum" => ColumnType.Enum,
+            "uuid" => ColumnType.Uuid,
             "file" => ColumnType.File,
             _ => throw new JsonException($"Unsupported column type '{value}'.")
         };
@@ -42,6 +43,7 @@ internal sealed class ColumnTypeJsonConverter : JsonConverter<ColumnType>
             ColumnType.Computed => "computed",
             ColumnType.Currency => "currency",
             ColumnType.Enum => "enum",
+            ColumnType.Uuid => "uuid",
             ColumnType.File => "file",
             _ => throw new JsonException($"Unsupported column type '{value}'.")
         });
@@ -219,6 +221,13 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
 
 internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
 {
+    private static readonly HashSet<string> RuntimeOnlyMetadataFields = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "resolvedFromAccessor",
+        "resolvedToAccessor",
+        "resolvedJunctionTableName"
+    };
+
     public override RelationDef Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
     {
         using var document = JsonDocument.ParseValue(ref reader);
@@ -236,6 +245,7 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
         string? column = null;
         string? fromColumn = null;
         string? toColumn = null;
+        string? junctionTable = null;
 
         foreach (var property in root.EnumerateObject())
         {
@@ -269,8 +279,14 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
                 case "toColumn":
                     toColumn = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
                     break;
+                case "junctionTable":
+                    junctionTable = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
+                    break;
                 default:
-                    additionalData[property.Name] = property.Value.Clone();
+                    if (!RuntimeOnlyMetadataFields.Contains(property.Name))
+                    {
+                        additionalData[property.Name] = property.Value.Clone();
+                    }
                     break;
             }
         }
@@ -287,6 +303,7 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
             Column = column,
             FromColumn = fromColumn,
             ToColumn = toColumn,
+            JunctionTable = junctionTable,
             AdditionalData = additionalData.Count > 0 ? additionalData : null
         };
     }
@@ -310,6 +327,8 @@ internal sealed class RelationDefJsonConverter : JsonConverter<RelationDef>
             writer.WriteString("fromColumn", value.FromColumn);
         if (value.ToColumn is not null)
             writer.WriteString("toColumn", value.ToColumn);
+        if (value.JunctionTable is not null)
+            writer.WriteString("junctionTable", value.JunctionTable);
         if (value.AdditionalData is not null)
         {
             foreach (var extra in value.AdditionalData)

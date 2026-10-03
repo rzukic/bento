@@ -1,0 +1,77 @@
+.auth-splash {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  background: var(--bg);
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.auth-splash__body {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  justify-items: center;
+  gap: 1.125rem;
+  animation: fade-up 480ms var(--ease) both;
+}
+
+.auth-splash__mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  box-shadow: 0 0 0 0 var(--accent-soft);
+  animation: pulse 1.8s var(--ease) infinite;
+}
+
+.auth-splash__track {
+  position: relative;
+  width: 132px;
+  height: 1px;
+  background: var(--line);
+  overflow: hidden;
+}
+
+.auth-splash__bar {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--aurora-2), var(--aurora-3), transparent);
+  animation: auth-splash-sweep 1.4s var(--ease) infinite;
+}
+
+.auth-splash__label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+}
+
+@keyframes auth-splash-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-splash__body,
+  .auth-splash__mark,
+  .auth-splash__bar {
+    animation: none;
+  }
+
+  .auth-splash__bar {
+    width: 100%;
+    opacity: 0.6;
+  }
+}

@@ -85,9 +85,10 @@ public sealed class CrudIntegrationTests
         Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync("/api/v1/data/orders")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync("/api/v1/data/products")).StatusCode);
 
-        // Junction table is NOT exposed via CRUD (alphabetical naming: orders, products)
+        // The N:M junction table is part of the model and has its own CRUD
+        // route (alphabetical naming: orders, products)
         var jtResp = await host.Client.GetAsync("/api/v1/data/_jt_orders_products");
-        Assert.Equal(HttpStatusCode.NotFound, jtResp.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, jtResp.StatusCode);
     }
 
     // ── Full CRUD lifecycle ──
@@ -248,6 +249,32 @@ public sealed class CrudIntegrationTests
         var combinedJson = await host.Client.GetFromJsonAsync<JsonElement>(
             "/api/v1/data/customers?search=.com&filter[tier]=gold");
         Assert.Equal(2, combinedJson.GetProperty("data").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Demo_Search_FindsRecordsByTheRecordTheyReference()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(DemoSchema);
+
+        var globex = await CreateAsync(host, "customers", new { name = "Globex GmbH", email = "hi@globex.example", tier = "gold" });
+        var acme = await CreateAsync(host, "customers", new { name = "Acme Corp", email = "hi@acme.example", tier = "silver" });
+        await CreateAsync(host, "orders", new { customer_id = globex, total = 99.0, status = "paid" });
+        await CreateAsync(host, "orders", new { customer_id = globex, total = 12.0, status = "pending" });
+        await CreateAsync(host, "orders", new { customer_id = acme, total = 50.0, status = "paid" });
+
+        // "Globex" is not in orders; it is the name of the customer the order points to.
+        var byCustomer = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=globex");
+        Assert.Equal(2, byCustomer.GetProperty("data").GetArrayLength());
+
+        // Terms still combine with AND across own and referenced columns.
+        var combined = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=globex pending");
+        Assert.Equal(1, combined.GetProperty("data").GetArrayLength());
+
+        // Only the referenced record's name counts, not its other text
+        // (email): "acme.example" is in an email, not in a customer name.
+        var byEmail = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=acme.example");
+        Assert.Equal(0, byEmail.GetProperty("data").GetArrayLength());
     }
 
     // ── Validation errors ──

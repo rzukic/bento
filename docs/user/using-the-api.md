@@ -1,6 +1,6 @@
 # Using The API
 
-> A practical walkthrough for the current MVP 1 product.
+> A practical walkthrough for using Repere through HTTP.
 
 ---
 
@@ -13,7 +13,7 @@ Repere works like this:
 3. Repere creates API endpoints for each table
 4. You use those endpoints to create, edit, list, and delete rows
 
-You do not write backend code for your tables in MVP 1.
+You do not write backend code for your tables. Repere derives the data API from the current Model JSON.
 
 ---
 
@@ -267,7 +267,22 @@ curl -fsS "$API_ROOT/data/customers?search=acme" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-This performs a case-insensitive text search across text columns.
+This performs a case-insensitive text search across text columns. Several words must all match (AND).
+
+Reference columns are searched by the record they point to: `orders?search=globex` finds the orders whose customer's name contains "globex", even though `orders` only stores `customer_id`. "Name" is what the app shows for a record: the table's record label (and its secondary column) or, without one, its first text column.
+
+### Dates and times
+
+`datetime` values are local wall time as written (`2026-10-03T15:29`), without a time zone. Values filled by the database itself (for example a link's `created_at`) are UTC and carry a `Z` (`2026-10-03T13:29:43Z`) on both SQLite and Postgres.
+
+### Many-to-many links
+
+An N:M relation stores its links in a junction table that is part of the schema (for the demo: `_jt_orders_products`). Read, create and delete links like any other rows; a link's id is its composite key (`order_id:1|product_id:2`, URL-encoded):
+
+```bash
+curl -fsS "$API_ROOT/data/_jt_orders_products?filter[order_id]=1" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 
@@ -307,16 +322,16 @@ only after you are sure you want that migration.
 
 ---
 
-## Best Way To Work With MVP 1
+## Best Way To Work With The API
 
-The simplest workflow right now is:
+The simplest API-first workflow is:
 
 1. keep your schema JSON in version control
 2. apply schema changes through `PUT /api/v1/admin/schema`
 3. use Postman, Bruno, Insomnia, or `curl` for daily usage
 4. use the health and migration endpoints to verify the system state
 
-That gives you a stable way to use the current API-first product before the UI arrives.
+The browser Schema Designer now provides the same schema-management path visually, while this guide remains useful for automation and direct API integration.
 
 ---
 

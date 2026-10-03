@@ -16,6 +16,8 @@ public class DatabaseBootstrapTests
         "migrations",
         "schema_version_counters",
         "schema_versions",
+        "system_views",
+        "user_table_explorer_preferences",
         "users"
     ];
 
@@ -42,9 +44,10 @@ public class DatabaseBootstrapTests
                 'auth_sessions',
                 'dashboards',
                 'credentials',
-                'jobs'
-                ,
-                'schema_version_counters'
+                'jobs',
+                'schema_version_counters',
+                'system_views',
+                'user_table_explorer_preferences'
               )
             ORDER BY name;
             """;

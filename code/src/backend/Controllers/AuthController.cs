@@ -42,6 +42,7 @@ public sealed class AuthController : ControllerBase
             AccessTokenLifetimeMinutes: _runtimeOptions.Jwt.AccessTokenLifetimeMinutes,
             RefreshTokenLifetimeDays: _runtimeOptions.Jwt.RefreshTokenLifetimeDays,
             AuthRateLimitPerMinute: _runtimeOptions.AuthRateLimitPerMinute,
+            SessionRateLimitPerMinute: _runtimeOptions.AuthSessionRateLimitPerMinute,
             RefreshCookie: new AuthRefreshCookieContractResponse(
                 Name: _runtimeOptions.AuthCookie.RefreshCookieName,
                 HttpOnly: _runtimeOptions.AuthCookie.HttpOnly,
@@ -84,19 +85,40 @@ public sealed class AuthController : ControllerBase
         return Ok(session.Response);
     }
 
+    /// <summary>
+    /// Ends the browser session: revokes the refresh session named by the
+    /// cookie (if any) and clears the cookie. Always 204 so a stale or missing
+    /// cookie never blocks signing out.
+    /// </summary>
+    [HttpPost("logout")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> Logout(CancellationToken cancellationToken)
+    {
+        Request.Cookies.TryGetValue(_runtimeOptions.AuthCookie.RefreshCookieName, out var refreshToken);
+        await _authService.LogoutAsync(refreshToken, cancellationToken);
+        Response.Cookies.Delete(_runtimeOptions.AuthCookie.RefreshCookieName, BuildRefreshCookieOptions(expires: null));
+        return NoContent();
+    }
+
     private void WriteRefreshCookie(AuthSessionResult session)
     {
         Response.Cookies.Append(
             _runtimeOptions.AuthCookie.RefreshCookieName,
             session.RefreshToken,
-            new CookieOptions
-            {
-                HttpOnly = _runtimeOptions.AuthCookie.HttpOnly,
-                Secure = _runtimeOptions.AuthCookie.EffectiveRequireSecure,
-                SameSite = ParseSameSite(_runtimeOptions.AuthCookie.SameSite),
-                Path = _runtimeOptions.AuthCookie.Path,
-                Expires = session.RefreshExpiresAt.UtcDateTime
-            });
+            BuildRefreshCookieOptions(session.RefreshExpiresAt.UtcDateTime));
+    }
+
+    private CookieOptions BuildRefreshCookieOptions(DateTime? expires)
+    {
+        return new CookieOptions
+        {
+            HttpOnly = _runtimeOptions.AuthCookie.HttpOnly,
+            // Request.IsHttps reflects X-Forwarded-Proto from a trusted proxy.
+            Secure = _runtimeOptions.AuthCookie.EffectiveRequireSecure || Request.IsHttps,
+            SameSite = ParseSameSite(_runtimeOptions.AuthCookie.SameSite),
+            Path = _runtimeOptions.AuthCookie.Path,
+            Expires = expires
+        };
     }
 
     private static SameSiteMode ParseSameSite(string value)

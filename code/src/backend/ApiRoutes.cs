@@ -8,6 +8,10 @@ public static class ApiRoutes
     public const string Admin = Prefix + "/admin";
     public const string Data = Prefix + "/data";
     public const string Query = Prefix + "/query";
+    public const string Views = Prefix + "/views";
+    public const string ExplorerPreferences = Prefix + "/explorer/preferences";
+    public const string Setup = Prefix + "/setup";
+    public const string SetupStatus = Setup + "/status";
     public const string AdminHealth = Admin + "/health";
     public const string AdminHealthDetails = AdminHealth + "/details";
 }

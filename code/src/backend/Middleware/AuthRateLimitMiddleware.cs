@@ -21,17 +21,27 @@ public sealed class AuthRateLimitMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!IsRateLimitedAuthRequest(context.Request))
+        var category = Classify(context.Request);
+        if (category == RateLimitCategory.None)
         {
             await _next(context);
             return;
         }
 
         var path = context.Request.Path.Value ?? "/" + ApiRoutes.Auth;
+        var limitPerMinute = category == RateLimitCategory.Session
+            ? _runtimeOptions.AuthSessionRateLimitPerMinute
+            : _runtimeOptions.AuthRateLimitPerMinute;
+
+        // RemoteIpAddress is the real client behind a trusted proxy because the
+        // forwarded-headers middleware (registered only when TRUSTED_PROXIES is set)
+        // rewrites it before this middleware runs; otherwise it is the TCP peer.
         var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // The bucket key includes the (lower-cased) path, so session and credential
+        // routes never share a budget.
         var outcome = _rateLimiter.CheckRequest(
-            $"{context.Request.Method}:{path}:{clientIp}",
-            _runtimeOptions.AuthRateLimitPerMinute,
+            $"{context.Request.Method}:{path.ToLowerInvariant()}:{clientIp}",
+            limitPerMinute,
             DateTimeOffset.UtcNow);
 
         if (!outcome.Allowed)
@@ -42,7 +52,7 @@ public sealed class AuthRateLimitMiddleware
                 {
                     ["field"] = "auth",
                     ["path"] = path,
-                    ["limitPerMinute"] = _runtimeOptions.AuthRateLimitPerMinute,
+                    ["limitPerMinute"] = limitPerMinute,
                     ["retryAfterSeconds"] = outcome.RetryAfterSeconds
                 });
         }
@@ -50,11 +60,47 @@ public sealed class AuthRateLimitMiddleware
         await _next(context);
     }
 
-    private static bool IsRateLimitedAuthRequest(HttpRequest request)
+    private enum RateLimitCategory
     {
-        return HttpMethods.IsPost(request.Method)
-            && request.Path.StartsWithSegments("/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(request.Path.Value, "/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase);
+        None,
+        Credential,
+        Session
+    }
+
+    private static readonly string[] SessionRoutes =
+    [
+        "/" + ApiRoutes.Auth + "/refresh",
+        "/" + ApiRoutes.Auth + "/logout"
+    ];
+
+    private static RateLimitCategory Classify(HttpRequest request)
+    {
+        if (!HttpMethods.IsPost(request.Method))
+        {
+            return RateLimitCategory.None;
+        }
+
+        // Public first-run setup endpoints (TASK-144) share the credential limit.
+        if (request.Path.StartsWithSegments("/" + ApiRoutes.Setup, StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitCategory.Credential;
+        }
+
+        if (!request.Path.StartsWithSegments("/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Path.Value, "/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitCategory.None;
+        }
+
+        foreach (var route in SessionRoutes)
+        {
+            if (string.Equals(request.Path.Value?.TrimEnd('/'), route, StringComparison.OrdinalIgnoreCase))
+            {
+                return RateLimitCategory.Session;
+            }
+        }
+
+        return RateLimitCategory.Credential;
     }
 }
 
@@ -64,11 +110,30 @@ public sealed class AuthRateLimiter
 
     private readonly object _gate = new();
     private readonly Dictionary<string, AuthRateLimitBucket> _buckets = new(StringComparer.Ordinal);
+    private DateTimeOffset _nextSweepAt = DateTimeOffset.MinValue;
+
+    /// <summary>
+    /// Number of buckets currently held in memory. Expired buckets are swept lazily on
+    /// access, at most once per window, so this stays bounded by the number of distinct
+    /// keys seen in roughly the last two windows.
+    /// </summary>
+    public int ActiveBucketCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _buckets.Count;
+            }
+        }
+    }
 
     public AuthRateLimitResult CheckRequest(string key, int limitPerMinute, DateTimeOffset now)
     {
         lock (_gate)
         {
+            EvictExpiredBuckets(now);
+
             if (!_buckets.TryGetValue(key, out var bucket) || now >= bucket.WindowStartedAt.Add(Window))
             {
                 bucket = new AuthRateLimitBucket(now, 0);
@@ -86,6 +151,31 @@ public sealed class AuthRateLimiter
             bucket.Count++;
             return new AuthRateLimitResult(Allowed: true, RetryAfterSeconds: 0);
         }
+    }
+
+    // Caller holds _gate.
+    private void EvictExpiredBuckets(DateTimeOffset now)
+    {
+        if (now < _nextSweepAt)
+        {
+            return;
+        }
+
+        var expiredKeys = new List<string>();
+        foreach (var pair in _buckets)
+        {
+            if (now >= pair.Value.WindowStartedAt.Add(Window))
+            {
+                expiredKeys.Add(pair.Key);
+            }
+        }
+
+        foreach (var key in expiredKeys)
+        {
+            _buckets.Remove(key);
+        }
+
+        _nextSweepAt = now.Add(Window);
     }
 
     private sealed class AuthRateLimitBucket

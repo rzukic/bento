@@ -6,22 +6,30 @@ on:
     paths:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
+      - 'code/docker-compose.backend-only.yml'
       - 'code/docker-compose.postgres.yml'
       - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
+      - 'code/.dockerignore'
       - 'code/init-db/**'
+      - 'code/proxy/**'
       - 'code/scripts/**'
       - 'code/src/backend/**'
+      - 'code/src/frontend/**'
   pull_request:
     paths:
       - '.github/workflows/deployment-validation.yml'
       - 'code/docker-compose.yml'
+      - 'code/docker-compose.backend-only.yml'
       - 'code/docker-compose.postgres.yml'
       - 'code/docker-compose.postgres.expose.yml'
       - 'code/.env.example'
+      - 'code/.dockerignore'
       - 'code/init-db/**'
+      - 'code/proxy/**'
       - 'code/scripts/**'
       - 'code/src/backend/**'
+      - 'code/src/frontend/**'
   workflow_dispatch:
 
 permissions:
@@ -29,7 +37,7 @@ permissions:
 
 jobs:
   deployment-sqlite:
-    name: Packaged SQLite
+    name: Backend-only SQLite
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -63,7 +71,7 @@ jobs:
             /tmp/repere-demo-*
 
   deployment-postgres:
-    name: Packaged Postgres
+    name: Backend-only Postgres
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -99,3 +107,71 @@ jobs:
             .artifacts/**
             /tmp/repere-smoke-*
             /tmp/repere-demo-*
+
+  deployment-full-stack-sqlite:
+    name: Full stack SQLite (proxy + frontend + backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
+        run: |
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Run packaged MVP 2 smoke (SQLite)
+        run: |
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp2-smoke.sh sqlite \
+            --host-http-port 8080 \
+            --host-https-port 8443 \
+            --project-name gha-mvp2-sqlite \
+            --log-dir .artifacts/packaged-mvp2-sqlite
+
+      - name: Upload full-stack SQLite diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-full-stack-sqlite
+          if-no-files-found: ignore
+          retention-days: 7
+          path: .artifacts/**
+
+  deployment-full-stack-postgres:
+    name: Full stack Postgres (proxy + frontend + backend)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify deployment toolchain
+        run: |
+          docker version
+          docker compose version
+          jq --version
+
+      - name: Run packaged MVP 2 smoke (Postgres)
+        env:
+          POSTGRES_SUPERUSER_PASSWORD: gha-postgres-superuser-secret
+          REPERE_SYSTEM_PASSWORD: gha-postgres-system-secret
+          REPERE_DATA_PASSWORD: gha-postgres-data-secret
+        run: |
+          mkdir -p .artifacts
+          code/scripts/packaged-mvp2-smoke.sh postgres \
+            --host-http-port 8081 \
+            --host-https-port 8444 \
+            --project-name gha-mvp2-postgres \
+            --log-dir .artifacts/packaged-mvp2-postgres
+
+      - name: Upload full-stack Postgres diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-validation-full-stack-postgres
+          if-no-files-found: ignore
+          retention-days: 7
+          path: .artifacts/**

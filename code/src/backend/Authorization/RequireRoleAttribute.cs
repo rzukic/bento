@@ -3,29 +3,49 @@ using Repere.Api.Exceptions;
 
 namespace Repere.Api.Authorization;
 
+/// <summary>
+/// Requires the caller to satisfy at least one of the given roles.
+/// Multiple attributes on the same endpoint are combined with AND; multiple
+/// roles inside one attribute are combined with OR.
+/// </summary>
 [AttributeUsage(AttributeTargets.Class | AttributeTargets.Method, AllowMultiple = true, Inherited = true)]
 public sealed class RequireRoleAttribute : Attribute, IAsyncAuthorizationFilter
 {
-    public RequireRoleAttribute(string role)
+    public RequireRoleAttribute(params string[] roles)
     {
-        RequiredRole = NormalizeRole(role)
-            ?? throw new ArgumentException("Role is required.", nameof(role));
+        var normalized = (roles ?? Array.Empty<string>())
+            .Select(NormalizeRole)
+            .Where(role => role is not null)
+            .Select(role => role!)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (normalized.Length == 0)
+            throw new ArgumentException("At least one role is required.", nameof(roles));
+
+        AcceptedRoles = normalized;
     }
 
-    public string RequiredRole { get; }
+    public IReadOnlyList<string> AcceptedRoles { get; }
+
+    /// <summary>
+    /// The first accepted role. Kept for callers that only ever passed a single role.
+    /// </summary>
+    public string RequiredRole => AcceptedRoles[0];
 
     public Task OnAuthorizationAsync(AuthorizationFilterContext context)
     {
         var principal = context.HttpContext.User;
         var actualRole = NormalizeRole(principal.GetRole());
 
-        if (actualRole is null || !RoleSatisfies(actualRole, RequiredRole))
+        if (actualRole is null || !AcceptedRoles.Any(required => RoleSatisfies(actualRole, required)))
         {
+            var requiredLabel = string.Join("' or '", AcceptedRoles);
             throw new ApiForbiddenException(
-                $"Role '{RequiredRole}' is required for this endpoint.",
+                $"Role '{requiredLabel}' is required for this endpoint.",
                 new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
-                    ["requiredRole"] = RequiredRole,
+                    ["requiredRole"] = AcceptedRoles.Count == 1 ? AcceptedRoles[0] : AcceptedRoles,
                     ["actualRole"] = actualRole
                 });
         }

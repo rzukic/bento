@@ -59,6 +59,7 @@ public class ColumnTypeTests
     [InlineData(ColumnType.Reference, "BIGINT")]
     [InlineData(ColumnType.Currency, "NUMERIC(19,4)")]
     [InlineData(ColumnType.Enum, "TEXT")]
+    [InlineData(ColumnType.Uuid, "UUID")]
     [InlineData(ColumnType.File, "TEXT")]
     public void PostgresMappings_AreCorrect(ColumnType type, string expected)
     {
@@ -76,6 +77,7 @@ public class ColumnTypeTests
     [InlineData(ColumnType.Reference, "INTEGER")]
     [InlineData(ColumnType.Currency, "REAL")]
     [InlineData(ColumnType.Enum, "TEXT")]
+    [InlineData(ColumnType.Uuid, "TEXT")]
     [InlineData(ColumnType.File, "TEXT")]
     public void SqliteMappings_AreCorrect(ColumnType type, string expected)
     {
@@ -131,6 +133,7 @@ public class ColumnTypeTests
     [InlineData(ColumnType.Enum, ColumnType.Text)]
     [InlineData(ColumnType.File, ColumnType.Text)]
     [InlineData(ColumnType.Reference, ColumnType.Text)]
+    [InlineData(ColumnType.Uuid, ColumnType.Text)]
     public void AnyTypeToText_IsSafe(ColumnType from, ColumnType to)
     {
         Assert.Equal(CoercionKind.Safe, ColumnTypes.GetCoercion(from, to));
@@ -198,6 +201,8 @@ public class ColumnTypeTests
     [InlineData(ColumnType.Boolean, true)]
     [InlineData(ColumnType.File, "/uploads/photo.jpg")]
     [InlineData(ColumnType.Reference, 1L)]
+    [InlineData(ColumnType.Reference, "9fd3f09f-392e-478a-904b-f0811bba4655")]
+    [InlineData(ColumnType.Uuid, "9fd3f09f-392e-478a-904b-f0811bba4655")]
     public void ValidValues_ReturnNull(ColumnType type, object value)
     {
         Assert.Null(ColumnTypes.Validate(type, value));

@@ -18,6 +18,18 @@ public static class ModelJsonSerializer
         return JsonSerializer.Serialize(model, JsonOptions);
     }
 
+    /// <summary>
+    /// Compare two parsed Model JSON documents structurally, ignoring the
+    /// stored <see cref="ModelJson.Version"/>. Used to detect metadata-only
+    /// changes (layout, additional metadata) when no schema diff exists.
+    /// </summary>
+    public static bool AreCanonicallyEqual(ModelJson left, ModelJson right)
+    {
+        var leftJson = Serialize(left with { Version = 0 });
+        var rightJson = Serialize(right with { Version = 0 });
+        return string.Equals(leftJson, rightJson, StringComparison.Ordinal);
+    }
+
     internal static JsonSerializerOptions CreateOptions()
     {
         return new JsonSerializerOptions

@@ -1,0 +1,32 @@
+# Shared routes, imported by Caddyfile.local and Caddyfile.domain.
+#
+# Caddy's reverse_proxy sets X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host
+# by default; the backend honours them when TRUSTED_PROXIES covers this container's
+# network (TASK-146; docker-compose.yml sets both to the same subnet).
+(repere) {
+	log {
+		output stdout
+		format json
+	}
+
+	encode zstd gzip
+
+	# Proxy's own liveness probe; distinct from the frontend's /healthz.
+	handle /proxy-healthz {
+		header Content-Type text/plain
+		respond "ok" 200
+	}
+
+	# API and WebSocket — straight to the backend, no SPA involvement.
+	handle /api/v1/* {
+		reverse_proxy backend:5000
+	}
+	handle /ws* {
+		reverse_proxy backend:5000
+	}
+
+	# Everything else — Vite SPA via nginx (SPA fallback happens there).
+	handle {
+		reverse_proxy frontend:80
+	}
+}

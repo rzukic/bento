@@ -1,18 +1,56 @@
+# Full-stack packaged deployment (MVP 2): Caddy proxy + static frontend + backend.
+# Only the proxy publishes ports; the browser talks to http://localhost (or DOMAIN).
+#
+#   docker compose -f code/docker-compose.yml up --build
+#   docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
+#
+# The API-only shape from MVP 1 lives in docker-compose.backend-only.yml.
 services:
+  proxy:
+    image: repere/proxy:local
+    build: ./proxy
+    restart: unless-stopped
+    ports:
+      - "${HOST_HTTP_PORT:-80}:80"
+      - "${HOST_HTTPS_PORT:-443}:443"
+    environment:
+      # localhost → plain HTTP on :80. A public hostname → automatic HTTPS.
+      DOMAIN: "${DOMAIN:-localhost}"
+    volumes:
+      # Certificates and Caddy's own state survive restarts.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  frontend:
+    image: repere/frontend:local
+    build:
+      context: ./src/frontend
+    restart: unless-stopped
+    # No ports: reachable only through the proxy. Health check comes from the image.
+
   backend:
     image: repere/backend:local
     build:
       context: .
       dockerfile: src/backend/Dockerfile
     restart: unless-stopped
-    ports:
-      - "${HOST_BACKEND_PORT:-5000}:${BACKEND_PORT:-5000}"
+    # No ports: the proxy targets backend:5000 on the compose network.
     environment:
       AUTH_MODE: "${AUTH_MODE:-standard}"
       JWT_SECRET: "${JWT_SECRET:-}"
-      BACKEND_PORT: "${BACKEND_PORT:-5000}"
+      BACKEND_PORT: "5000"
       DATA_DIR: /data
       LOG_LEVEL: "${LOG_LEVEL:-Information}"
+      # Trust X-Forwarded-* from the proxy. The backend publishes no host port, so
+      # the only traffic that can reach it comes from containers on the compose
+      # network; trusting the private ranges Docker allocates from covers that
+      # without pinning a subnet that could collide with other networks.
+      TRUSTED_PROXIES: "${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8}"
     volumes:
       - repere-data:/data
     healthcheck:
@@ -24,3 +62,5 @@ services:
 
 volumes:
   repere-data:
+  caddy-data:
+  caddy-config:

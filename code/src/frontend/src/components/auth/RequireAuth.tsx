@@ -1,0 +1,33 @@
+import { useEffect } from "react";
+import { Navigate, Outlet, useLocation } from "react-router-dom";
+import { useAuthStore } from "../../stores/authStore";
+import { AuthSplash } from "./AuthSplash";
+
+/**
+ * Gates the authenticated shell routes. While the auth store is still figuring
+ * out whether a session can be silently resumed, a small full-screen splash is
+ * shown; once the status resolves, unauthenticated users are redirected to the
+ * login page with the attempted location preserved so they can be returned
+ * after sign-in.
+ */
+export function RequireAuth() {
+  const status = useAuthStore((state) => state.status);
+  const bootstrap = useAuthStore((state) => state.bootstrap);
+  const location = useLocation();
+
+  useEffect(() => {
+    if (status === "idle") {
+      void bootstrap();
+    }
+  }, [status, bootstrap]);
+
+  if (status === "idle" || status === "bootstrapping") {
+    return <AuthSplash label="Resuming session" />;
+  }
+
+  if (status === "unauthenticated") {
+    return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  return <Outlet />;
+}

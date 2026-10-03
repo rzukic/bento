@@ -1,0 +1,1389 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useBlocker } from "react-router-dom";
+import { getVisualDiagnosticTarget } from "./visual/VisualPreviewDiagnostics";
+import { Icon } from "../../components/common/Icon";
+import { Alert } from "../../components/ui/Alert";
+import { Button } from "../../components/ui/Button";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Panel } from "../../components/ui/Panel";
+import { Spinner } from "../../components/ui/Spinner";
+import { ConfirmDialog, Dialog } from "../../components/ui/Dialog";
+import {
+  applySchemaDraft,
+  getCanonicalSchemaSnapshot,
+  getSchemaConfirmationRequiredDetails,
+  getSchemaSnapshot,
+  getSchemaValidationFailedDetails,
+  previewSchemaDraft,
+} from "../../api/schema";
+import { ApiClientError } from "../../api/client";
+import { useAuthStore } from "../../stores/authStore";
+import { useAppStore } from "../../stores/appStore";
+import { useSchemaStore } from "../../stores/schemaStore";
+import type {
+  SchemaIssue,
+  SchemaModelDocument,
+  SchemaPreviewResponse,
+} from "../../types/api";
+import { JsonCodeEditor, type JsonEditorDiagnostic } from "./JsonCodeEditor";
+import { parseJsonDraft, type JsonDraftLocation } from "./draftJson";
+import {
+  asSchemaModelDocument,
+  formatSchemaDraftValueForEditor,
+} from "./schemaDraftPresentation";
+import { validateVisualSchemaDraft } from "./visualSchemaDraft";
+import {
+  buildPreviewGroups,
+  PreviewDiagnostics,
+  PreviewSummary,
+} from "./previewPresentation";
+import { countLabel } from "./schemaWorkbenchHelpers";
+import type { VisualCanvasSelection, WorkbenchDiagnostic } from "./types";
+import {
+  buildBackendDiagnostic,
+  resolvePreviewErrorLocation,
+} from "./workbenchDiagnostics";
+import { VisualSchemaInspector } from "./visual/VisualSchemaInspector";
+import { VisualSchemaMode } from "./visual/VisualSchemaMode";
+import "./SchemaWorkbenchPage.css";
+
+type WorkbenchStatus = "loading" | "ready" | "error";
+type WorkbenchMode = "json" | "visual";
+
+type LoadState = {
+  status: WorkbenchStatus;
+  error: string | null;
+  version: number | null;
+  loadedText: string;
+  draftText: string;
+  loadedAt: number | null;
+  isEmpty: boolean;
+};
+
+type ImportFeedback = {
+  detail?: string;
+  message: string;
+  title: string;
+};
+
+type PendingImport = {
+  fileName: string;
+  text: string;
+};
+
+type PreviewStatus = "idle" | "loading" | "ready" | "error";
+
+type PreviewState = {
+  status: PreviewStatus;
+  response: SchemaPreviewResponse | null;
+  error: string | null;
+  errorCode: string | null;
+  /** JSON path the server reported for a malformed draft, e.g. "$.tables[0]". */
+  errorPath?: string | null;
+};
+
+type ApplyFeedback = {
+  tone: "success" | "warning" | "error";
+  title: string;
+  message: string;
+};
+
+type ApplyDialogState = {
+  open: boolean;
+  canSubmit: boolean;
+  confirmationRequired: boolean;
+  error: string | null;
+};
+
+function readBlobText(file: Blob): Promise<string> {
+  if (typeof file.text === "function") {
+    return file.text();
+  }
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => {
+      reject(reader.error ?? new Error("Unable to read the selected file."));
+    };
+    reader.onload = () => {
+      resolve(typeof reader.result === "string" ? reader.result : "");
+    };
+    reader.readAsText(file);
+  });
+}
+
+const initialState: LoadState = {
+  status: "loading",
+  error: null,
+  version: null,
+  loadedText: "",
+  draftText: "",
+  loadedAt: null,
+  isEmpty: false,
+};
+
+const initialPreviewState: PreviewState = {
+  status: "idle",
+  response: null,
+  error: null,
+  errorCode: null,
+};
+
+const initialApplyDialogState: ApplyDialogState = {
+  open: false,
+  canSubmit: false,
+  confirmationRequired: false,
+  error: null,
+};
+
+const autoPreviewDebounceMs = 800;
+
+function isEmptySchema(document: SchemaModelDocument): boolean {
+  return document.tables.length === 0 && document.relations.length === 0;
+}
+
+function formatSchemaText(document: SchemaModelDocument): string {
+  return formatSchemaDraftValueForEditor(document);
+}
+
+function buildLoadedState(document: SchemaModelDocument): LoadState {
+  const text = formatSchemaText(document);
+
+  return {
+    status: "ready",
+    error: null,
+    version: document.version,
+    loadedText: text,
+    draftText: text,
+    loadedAt: Date.now(),
+    isEmpty: isEmptySchema(document),
+  };
+}
+
+function mergePreviewValidationErrors(
+  response: SchemaPreviewResponse,
+  errors: SchemaIssue[],
+): SchemaPreviewResponse {
+  return {
+    ...response,
+    isValid: false,
+    errors,
+  };
+}
+
+export function SchemaWorkbenchPage() {
+  const user = useAuthStore((state) => state.user);
+  const isAdmin = user?.role === "admin";
+  const [state, setState] = useState<LoadState>(initialState);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(
+    null,
+  );
+  const [pendingImport, setPendingImport] = useState<PendingImport | null>(
+    null,
+  );
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
+  const [previewState, setPreviewState] =
+    useState<PreviewState>(initialPreviewState);
+  const [activeDiagnosticId, setActiveDiagnosticId] = useState<string | null>(
+    null,
+  );
+  const [editorFocusLocation, setEditorFocusLocation] =
+    useState<JsonDraftLocation | null>(null);
+  const [applyFeedback, setApplyFeedback] = useState<ApplyFeedback | null>(
+    null,
+  );
+  // Success is a passing note; warnings and errors stay until dismissed.
+  useEffect(() => {
+    if (applyFeedback?.tone !== "success") return;
+    const timer = window.setTimeout(() => setApplyFeedback(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [applyFeedback]);
+  const [applyDialog, setApplyDialog] = useState<ApplyDialogState>(
+    initialApplyDialogState,
+  );
+  const [applyInFlight, setApplyInFlight] = useState(false);
+  const activeMode: WorkbenchMode = useAppStore((store) => store.schemaMode);
+  const setActiveMode = useAppStore((store) => store.setSchemaMode);
+  // The changes panel (preview) shares the right column with the inspector
+  // and is only open on request.
+  const [changesOpen, setChangesOpen] = useState(false);
+  const [visualSelection, setVisualSelection] =
+    useState<VisualCanvasSelection | null>(null);
+  // Selecting something on the canvas (including via a problem in the list)
+  // hands the side column to the inspector.
+  useEffect(() => {
+    if (visualSelection !== null) setChangesOpen(false);
+  }, [visualSelection]);
+  const importInputRef = useRef<HTMLInputElement | null>(null);
+  const applyReviewRef = useRef<HTMLDivElement | null>(null);
+  const previewRequestIdRef = useRef(0);
+  const currentDraftTextRef = useRef(state.draftText);
+  const previewedDraftTextRef = useRef<string | null>(null);
+  currentDraftTextRef.current = state.draftText;
+
+  function resetApplyDialog() {
+    setApplyDialog(initialApplyDialogState);
+    setApplyInFlight(false);
+  }
+
+  function resetPreviewState() {
+    previewRequestIdRef.current += 1;
+    previewedDraftTextRef.current = null;
+    setPreviewState(initialPreviewState);
+    setActiveDiagnosticId(null);
+    setEditorFocusLocation(null);
+    resetApplyDialog();
+  }
+
+  function replaceDraftText(draftText: string) {
+    setState((current) => ({
+      ...current,
+      draftText,
+    }));
+    setImportFeedback(null);
+    setApplyFeedback(null);
+    resetPreviewState();
+  }
+
+  useEffect(() => {
+    if (!isAdmin) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadCurrentSchema() {
+      setState((current) => ({
+        ...current,
+        status: "loading",
+        error: null,
+      }));
+      setApplyFeedback(null);
+      setImportFeedback(null);
+      setPendingImport(null);
+      resetPreviewState();
+
+      try {
+        const snapshot = await getCanonicalSchemaSnapshot();
+
+        if (cancelled) {
+          return;
+        }
+
+        setState(buildLoadedState(snapshot));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof ApiClientError
+            ? error.message
+            : "Your schema could not be loaded. Try again in a moment.";
+
+        setState((current) => ({
+          ...current,
+          status: "error",
+          error: message,
+        }));
+      }
+    }
+
+    void loadCurrentSchema();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAdmin, reloadKey]);
+
+  useEffect(() => {
+    if (!applyDialog.open) {
+      return;
+    }
+
+    const reviewContainer = applyReviewRef.current;
+    if (!reviewContainer) {
+      return;
+    }
+
+    function updateCanSubmit() {
+      const maxScrollTop =
+        reviewContainer!.scrollHeight - reviewContainer!.clientHeight;
+      const canSubmit =
+        maxScrollTop <= 8 || reviewContainer!.scrollTop >= maxScrollTop - 8;
+
+      setApplyDialog((current) =>
+        current.canSubmit === canSubmit
+          ? current
+          : {
+              ...current,
+              canSubmit,
+            },
+      );
+    }
+
+    const animationFrameId = window.requestAnimationFrame(updateCanSubmit);
+    reviewContainer.addEventListener("scroll", updateCanSubmit, {
+      passive: true,
+    });
+    window.addEventListener("resize", updateCanSubmit);
+
+    return () => {
+      window.cancelAnimationFrame(animationFrameId);
+      reviewContainer.removeEventListener("scroll", updateCanSubmit);
+      window.removeEventListener("resize", updateCanSubmit);
+    };
+  }, [applyDialog.open, previewState.response]);
+
+  const draftParse =
+    state.status === "ready" ? parseJsonDraft(state.draftText) : null;
+  const baselineDocument = useMemo(() => {
+    if (state.status !== "ready") {
+      return null;
+    }
+
+    try {
+      return asSchemaModelDocument(JSON.parse(state.loadedText));
+    } catch {
+      return null;
+    }
+  }, [state.loadedText, state.status]);
+  const dirty = state.draftText !== state.loadedText;
+
+  // Leaving the page drops the draft, so ask first: inside the app through
+  // the router, and for a reload or closed tab through the browser.
+  const leaveBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) =>
+      dirty && currentLocation.pathname !== nextLocation.pathname,
+  );
+  useEffect(() => {
+    if (!dirty) return;
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+  const syntaxDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
+    if (draftParse?.status !== "invalid") {
+      return [];
+    }
+
+    return [
+      {
+        code: "json_parse_error",
+        detail: draftParse.detail,
+        id: "syntax:json_parse_error",
+        location: draftParse.location,
+        locationExact: true,
+        message: draftParse.message,
+        path: null,
+        severity: "error",
+        source: "syntax",
+      },
+    ];
+  }, [draftParse]);
+  const backendErrorDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
+    if (
+      draftParse?.status !== "valid" ||
+      previewState.status !== "ready" ||
+      !previewState.response
+    ) {
+      return [];
+    }
+
+    return previewState.response.errors.map((issue, index) =>
+      buildBackendDiagnostic(issue, "error", index, state.draftText),
+    );
+  }, [draftParse, previewState, state.draftText]);
+  const backendWarningDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
+    if (
+      draftParse?.status !== "valid" ||
+      previewState.status !== "ready" ||
+      !previewState.response
+    ) {
+      return [];
+    }
+
+    return previewState.response.warnings.map((issue, index) =>
+      buildBackendDiagnostic(issue, "warning", index, state.draftText),
+    );
+  }, [draftParse, previewState, state.draftText]);
+  const previewRequestErrorDiagnostics = useMemo<WorkbenchDiagnostic[]>(() => {
+    if (previewState.status !== "error" || !previewState.error) {
+      return [];
+    }
+
+    const code = previewState.errorCode ?? "preview_request_failed";
+    const location = resolvePreviewErrorLocation(
+      previewState.error,
+      state.draftText,
+      previewState.errorPath ?? null,
+    );
+
+    return [
+      {
+        code,
+        id: `preview:error:${code}:${location?.path ?? "request"}`,
+        location: location?.location ?? null,
+        locationExact: location?.locationExact ?? false,
+        message: previewState.error,
+        path: location?.path ?? null,
+        severity: "error",
+        source: "preview",
+      },
+    ];
+  }, [
+    previewState.error,
+    previewState.errorCode,
+    previewState.errorPath,
+    previewState.status,
+    state.draftText,
+  ]);
+  const previewErrorDiagnostics = useMemo(
+    () => [
+      ...syntaxDiagnostics,
+      ...backendErrorDiagnostics,
+      ...previewRequestErrorDiagnostics,
+    ],
+    [
+      syntaxDiagnostics,
+      backendErrorDiagnostics,
+      previewRequestErrorDiagnostics,
+    ],
+  );
+  const editorDiagnostics = useMemo<JsonEditorDiagnostic[]>(
+    () =>
+      [...previewErrorDiagnostics, ...backendWarningDiagnostics]
+        .filter((diagnostic) => diagnostic.location)
+        .map((diagnostic) => ({
+          line: diagnostic.location?.line ?? 1,
+          severity: diagnostic.severity,
+        })),
+    [previewErrorDiagnostics, backendWarningDiagnostics],
+  );
+  const activeLine = useMemo(() => {
+    const activeDiagnostic = [
+      ...previewErrorDiagnostics,
+      ...backendWarningDiagnostics,
+    ].find((diagnostic) => diagnostic.id === activeDiagnosticId);
+
+    if (activeDiagnostic?.location) {
+      return activeDiagnostic.location.line;
+    }
+
+    return previewErrorDiagnostics[0]?.location?.line ?? null;
+  }, [activeDiagnosticId, previewErrorDiagnostics, backendWarningDiagnostics]);
+  const previewGroups = useMemo(
+    () => buildPreviewGroups(previewState.response?.changes ?? []),
+    [previewState.response],
+  );
+  const isLayoutOnlyDraft =
+    draftParse?.status === "valid" &&
+    previewState.status === "ready" &&
+    previewState.response !== null &&
+    previewState.response.isValid &&
+    !previewState.response.hasChanges &&
+    previewState.response.metadataOnly === true;
+  const canOpenApplyDialog =
+    draftParse?.status === "valid" &&
+    previewState.status === "ready" &&
+    previewState.response !== null &&
+    previewState.response.isValid &&
+    (previewState.response.hasChanges || isLayoutOnlyDraft) &&
+    backendErrorDiagnostics.length === 0 &&
+    !applyInFlight;
+  // A draft whose preview drops tables, columns or links: Apply turns red.
+  const draftDeletesData =
+    dirty &&
+    previewState.status === "ready" &&
+    previewState.response?.isDestructive === true &&
+    previewState.response.hasChanges;
+  const previewContentHiddenByErrors =
+    draftParse?.status !== "valid" || previewState.status === "error";
+  const draftStatus = !dirty
+    ? "No unapplied changes"
+    : draftParse?.status !== "valid"
+      ? "The draft has syntax errors"
+      : previewState.status === "loading"
+        ? "Checking changes…"
+        : previewState.status === "ready" && previewState.response
+          ? backendErrorDiagnostics.length > 0
+            ? countLabel(backendErrorDiagnostics.length, "problem") + " to fix"
+            : previewState.response.hasChanges
+              ? countLabel(previewState.response.changes.length, "unapplied change") +
+                (previewState.response.isDestructive ? " · deletes data" : "")
+              : isLayoutOnlyDraft
+                ? "Designer settings not saved yet"
+                : "No unapplied changes"
+          : "Unapplied changes";
+  const inspectorOpen =
+    activeMode === "visual" && !changesOpen && visualSelection !== null;
+  const sidePanelOpen = changesOpen || inspectorOpen;
+  const visualDraftDocument = useMemo(() => {
+    if (draftParse?.status !== "valid") {
+      return null;
+    }
+
+    return asSchemaModelDocument(draftParse.value);
+  }, [draftParse]);
+  const visualDraftIssues = useMemo(
+    () =>
+      visualDraftDocument ? validateVisualSchemaDraft(visualDraftDocument) : [],
+    [visualDraftDocument],
+  );
+
+  function applyImportedDraft(text: string) {
+    replaceDraftText(text);
+  }
+
+  function requestSchemaRefresh() {
+    if (dirty) {
+      setRefreshConfirmOpen(true);
+      return;
+    }
+
+    setReloadKey((current) => current + 1);
+  }
+
+  function confirmSchemaRefresh() {
+    setRefreshConfirmOpen(false);
+    setReloadKey((current) => current + 1);
+  }
+
+  async function handleImportFile(file: File) {
+    const fileText = await readBlobText(file);
+    const importedDraft = parseJsonDraft(fileText);
+
+    if (importedDraft.status !== "valid") {
+      setImportFeedback({
+        title: "Import failed",
+        message: `“${file.name}” is not valid JSON. The current draft was left unchanged.`,
+        detail: importedDraft.detail,
+      });
+      return;
+    }
+
+    const formattedText = formatSchemaDraftValueForEditor(importedDraft.value);
+    if (formattedText === state.draftText) {
+      setImportFeedback(null);
+      return;
+    }
+
+    if (dirty) {
+      setPendingImport({
+        fileName: file.name,
+        text: formattedText,
+      });
+      setImportFeedback(null);
+      return;
+    }
+
+    applyImportedDraft(formattedText);
+  }
+
+  function handleExportDraft() {
+    if (draftParse?.status !== "valid") {
+      return;
+    }
+
+    const blob = new Blob([formatSchemaDraftValueForEditor(draftParse.value)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "model-draft.json";
+    anchor.style.display = "none";
+    document.body.append(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 0);
+  }
+
+  async function runPreview(model: SchemaModelDocument, draftText: string) {
+    const requestId = previewRequestIdRef.current + 1;
+    previewRequestIdRef.current = requestId;
+    previewedDraftTextRef.current = draftText;
+    setPreviewState({
+      status: "loading",
+      response: null,
+      error: null,
+      errorCode: null,
+    });
+    setActiveDiagnosticId(null);
+
+    try {
+      const response = await previewSchemaDraft(model);
+      if (previewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setPreviewState({
+        status: "ready",
+        response,
+        error: null,
+        errorCode: null,
+      });
+    } catch (error) {
+      if (previewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setPreviewState({
+        status: "error",
+        response: null,
+        error:
+          error instanceof ApiClientError
+            ? error.message
+            : "The preview could not be run. Try again in a moment.",
+        errorCode:
+          error instanceof ApiClientError
+            ? (error.code ?? "preview_request_failed")
+            : "preview_request_failed",
+        errorPath: error instanceof ApiClientError ? readErrorPath(error.details) : null,
+      });
+    }
+  }
+
+  async function handlePreview() {
+    if (draftParse?.status !== "valid") {
+      return;
+    }
+
+    await runPreview(draftParse.value as SchemaModelDocument, state.draftText);
+  }
+
+  useEffect(() => {
+    if (
+      !isAdmin ||
+      state.status !== "ready" ||
+      state.draftText === state.loadedText
+    ) {
+      return;
+    }
+
+    const draftText = state.draftText;
+    const autoPreviewDraft = parseJsonDraft(draftText);
+    if (autoPreviewDraft.status !== "valid") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      if (
+        currentDraftTextRef.current !== draftText ||
+        previewedDraftTextRef.current === draftText
+      ) {
+        return;
+      }
+
+      void runPreview(autoPreviewDraft.value as SchemaModelDocument, draftText);
+    }, autoPreviewDebounceMs);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [isAdmin, state.draftText, state.loadedText, state.status]);
+
+  function openApplyDialog() {
+    if (!canOpenApplyDialog) {
+      return;
+    }
+
+    setApplyFeedback(null);
+    setApplyDialog({
+      open: true,
+      canSubmit: false,
+      confirmationRequired: false,
+      error: null,
+    });
+  }
+
+  async function refreshAppliedSchemaState(): Promise<SchemaModelDocument> {
+    const snapshot = await getCanonicalSchemaSnapshot();
+    const enrichedSnapshot = await getSchemaSnapshot();
+    const loadedAt = Date.now();
+
+    useSchemaStore.setState({
+      status: "ready",
+      snapshot: enrichedSnapshot,
+      error: null,
+      lastLoadedAt: loadedAt,
+      inFlight: null,
+    });
+
+    setState({
+      ...buildLoadedState(snapshot),
+      loadedAt,
+    });
+
+    return snapshot;
+  }
+
+  async function handleApply() {
+    if (draftParse?.status !== "valid" || !previewState.response) {
+      return;
+    }
+
+    setApplyInFlight(true);
+    setApplyFeedback(null);
+    setApplyDialog((current) => ({
+      ...current,
+      error: null,
+    }));
+
+    try {
+      const applyDraft = draftParse.value as SchemaModelDocument;
+      const applyResult = await applySchemaDraft(
+        applyDraft,
+        applyDialog.confirmationRequired
+          ? { confirmDestructive: true }
+          : undefined,
+      );
+
+      if (!applyResult.applied) {
+        try {
+          await refreshAppliedSchemaState();
+        } catch {
+          // The apply was a no-op; keep the local draft and show the no-op state.
+        }
+
+        resetPreviewState();
+        setApplyDialog(initialApplyDialogState);
+        setApplyFeedback({
+          tone: "warning",
+          title: "No schema changes applied",
+          message: "Your draft already matches the current schema. Nothing to apply.",
+        });
+        return;
+      }
+
+      try {
+        await refreshAppliedSchemaState();
+      } catch (error) {
+        const message =
+          error instanceof ApiClientError
+            ? error.message
+            : "Changes applied, but the latest schema could not be reloaded. Refresh the page to see it.";
+
+        setApplyFeedback({
+          tone: "warning",
+          title: "Schema changes applied",
+          message,
+        });
+        resetPreviewState();
+        setApplyDialog(initialApplyDialogState);
+        return;
+      }
+
+      resetPreviewState();
+      setApplyDialog(initialApplyDialogState);
+      setApplyFeedback({
+        tone: "success",
+        title: applyResult.metadataOnly
+          ? "Designer settings saved"
+          : "Schema changes applied",
+        message: applyResult.metadataOnly
+          ? "Colours, positions and record labels saved. Your data is unchanged."
+          : `${countLabel(applyResult.changes.length, "change")} applied.`,
+      });
+    } catch (error) {
+      const validationDetails = getSchemaValidationFailedDetails(error);
+      if (validationDetails?.errors && validationDetails.errors.length > 0) {
+        setPreviewState((current) => {
+          if (current.status !== "ready" || !current.response) {
+            return current;
+          }
+
+          return {
+            status: "ready",
+            response: mergePreviewValidationErrors(
+              current.response,
+              validationDetails.errors ?? [],
+            ),
+            error: null,
+            errorCode: null,
+          };
+        });
+        setApplyDialog(initialApplyDialogState);
+        setApplyFeedback({
+          tone: "error",
+          title: "Apply blocked by validation errors",
+          message:
+            "Your changes were not applied. Fix the problems listed under Preview, then preview again.",
+        });
+        return;
+      }
+
+      const confirmationDetails = getSchemaConfirmationRequiredDetails(error);
+      if (confirmationDetails) {
+        setApplyDialog((current) => ({
+          ...current,
+          confirmationRequired: true,
+          error:
+            "Some changes will delete data. Review them, then click Apply destructive changes.",
+        }));
+        return;
+      }
+
+      setApplyDialog((current) => ({
+        ...current,
+        error:
+          error instanceof ApiClientError
+            ? error.message
+            : "Unable to apply the schema draft right now.",
+      }));
+    } finally {
+      setApplyInFlight(false);
+    }
+  }
+
+  function focusDiagnostic(diagnostic: WorkbenchDiagnostic) {
+    setActiveDiagnosticId(diagnostic.id);
+
+    if (!diagnostic.location) {
+      return;
+    }
+
+    setEditorFocusLocation({ ...diagnostic.location });
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="schema-workbench schema-workbench--state">
+        <Panel>
+          <EmptyState
+            title="Admin access required"
+            description="Only administrators can change the schema."
+            icon="schema"
+          />
+        </Panel>
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
+    return (
+      <div className="schema-workbench schema-workbench--state">
+        <Panel className="schema-workbench__state-panel">
+          <div
+            className="schema-workbench__loading"
+            role="status"
+            aria-live="polite"
+          >
+            <Spinner label="Loading current schema" />
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="schema-workbench schema-workbench--state">
+        <Panel className="schema-workbench__state-panel">
+          <Alert
+            tone="error"
+            title="Unable to load the schema workbench"
+            message={
+              state.error ??
+              "Your schema could not be loaded. Try again in a moment."
+            }
+          />
+          <div className="schema-workbench__state-actions">
+            <Button
+              variant="primary"
+              leadingIcon={<Icon name="refresh" size={14} />}
+              onClick={() => {
+                setReloadKey((current) => current + 1);
+              }}
+            >
+              Retry
+            </Button>
+          </div>
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="schema-workbench">
+      <header className="schema-workbench__header">
+        <div className="schema-workbench__heading">
+          <h1 className="schema-workbench__title">Schema</h1>
+          <div className="schema-workbench__subhead">
+            <div
+              className="schema-workbench__mode-switch"
+              role="group"
+              aria-label="Schema workbench mode"
+            >
+              {(["visual", "json"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={
+                    activeMode === mode
+                      ? "schema-workbench__mode-button schema-workbench__mode-button--active"
+                      : "schema-workbench__mode-button"
+                  }
+                  aria-pressed={activeMode === mode}
+                  onClick={() => setActiveMode(mode)}
+                >
+                  {mode === "json" ? "JSON" : "Visual"}
+                </button>
+              ))}
+            </div>
+            <span className="schema-workbench__status" aria-live="polite">
+              {draftStatus}
+            </span>
+          </div>
+        </div>
+        <div
+          className="schema-workbench__actions"
+          role="toolbar"
+          aria-label="Schema workbench actions"
+        >
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            onClick={() => {
+              importInputRef.current?.click();
+            }}
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            disabled={draftParse?.status !== "valid"}
+            onClick={handleExportDraft}
+          >
+            Export
+          </button>
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            onClick={requestSchemaRefresh}
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            className={
+              changesOpen
+                ? "schema-workbench__pill schema-workbench__pill--ghost schema-workbench__pill--active"
+                : "schema-workbench__pill schema-workbench__pill--ghost"
+            }
+            aria-expanded={changesOpen}
+            disabled={
+              draftParse?.status !== "valid" || previewState.status === "loading"
+            }
+            onClick={() => {
+              if (changesOpen) {
+                setChangesOpen(false);
+                return;
+              }
+              setChangesOpen(true);
+              if (previewedDraftTextRef.current !== state.draftText) {
+                void handlePreview();
+              }
+            }}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            className={
+              draftDeletesData
+                ? "schema-workbench__pill schema-workbench__pill--danger"
+                : "schema-workbench__pill schema-workbench__pill--accent"
+            }
+            title={draftDeletesData ? "Some of these changes delete data" : undefined}
+            disabled={!canOpenApplyDialog}
+            onClick={openApplyDialog}
+          >
+            Apply
+          </button>
+        </div>
+      </header>
+
+      <input
+        ref={importInputRef}
+        type="file"
+        accept="application/json,.json"
+        className="schema-workbench__import-input"
+        data-testid="model-json-import-input"
+        onChange={(event) => {
+          const [file] = Array.from(event.target.files ?? []);
+          event.target.value = "";
+
+          if (!file) {
+            return;
+          }
+
+          void handleImportFile(file);
+        }}
+      />
+
+      {state.isEmpty ? (
+        <Alert
+          tone="info"
+          title="New workspace schema"
+          message="Your workspace has no tables yet. Add one in Visual mode or import a schema file."
+        />
+      ) : null}
+
+      {applyFeedback || importFeedback ? (
+        <div className="schema-workbench__toasts">
+        {importFeedback ? (
+          <div className="schema-workbench__toast schema-workbench__toast--error" role="alert">
+            <span className="schema-workbench__toast-icon" aria-hidden="true">
+              <Icon name="activity" size={12} />
+            </span>
+            <div className="schema-workbench__toast-body">
+              <div className="schema-workbench__toast-title">{importFeedback.title}</div>
+              <div className="schema-workbench__toast-message">{importFeedback.message}</div>
+              {importFeedback.detail ? (
+                <div className="schema-workbench__toast-detail mono">{importFeedback.detail}</div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className="schema-workbench__toast-close"
+              aria-label="Dismiss"
+              onClick={() => setImportFeedback(null)}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        ) : null}
+        {applyFeedback ? (
+          <div
+            className={`schema-workbench__toast schema-workbench__toast--${applyFeedback.tone}`}
+            role={applyFeedback.tone === "error" ? "alert" : "status"}
+          >
+            <span className="schema-workbench__toast-icon" aria-hidden="true">
+              <Icon name={applyFeedback.tone === "success" ? "check" : "activity"} size={12} />
+            </span>
+            <div className="schema-workbench__toast-body">
+              <div className="schema-workbench__toast-title">{applyFeedback.title}</div>
+              <div className="schema-workbench__toast-message">{applyFeedback.message}</div>
+            </div>
+            <button
+              type="button"
+              className="schema-workbench__toast-close"
+              aria-label="Dismiss"
+              onClick={() => setApplyFeedback(null)}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        ) : null}
+        </div>
+      ) : null}
+
+      <div
+        className={
+          sidePanelOpen
+            ? "schema-workbench__workspace schema-workbench__workspace--with-side"
+            : "schema-workbench__workspace"
+        }
+      >
+        <section
+          className={
+            activeMode === "json"
+              ? "schema-workbench__stage schema-workbench__stage--json"
+              : "schema-workbench__stage schema-workbench__stage--visual"
+          }
+          aria-label={activeMode === "json" ? "Schema JSON" : "Schema diagram"}
+        >
+          {activeMode === "json" ? (
+            <>
+              <div className="schema-workbench__stage-bar">
+                <span className="schema-workbench__stage-label">Schema as JSON</span>
+                <button
+                  type="button"
+                  className="schema-workbench__tool"
+                  disabled={draftParse?.status !== "valid"}
+                  onClick={() => {
+                    if (draftParse?.status !== "valid") {
+                      return;
+                    }
+
+                    replaceDraftText(formatSchemaDraftValueForEditor(draftParse.value));
+                  }}
+                >
+                  Format JSON
+                </button>
+              </div>
+              <div className="schema-workbench__editor-shell">
+                <JsonCodeEditor
+                  activeLine={activeLine}
+                  diagnostics={editorDiagnostics}
+                  focusLocation={editorFocusLocation}
+                  value={state.draftText}
+                  onChange={(draftText) => {
+                    replaceDraftText(draftText);
+                  }}
+                />
+              </div>
+              {previewErrorDiagnostics.length > 0 && !changesOpen ? (
+                <div className="schema-workbench__stage-problems">
+                  <PreviewDiagnostics
+                    activeDiagnosticId={activeDiagnosticId}
+                    errorDiagnostics={previewErrorDiagnostics}
+                    onSelect={focusDiagnostic}
+                    warningDiagnostics={[]}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : (
+            <VisualSchemaMode
+              activeDiagnosticId={activeDiagnosticId}
+              backendDiagnostics={[
+                ...backendErrorDiagnostics,
+                ...backendWarningDiagnostics,
+              ]}
+              document={visualDraftDocument}
+              issues={visualDraftIssues}
+              selection={visualSelection}
+              syntaxInvalid={draftParse?.status !== "valid"}
+              onBackendDiagnosticSelect={(diagnostic, nextSelection) => {
+                focusDiagnostic(diagnostic);
+                setVisualSelection(nextSelection);
+              }}
+              onDocumentChange={(document) => {
+                replaceDraftText(formatSchemaDraftValueForEditor(document));
+              }}
+              onSelectionChange={setVisualSelection}
+              onReturnToJson={() => setActiveMode("json")}
+            />
+          )}
+        </section>
+
+        {changesOpen ? (
+          <aside className="schema-workbench__side" aria-label="Changes">
+            <header className="schema-workbench__side-header">
+              <h2 className="schema-workbench__side-title">Preview</h2>
+              <span className="schema-workbench__side-meta">{draftStatus}</span>
+              <button
+                type="button"
+                className="schema-workbench__side-close"
+                aria-label="Close preview"
+                onClick={() => setChangesOpen(false)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </header>
+            <div className="schema-workbench__side-body schema-workbench__preview-panel">
+              <PreviewDiagnostics
+                activeDiagnosticId={activeDiagnosticId}
+                errorDiagnostics={previewErrorDiagnostics}
+                onSelect={focusDiagnostic}
+                warningDiagnostics={backendWarningDiagnostics}
+                locate={
+                  activeMode === "visual" && visualDraftDocument
+                    ? (diagnostic) =>
+                        getVisualDiagnosticTarget(visualDraftDocument, diagnostic.path).label
+                    : undefined
+                }
+              />
+
+              {previewContentHiddenByErrors ? null : previewState.status ===
+                "loading" || previewState.status === "idle" ? (
+                <div
+                  className="schema-workbench__preview-loading"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <Spinner label="Checking your changes…" />
+                </div>
+              ) : previewState.response ? (
+                <PreviewSummary
+                  errorCount={previewErrorDiagnostics.length}
+                  warningCount={backendWarningDiagnostics.length}
+                  isLayoutOnlyDraft={isLayoutOnlyDraft}
+                  response={previewState.response}
+                  groups={previewGroups}
+                />
+              ) : null}
+            </div>
+          </aside>
+        ) : inspectorOpen ? (
+          <aside className="schema-workbench__side" aria-label="Edit selection">
+            <header className="schema-workbench__side-header">
+              <h2 className="schema-workbench__side-title">Edit selection</h2>
+              <button
+                type="button"
+                className="schema-workbench__side-close"
+                aria-label="Close inspector"
+                onClick={() => setVisualSelection(null)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </header>
+            <div className="schema-workbench__side-body">
+              {draftParse?.status !== "valid" || !visualDraftDocument ? (
+                <EmptyState
+                  title="Visual inspector unavailable"
+                  description="Fix the JSON errors to edit tables and columns."
+                  icon="pencil"
+                />
+              ) : (
+                <VisualSchemaInspector
+                  baselineDocument={baselineDocument}
+                  document={visualDraftDocument}
+                  selection={visualSelection}
+                  onDocumentChange={(document) => {
+                    replaceDraftText(formatSchemaDraftValueForEditor(document));
+                  }}
+                  onSelectionChange={setVisualSelection}
+                />
+              )}
+            </div>
+          </aside>
+        ) : null}
+      </div>
+
+      <Dialog
+        open={applyDialog.open}
+        title="Review and apply schema changes"
+        description="Review every change below, then apply."
+        onClose={() => {
+          if (applyInFlight) {
+            return;
+          }
+
+          resetApplyDialog();
+        }}
+        panelClassName="schema-workbench__apply-dialog"
+        bodyClassName="schema-workbench__apply-dialog-body"
+        footerClassName="schema-workbench__apply-dialog-footer"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={applyInFlight}
+              onClick={() => resetApplyDialog()}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={applyDialog.confirmationRequired ? "danger" : "primary"}
+              disabled={!applyDialog.canSubmit || applyInFlight}
+              onClick={() => {
+                void handleApply();
+              }}
+            >
+              {applyInFlight
+                ? applyDialog.confirmationRequired
+                  ? "Applying destructive changes..."
+                  : "Applying..."
+                : applyDialog.confirmationRequired
+                  ? "Apply destructive changes"
+                  : "Apply"}
+            </Button>
+          </>
+        }
+      >
+        <div className="schema-workbench__apply-dialog-shell">
+          {applyDialog.error ? (
+            <Alert
+              tone={applyDialog.confirmationRequired ? "warning" : "error"}
+              title={
+                applyDialog.confirmationRequired
+                  ? "Confirm data loss"
+                  : "Apply failed"
+              }
+              message={applyDialog.error}
+            />
+          ) : null}
+
+          <div className="schema-workbench__apply-dialog-hint">
+            <span className="schema-workbench__apply-dialog-hint-label">
+              {applyDialog.canSubmit
+                ? "Preview review complete"
+                : "Scroll to the end to enable Apply"}
+            </span>
+            <span className="schema-workbench__apply-dialog-hint-copy">
+              {previewState.response?.hasChanges
+                ? `${countLabel(previewState.response.changes.length, "change")} from preview`
+                : "No changes"}
+            </span>
+          </div>
+
+          {previewState.response ? (
+            <div
+              ref={applyReviewRef}
+              className="schema-workbench__apply-review"
+              data-testid="schema-apply-review-scroll"
+            >
+              <PreviewSummary
+                errorCount={previewErrorDiagnostics.length}
+                warningCount={backendWarningDiagnostics.length}
+                isLayoutOnlyDraft={isLayoutOnlyDraft}
+                response={previewState.response}
+                groups={previewGroups}
+              />
+            </div>
+          ) : null}
+        </div>
+      </Dialog>
+
+      <ConfirmDialog
+        open={pendingImport !== null}
+        title="Replace the current draft?"
+        description={
+          pendingImport
+            ? `Importing “${pendingImport.fileName}” will replace your unsaved changes.`
+            : ""
+        }
+        confirmLabel="Replace draft"
+        onConfirm={() => {
+          if (!pendingImport) {
+            return;
+          }
+
+          applyImportedDraft(pendingImport.text);
+          setPendingImport(null);
+        }}
+        onCancel={() => setPendingImport(null)}
+      />
+
+      <ConfirmDialog
+        open={leaveBlocker.state === "blocked"}
+        title="Leave without applying?"
+        description="Your schema draft has changes that are not applied yet. Leaving this page discards them."
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        confirmVariant="danger"
+        onConfirm={() => leaveBlocker.proceed?.()}
+        onCancel={() => leaveBlocker.reset?.()}
+      />
+      <ConfirmDialog
+        open={refreshConfirmOpen}
+        title="Discard local draft edits?"
+        description="Refreshing will replace your unsaved changes with the saved schema."
+        confirmLabel="Discard edits and refresh"
+        cancelLabel="Keep editing"
+        confirmVariant="danger"
+        onConfirm={confirmSchemaRefresh}
+        onCancel={() => setRefreshConfirmOpen(false)}
+      />
+    </div>
+  );
+}
+
+function readErrorPath(details: unknown): string | null {
+  if (details && typeof details === "object" && "path" in details) {
+    const path = (details as { path: unknown }).path;
+    return typeof path === "string" && path.length > 0 ? path : null;
+  }
+  return null;
+}
+

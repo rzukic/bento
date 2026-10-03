@@ -1,4 +1,6 @@
+using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dapper;
 using Repere.Api.Db;
 using Repere.Api.Db.Schema;
@@ -25,12 +27,18 @@ public sealed class CrudService
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
     private readonly RequestBodyValidator _validator;
+    private readonly SchemaCache _schemaCache;
 
-    public CrudService(QueryService queryService, DatabaseConfig dbConfig, RequestBodyValidator validator)
+    public CrudService(
+        QueryService queryService,
+        DatabaseConfig dbConfig,
+        RequestBodyValidator validator,
+        SchemaCache schemaCache)
     {
         _queryService = queryService;
         _dbConfig = dbConfig;
         _validator = validator;
+        _schemaCache = schemaCache;
     }
 
     public async Task<ListResult> ListAsync(
@@ -42,20 +50,14 @@ public sealed class CrudService
 
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
-        ApplyFiltersStatic(baseQuery, parameters.Filters);
-        ApplySearchStatic(baseQuery, parameters.Search, table);
+        ApplyFiltersStatic(baseQuery, parameters.Filters, table, _dbConfig.Provider);
+        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider, _schemaCache.GetTable);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
 
         // Apply sorting
-        foreach (var sort in parameters.Sorts)
-        {
-            if (sort.Descending)
-                baseQuery = baseQuery.OrderByDesc(sort.Column);
-            else
-                baseQuery = baseQuery.OrderBy(sort.Column);
-        }
+        baseQuery = ApplySortingStatic(baseQuery, parameters.Sorts, table, _dbConfig.Provider);
 
         // Apply field selection
         if (parameters.Fields is { Count: > 0 })
@@ -67,7 +69,7 @@ public sealed class CrudService
         // Apply pagination
         baseQuery = baseQuery.ForPage(parameters.Page, parameters.PerPage);
 
-        var rows = (await baseQuery.GetAsync()).Select(ToDictionary).ToList();
+        var rows = (await baseQuery.GetAsync()).Select(row => ToResponseRow(table, (object)row)).ToList();
         var totalPages = parameters.PerPage > 0
             ? (int)Math.Ceiling((double)total / parameters.PerPage)
             : 0;
@@ -107,11 +109,11 @@ public sealed class CrudService
         return selected;
     }
 
-    public async Task<IDictionary<string, object?>> GetByIdAsync(TableDef table, long id)
+    public async Task<IDictionary<string, object?>> GetByIdAsync(TableDef table, string id)
     {
+        var keyValues = GetKeyValues(table, id);
         await using var scope = await _queryService.UseDataAsync();
-        var row = await scope.Db.Query(table.Name)
-            .Where("id", id)
+        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues)
             .FirstOrDefaultAsync();
 
         if (row is null)
@@ -125,7 +127,7 @@ public sealed class CrudService
                 });
         }
 
-        return ToDictionary(row);
+        return ToResponseRow(table, row);
     }
 
     public async Task<IDictionary<string, object?>> CreateAsync(TableDef table, JsonElement body)
@@ -134,22 +136,72 @@ public sealed class CrudService
 
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
+        var primaryKeyColumns = GetPrimaryKeyColumns(table);
 
         await using var scope = await _queryService.UseDataAsync();
-        var id = await InsertAndGetIdAsync(scope, table.Name, data);
+        object? row;
 
-        // Read back the full row
-        var row = await scope.Db.Query(table.Name)
-            .Where("id", id)
-            .FirstOrDefaultAsync();
+        if (primaryKeyColumns.Count == 1)
+        {
+            var primaryKey = primaryKeyColumns[0];
+            var id = await InsertAndGetIdAsync(scope, table.Name, primaryKey, data);
 
-        return ToDictionary(row!);
+            row = await scope.Db.Query(table.Name)
+                .Where(primaryKey.Name, id)
+                .FirstOrDefaultAsync();
+        }
+        else
+        {
+            // A composite key (an N:M link) that already exists is a conflict,
+            // not a database error.
+            var existing = scope.Db.Query(table.Name);
+            var hasAllKeys = true;
+            foreach (var primaryKey in primaryKeyColumns)
+            {
+                if (!data.TryGetValue(primaryKey.Name, out var keyValue) || keyValue is null)
+                {
+                    hasAllKeys = false;
+                    break;
+                }
+                existing = existing.Where(primaryKey.Name, keyValue);
+            }
+            if (hasAllKeys && await existing.FirstOrDefaultAsync() is not null)
+            {
+                throw new ApiConflictException(
+                    "This row already exists.",
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["table"] = table.Name,
+                        ["columns"] = primaryKeyColumns.Select(c => c.Name).ToArray()
+                    });
+            }
+
+            await InsertAsync(scope, table.Name, data);
+
+            var query = scope.Db.Query(table.Name);
+            foreach (var primaryKey in primaryKeyColumns)
+            {
+                if (!data.TryGetValue(primaryKey.Name, out var value))
+                {
+                    throw new InvalidOperationException(
+                        $"Insert for table '{table.Name}' did not include composite primary key column '{primaryKey.Name}'.");
+                }
+
+                query = query.Where(primaryKey.Name, value);
+            }
+
+            row = await query.FirstOrDefaultAsync();
+        }
+
+        return ToResponseRow(table, row!);
     }
 
-    public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, long id, JsonElement body)
+    public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, string id, JsonElement body)
     {
-        await EnsureRowExistsAsync(table, id);
-        await _validator.ValidateUpdateAsync(table, id, body);
+        var keyValues = GetKeyValues(table, id);
+        var validationId = GetSingleKeyValueOrCompositeToken(keyValues, id);
+        await EnsureRowExistsAsync(table, keyValues);
+        await _validator.ValidateUpdateAsync(table, validationId, body);
 
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
@@ -164,19 +216,21 @@ public sealed class CrudService
         }
 
         await using var scope = await _queryService.UseDataAsync();
-        await scope.Db.Query(table.Name).Where("id", id).UpdateAsync(data);
+        await EnsureKeyFreeAsync(scope, table, keyValues, data);
+        await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
 
-        var row = await scope.Db.Query(table.Name)
-            .Where("id", id)
+        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
-    public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, long id, JsonElement body)
+    public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, string id, JsonElement body)
     {
-        await EnsureRowExistsAsync(table, id);
-        await _validator.ValidatePatchAsync(table, id, body);
+        var keyValues = GetKeyValues(table, id);
+        var validationId = GetSingleKeyValueOrCompositeToken(keyValues, id);
+        await EnsureRowExistsAsync(table, keyValues);
+        await _validator.ValidatePatchAsync(table, validationId, body);
 
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
@@ -184,21 +238,67 @@ public sealed class CrudService
         if (data.Count > 0)
         {
             await using var scope = await _queryService.UseDataAsync();
-            await scope.Db.Query(table.Name).Where("id", id).UpdateAsync(data);
+            await EnsureKeyFreeAsync(scope, table, keyValues, data);
+            await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
         }
 
         await using var readScope = await _queryService.UseDataAsync();
-        var row = await readScope.Db.Query(table.Name)
-            .Where("id", id)
+        var row = await ApplyKeyFilter(readScope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
-    public async Task DeleteAsync(TableDef table, long id)
+    /// <summary>
+    /// Moving a row to a key another row already has (a junction row pointed
+    /// at a record it is already linked to) is a conflict, not a database error.
+    /// </summary>
+    private static async Task EnsureKeyFreeAsync(
+        QueryScope scope,
+        TableDef table,
+        IReadOnlyDictionary<string, object> keyValues,
+        IDictionary<string, object?> written)
     {
+        var nextKey = KeyValuesAfterWrite(keyValues, written);
+        var changed = nextKey.Any(pair => !Equals(pair.Value, keyValues[pair.Key]) &&
+            !string.Equals(Convert.ToString(pair.Value, CultureInfo.InvariantCulture), Convert.ToString(keyValues[pair.Key], CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        if (!changed)
+            return;
+
+        if (await ApplyKeyFilter(scope.Db.Query(table.Name), nextKey).FirstOrDefaultAsync() is not null)
+        {
+            throw new ApiConflictException(
+                "This row already exists.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["table"] = table.Name,
+                    ["columns"] = nextKey.Keys.ToArray()
+                });
+        }
+    }
+
+    /// <summary>
+    /// The row's key after an update: a written key column (a junction row
+    /// pointed at another record) changes the key the row is read back by.
+    /// </summary>
+    private static IReadOnlyDictionary<string, object> KeyValuesAfterWrite(
+        IReadOnlyDictionary<string, object> keyValues,
+        IDictionary<string, object?> written)
+    {
+        var next = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in keyValues)
+        {
+            var writtenKey = written.Keys.FirstOrDefault(k => string.Equals(k, pair.Key, StringComparison.OrdinalIgnoreCase));
+            next[pair.Key] = writtenKey is not null && written[writtenKey] is { } value ? value : pair.Value;
+        }
+        return next;
+    }
+
+    public async Task DeleteAsync(TableDef table, string id)
+    {
+        var keyValues = GetKeyValues(table, id);
         await using var scope = await _queryService.UseDataAsync();
-        var affected = await scope.Db.Query(table.Name).Where("id", id).DeleteAsync();
+        var affected = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).DeleteAsync();
 
         if (affected == 0)
         {
@@ -212,34 +312,59 @@ public sealed class CrudService
         }
     }
 
-    private async Task EnsureRowExistsAsync(TableDef table, long id)
+    private async Task EnsureRowExistsAsync(
+        TableDef table,
+        IReadOnlyDictionary<string, object> keyValues)
     {
         await using var scope = await _queryService.UseDataAsync();
-        var exists = await scope.Db.Query(table.Name)
-            .Where("id", id)
+        var exists = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues)
             .SelectRaw("1")
             .FirstOrDefaultAsync();
 
         if (exists is null)
         {
+            var rowKey = string.Join("|", keyValues.Select(pair => $"{pair.Key}:{pair.Value}"));
             throw new ApiNotFoundException(
-                $"Row with id {id} not found in '{table.Name}'.",
+                $"Row with id {rowKey} not found in '{table.Name}'.",
                 new Dictionary<string, object?>(StringComparer.Ordinal)
                 {
                     ["table"] = table.Name,
-                    ["id"] = id
+                    ["id"] = rowKey
                 });
         }
+    }
+
+    private static SqlKata.Query ApplyKeyFilter(
+        SqlKata.Query query,
+        IReadOnlyDictionary<string, object> keyValues)
+    {
+        foreach (var pair in keyValues)
+        {
+            query = query.Where(pair.Key, pair.Value);
+        }
+
+        return query;
     }
 
     private static List<ColumnDef> GetWritableColumns(TableDef table)
     {
         return table.Columns
-            .Where(c => !c.PrimaryKey && c.Type != ColumnType.Computed)
+            .Where(IsWritableColumn)
             .ToList();
     }
 
-    private static Dictionary<string, object?> ExtractColumnValues(JsonElement body, List<ColumnDef> columns)
+    internal static bool IsWritableColumn(ColumnDef column)
+    {
+        if (column.Type == ColumnType.Computed)
+            return false;
+
+        if (column.Type == ColumnType.Reference && column.PrimaryKey)
+            return true;
+
+        return !column.PrimaryKey;
+    }
+
+    private Dictionary<string, object?> ExtractColumnValues(JsonElement body, List<ColumnDef> columns)
     {
         var data = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
 
@@ -254,10 +379,85 @@ public sealed class CrudService
             if (col is null)
                 continue; // Unknown columns silently ignored; validation is TASK-039
 
-            data[col.Name] = CoerceValueStatic(prop.Value, col.Type);
+            data[col.Name] = CoerceValue(prop.Value, col);
         }
 
         return data;
+    }
+
+    private object? CoerceValue(JsonElement value, ColumnDef column)
+    {
+        // Postgres uuid columns need a Guid parameter; a string parameter is sent
+        // as text and the insert/update fails with "column is of type uuid but
+        // expression is of type text". SQLite stores uuids as text.
+        if (column.Type == ColumnType.Uuid && _dbConfig.Provider == DatabaseProvider.Postgres)
+        {
+            if (value.ValueKind == JsonValueKind.Null)
+                return null;
+
+            var raw = value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : value.GetRawText();
+            if (raw is not null && Guid.TryParse(raw, out var guid))
+                return guid;
+        }
+
+        if (column.Type == ColumnType.Reference && IsUuidReference(column))
+        {
+            if (value.ValueKind == JsonValueKind.Null)
+                return null;
+
+            var raw = value.ValueKind == JsonValueKind.String
+                ? value.GetString()
+                : value.GetRawText();
+            if (raw is not null && Guid.TryParse(raw, out var guid))
+                return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
+        }
+
+        // Postgres DATE / TIMESTAMPTZ columns reject text parameters; SQLite stores
+        // ISO 8601 strings. The validator has already checked the string shape.
+        if (column.Type is ColumnType.Date or ColumnType.DateTime && value.ValueKind == JsonValueKind.String)
+            return CoerceTemporalForProvider(value.GetString(), column.Type, _dbConfig.Provider);
+
+        return CoerceValueStatic(value, column.Type);
+    }
+
+    /// <summary>
+    /// Converts an ISO 8601 string into the parameter type the provider expects for
+    /// a <see cref="ColumnType.Date"/> or <see cref="ColumnType.DateTime"/> column.
+    /// Postgres gets <see cref="DateOnly"/> / UTC <see cref="DateTime"/>, SQLite
+    /// keeps the string. Unparseable input is returned unchanged so the database
+    /// (or the validator upstream) reports it.
+    /// </summary>
+    internal static object? CoerceTemporalForProvider(string? raw, ColumnType type, DatabaseProvider provider)
+    {
+        if (raw is null || provider != DatabaseProvider.Postgres)
+            return raw;
+
+        if (type == ColumnType.Date)
+        {
+            if (DateOnly.TryParseExact(raw, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                return date;
+            if (DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dateFromStamp))
+                return DateOnly.FromDateTime(dateFromStamp.UtcDateTime);
+            return raw;
+        }
+
+        if (type == ColumnType.DateTime)
+        {
+            return DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var stamp)
+                ? stamp.UtcDateTime
+                : raw;
+        }
+
+        return raw;
+    }
+
+    private bool IsUuidReference(ColumnDef column)
+    {
+        return column.Type == ColumnType.Reference &&
+            !string.IsNullOrWhiteSpace(column.References) &&
+            _schemaCache.GetTable(column.References)?.Columns.FirstOrDefault(c => c.PrimaryKey)?.Type == ColumnType.Uuid;
     }
 
     internal static object? CoerceValueStatic(JsonElement value, ColumnType type)
@@ -269,13 +469,23 @@ public sealed class CrudService
         {
             ColumnType.Text or ColumnType.Enum or ColumnType.File
                 => value.ValueKind == JsonValueKind.String ? value.GetString() : value.GetRawText(),
-            ColumnType.Integer or ColumnType.Reference
+            ColumnType.Integer
                 => value.ValueKind switch
                 {
                     JsonValueKind.Number => value.GetInt64(),
                     JsonValueKind.String when long.TryParse(value.GetString(), out var n) => n,
                     _ => value.GetRawText()
                 },
+            ColumnType.Reference
+                => value.ValueKind switch
+                {
+                    JsonValueKind.Number => value.GetInt64(),
+                    JsonValueKind.String when long.TryParse(value.GetString(), out var n) => n,
+                    JsonValueKind.String => value.GetString(),
+                    _ => value.GetRawText()
+                },
+            ColumnType.Uuid
+                => value.ValueKind == JsonValueKind.String ? value.GetString() : value.GetRawText(),
             ColumnType.Float or ColumnType.Currency
                 => value.ValueKind switch
                 {
@@ -300,15 +510,27 @@ public sealed class CrudService
         };
     }
 
-    private async Task<long> InsertAndGetIdAsync(QueryScope scope, string tableName, Dictionary<string, object?> data)
+    private async Task<object> InsertAndGetIdAsync(
+        QueryScope scope,
+        string tableName,
+        ColumnDef primaryKey,
+        Dictionary<string, object?> data)
     {
+        if (primaryKey.Type == ColumnType.Uuid)
+        {
+            var generatedId = Guid.NewGuid().ToString();
+            data[primaryKey.Name] = _dbConfig.Provider == DatabaseProvider.Postgres
+                ? Guid.Parse(generatedId)
+                : generatedId;
+        }
+
         var columns = data.Keys.ToList();
 
         if (columns.Count == 0)
         {
             if (_dbConfig.Provider == DatabaseProvider.Postgres)
             {
-                var sql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES RETURNING \"id\";";
+                var sql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES RETURNING \"{primaryKey.Name}\";";
                 return await scope.Db.Connection.ExecuteScalarAsync<long>(sql);
             }
 
@@ -328,67 +550,412 @@ public sealed class CrudService
 
         if (_dbConfig.Provider == DatabaseProvider.Postgres)
         {
-            var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams}) RETURNING \"id\";";
-            return await scope.Db.Connection.ExecuteScalarAsync<long>(sql, parameters);
+            var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams}) RETURNING \"{primaryKey.Name}\";";
+            var id = await scope.Db.Connection.ExecuteScalarAsync(sql, parameters);
+            return NormalizeReturnedId(id);
         }
 
         var insertSql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
         await scope.Db.Connection.ExecuteAsync(insertSql, parameters);
+        if (primaryKey.Type == ColumnType.Uuid)
+            return data[primaryKey.Name]!;
+
         return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
     }
 
-    internal static void ApplySearchStatic(SqlKata.Query query, string? search, TableDef table)
+    private async Task InsertAsync(
+        QueryScope scope,
+        string tableName,
+        Dictionary<string, object?> data)
+    {
+        if (data.Count == 0)
+        {
+            var defaultValuesSql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES;";
+            await scope.Db.Connection.ExecuteAsync(defaultValuesSql);
+            return;
+        }
+
+        var columns = data.Keys.ToList();
+        var parameters = new DynamicParameters();
+        for (int i = 0; i < columns.Count; i++)
+        {
+            parameters.Add($"p{i}", data[columns[i]]);
+        }
+
+        var quotedColumns = string.Join(", ", columns.Select(c => $"\"{c}\""));
+        var quotedParams = string.Join(", ", columns.Select((_, i) => $"@p{i}"));
+        var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
+        await scope.Db.Connection.ExecuteAsync(sql, parameters);
+    }
+
+    private static List<ColumnDef> GetPrimaryKeyColumns(TableDef table)
+    {
+        var primaryKeyColumns = table.Columns.Where(c => c.PrimaryKey).ToList();
+        if (primaryKeyColumns.Count == 0)
+        {
+            throw new InvalidOperationException($"Table '{table.Name}' does not define a primary key column.");
+        }
+
+        return primaryKeyColumns;
+    }
+
+    private IReadOnlyDictionary<string, object> GetKeyValues(TableDef table, string id)
+    {
+        var primaryKeyColumns = GetPrimaryKeyColumns(table);
+        if (primaryKeyColumns.Count == 1)
+        {
+            var primaryKey = primaryKeyColumns[0];
+            return new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase)
+            {
+                [primaryKey.Name] = CoerceId(id, primaryKey)
+            };
+        }
+
+        var parsedSegments = id
+            .Split('|', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(segment => segment.Split(':', 2, StringSplitOptions.TrimEntries))
+            .ToDictionary(
+                parts => parts[0],
+                parts => parts.Length > 1 ? parts[1] : string.Empty,
+                StringComparer.OrdinalIgnoreCase);
+
+        var keyValues = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var primaryKey in primaryKeyColumns)
+        {
+            if (!parsedSegments.TryGetValue(primaryKey.Name, out var rawValue) ||
+                string.IsNullOrWhiteSpace(rawValue))
+            {
+                throw new ApiValidationException(
+                    $"Composite primary key for table '{table.Name}' is missing '{primaryKey.Name}'.",
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["table"] = table.Name,
+                        ["id"] = id,
+                        ["field"] = primaryKey.Name
+                    });
+            }
+
+            keyValues[primaryKey.Name] = CoerceId(rawValue, primaryKey);
+        }
+
+        return keyValues;
+    }
+
+    private static object GetSingleKeyValueOrCompositeToken(
+        IReadOnlyDictionary<string, object> keyValues,
+        string rawId)
+    {
+        return keyValues.Count == 1 ? keyValues.Values.First() : rawId;
+    }
+
+    private static ColumnDef GetPrimaryKeyColumn(TableDef table)
+    {
+        return GetPrimaryKeyColumns(table)[0];
+    }
+
+    private object CoerceId(string id, ColumnDef primaryKey)
+    {
+        if (primaryKey.Type == ColumnType.Uuid || IsUuidReference(primaryKey))
+        {
+            if (!Guid.TryParse(id, out var guid))
+                throw new ApiValidationException(
+                    $"Primary key '{primaryKey.Name}' expects a UUID value.",
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["field"] = primaryKey.Name,
+                        ["value"] = id
+                    });
+
+            return _dbConfig.Provider == DatabaseProvider.Postgres ? guid : guid.ToString();
+        }
+
+        if (!long.TryParse(id, out var numericId))
+            throw new ApiValidationException(
+                $"Primary key '{primaryKey.Name}' expects an integer value.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["field"] = primaryKey.Name,
+                    ["value"] = id
+                });
+
+        return numericId;
+    }
+
+    private static object NormalizeReturnedId(object? id)
+    {
+        return id switch
+        {
+            Guid guid => guid,
+            null => throw new InvalidOperationException("Insert did not return a primary key value."),
+            _ => id
+        };
+    }
+
+    internal static void ApplySearchStatic(
+        SqlKata.Query query,
+        string? search,
+        TableDef table,
+        DatabaseProvider provider,
+        Func<string, TableDef?>? findTable = null)
     {
         if (string.IsNullOrWhiteSpace(search)) return;
 
-        var textColumns = table.Columns
-            .Where(c => c.Type == ColumnType.Text)
-            .Select(c => c.Name)
-            .ToList();
+        // Own columns are searched only when the table has text-like ones (a
+        // purely numeric table ignores search, as before).
+        var hasTextLikeColumns = table.Columns.Any(c =>
+            c.Type is ColumnType.Text or ColumnType.Enum or ColumnType.File or ColumnType.Date or ColumnType.DateTime or ColumnType.Uuid);
+        var searchableColumns = !hasTextLikeColumns
+            ? []
+            : table.Columns
+                .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
+                .Select(c => c.Name)
+                .ToList();
 
-        if (textColumns.Count == 0) return;
+        // A reference column is searched by the record it points to: an order
+        // is found by its customer's name ("Globex"), not only by the id.
+        var referenceSearches = findTable is null
+            ? []
+            : table.Columns
+                .Where(c => c.Type == ColumnType.Reference && !string.IsNullOrWhiteSpace(c.References))
+                .Select(c => BuildReferenceSearch(c, findTable(c.References!), provider))
+                .Where(r => r is not null)
+                .Cast<(string Sql, int Bindings)>()
+                .ToList();
 
-        var pattern = $"%{search}%";
-        query.Where(q =>
+        if (searchableColumns.Count == 0 && referenceSearches.Count == 0) return;
+
+        var terms = ExtractSearchTerms(search);
+
+        if (terms.Count == 0) return;
+
+        foreach (var term in terms)
         {
-            q = q.WhereLike(textColumns[0], pattern);
-            for (int i = 1; i < textColumns.Count; i++)
+            var pattern = $"%{term}%";
+            query.Where(q =>
             {
-                q = q.OrWhereLike(textColumns[i], pattern);
-            }
-            return q;
-        });
+                var first = true;
+                foreach (var column in searchableColumns)
+                {
+                    q = first
+                        ? q.WhereRaw(BuildSearchClause(column, provider), pattern)
+                        : q.OrWhereRaw(BuildSearchClause(column, provider), pattern);
+                    first = false;
+                }
+                foreach (var (sql, bindings) in referenceSearches)
+                {
+                    var values = Enumerable.Repeat<object>(pattern, bindings).ToArray();
+                    q = first ? q.WhereRaw(sql, values) : q.OrWhereRaw(sql, values);
+                    first = false;
+                }
+                return q;
+            });
+        }
     }
 
-    internal static void ApplyFiltersStatic(SqlKata.Query query, IReadOnlyList<FilterClause> filters)
+    /// <summary>
+    /// "fk IN (SELECT pk FROM target WHERE text_col LIKE ? OR ...)" over the
+    /// target table's text and choice columns; null when it has none.
+    /// </summary>
+    private static (string Sql, int Bindings)? BuildReferenceSearch(
+        ColumnDef column,
+        TableDef? target,
+        DatabaseProvider provider)
     {
+        if (target is null) return null;
+        var primaryKey = target.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (primaryKey is null) return null;
+        var textColumns = GetRecordLabelColumns(target)
+            .Select(name => BuildSearchClause(name, provider))
+            .ToList();
+        if (textColumns.Count == 0) return null;
+
+        var sql =
+            $"{QuoteIdentifier(column.Name)} IN (SELECT {QuoteIdentifier(primaryKey.Name)} " +
+            $"FROM {QuoteIdentifier(target.Name)} WHERE {string.Join(" OR ", textColumns)})";
+        return (sql, textColumns.Count);
+    }
+
+    /// <summary>
+    /// The columns that name a record in the UI: the table's recordLabel
+    /// (column and optional secondary), otherwise the first text column,
+    /// otherwise the first non-key column. Search matches what people see.
+    /// </summary>
+    private static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
+    {
+        var physical = table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type)).ToList();
+        bool Exists(string? name) =>
+            !string.IsNullOrWhiteSpace(name) &&
+            physical.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (table.AdditionalData is not null &&
+            table.AdditionalData.TryGetValue("recordLabel", out var label) &&
+            label.ValueKind == JsonValueKind.Object)
+        {
+            var column = label.TryGetProperty("column", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+            var secondary = label.TryGetProperty("secondary", out var sc) && sc.ValueKind == JsonValueKind.String ? sc.GetString() : null;
+            if (Exists(column))
+            {
+                var names = new List<string> { column! };
+                if (Exists(secondary) && !string.Equals(secondary, column, StringComparison.OrdinalIgnoreCase))
+                    names.Add(secondary!);
+                return names;
+            }
+        }
+
+        var firstText = physical.FirstOrDefault(c => c.Type == ColumnType.Text && !c.PrimaryKey);
+        if (firstText is not null) return [firstText.Name];
+        var firstNonKey = physical.FirstOrDefault(c => !c.PrimaryKey && c.Type is not (ColumnType.Json or ColumnType.Boolean));
+        return firstNonKey is null ? [] : [firstNonKey.Name];
+    }
+
+    private static string BuildSearchClause(string columnName, DatabaseProvider provider)
+    {
+        var quotedColumn = QuoteIdentifier(columnName);
+        return provider == DatabaseProvider.Postgres
+            ? $"CAST({quotedColumn} AS TEXT) ILIKE ?"
+            : $"CAST({quotedColumn} AS TEXT) LIKE ?";
+    }
+
+    private static List<string> ExtractSearchTerms(string search)
+    {
+        var terms = new List<string>();
+        var buffer = new List<char>(search.Length);
+
+        foreach (var ch in search)
+        {
+            if (char.IsLetterOrDigit(ch))
+            {
+                buffer.Add(ch);
+                continue;
+            }
+
+            FlushToken(buffer, terms);
+        }
+
+        FlushToken(buffer, terms);
+        return terms
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private static void FlushToken(List<char> buffer, List<string> terms)
+    {
+        if (buffer.Count == 0) return;
+        terms.Add(new string(buffer.ToArray()));
+        buffer.Clear();
+    }
+
+    private static string QuoteIdentifier(string identifier) => $"\"{identifier.Replace("\"", "\"\"")}\"";
+
+    internal static Query ApplySortingStatic(
+        Query query,
+        IReadOnlyList<SortClause> sorts,
+        TableDef table,
+        DatabaseProvider provider)
+    {
+        if (sorts.Count == 0)
+            return query;
+
+        var columnLookup = table.Columns.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var sort in sorts)
+        {
+            if (!columnLookup.TryGetValue(sort.Column, out var column))
+            {
+                query = sort.Descending ? query.OrderByDesc(sort.Column) : query.OrderBy(sort.Column);
+                continue;
+            }
+
+            var rawExpression = BuildSortExpression(column, provider);
+            if (rawExpression is null)
+            {
+                query = sort.Descending ? query.OrderByDesc(sort.Column) : query.OrderBy(sort.Column);
+                continue;
+            }
+
+            query = query.OrderByRaw($"{rawExpression} {(sort.Descending ? "DESC" : "ASC")}");
+        }
+
+        return query;
+    }
+
+    private static string? BuildSortExpression(ColumnDef column, DatabaseProvider provider)
+    {
+        if (provider != DatabaseProvider.Sqlite)
+            return null;
+
+        if (column.Type is not ColumnType.Date and not ColumnType.DateTime)
+            return null;
+
+        return BuildSqliteTemporalSortExpression(QuoteIdentifier(column.Name));
+    }
+
+    private static string BuildSqliteTemporalSortExpression(string quotedColumn)
+    {
+        var remainderAfterYear = $"substr({quotedColumn}, 6)";
+        var monthSeparatorIndex = $"instr({remainderAfterYear}, '-')";
+        var monthText = $"substr({remainderAfterYear}, 1, {monthSeparatorIndex} - 1)";
+        var dayAndTime = $"substr({remainderAfterYear}, {monthSeparatorIndex} + 1)";
+        var dayTimeSeparatorIndex =
+            $"CASE WHEN instr({dayAndTime}, 'T') > 0 THEN instr({dayAndTime}, 'T') " +
+            $"WHEN instr({dayAndTime}, ' ') > 0 THEN instr({dayAndTime}, ' ') ELSE 0 END";
+        var dayText =
+            $"CASE WHEN {dayTimeSeparatorIndex} > 0 THEN substr({dayAndTime}, 1, {dayTimeSeparatorIndex} - 1) " +
+            $"ELSE {dayAndTime} END";
+        var timeText =
+            $"CASE WHEN {dayTimeSeparatorIndex} > 0 THEN substr({dayAndTime}, {dayTimeSeparatorIndex}) " +
+            "ELSE '' END";
+
+        var normalized =
+            $"printf('%04d-%02d-%02d%s', " +
+            $"CAST(substr({quotedColumn}, 1, 4) AS INTEGER), " +
+            $"CAST({monthText} AS INTEGER), " +
+            $"CAST({dayText} AS INTEGER), " +
+            $"{timeText})";
+
+        return $"CASE WHEN {quotedColumn} IS NULL OR {quotedColumn} = '' THEN NULL ELSE {normalized} END";
+    }
+
+    internal static void ApplyFiltersStatic(
+        SqlKata.Query query,
+        IReadOnlyList<FilterClause> filters,
+        TableDef? table = null,
+        DatabaseProvider? provider = null)
+    {
+        var columnsByName = table?.Columns.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
         foreach (var filter in filters)
         {
+            ColumnDef? column = null;
+            columnsByName?.TryGetValue(filter.Column, out column);
+            var value = CoerceFilterValue(filter.Value, column, provider);
             switch (filter.Operator)
             {
                 case "eq":
-                    query.Where(filter.Column, filter.Value);
+                    query.Where(filter.Column, value);
                     break;
                 case "neq":
-                    query.WhereNot(filter.Column, filter.Value);
+                    query.WhereNot(filter.Column, value);
                     break;
                 case "gt":
-                    query.Where(filter.Column, ">", filter.Value);
+                    query.Where(filter.Column, ">", value);
                     break;
                 case "gte":
-                    query.Where(filter.Column, ">=", filter.Value);
+                    query.Where(filter.Column, ">=", value);
                     break;
                 case "lt":
-                    query.Where(filter.Column, "<", filter.Value);
+                    query.Where(filter.Column, "<", value);
                     break;
                 case "lte":
-                    query.Where(filter.Column, "<=", filter.Value);
+                    query.Where(filter.Column, "<=", value);
                     break;
                 case "like":
                     query.WhereLike(filter.Column, filter.Value ?? "");
                     break;
                 case "in":
-                    var values = (filter.Value ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    var values = (filter.Value ?? "")
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Select(v => CoerceFilterValue(v, column, provider))
+                        .ToArray();
                     query.WhereIn(filter.Column, values);
                     break;
                 case "null":
@@ -397,6 +964,59 @@ public sealed class CrudService
                 case "notnull":
                     query.WhereNotNull(filter.Column);
                     break;
+            }
+        }
+    }
+
+    private static object? CoerceFilterValue(string? value, ColumnDef? column, DatabaseProvider? provider)
+    {
+        if (value is null || column is null)
+            return value;
+
+        return column.Type switch
+        {
+            ColumnType.Uuid when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var guid) => guid,
+            ColumnType.Reference when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var refGuid) => refGuid,
+            ColumnType.Integer or ColumnType.Reference when long.TryParse(value, out var n) => n,
+            ColumnType.Date or ColumnType.DateTime when provider is not null
+                => CoerceTemporalForProvider(value, column.Type, provider.Value),
+            _ => value
+        };
+    }
+
+    /// <summary>
+    /// SQLite's CURRENT_TIMESTAMP (the default of a junction's created_at)
+    /// stores UTC as "yyyy-MM-dd HH:mm:ss" without a zone, which clients read
+    /// as local time. Values the app writes use a "T" and are left alone.
+    /// </summary>
+    private static readonly Regex SqliteCurrentTimestamp =
+        new(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$", RegexOptions.Compiled);
+
+    private IDictionary<string, object?> ToResponseRow(TableDef table, object row)
+    {
+        var dict = ToDictionary(row);
+        NormalizeSqliteTimestamps(table, dict, _dbConfig.Provider);
+        return dict;
+    }
+
+    /// <summary>Rewrites SQLite CURRENT_TIMESTAMP values of datetime columns as UTC ("...Z").</summary>
+    internal static void NormalizeSqliteTimestamps(
+        TableDef? table,
+        IDictionary<string, object?> row,
+        DatabaseProvider provider)
+    {
+        if (provider != DatabaseProvider.Sqlite || table is null)
+            return;
+
+        foreach (var column in table.Columns)
+        {
+            if (column.Type != ColumnType.DateTime)
+                continue;
+            if (row.TryGetValue(column.Name, out var value) &&
+                value is string text &&
+                SqliteCurrentTimestamp.IsMatch(text))
+            {
+                row[column.Name] = text.Replace(' ', 'T') + "Z";
             }
         }
     }

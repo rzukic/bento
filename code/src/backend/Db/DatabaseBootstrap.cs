@@ -147,6 +147,47 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
             );
             """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.system_views (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                owner_user_id   INTEGER NOT NULL REFERENCES _system.users(id) ON DELETE CASCADE,
+                type            VARCHAR(50) NOT NULL DEFAULT 'table',
+                config          JSONB NOT NULL DEFAULT '{}',
+                is_shared       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_system_views_table_name
+            ON _system.system_views(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_system_views_owner
+            ON _system.system_views(owner_user_id);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.user_table_explorer_preferences (
+                user_id         INTEGER NOT NULL REFERENCES _system.users(id) ON DELETE CASCADE,
+                table_name      VARCHAR(255) NOT NULL,
+                default_view_id INTEGER REFERENCES _system.system_views(id) ON DELETE SET NULL,
+                auto_save       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                PRIMARY KEY (user_id, table_name)
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
+            ON _system.user_table_explorer_preferences(table_name);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -259,6 +300,47 @@ public class DatabaseBootstrap : IHostedService
                 last_run_at     TEXT,
                 created_at      TEXT NOT NULL DEFAULT (datetime('now'))
             );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS system_views (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                owner_user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                type            TEXT NOT NULL DEFAULT 'table',
+                config          TEXT NOT NULL DEFAULT '{}',
+                is_shared       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_system_views_table_name
+            ON system_views(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_system_views_owner
+            ON system_views(owner_user_id);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS user_table_explorer_preferences (
+                user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                table_name      TEXT NOT NULL,
+                default_view_id INTEGER REFERENCES system_views(id) ON DELETE SET NULL,
+                auto_save       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                PRIMARY KEY (user_id, table_name)
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
+            ON user_table_explorer_preferences(table_name);
             """);
     }
 }

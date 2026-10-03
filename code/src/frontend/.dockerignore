@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+.vite/
+src/test/
+
+# Stale local tool output (regenerated inside the build)
+*.tsbuildinfo
+vite.config.js
+vite.config.d.ts
+vitest.setup.js
+vitest.setup.d.ts
+
+# npm lockfile — this workspace uses pnpm
+package-lock.json
+
+*.md
+.gitignore
+.dockerignore
+Dockerfile

@@ -1,12 +1,19 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Repere.Api.Authorization;
 using Repere.Api.Exceptions;
 using Repere.Api.Services;
 
 namespace Repere.Api.Controllers;
 
+/// <summary>
+/// Auto-generated row CRUD. Reads are open to every authenticated role
+/// (<c>viewer</c> and above, plus <c>api</c>); writes additionally require
+/// <c>editor</c> or above, or the <c>api</c> role.
+/// </summary>
 [ApiController]
 [Route(ApiRoutes.Data)]
+[RequireRole("viewer", "api")]
 public sealed class DataController : ControllerBase
 {
     private readonly SchemaCache _schemaCache;
@@ -65,8 +72,8 @@ public sealed class DataController : ControllerBase
     /// <summary>
     /// Get a single row by ID.
     /// </summary>
-    [HttpGet("{table}/{id:long}")]
-    public async Task<IActionResult> GetById(string table, long id)
+    [HttpGet("{table}/{id}")]
+    public async Task<IActionResult> GetById(string table, string id)
     {
         var tableDef = ResolveTable(table);
         var row = await _crudService.GetByIdAsync(tableDef, id);
@@ -77,6 +84,7 @@ public sealed class DataController : ControllerBase
     /// Create a new row.
     /// </summary>
     [HttpPost("{table}")]
+    [RequireRole("editor", "api")]
     public async Task<IActionResult> Create(string table, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
@@ -87,8 +95,9 @@ public sealed class DataController : ControllerBase
     /// <summary>
     /// Full update of a row (replace all writable columns).
     /// </summary>
-    [HttpPut("{table}/{id:long}")]
-    public async Task<IActionResult> Update(string table, long id, [FromBody] JsonElement body)
+    [HttpPut("{table}/{id}")]
+    [RequireRole("editor", "api")]
+    public async Task<IActionResult> Update(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
         var row = await _crudService.UpdateAsync(tableDef, id, body);
@@ -98,8 +107,9 @@ public sealed class DataController : ControllerBase
     /// <summary>
     /// Partial update of a row (update only provided columns).
     /// </summary>
-    [HttpPatch("{table}/{id:long}")]
-    public async Task<IActionResult> Patch(string table, long id, [FromBody] JsonElement body)
+    [HttpPatch("{table}/{id}")]
+    [RequireRole("editor", "api")]
+    public async Task<IActionResult> Patch(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
         var row = await _crudService.PatchAsync(tableDef, id, body);
@@ -109,8 +119,9 @@ public sealed class DataController : ControllerBase
     /// <summary>
     /// Delete a row by ID.
     /// </summary>
-    [HttpDelete("{table}/{id:long}")]
-    public async Task<IActionResult> Delete(string table, long id)
+    [HttpDelete("{table}/{id}")]
+    [RequireRole("editor", "api")]
+    public async Task<IActionResult> Delete(string table, string id)
     {
         var tableDef = ResolveTable(table);
         await _crudService.DeleteAsync(tableDef, id);
@@ -120,8 +131,8 @@ public sealed class DataController : ControllerBase
     /// <summary>
     /// Get related rows for a specific record via a named relation accessor.
     /// </summary>
-    [HttpGet("{table}/{id:long}/{relation}")]
-    public async Task<IActionResult> GetRelated(string table, long id, string relation)
+    [HttpGet("{table}/{id}/{relation}")]
+    public async Task<IActionResult> GetRelated(string table, string id, string relation)
     {
         var tableDef = ResolveTable(table);
         var result = await _includeService.LoadRelatedRowsAsync(tableDef.Name, id, relation, Request.Query);

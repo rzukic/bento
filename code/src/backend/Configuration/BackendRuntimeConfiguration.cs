@@ -22,6 +22,7 @@ public static class BackendRuntimeConfiguration
         SetIfPresent("AUTH_REFRESH_COOKIE_SAME_SITE", "Backend:AuthCookie:SameSite");
         SetIfPresent("AUTH_REFRESH_COOKIE_PATH", "Backend:AuthCookie:Path");
         SetIfPresent("AUTH_RATE_LIMIT_PER_MINUTE", "Backend:AuthRateLimitPerMinute");
+        SetIfPresent("AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "Backend:AuthSessionRateLimitPerMinute");
         SetIfPresent("MAX_BODY_SIZE", "Backend:MaxBodySize");
         SetIfPresent("DATABASE_URL", "Backend:DatabaseUrl");
         SetIfPresent("DATABASE_PROVIDER", "Database:Provider");
@@ -40,6 +41,12 @@ public static class BackendRuntimeConfiguration
         for (var i = 0; i < allowedOrigins.Length; i++)
         {
             overrides[$"Backend:AllowedOrigins:{i}"] = allowedOrigins[i];
+        }
+
+        var trustedProxies = SplitCsv(getEnvironmentVariable("TRUSTED_PROXIES"));
+        for (var i = 0; i < trustedProxies.Length; i++)
+        {
+            overrides[$"Backend:TrustedProxies:{i}"] = trustedProxies[i];
         }
 
         var dataDir = getEnvironmentVariable("DATA_DIR");
@@ -101,7 +108,11 @@ public static class BackendRuntimeConfiguration
         }
 
         options.AuthMode = authMode;
-        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? environment.IsProduction();
+        // Unset means "follow the request scheme": the refresh cookie is Secure on
+        // HTTPS (including TLS terminated at a trusted proxy) and plain on HTTP, so
+        // a packaged stack reached over http://<lan-ip> can still resume sessions.
+        // AUTH_REFRESH_COOKIE_SECURE=true forces Secure regardless of the scheme.
+        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? false;
         Validate(options);
         ValidatePackagedPostgresSecrets(configuration);
         return options;
@@ -226,6 +237,9 @@ public static class BackendRuntimeConfiguration
 
         ParseByteSize(options.MaxBodySize);
 
+        // Fail fast on malformed TRUSTED_PROXIES entries instead of silently trusting nothing.
+        _ = TrustedProxyConfiguration.Parse(options.TrustedProxies);
+
         if (options.AuthMode == BackendAuthMode.Vault)
         {
             throw new InvalidOperationException(
@@ -235,6 +249,11 @@ public static class BackendRuntimeConfiguration
         if (options.AuthRateLimitPerMinute <= 0)
         {
             throw new InvalidOperationException("AUTH_RATE_LIMIT_PER_MINUTE must be greater than 0.");
+        }
+
+        if (options.AuthSessionRateLimitPerMinute <= 0)
+        {
+            throw new InvalidOperationException("AUTH_SESSION_RATE_LIMIT_PER_MINUTE must be greater than 0.");
         }
 
         if (options.Jwt.AccessTokenLifetimeMinutes <= 0)

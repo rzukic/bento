@@ -69,6 +69,9 @@ public class RelationResolver
 
     public string GetJunctionTableName(RelationDef relation)
     {
+        if (!string.IsNullOrWhiteSpace(relation.JunctionTable))
+            return relation.JunctionTable!;
+
         var endpoints = GetOrderedRelationEndpoints(relation);
         return $"_jt_{endpoints.Left}_{endpoints.Right}";
     }

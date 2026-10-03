@@ -296,6 +296,14 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
         return result ?? throw new InvalidOperationException("Expected scalar result.");
     }
 
+    public async Task<T> QueryDataScalarAsync<T>(string sql, object? parameters = null)
+        where T : notnull
+    {
+        using var conn = await _openDataConnectionAsync();
+        var result = await conn.ExecuteScalarAsync<T>(sql, parameters);
+        return result ?? throw new InvalidOperationException("Expected scalar result.");
+    }
+
     /// <summary>
     /// Execute arbitrary SQL against the data database (useful for inserting junction table rows).
     /// </summary>

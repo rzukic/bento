@@ -355,4 +355,126 @@ public class SchemaValidatorTests
         Assert.False(result.IsValid);
         Assert.Contains(result.Errors, e => e.Code == "missing_primary_key");
     }
+
+    [Fact]
+    public void Validate_RejectsMultiplePrimaryKeys()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
+                    { "name": "account_number", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors, e => e.Code == "multiple_primary_keys");
+        Assert.Equal("tables[0].columns", error.Path);
+    }
+
+    [Fact]
+    public void Validate_AllowsExplicitManyToManyJunctionTableWithCustomNameAndCompositePrimaryKey()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                },
+                {
+                  "name": "customer_order_links",
+                  "columns": [
+                    { "name": "customer_id", "type": "reference", "references": "customers", "primaryKey": true, "nullable": false },
+                    { "name": "order_id", "type": "reference", "references": "orders", "primaryKey": true, "nullable": false },
+                    { "name": "role", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": [
+                { "name": "customer_orders", "type": "N:M", "from": "customers", "to": "orders", "fromColumn": "customer_id", "toColumn": "order_id", "junctionTable": "customer_order_links" }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+        Assert.DoesNotContain(result.Errors, error => error.Code == "multiple_primary_keys");
+    }
+
+    [Fact]
+    public void Validate_RejectsPrimaryKeyMovedAwayFromId()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "integer", "nullable": false },
+                    { "name": "account_number", "type": "text", "primaryKey": true, "nullable": false }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors, e => e.Code == "primary_key_must_be_id");
+        Assert.Equal("tables[0].columns[1].primaryKey", error.Path);
+    }
+
+    [Fact]
+    public void Validate_AcceptsUuidIdPrimaryKey()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "customers",
+                  "columns": [
+                    { "name": "id", "type": "uuid", "primaryKey": true, "nullable": false },
+                    { "name": "name", "type": "text" }
+                  ],
+                  "indexes": []
+                }
+              ],
+              "relations": []
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+    }
 }

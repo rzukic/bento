@@ -136,16 +136,30 @@ Request-tracing contract:
 - request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
 
 Current middleware order:
-1. `RequestIdMiddleware`
-2. `RequestLoggingMiddleware`
-3. `ErrorHandlingMiddleware`
-4. `CorsPolicyMiddleware`
-5. `BodySizeLimitMiddleware`
+1. ASP.NET `ForwardedHeaders` (only registered when `TRUSTED_PROXIES` is non-empty)
+2. ASP.NET `CookiePolicy` with `Secure = SameAsRequest`
+3. `RequestIdMiddleware`
+4. `RequestLoggingMiddleware`
+5. `ErrorHandlingMiddleware`
+6. `CorsPolicyMiddleware`
+7. `BodySizeLimitMiddleware`
+8. `AuthRateLimitMiddleware`
+9. `AuthMiddleware`
+
+Reverse-proxy awareness (`TRUSTED_PROXIES`):
+- `TRUSTED_PROXIES` is a comma-separated list of IP addresses or CIDR ranges (for example `172.18.0.0/16,10.0.0.5`); it maps to `Backend:TrustedProxies` and defaults to empty
+- when it is empty, no `X-Forwarded-*` header is trusted: `RemoteIpAddress`, `Request.Scheme`, and `Request.Host` stay the TCP peer values, which is the right behaviour for the directly exposed backend-only compose stack
+- when it is non-empty, `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from those addresses are applied early in the pipeline; ASP.NET's default loopback trust entries are cleared so only the configured proxies are honoured
+- malformed entries (not an IP, prefix length out of range) abort startup with a `TRUSTED_PROXIES ... is invalid` error, like other invalid runtime configuration
+- `AuthRateLimitMiddleware` keys its per-minute buckets on `RemoteIpAddress`, so behind a trusted proxy each forwarded client is limited independently. Two tiers: credential routes (`POST /api/v1/auth/login`, `/register`, and every `POST` under `/api/v1/setup`) use `AUTH_RATE_LIMIT_PER_MINUTE` (default 5) because they are the brute-force targets; session routes (`POST /api/v1/auth/refresh`, `/logout`) use `AUTH_SESSION_RATE_LIMIT_PER_MINUTE` (default 120) because the SPA refreshes on every page load and a refresh needs a valid 256-bit token, so the limit only caps abusive loops. Each route has its own bucket (path compared case-insensitively), and idle buckets are evicted once their window has fully expired so memory stays bounded. Before this split, five page loads within a minute returned 429 on refresh and dropped a valid session
+- the refresh cookie is `Secure` whenever the request is HTTPS — including HTTPS terminated at a trusted proxy that sends `X-Forwarded-Proto: https` — or when `AUTH_REFRESH_COOKIE_SECURE=true` forces it; plain HTTP (directly or through the proxy with `DOMAIN=localhost`) issues a non-secure cookie so sessions also resume on `http://<lan-ip>`, where browsers would silently drop a `Secure` cookie
+- `GET /api/v1/admin/health/details` reports `runtime.trusted_proxies_configured`
+- same-origin requests through the proxy need no `ALLOWED_ORIGINS`; the Vite dev proxy case is unchanged
 
 Runtime configuration contract:
 - `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
-- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
-- `AUTH_REFRESH_COOKIE_SECURE` remains an explicit override, but when it is unset the refresh cookie now defaults to `Secure=false` in development-style hosts and `Secure=true` in production
+- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `TRUSTED_PROXIES`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
+- `AUTH_REFRESH_COOKIE_SECURE` is an explicit override; when it is unset the refresh cookie follows the request scheme (`Secure` on HTTPS, plain on HTTP) in every environment. Until Step 2.7 the unset default was `Secure=true` in production, which broke session resume for packaged stacks reached over plain HTTP on anything but `localhost`
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
 - the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `REPERE_SYSTEM_PASSWORD`, and `REPERE_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added
@@ -208,7 +222,9 @@ Defaults contract:
 - unknown extension fields are preserved for forward compatibility, but are treated as inert metadata
 - engine-generated columns may carry internal-only SQL defaults (for example junction-table `created_at`), but that path is not part of the user-editable Model JSON contract
 
-SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`).
+SQLite-specific note: unsupported column alterations are handled by full table rebuilds (`CREATE temp → INSERT/CAST → DROP old → RENAME temp → recreate indexes`). `MigrationRunner` executes these with `PRAGMA foreign_keys=OFF` on the migration connection (set before the transaction, since the pragma is a no-op inside one), because the `DROP` of a referenced parent table would otherwise fail as soon as child rows exist. Before committing it runs `PRAGMA foreign_key_check`; any violation rolls the migration back with a message naming the affected tables. Regular pooled connections keep `foreign_keys=ON`.
+
+Unique columns: a column created together with its table carries an inline `UNIQUE` constraint (Postgres names it `<table>_<column>_key`); a column made unique later gets the named index `ux_<table>_<column>`. Disabling unique drops both forms with `IF EXISTS`, so the change works regardless of how the column was created.
 
 `SchemaService` is the single orchestration entry point for schema changes. It:
 - validates incoming Model JSON
@@ -224,7 +240,17 @@ SQLite-specific note: unsupported column alterations are handled by full table r
 - supports self-referential N:M junctions with asymmetric default column names (`left_*` / `right_*`) plus optional `fromColumn` / `toColumn` overrides
 - flags self-references and circular dependency sets for higher layers
 
-`MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback still uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
+N:M junction tables are always part of the model (`ManyToManyJunctions`, since v0.2.0):
+- an N:M relation without `junctionTable` still gets a real table (`_jt_<left>_<right>`); the stored model is read with that table listed and the relation pointing at it (`junctionTable`, `fromColumn`, `toColumn`). The table already exists with exactly these columns, so adopting it changes no DDL, and sending the model back is a no-op
+- requests (designer drafts, imports, the startup model) get the same treatment before the diff: an existing junction is kept, a new one is added as a table. One exception: a still-implicit relation whose key columns are named differently from the existing junction is handed back to the implicit "rebuild the junction" path (key columns are primary-key columns and cannot be renamed); that path is destructive and needs confirmation
+- the junction's `created_at` keeps its internal `CURRENT_TIMESTAMP` default (restored on read, since internal defaults are not part of Model JSON)
+- because junction tables are in the model, they have their own CRUD routes (`/api/v1/data/_jt_orders_products`); in v0.1.0 an implicit junction answered 404
+
+Table designer metadata (preserved as extension fields, metadata-only on apply, no DDL):
+- `layout`: `{ x, y, color }` for the ERD canvas
+- `recordLabel`: `{ column, secondary? }`: the column that names a record of the table in the UI (FK chips, pickers, linked records, record editor title), plus an optional column shown with it. Without it the UI uses the first text column
+
+`MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback resolves the target schema version first and refuses to run when that version no longer exists, so data schema and Model JSON cannot drift apart; it then uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
 
 `ModelJsonStore` allocates schema versions atomically inside the same system transaction as the insert, using a single-row counter table plus a database-level unique constraint on `schema_versions.version`.
 

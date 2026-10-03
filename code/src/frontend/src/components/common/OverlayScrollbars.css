@@ -1,0 +1,59 @@
+/* Native scrollbars take no room anywhere; OverlayScrollbars draws thin
+   floating bars instead. */
+* {
+    scrollbar-width: none;
+}
+
+*::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+}
+
+.overlay-scrollbars {
+    position: fixed;
+    inset: 0;
+    z-index: 150;
+    pointer-events: none;
+}
+
+.overlay-scrollbar {
+    position: fixed;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--text) 30%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition:
+        opacity 240ms var(--ease),
+        width var(--dur) var(--ease),
+        height var(--dur) var(--ease),
+        background var(--dur) var(--ease);
+}
+
+.overlay-scrollbar--y {
+    width: 6px;
+    transform: translateX(-100%);
+}
+
+.overlay-scrollbar--x {
+    height: 6px;
+    transform: translateY(-100%);
+}
+
+.overlay-scrollbar--visible {
+    opacity: 1;
+    pointer-events: auto;
+    transition-duration: 80ms, var(--dur), var(--dur), var(--dur);
+}
+
+.overlay-scrollbar--y:hover,
+.overlay-scrollbar--y:active {
+    width: 9px;
+    background: color-mix(in srgb, var(--text) 45%, transparent);
+}
+
+.overlay-scrollbar--x:hover,
+.overlay-scrollbar--x:active {
+    height: 9px;
+    background: color-mix(in srgb, var(--text) 45%, transparent);
+}

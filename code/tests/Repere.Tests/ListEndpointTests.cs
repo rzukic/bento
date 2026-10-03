@@ -293,6 +293,42 @@ public sealed class ListEndpointTests
     }
 
     [Fact]
+    public async Task List_SortDateTime_WithOverPaddedDayValues_OrdersChronologically()
+    {
+        const string temporalSchema = """
+            {
+                "tables": [
+                    {
+                        "name": "events",
+                        "columns": [
+                            { "name": "id", "type": "integer", "primaryKey": true },
+                            { "name": "name", "type": "text", "nullable": false },
+                            { "name": "starts_at", "type": "datetime" }
+                        ]
+                    }
+                ],
+                "relations": []
+            }
+            """;
+
+        await using var host = await CreateHostWithSchemaAsync(temporalSchema);
+
+        await host.Client.PostAsJsonAsync("/api/v1/data/events", new { name = "Day 9", starts_at = "2026-04-09T10:00:00Z" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/events", new { name = "Day 10", starts_at = "2026-04-010T10:00:00Z" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/events", new { name = "Day 11", starts_at = "2026-04-011T10:00:00Z" });
+        await host.Client.PostAsJsonAsync("/api/v1/data/events", new { name = "Day 12", starts_at = "2026-04-012T10:00:00Z" });
+
+        using var response = await host.Client.GetAsync("/api/v1/data/events?sort=-starts_at");
+        var json = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var data = json.GetProperty("data");
+
+        Assert.Equal("Day 12", data[0].GetProperty("name").GetString());
+        Assert.Equal("Day 11", data[1].GetProperty("name").GetString());
+        Assert.Equal("Day 10", data[2].GetProperty("name").GetString());
+        Assert.Equal("Day 9", data[3].GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task List_MultiSort_AppliesInOrder()
     {
         await using var host = await CreateHostWithSchemaAsync();
@@ -388,7 +424,7 @@ public sealed class ListEndpointTests
         Assert.Contains("bogus", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);
     }
 
-    private static async Task<ApiIntegrationTestHost> CreateHostWithSchemaAsync()
+    private static async Task<ApiIntegrationTestHost> CreateHostWithSchemaAsync(string schema = TestSchema)
     {
         var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
         {
@@ -396,7 +432,7 @@ public sealed class ListEndpointTests
             ["Schema:AutoMigrateOnStartup"] = "false"
         });
 
-        await host.ApplySchemaAsync(TestSchema);
+        await host.ApplySchemaAsync(schema);
         return host;
     }
 

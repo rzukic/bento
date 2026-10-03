@@ -60,7 +60,7 @@ The **[docs/](docs/README.md)** describe how the code actually works — archite
 
 | Section | What's there |
 |---------|-------------|
-| [User Guides](docs/user/README.md) | Setup and practical MVP 1 usage |
+| [User Guides](docs/user/README.md) | Setup wizard, browser workflows, and API usage |
 | [Architecture](docs/architecture/README.md) | System topology, service boundaries, data flow |
 | [Backend](docs/backend/README.md) | ASP.NET Core structure, DB access, runtime config |
 | [API Reference](docs/api/README.md) | REST endpoints, auth contract, error codes |
@@ -72,21 +72,29 @@ The **[docs/](docs/README.md)** describe how the code actually works — archite
 
 ## Code
 
-The **[code/](code/)** directory contains the .NET solution.
+The **[code/](code/)** directory contains the .NET backend, the React frontend, and the test suites.
 
 ```
 code/
 ├── src/backend/            ← ASP.NET Core API (Repere.Api)
-│   ├── Controllers/        ← HTTP controllers (admin, auth, data)
-│   ├── Db/                 ← Database layer (pools, query builder, schema engine)
-│   ├── Middleware/          ← Request pipeline (auth, CORS, logging, errors)
-│   ├── Services/            ← Business logic (auth, health)
+│   ├── Controllers/        ← HTTP controllers (admin, auth, data, views, preferences)
+│   ├── Db/                 ← Database layer (pools, query builder, schema engine, migrations)
+│   ├── Middleware/          ← Request pipeline (auth, CORS, logging, errors, rate limit)
+│   ├── Services/            ← Business logic (auth, CRUD, includes, validation, health)
 │   ├── Configuration/       ← Typed runtime settings
 │   └── Program.cs           ← Entry point
-└── tests/                  ← xUnit test suite
+├── src/frontend/           ← Vite + React SPA (pnpm workspace)
+│   └── src/
+│       ├── features/       ← Data Explorer, Schema Workbench (JSON + Visual ERD)
+│       ├── stores/         ← Zustand state
+│       ├── api/            ← Typed API client
+│       └── test/           ← Vitest + Testing Library suites
+└── tests/                  ← xUnit test suite (SQLite by default, Postgres slice via env)
 ```
 
-**Tech stack**: ASP.NET Core 8, SqlKata + Dapper, PostgreSQL / SQLite, bcrypt, JWT
+**Tech stack**: ASP.NET Core 8, SqlKata + Dapper, PostgreSQL / SQLite, bcrypt, JWT · React 19, Vite, TypeScript, Zustand, CodeMirror
+
+**CI**: every pull request runs the backend suite on SQLite and Postgres plus frontend typecheck, lint, and tests (see [.github/workflows/test.yml](.github/workflows/test.yml)).
 
 ---
 
@@ -116,22 +124,58 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [1.5](project-management/working-steps/1.5-auto-crud-api.md) | Auto CRUD API (endpoints from Model JSON) | Done |
 | [1.6](project-management/working-steps/1.6-docker-packaging.md) | Docker packaging & MVP 1 validation | Done |
 
-**MVP 1 "Data API"**: Define a schema as JSON, start the container, get a full REST API with auth. Reached after Step 1.6.
+**MVP 1 "Data API"**: Define a schema as JSON, start the container, get a full REST API with auth. Reached after Step 1.6 (released as [v0.1.0](project-management/releases/v0.1.0.md)).
+
+**Phase 2 — Data Management** (steps 2.1–2.7)
+
+| Step | Description | Status |
+|------|-------------|--------|
+| [2.1](project-management/working-steps/2.1-frontend-core-and-spa-shell.md) | Frontend core & SPA shell | Done |
+| [2.2](project-management/working-steps/2.2-data-explorer-read-path.md) | Data Explorer read path | Done |
+| [2.3](project-management/working-steps/2.3-views-system.md) | Views system (saved views, kanban) | Done |
+| [2.4](project-management/working-steps/2.4-data-explorer-editing-and-row-ops.md) | Data Explorer editing & row operations | Done |
+| [2.5](project-management/working-steps/2.5-schema-designer-json-workbench.md) | Schema Designer — JSON workbench | Done |
+| [2.6](project-management/working-steps/2.6-schema-designer-visual-erd.md) | Schema Designer — visual ERD | Done |
+| [2.7](project-management/working-steps/2.7-setup-wizard-and-frontend-packaging.md) | Setup wizard & frontend/proxy packaging | Done |
+
+**MVP 2 "Spreadsheet+"**: Browser UI with setup wizard, schema designer, data grid, saved views and inline editing, packaged as proxy + frontend + backend. Reached with Step 2.7 (release record [v0.2.0](project-management/releases/v0.2.0.md) prepared).
 
 For a non-technical path through the current product, start with [docs/user/README.md](docs/user/README.md).
 
 ---
 
-## Quick Start (current MVP 1)
+## Quick Start
+
+Full stack (browser UI behind the Caddy proxy, backend not published):
 
 ```bash
 docker compose -f code/docker-compose.yml up --build
 ```
 
-For Postgres:
+Then open `http://localhost` — a fresh installation starts in the setup wizard, which creates the admin account and can load a demo workspace.
+
+For Postgres add the override:
 
 ```bash
 docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
 ```
 
-Then register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and start using the auto-generated CRUD endpoints.
+### API only (MVP 1 shape)
+
+```bash
+docker compose -f code/docker-compose.backend-only.yml up --build
+```
+
+This publishes just the backend on port 5000. Register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and use the auto-generated CRUD endpoints. The Postgres override works on this base too.
+
+## Development (frontend + backend)
+
+```bash
+dotnet run --project code/src/backend/Repere.Api.csproj
+```
+
+```bash
+cd code/src/frontend && pnpm install && pnpm run dev
+```
+
+The Vite dev server on port 5173 proxies `/api/v1` to the backend on port 5000. See [docs/frontend/README.md](docs/frontend/README.md) for typecheck, lint, and test commands.

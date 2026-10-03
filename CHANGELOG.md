@@ -12,6 +12,341 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-03 — Finish Step 2.8: Explorer, Record Editor and Schema Designer Follow-ups
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.8 — UI Language Rollout](working-steps/2.8-ui-language-rollout.md#follow-up-passes-2026-10-02--2026-10-03)
+
+A browser review pass over every surface after the restyle.
+
+**Highlights:**
+- Data Explorer: no developer copy, consistent editing without layout shift, portal popovers, floating scrollbars, one list of tables on `/data`, rearrangeable columns, search across referenced records
+- Record editor: N:M links as a list for the side column (link, open, remove, edit the link's fields); record labels name records everywhere
+- Kanban: full-height drop zones, no faded card after a move, configuration panel in the menu style
+- Schema designer: canvas as the stage, inspector on selection, Preview on request, leave guard, red Apply for data loss, toasts
+- Backend: every N:M junction table is part of the model and has CRUD routes; search matches referenced records; SQLite default timestamps come back as UTC
+
+### 2026-10-02 — Roll the UI Language Out to the Whole App
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.8 — UI Language Rollout](working-steps/2.8-ui-language-rollout.md)
+
+Closed TASK-154 through TASK-160. The language chosen on the design canvas for the setup wizard now covers the shell, login, Home, the Data Explorer, kanban, the record editor and the schema workbench, in dark and light.
+
+**Highlights:**
+- Tokens and primitives: hairlines derived from the ink colour, aurora gradient, display face, pill buttons with an ink-filled `primary` and a blue `accent` reserved for one action per screen, chips, underline fields, hairline panels and dialogs
+- Shell: confined light pool and grain, translucent sidebar with the blue position dot, status badges from the setup status, shared segmented theme switch
+- Login as the wizard's sibling (shared `Atmosphere` sky and glyph); Home with a greeting hero, outlined-numeral stat cards with real row counts and an empty-workspace entry to the sample data
+- Data Explorer and schema workbench chrome restyled as CSS overrides on top of the tokens; grid internals and the id column untouched; record editor becomes a centred dialog
+- Contrast pass: quiet text tones raised to ≥ 4.5:1 in both themes; reduced motion respected everywhere
+
+### 2026-10-02 — Stop Rate-Limiting Session Refresh at the Login Limit
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.7 — Setup Wizard & Frontend Packaging](working-steps/2.7-setup-wizard-and-frontend-packaging.md) (follow-up)
+
+Closed TASK-161. Five page loads within a minute no longer sign a user out: refresh and logout have their own per-client limit (default 120/min, `AUTH_SESSION_RATE_LIMIT_PER_MINUTE`) while login, register and setup keep the strict 5/min, and the SPA retries a rate-limited refresh instead of treating it as signed out.
+
+### 2026-10-02 — Ship the Setup Wizard and the Packaged Browser Stack
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.7 — Setup Wizard & Frontend Packaging](working-steps/2.7-setup-wizard-and-frontend-packaging.md)
+
+Closed TASK-144 through TASK-153. `docker compose up` now starts the browser product: a Caddy proxy, the static frontend and the backend, with a first-run setup wizard that creates the administrator and can load a demo workspace. Phase 2 and MVP 2 "Spreadsheet+" are complete; the v0.2.0 release record is prepared.
+
+**Highlights:**
+- Public `GET /api/v1/setup/status` and admin-only, one-time `POST /api/v1/setup/sample-data` (embedded demo schema and rows applied through the normal schema and CRUD paths)
+- `/setup` wizard (Welcome → Environment → Admin account → Sample data → Done) with a `SetupGate` that redirects uninitialised installations from every route and bootstrap-race handling
+- `repere/frontend` (nginx, 14.7 MB) and `repere/proxy` (Caddy, plain-HTTP local mode or automatic HTTPS for `DOMAIN`) images; full-stack `docker-compose.yml` with only the proxy publishing ports, backend-only shape moved to `docker-compose.backend-only.yml`
+- Backend proxy awareness: `TRUSTED_PROXIES` forwarded headers, per-client rate limiting with bucket eviction, refresh cookie following the request scheme; `POST /auth/logout` revoking the refresh session
+- Packaged MVP 2 smoke through the proxy for SQLite and Postgres in CI plus an executed manual browser checklist; the validation found and fixed a forced-`Secure` cookie, Postgres saved-view binding and non-revoking sign-out
+- Docs, Part 7/13, plan re-baseline and the v0.2.0 release record synced
+
+### 2026-10-02 — Harden Step 2.6 Before Merge
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-143. The Step 2.6 slice is committed and on PR #18, data routes enforce roles, non-admin users can use the UI, the frontend is covered by CI, and the Postgres and SQLite migration paths lost four correctness bugs found by the pre-merge review.
+
+**Highlights:**
+- `/api/v1/data/*` writes require `editor`/`admin`/`api`; schema reads work for every authenticated role while schema mutations stay admin-only
+- Frontend typecheck, lint and tests run in CI; ESLint configured; repository freed of tracked build artefacts and presentations
+- Postgres: disable-unique on table-created columns, non-PK uuid binding, rollback ordering; SQLite: table rebuilds with existing child rows
+- Data Explorer toolbar, inline editor, grid icons and ERD relation routing fixed after a full browser walkthrough
+
+### 2026-05-27 — Ship the Visual Schema Designer
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-127 through TASK-138 and completed the Step 2.6 docs/verification pass. Admins can now create and edit schema tables visually, wire relations, persist layout metadata, switch back to canonical JSON, preview backend migration impact, and apply reviewed changes from the browser.
+
+**Highlights:**
+- Added the Visual mode ERD canvas on `/model` with table cards, selection, pan/zoom/fit controls, drag-to-reposition layout, color metadata, orthogonal relation lines, and relation-line selection
+- Added Visual inspector flows for table/column editing, table create/duplicate/delete/rename, guided `1:N`, self-referential `1:N`, and visible `N:M` relation creation
+- Kept Visual and JSON modes on one canonical Model JSON draft, including invalid-JSON blocking, import/export round-trips, layout metadata preservation, and backend diagnostics mapped back to visual targets where possible
+- Reused the Step 2.5 preview/apply safety boundary for Visual submissions, including destructive confirmation, no-op previews, failed-apply draft retention, and live schema refresh after apply
+- Synced Part 4, user docs, frontend architecture notes, task board, working-step index, and final verification records for Step 2.6 closeout
+
+### 2026-05-27 — Complete Visual Designer Regression Coverage
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-137. The visual schema designer now has cross-cutting regression coverage for its draft helpers, JSON/Visual sync boundary, preview/apply review flow, and full create-from-empty workflow.
+
+**Highlights:**
+- Added a full Visual mode create -> preview -> apply -> refresh regression that builds two tables, columns, and a `1:N` relation from an empty schema
+- Verified the applied visual draft refreshes the JSON editor and frontend schema store from the backend response
+- Kept destructive review, no-op previews, backend validation diagnostics, failed-apply draft retention, layout metadata, and invalid-draft coverage in the focused Step 2.6 suite
+- Stabilized an unrelated date-picker test so the full frontend verification suite remains deterministic across calendar months
+
+### 2026-05-27 — Wire Visual Preview, Apply, and Diagnostics
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-136. Visual schema edits now use the same backend-backed preview, destructive-review, apply, diagnostics, and failed-apply retention flow as JSON mode.
+
+**Highlights:**
+- Added Visual-mode preview diagnostics that map backend issue paths to table, column, relation, or canvas targets
+- Selecting a visual diagnostic now focuses the closest canvas/inspector object while the existing JSON diagnostic path remains available in the Preview panel
+- Extended apply regression coverage so successful apply and failed validation both work while the user is in Visual mode
+- Kept destructive confirmation, lossy casts, and no-op preview handling on the shared Step 2.5 review boundary
+
+### 2026-05-27 — Persist Visual Schema Layout Metadata
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.6 — Schema Designer Visual ERD](working-steps/2.6-schema-designer-visual-erd.md)
+
+Closed TASK-135. Visual schema table positions and colors now persist through the shared Model JSON draft and layout-only apply path without requiring a database migration or schema version bump.
+
+**Highlights:**
+- Table dragging writes durable `layout` coordinates into the canonical draft and relation routes recompute around visible table cards after layout changes
+- Layout colors remain editable from Visual mode, visible on the ERD card border, and preserved through JSON formatting/import/export
+- Layout-only previews render a clear no-migration state, while backend apply stores metadata-only changes in place
+- Restored the Visual column inspector's reference-target selector so reference columns can be completed from the same editing surface
+
+## Phase 2 — Data Management
+
+### 2026-04-21 — Complete the JSON Schema Workbench
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.5 — Schema Designer JSON Workbench](working-steps/2.5-schema-designer-json-workbench.md)
+
+Closed TASK-111 through TASK-121 and completed the Step 2.5 validation/docs-sync pass. Administrators now have a browser JSON schema workbench that loads the live Model JSON, validates drafts, previews migrations with destructive warnings, round-trips files, and applies reviewed changes safely.
+
+**Highlights:**
+- Added `POST /api/v1/admin/schema/preview` plus shared backend preview/apply planning so validation, diff, generated SQL, destructive flags, and lossy cast examples come from the real migration path
+- Replaced `/model` with an admin-only workbench containing a syntax-highlighted JSON editor, import/export, diagnostics mapped back to source paths, grouped preview summaries, and a safe destructive-confirmation apply modal
+- Added a read-only Schema Map beside the editor so valid drafts and backend-normalized previews show tables, columns, relations, and preview-change markers without competing with the Step 2.6 visual designer
+- Synced API docs, Part 4 wiki, and project-management records after backend and frontend Step 2.5 regressions passed
+
+### 2026-04-19 — Ship the Full-Screen Record Editor and Sync Step 2.4
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-098 through TASK-102 and completed the Step 2.4 closeout/docs-sync pass. The explorer now has a real full-screen record editor with FK drill-through, relation previews, and a `Go to table` escape hatch, while the Step 2.2 focused-record banner flow is superseded by the modal path.
+
+**Highlights:**
+- Added `RecordEditor` as a full-screen editing surface with shared type-aware field editors, per-field validation, loading/error states, and row-expand / Space / kanban / FK open triggers
+- Added an in-modal FK navigation stack with back/breadcrumb UI, clickable FK chips, per-entry loading/error isolation, and a persistent `Go to table` action that navigates using the current top-of-stack record
+- Added schema-derived relation footer sections with independent loading/error states, up to 5 preview rows, click-to-push drill-ins, and filtered `View all` navigation into the related table
+- Added route-query parsing so filtered navigation like relation-section `View all` lands on a normal shareable explorer URL instead of hidden runtime state
+- Synced Part 8 and the Step 2.4 working-step record to the shipped behavior, then closed the remaining validation loop with packaged SQLite/Postgres smoke runs plus the live Postgres-tagged backend slice
+
+### 2026-04-18 — Export Explorer Views to CSV and JSON
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-097 by adding a real export path for the current explorer view instead of leaving data trapped in the browser. Users can now export the active filtered/sorted/hidden-column view as CSV or JSON from the main toolbar, with inline progress, cancel, and a safety cap for very large result sets.
+
+**Highlights:**
+- Added pure export helpers under `features/data-explorer/export/` for visible-column ordering, CSV/JSON serialization, filename generation, and FK display-value handling
+- Added `useExportCurrentView()` to page through the active query with `per_page=1000`, resolve referenced display labels, download via `Blob`, and stop at `100,000` rows with a user-visible truncation notice
+- `TableDetailPage` now surfaces an `Export` dropdown beside the other explorer controls and shows inline progress/cancel state while the export is running
+- Added serializer unit tests plus an explorer regression proving export follows the active query across multiple pages; full frontend suite green and `npm run typecheck` clean
+
+### 2026-04-18 — Add Undo for Recent Deletes
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-096 by adding a lightweight session-only undo path for recent row deletes. The explorer now treats delete as a recoverable action for a short window: users get an immediate undo toast, Cmd/Ctrl+Z support, and restored rows are recreated through the normal POST path with new primary keys.
+
+**Highlights:**
+- Added a capped per-table undo stack in `explorerStore` that records successful single-row and bulk deletes, with the oldest entries dropped after 10 actions
+- Undo now recreates deleted rows by POSTing the captured writable payload back to the table and reinserting the recreated rows near their original positions
+- `TableDetailPage` now shows a 10-second undo toast, supports Cmd/Ctrl+Z outside editable inputs, and surfaces undo completion/failure through the shared alert primitive
+- Added regressions for single-delete undo, bulk undo via keyboard, stack capacity overflow, and undo failure consumption; frontend suite and typecheck green
+
+### 2026-04-18 — Close Bulk Selection and Bulk Delete
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-095 after aligning the task spec to the shipped PK-column selection model instead of a separate checkbox-only column. Bulk delete now finishes the last missing behavior: selected rows are deleted in bounded concurrent batches and the page surfaces a compact multi-row success/partial-failure summary after the operation completes.
+
+**Highlights:**
+- Kept the existing selection UX in the primary-key column, including page-scoped select-all, shift-range selection, drag selection, and right-click row selection
+- Multi-row delete now runs in small concurrent batches rather than a purely sequential loop, while still reusing the existing optimistic delete + rollback path in `deleteRow`
+- Added explorer regressions for bulk-delete success and partial failure, plus a summary banner like `Successfully deleted N/M rows`
+
+### 2026-04-18 — Polish Kanban Cards and FK Labels
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Shipped a small follow-up pass on the new explorer row-ops work so the kanban board feels more deliberate and relation cards match the table grid’s FK display behavior. Kanban cards now resolve the referenced table’s display column and show that human-friendly label instead of a raw foreign-key id.
+
+**Highlights:**
+- `KanbanView` now uses the shared FK label-resolution hook already used by the table grid, including the non-clickable fallback path
+- Added a targeted regression test proving `orders.customer_id = 7` renders as the referenced customer name on kanban cards
+- Tightened the kanban board surfaces with modest lane/card spacing, radius, hover, and drag-handle polish without changing the overall interaction model
+
+### 2026-04-18 — Add Row Creation, Delete, and Duplicate Operations
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed TASK-094 and turned the explorer into a real row-entry surface instead of a cell-only editor. Users can now add blank rows, commit the first cell through `POST`, duplicate existing rows, and delete selected rows with confirmation plus optimistic rollback on failure.
+
+**Highlights:**
+- Added `createRow` / `deleteRow` API helpers plus new explorer-store actions: `addBlankRow`, `deleteRow`, and `duplicateRow`
+- New rows now use a local temp-id lifecycle with `pendingNewRowIds`: toolbar `Add row`, bottom `+` row affordance, first-save `POST`, and automatic local cleanup when an unsaved draft row is abandoned
+- Deleting rows now confirms in the UI, removes optimistically, restores on failure, and surfaces the failure inline as a row-level error banner; duplication posts a schema-filtered payload and inserts the saved copy immediately after the source row
+- Added right-click row selection, `Ctrl`/`Cmd` shortcuts for add/delete, 4 focused store tests in `rowOperations.test.ts`, 2 grid shortcut tests, full frontend suite green at 150/150, and `npm run typecheck` clean
+
+### 2026-04-18 — Cell PATCH Save with Optimistic Rollback
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Closed the inline-edit loop (TASK-093). Committing a cell now writes the new value optimistically, fires `PATCH /api/v1/data/:table/:id` with the changed field, and reconciles the row from the response — or rolls back to the previous value if the backend refuses.
+
+**Highlights:**
+- New `patchRow(table, id, partial)` API helper; new `commitCellEdit` store action wraps the optimistic-apply → PATCH → reconcile/rollback flow
+- Field-level 4xx validation errors map onto `cellErrors[rowId][columnName]` (red underline persists on the cell); 5xx / network failures surface a generic message on the edited cell
+- No-op commits skip the API entirely; per-cell pending markers tracked via `pendingCellSaves` for future per-cell spinner UI
+- 4 new unit tests cover success / no-op / field-validation rollback / 5xx rollback; full suite green at 144/144; typecheck clean
+
+### 2026-04-17 — Wire Inline Edit Mode into the Data Grid
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Wired the type-aware editors into the renamed `DataGrid` (was `ReadOnlyDataGrid`) so users can enter edit mode on a cell, navigate between cells with the keyboard, and see per-cell error indicators (TASK-092). The save round-trip stays in TASK-093 — this slice is the in-grid affordance only.
+
+**Highlights:**
+- Click a writable cell, or press Enter / F2 with focus on it, to enter edit mode; the matching editor is picked from `column.type` (relation/references → `ReferenceCellEditor`)
+- Tab / Shift+Tab move the edit caret across editable (non-PK) cells, wrapping at row boundaries; Escape cancels without committing
+- Store gains `editingCell`, `cellErrors`, plus `startCellEdit` / `cancelCellEdit` / `cellEditCommitted` / `setCellError` actions — `cellEditCommitted` is the seam TASK-093 will plug PATCH into
+- Cells with a pending error get a `data-grid__column--has-error` hook for styling
+- 8 new unit tests for the grid wiring; full frontend suite green at 140/140; typecheck clean
+
+### 2026-04-17 — Add Reference Cell Editor (FK Chooser)
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Shipped the `ReferenceCellEditor` for FK columns (TASK-091): a searchable combobox that fetches candidates from the referenced table's list endpoint with debounced server-side search and commits the chosen row's primary-key id.
+
+**Highlights:**
+- Schema-driven: reads referenced table + PK from `column.references`; resolves a display column heuristically (first non-PK string column → fallback)
+- 250ms debounce + capped 20-row page; keyboard nav (Up/Down/Enter), nullable clear via Backspace, Escape cancels
+- Reuses the existing `fetchTableRows` API client; no parallel lookup endpoint
+- Helpers (`getReferenceTableName`, `getReferencePrimaryKey`, `getDisplayColumnForTable`) live alongside the editor for reuse by the full-screen record editor (TASK-098+)
+- 4 new unit tests; full frontend suite green at 132/132; typecheck clean
+
+### 2026-04-17 — Start Step 2.4 with Type-Aware Cell Editor Primitives
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.4 — Data Explorer Editing & Row Operations](working-steps/2.4-data-explorer-editing-and-row-ops.md)
+
+Landed the foundational cell-editor primitives that the inline grid editor (TASK-092) and full-screen record editor (TASK-098) will share. Nine pure-presentation components live under `code/src/frontend/src/features/data-explorer/components/editors/`, all conforming to a single `CellEditorProps<T>` contract.
+
+**Highlights:**
+- Editors for `text`, `integer`, `float`, `currency`, `boolean`, `date`, `datetime`, `enum`, `json`; reference editor deferred to TASK-091
+- Shared keyboard contract: Enter/blur commit, Escape cancels, Backspace on empty value commits `null` for nullable columns; uniform error-state rendering via `EditorShell`
+- Editors are presentation-only — no `explorerStore` or API client imports — so the same components plug into both the grid and the full-screen editor unchanged
+- 21 new unit tests in `cellEditors.test.tsx`; full frontend suite green at 128/128; typecheck clean
+
+### 2026-04-17 — Fix Explorer Auto-Save Cross-Table Scoping
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.3 — Views System](working-steps/2.3-views-system.md)
+
+Fixed a Step 2.3 follow-up data-integrity bug (TASK-103) where the saved-view auto-save debounce could persist edits to whichever table was active when the timer fired, instead of the table/view that scheduled the save. The debounce now captures `{ tableId, viewId }` at schedule time and the persist path guards on active-view match and view ownership.
+
+**Highlights:**
+- `scheduleAutoSave` captures the intended table/view target; fire-time persists via the new `updateViewConfigFor(tableId, viewId)` action
+- Cross-table navigation within the 500ms window no longer drops or mis-targets writes
+- Three regression tests cover cross-table navigation, `switchView` cancellation, and foreign-owned-view guarding; all 107 frontend tests green
+
+### 2026-04-16 — Complete Step 2.3 Views System (saved views + kanban)
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.3 — Views System](working-steps/2.3-views-system.md)
+
+Shipped a full saved-views system and kanban view type on top of the Data Explorer, closing out all thirteen Step 2.3 tasks (TASK-075, TASK-077 through TASK-089). The explorer now supports named, shareable, persistent views per table, with a kanban board as the second built-in view type.
+
+**Highlights:**
+- **Saved views** — per-table view selector bar; save current query state (search, sort, filters, hidden columns, view type) as a named view; rename, delete, toggle shared, change type, and duplicate on views you own; auto-save mode; backend-backed per-user default-view preferences; dirty-state detection with "Save changes" / "Save to new view" actions
+- **Views API** — `system_views` backend table + REST API (`GET /api/v1/views/{tableId}`, `POST`, `PUT /{id}`, `DELETE /{id}`); workspace-wide sharing via `is_shared`; 27 new backend integration tests
+- **View-type plugin architecture** — `ViewRenderer` component routes rendering by `type`; unrecognized types fall back to the grid with a console warning; adding a new view type requires only registering it in `VIEW_TYPE_REGISTRY`
+- **Kanban view** — groups rows into lanes by any `enum` column in schema-declared order; drag-and-drop between lanes fires `PATCH /api/v1/data/:table/:id` with optimistic update and rollback on failure; configurable primary (bold) + up to 3 secondary card fields; hidden-lane support; "Configure" button in the toolbar replaces "Columns" for kanban views
+- **Frontend regression suite** — 16 new tests in `views.test.tsx` covering view selector behaviour, ViewRenderer fallback, kanban lane/card rendering, drag PATCH, and PATCH-failure rollback; all 102 frontend tests green; `npm run typecheck` and `npm run build` clean; 383 backend tests pass
+
+### 2026-04-13 — Refine the Step 2.2 explorer into an Airtable-style workspace
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Refined the shipped Step 2.2 Data Explorer so the per-table experience now feels much closer to a serious day-to-day data workspace rather than an early technical browser. The table view now centers around selection, floating foldout tools, and user-controlled column visibility while staying on the same backend query contract and read-path scope.
+
+**Highlights:**
+- reshaped the per-table explorer into a full-width Airtable-style workspace with compact table tabs, slimmer grid rows, floating foldout controls, and improved header/context-menu layering
+- replaced single-record focus as the main table interaction with multi-row selection, select-all, drag/range selection, selection-driven related-record actions, and row context-menu actions
+- added first-pass column visibility controls through a shared `Columns` foldout plus `Hide column` in the column header menu, then synced the frontend/wiki/PM docs to the current UX
+### 2026-04-13 — Complete Step 2.2 Data Explorer read path
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Closed the first real browser data-exploration slice so Repere now has a usable end-user data browser on top of the shipped Phase 1 CRUD API. The step now ends with a schema-driven table explorer, live read-only grid, typed query controls, focus mode, and relation-aware browsing, plus synced docs that reflect the actual shipped contract instead of the original placeholder plan.
+
+**Highlights:**
+- `/data` and `/data/:tableId` now form a real schema-driven Data Explorer with table discovery, read rendering, search, multi-sort, typed filters, and pagination
+- the explorer supports focused-record browsing from the grid, reference jumps into linked rows, and related-record drilldowns derived from the current visible result set
+- closed TASK-067 through TASK-072, synced the frontend and Part 8 docs, and kept the frontend validation loop green with `npm run typecheck`, `npm run test`, and `npm run build`
+
+### 2026-04-12 — Add relation-aware Data Explorer navigation
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.2 — Data Explorer Read Path](working-steps/2.2-data-explorer-read-path.md)
+
+Added the first relation-aware browsing layer to the Data Explorer so users can now move through linked records instead of treating each table as an isolated grid. The new flow keeps the same explorer query model and controls while switching between base table browsing, focused referenced rows, and backend relation sub-resource drill-ins.
+
+**Highlights:**
+- Reference cells in the grid now open the referenced table in a focused-row context with clear UI explaining where the user came from
+- Focused rows expose schema-derived related-record actions that use the existing `/api/v1/data/{table}/{id}/{relationAccessor}` backend surface
+- Extended the explorer store/data client to support relation-backed views and verified the browser flow with new relation-navigation regressions plus a clean frontend build
+
+### 2026-04-12 — Complete Step 2.1 frontend shell foundation
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.1 — Frontend Core & SPA Shell](working-steps/2.1-frontend-core-and-spa-shell.md)
+
+Completed the first browser-facing frontend foundation so Repere now has a real SPA shell on top of the shipped backend contract. The Step 2.1 closeout leaves the repo with authenticated navigation, a shared typed client/store layer, and the first reusable theme/component baseline for the upcoming Data Explorer and Schema Designer work.
+
+**Highlights:**
+- The frontend shell now uses the real Phase 1 auth flow, including login, silent refresh bootstrap, protected routes, and schema snapshot loading against the live backend
+- Added a reusable primitive layer for buttons, fields, panels, alerts, empty states, spinners, and confirm dialogs, plus practical light/dark/system theme switching
+- Closed TASK-062 through TASK-066 and verified the frontend loop with `npm run typecheck`, `npm run test`, and `npm run build`
+
 ## Phase 1 — Foundation
 
 ### 2026-04-10 — Close the remaining Step 1.6 packaging audit follow-ups
