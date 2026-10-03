@@ -23,6 +23,7 @@ import type {
   SortDir,
 } from "../../../types/explorer";
 import { DEFAULT_EXPLORER_VIEW_CONFIG } from "../../../types/explorer";
+import { KANBAN_CONFIG_TRIGGER } from "./KanbanConfigPanel";
 
 const EMPTY_COLUMN_ORDER: string[] = [];
 import type { SavedView } from "../../../types/views";
@@ -1754,6 +1755,7 @@ export function DataQueryControls({
                 variant="ghost"
                 className="data-controls__menu-button"
                 aria-label="Configure kanban"
+                {...{ [KANBAN_CONFIG_TRIGGER]: "" }}
                 onClick={() => onConfigureKanban?.()}
               >
                 <span className="data-controls__menu-button-content">

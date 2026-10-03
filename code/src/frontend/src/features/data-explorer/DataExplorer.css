@@ -6084,3 +6084,37 @@
     box-shadow: 0 0 0 2px var(--bg, var(--surface));
     pointer-events: none;
 }
+
+/* Neutral like the toolbar menus: checked boxes and the primary button use
+   the text colour (dark in light mode, light in dark mode), not the blue
+   accent. Position comes from the panel itself (under the toolbar). */
+.kanban-config {
+    top: 13rem;
+}
+
+.kanban-config__field-btn--on .kanban-config__field-check {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--bg);
+}
+
+.kanban-config__btn--primary {
+    border-color: transparent;
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+.kanban-config__btn--primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 86%, var(--bg));
+}
+
+.kanban-config__select:focus-visible {
+    outline: none;
+    border-color: var(--text-3);
+}
+
+/* The Columns menu's checkboxes follow the same neutral colour. */
+.data-controls__column-toggle input[type="checkbox"] {
+    accent-color: var(--text);
+}

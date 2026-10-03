@@ -232,7 +232,7 @@ export function TableDetailPage() {
   const [kanbanConfigOpen, setKanbanConfigOpen] = useState(false);
   function openKanbanConfig() {
     setExportMenuOpen(false);
-    setKanbanConfigOpen(true);
+    setKanbanConfigOpen((open) => !open);
   }
   const kanbanAutoOpenedFor = useRef<string | null>(null);
   const [filterShortcut, setFilterShortcut] = useState<{
@@ -1225,7 +1225,10 @@ export function TableDetailPage() {
                 type={view.config.type}
                 viewConfig={view.config}
                 loading={dataStatus === "loading"}
-                onConfigureView={openKanbanConfig}
+                onConfigureView={() => {
+                  setExportMenuOpen(false);
+                  setKanbanConfigOpen(true);
+                }}
                 table={visibleTable ?? resolvedTable}
                 rows={view.rows}
                 page={query.page}
