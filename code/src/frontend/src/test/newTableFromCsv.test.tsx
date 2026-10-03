@@ -133,7 +133,8 @@ describe("New table from CSV", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Import into Girokonto DKB" })).toBeInTheDocument();
-    expect(screen.getByText(/Created Girokonto DKB\. 4 values added to Kategorie\./)).toBeInTheDocument();
+    // The note arrives with the hand-off, a moment after the heading.
+    expect(await screen.findByText(/Created Girokonto DKB\. 4 values added to Kategorie\./)).toBeInTheDocument();
     await waitFor(() => expect(importApi.previewImport).toHaveBeenCalledTimes(1));
     expect(importApi.previewImport.mock.calls[0][0]).toBe("girokonto");
     expect(importApi.previewImport.mock.calls[0][1].mapping).toEqual([
