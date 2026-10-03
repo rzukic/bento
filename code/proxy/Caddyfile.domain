@@ -1,4 +1,4 @@
-# Repère reverse proxy — public domain mode (Part 13 R13.3).
+# Bento reverse proxy — public domain mode (Part 13 R13.3).
 #
 # Selected by docker-entrypoint.sh when DOMAIN is a real hostname. Caddy obtains
 # and renews a Let's Encrypt certificate for it; plain HTTP on :80 is redirected
@@ -27,7 +27,7 @@
 import routes.caddy
 
 {$DOMAIN} {
-	import repere
+	import bento
 }
 
 # Container-local probes (the HEALTHCHECK) and anyone hitting the raw IP over

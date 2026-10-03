@@ -1,8 +1,8 @@
 using System.Data.Common;
-using Repere.Api.Db;
-using Repere.Api.Db.Migrations;
+using Bento.Api.Db;
+using Bento.Api.Db.Migrations;
 
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 public sealed record SchemaCastExample
 {

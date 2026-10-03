@@ -3,13 +3,13 @@ using System.Text;
 using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Authorization;
-using Repere.Api.Db;
-using Repere.Api.Exceptions;
-using Repere.Api.Models;
-using Repere.Api.Services;
+using Bento.Api.Authorization;
+using Bento.Api.Db;
+using Bento.Api.Exceptions;
+using Bento.Api.Models;
+using Bento.Api.Services;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Views)]

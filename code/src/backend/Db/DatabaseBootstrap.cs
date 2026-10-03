@@ -1,6 +1,6 @@
 using Dapper;
 
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 /// <summary>
 /// Runs on startup to ensure system tables exist.

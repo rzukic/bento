@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 /// <summary>
 /// Public, secret-free description of the installation state used by the

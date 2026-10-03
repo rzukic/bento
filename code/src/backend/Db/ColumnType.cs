@@ -1,4 +1,4 @@
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 /// <summary>
 /// All column types supported by the platform (R1.5).

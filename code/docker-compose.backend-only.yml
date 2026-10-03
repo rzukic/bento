@@ -8,7 +8,7 @@
 # The browser-first full stack lives in docker-compose.yml.
 services:
   backend:
-    image: repere/backend:local
+    image: bento/backend:local
     build:
       context: .
       dockerfile: src/backend/Dockerfile
@@ -24,13 +24,13 @@ services:
       # Exposed directly, so forwarded headers are never trusted unless configured.
       TRUSTED_PROXIES: "${TRUSTED_PROXIES:-}"
     volumes:
-      - repere-data:/data
+      - bento-data:/data
     healthcheck:
-      test: ["CMD", "dotnet", "Repere.Api.dll", "--healthcheck"]
+      test: ["CMD", "dotnet", "Bento.Api.dll", "--healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 20s
       retries: 5
 
 volumes:
-  repere-data:
+  bento-data:

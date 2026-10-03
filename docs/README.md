@@ -1,4 +1,4 @@
-# Repère Documentation
+# Bento Documentation
 
 > Documentation for both current users and contributors.
 > For the project wiki (requirements, design decisions, plan), see [`wiki/`](../wiki/README.md).

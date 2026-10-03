@@ -1,4 +1,4 @@
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 public enum DatabaseProvider
 {
@@ -11,13 +11,13 @@ public class DatabaseConfig
     public DatabaseProvider Provider { get; set; } = DatabaseProvider.Sqlite;
 
     /// <summary>
-    /// Postgres: connection string for the privileged role (repere_system).
+    /// Postgres: connection string for the privileged role (bento_system).
     /// SQLite: directory path where system.db will be stored.
     /// </summary>
     public string SystemConnection { get; set; } = "./data";
 
     /// <summary>
-    /// Postgres: connection string for the restricted role (repere_data).
+    /// Postgres: connection string for the restricted role (bento_data).
     /// SQLite: directory path where data.db will be stored.
     /// </summary>
     public string DataConnection { get; set; } = "./data";

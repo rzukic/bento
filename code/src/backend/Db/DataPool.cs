@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 public class DataPool : IDataPool, IDisposable
 {
@@ -40,7 +40,7 @@ public class DataPool : IDataPool, IDisposable
         {
             var conn = _pgDataSource!.CreateConnection();
             await conn.OpenAsync();
-            // Lock to public schema only — repere_data role cannot access _system
+            // Lock to public schema only — bento_data role cannot access _system
             await using var cmd = conn.CreateCommand();
             cmd.CommandText = "SET search_path TO public;";
             await cmd.ExecuteNonQueryAsync();

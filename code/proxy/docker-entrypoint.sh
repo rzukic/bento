@@ -19,5 +19,5 @@ case "$domain" in
     ;;
 esac
 
-echo "repere-proxy: DOMAIN=${domain} -> ${config}" >&2
+echo "bento-proxy: DOMAIN=${domain} -> ${config}" >&2
 exec caddy run --config "$config" --adapter caddyfile

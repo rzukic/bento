@@ -1,8 +1,8 @@
 using System.Globalization;
 using System.Data.Common;
-using Repere.Api.Db;
+using Bento.Api.Db;
 
-namespace Repere.Api.Configuration;
+namespace Bento.Api.Configuration;
 
 public static class BackendRuntimeConfiguration
 {
@@ -398,9 +398,9 @@ public static class BackendRuntimeConfiguration
             return false;
         }
 
-        return normalized.Equals("repere_dev", StringComparison.Ordinal)
-            || normalized.Equals("repere_system_dev", StringComparison.Ordinal)
-            || normalized.Equals("repere_data_dev", StringComparison.Ordinal)
+        // The dev passwords under the current and the earlier ("repere") names.
+        return normalized is "bento_dev" or "bento_system_dev" or "bento_data_dev"
+                or "repere_dev" or "repere_system_dev" or "repere_data_dev"
             || normalized.Equals("CHANGE_ME", StringComparison.OrdinalIgnoreCase);
     }
 

@@ -1,9 +1,9 @@
-using Repere.Api.Db;
-using Repere.Api.Db.Schema;
-using Repere.Api.Exceptions;
+using Bento.Api.Db;
+using Bento.Api.Db.Schema;
+using Bento.Api.Exceptions;
 using SqlKata.Execution;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 /// <summary>
 /// Describes a resolved include: which relation, which side, and nesting path.

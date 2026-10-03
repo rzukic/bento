@@ -1,4 +1,4 @@
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 /// <summary>
 /// Loads the schema cache on startup, after database bootstrap and auto-migration.

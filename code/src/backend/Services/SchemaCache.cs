@@ -1,6 +1,6 @@
-using Repere.Api.Db.Schema;
+using Bento.Api.Db.Schema;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 /// <summary>
 /// Holds the current Model JSON in memory for fast table lookups.

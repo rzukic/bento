@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 public sealed record AdminHealthDatabaseStatus(
     [property: JsonPropertyName("system_pool")] string SystemPool,

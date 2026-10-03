@@ -3,7 +3,7 @@
 > Self-hosted, open-source, all-in-one data management platform.
 > Relational DB backbone. Built for lean companies. Easy to start, deep when needed.
 
-> Technical identifiers still carry the earlier working name `repere` (the `Repere.Api` project, `repere/*` images, the `repere-data` volume); they move to Bento in a later step with an upgrade path for existing data.
+> Formerly "Repère". Installs from before the rename keep their data; see [Upgrading From Before The Rename](docs/user/getting-started.md#upgrading-from-before-the-rename).
 
 Define your schema as JSON, deploy, and get a full REST API with auth, filtering, relations, and dashboards — no code required.
 
@@ -78,7 +78,7 @@ The **[code/](code/)** directory contains the .NET backend, the React frontend, 
 
 ```
 code/
-├── src/backend/            ← ASP.NET Core API (Repere.Api)
+├── src/backend/            ← ASP.NET Core API (Bento.Api)
 │   ├── Controllers/        ← HTTP controllers (admin, auth, data, views, preferences)
 │   ├── Db/                 ← Database layer (pools, query builder, schema engine, migrations)
 │   ├── Middleware/          ← Request pipeline (auth, CORS, logging, errors, rate limit)
@@ -173,7 +173,7 @@ This publishes just the backend on port 5000. Register the bootstrap admin, defi
 ## Development (frontend + backend)
 
 ```bash
-dotnet run --project code/src/backend/Repere.Api.csproj
+dotnet run --project code/src/backend/Bento.Api.csproj
 ```
 
 ```bash

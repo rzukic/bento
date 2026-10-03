@@ -1,7 +1,7 @@
 using Dapper;
 using System.Data;
 
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 /// <summary>
 /// Persists versioned Model JSON documents in the system schema.

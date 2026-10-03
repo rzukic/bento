@@ -1,5 +1,5 @@
 # Reverse proxy: the only container that publishes ports in the packaged stack.
-#   docker build -t repere/proxy:local code/proxy
+#   docker build -t bento/proxy:local code/proxy
 
 FROM caddy:2-alpine
 

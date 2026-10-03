@@ -1,4 +1,4 @@
-namespace Repere.Api.Configuration;
+namespace Bento.Api.Configuration;
 
 public sealed class BackendRuntimeOptions
 {

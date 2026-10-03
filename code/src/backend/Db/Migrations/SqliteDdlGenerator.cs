@@ -1,7 +1,7 @@
-using Repere.Api.Db.Schema;
-using static Repere.Api.Db.Migrations.DdlHelpers;
+using Bento.Api.Db.Schema;
+using static Bento.Api.Db.Migrations.DdlHelpers;
 
-namespace Repere.Api.Db.Migrations;
+namespace Bento.Api.Db.Migrations;
 
 /// <summary>
 /// Emits SQLite DDL for an ordered list of schema changes. SQLite cannot alter most

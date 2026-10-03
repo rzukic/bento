@@ -64,7 +64,7 @@ case "$VARIANT" in
 esac
 
 ENV_FILE="$DEFAULT_ENV_FILE"
-PROJECT_NAME="repere-mvp2-${VARIANT}"
+PROJECT_NAME="bento-mvp2-${VARIANT}"
 TIMEOUT_SECONDS=420
 HOST_HTTP_PORT=18080
 HOST_HTTPS_PORT=18443
@@ -159,7 +159,7 @@ generate_secret() {
 
 is_insecure_postgres_secret() {
   local value="${1:-}"
-  [[ -z "$value" || "$value" == "CHANGE_ME" || "$value" == "repere_dev" ]]
+  [[ -z "$value" || "$value" == "CHANGE_ME" || "$value" == "bento_dev" ]]
 }
 
 # The ports are pinned here so a second stack (or the user's real one on 80/443)
@@ -169,7 +169,7 @@ set_env_var "$TEMP_ENV_FILE" "HOST_HTTPS_PORT" "$HOST_HTTPS_PORT"
 set_env_var "$TEMP_ENV_FILE" "DOMAIN" "localhost"
 
 if [[ "$VARIANT" == "postgres" ]]; then
-  for key in POSTGRES_SUPERUSER_PASSWORD REPERE_SYSTEM_PASSWORD REPERE_DATA_PASSWORD; do
+  for key in POSTGRES_SUPERUSER_PASSWORD BENTO_SYSTEM_PASSWORD BENTO_DATA_PASSWORD; do
     value="${!key:-}"
     if is_insecure_postgres_secret "$value"; then
       value="$(grep "^${key}=" "$TEMP_ENV_FILE" | tail -n 1 | cut -d= -f2- || true)"

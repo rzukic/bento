@@ -3,9 +3,9 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Dapper;
-using Repere.Api.Db.Schema;
+using Bento.Api.Db.Schema;
 
-namespace Repere.Api.Db.Migrations;
+namespace Bento.Api.Db.Migrations;
 
 public sealed record MigrationHistoryEntry
 {

@@ -1,6 +1,6 @@
 using System.Data;
 
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 public interface IDbPool
 {
