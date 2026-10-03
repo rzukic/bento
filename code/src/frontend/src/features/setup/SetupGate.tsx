@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { Navigate, Outlet } from "react-router-dom";
-import { Spinner } from "../../components/ui/Spinner";
+import { AuthSplash } from "../../components/auth/AuthSplash";
 import { useSetupStore } from "./setupStore";
-import "../../components/auth/RequireAuth.css";
 
 /**
  * Wraps every route except `/setup`. On the first render it asks the backend
@@ -22,12 +21,7 @@ export function SetupGate() {
   }, [status, load]);
 
   if (status === "idle" || status === "loading") {
-    return (
-      <div className="auth-splash" role="status" aria-live="polite">
-        <div className="auth-splash__mark" aria-hidden="true" />
-        <Spinner label="Checking installation" />
-      </div>
-    );
+    return <AuthSplash label="Checking installation" />;
   }
 
   if (status === "ready" && !initialized) {
