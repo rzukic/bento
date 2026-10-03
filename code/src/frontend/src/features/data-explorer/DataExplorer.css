@@ -6067,3 +6067,20 @@
 .kanban-config__btn--primary:hover:not(:disabled) {
     background: color-mix(in srgb, var(--accent) 88%, #000);
 }
+
+/* Active-state dot on a toolbar button (search), drawn over its corner. */
+.data-controls__menu-button {
+    position: relative;
+}
+
+.data-controls__menu-dot {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.35rem;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--bg, var(--surface));
+    pointer-events: none;
+}

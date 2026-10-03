@@ -1715,11 +1715,10 @@ export function DataQueryControls({
                 <Icon name="search" size={14} />
                 <span className="data-controls__menu-button-label">Search</span>
               </span>
+              {/* An active search shows as a dot on the button; it takes no
+                  room, so the toolbar does not shift. */}
               {query.search ? (
-                <span
-                  className="data-controls__menu-count"
-                  aria-hidden="true"
-                ></span>
+                <span className="data-controls__menu-dot" aria-hidden="true" />
               ) : null}
             </Button>
             <Button
@@ -1837,17 +1836,17 @@ export function DataQueryControls({
                 autoFocus
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
-                disabled={disabled}
               />
+              {/* Never disabled while rows load: the live search reloads the
+                  rows as you type, and a disabled field loses focus. */}
               <div className="data-controls__search-actions">
-                <Button type="submit" variant="primary" disabled={disabled}>
+                <Button type="submit" variant="primary">
                   Apply search
                 </Button>
                 {query.search ? (
                   <Button
                     type="button"
                     variant="ghost"
-                    disabled={disabled}
                     onClick={() => {
                       setSearchDraft("");
                       onSearch("");
