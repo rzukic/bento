@@ -24,7 +24,19 @@ public sealed class BackendRuntimeOptions
 
     public AuthCookieRuntimeOptions AuthCookie { get; set; } = new();
 
+    /// <summary>
+    /// Per-client limit for credential-bearing auth routes: login, register and the
+    /// setup POSTs. Kept low because these are the brute-force targets.
+    /// </summary>
     public int AuthRateLimitPerMinute { get; set; } = 5;
+
+    /// <summary>
+    /// Per-client limit for session routes (<c>POST /auth/refresh</c>, <c>POST /auth/logout</c>).
+    /// The SPA refreshes on every page load, and a refresh needs a valid 256-bit
+    /// refresh token, so these are not a guessing vector; the limit only caps
+    /// abusive loops.
+    /// </summary>
+    public int AuthSessionRateLimitPerMinute { get; set; } = 120;
 
     public string DataDir { get; set; } = "./data";
 

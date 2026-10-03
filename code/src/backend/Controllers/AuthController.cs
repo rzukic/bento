@@ -42,6 +42,7 @@ public sealed class AuthController : ControllerBase
             AccessTokenLifetimeMinutes: _runtimeOptions.Jwt.AccessTokenLifetimeMinutes,
             RefreshTokenLifetimeDays: _runtimeOptions.Jwt.RefreshTokenLifetimeDays,
             AuthRateLimitPerMinute: _runtimeOptions.AuthRateLimitPerMinute,
+            SessionRateLimitPerMinute: _runtimeOptions.AuthSessionRateLimitPerMinute,
             RefreshCookie: new AuthRefreshCookieContractResponse(
                 Name: _runtimeOptions.AuthCookie.RefreshCookieName,
                 HttpOnly: _runtimeOptions.AuthCookie.HttpOnly,

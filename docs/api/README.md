@@ -21,9 +21,10 @@ Current Step 1.4 auth contract:
 - `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
 - `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
 - `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- rate limits per client IP and route: login, register and the setup `POST`s allow `auth_rate_limit_per_minute` requests (default 5); refresh and logout allow `session_rate_limit_per_minute` (default 120). Both values are reported by `GET /api/v1/auth`; a limited request returns `429 TOO_MANY_REQUESTS` with `details.retryAfterSeconds`. The SPA retries a rate-limited refresh instead of treating it as signed out
 - `POST /api/v1/auth/logout` revokes the refresh session named by the cookie (if any) and clears the cookie; always `204`, so a stale or missing cookie never blocks signing out. The short-lived access token stays valid until it expires
 - `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
-- API key auth and logout remain deferred to later phases
+- API key auth remains deferred to a later phase
 
 ---
 

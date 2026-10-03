@@ -40,6 +40,13 @@ Closed TASK-154 through TASK-160. The language chosen on the design canvas for t
 - Data Explorer and schema workbench chrome restyled as CSS overrides on top of the tokens; grid internals and the id column untouched; record editor becomes a centred dialog
 - Contrast pass: quiet text tones raised to ≥ 4.5:1 in both themes; reduced motion respected everywhere
 
+### 2026-10-02 — Stop Rate-Limiting Session Refresh at the Login Limit
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.7 — Setup Wizard & Frontend Packaging](working-steps/2.7-setup-wizard-and-frontend-packaging.md) (follow-up)
+
+Closed TASK-161. Five page loads within a minute no longer sign a user out: refresh and logout have their own per-client limit (default 120/min, `AUTH_SESSION_RATE_LIMIT_PER_MINUTE`) while login, register and setup keep the strict 5/min, and the SPA retries a rate-limited refresh instead of treating it as signed out.
+
 ### 2026-10-02 — Ship the Setup Wizard and the Packaged Browser Stack
 
 > **Phase**: Phase 2 — Data Management

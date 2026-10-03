@@ -21,21 +21,27 @@ public sealed class AuthRateLimitMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!IsRateLimitedAuthRequest(context.Request))
+        var category = Classify(context.Request);
+        if (category == RateLimitCategory.None)
         {
             await _next(context);
             return;
         }
 
         var path = context.Request.Path.Value ?? "/" + ApiRoutes.Auth;
+        var limitPerMinute = category == RateLimitCategory.Session
+            ? _runtimeOptions.AuthSessionRateLimitPerMinute
+            : _runtimeOptions.AuthRateLimitPerMinute;
 
         // RemoteIpAddress is the real client behind a trusted proxy because the
         // forwarded-headers middleware (registered only when TRUSTED_PROXIES is set)
         // rewrites it before this middleware runs; otherwise it is the TCP peer.
         var clientIp = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        // The bucket key includes the (lower-cased) path, so session and credential
+        // routes never share a budget.
         var outcome = _rateLimiter.CheckRequest(
-            $"{context.Request.Method}:{path}:{clientIp}",
-            _runtimeOptions.AuthRateLimitPerMinute,
+            $"{context.Request.Method}:{path.ToLowerInvariant()}:{clientIp}",
+            limitPerMinute,
             DateTimeOffset.UtcNow);
 
         if (!outcome.Allowed)
@@ -46,7 +52,7 @@ public sealed class AuthRateLimitMiddleware
                 {
                     ["field"] = "auth",
                     ["path"] = path,
-                    ["limitPerMinute"] = _runtimeOptions.AuthRateLimitPerMinute,
+                    ["limitPerMinute"] = limitPerMinute,
                     ["retryAfterSeconds"] = outcome.RetryAfterSeconds
                 });
         }
@@ -54,21 +60,47 @@ public sealed class AuthRateLimitMiddleware
         await _next(context);
     }
 
-    private static bool IsRateLimitedAuthRequest(HttpRequest request)
+    private enum RateLimitCategory
+    {
+        None,
+        Credential,
+        Session
+    }
+
+    private static readonly string[] SessionRoutes =
+    [
+        "/" + ApiRoutes.Auth + "/refresh",
+        "/" + ApiRoutes.Auth + "/logout"
+    ];
+
+    private static RateLimitCategory Classify(HttpRequest request)
     {
         if (!HttpMethods.IsPost(request.Method))
         {
-            return false;
+            return RateLimitCategory.None;
         }
 
-        // Public first-run setup endpoints (TASK-144) share the auth rate limit.
+        // Public first-run setup endpoints (TASK-144) share the credential limit.
         if (request.Path.StartsWithSegments("/" + ApiRoutes.Setup, StringComparison.OrdinalIgnoreCase))
         {
-            return true;
+            return RateLimitCategory.Credential;
         }
 
-        return request.Path.StartsWithSegments("/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(request.Path.Value, "/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase);
+        if (!request.Path.StartsWithSegments("/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(request.Path.Value, "/" + ApiRoutes.Auth, StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitCategory.None;
+        }
+
+        foreach (var route in SessionRoutes)
+        {
+            if (string.Equals(request.Path.Value?.TrimEnd('/'), route, StringComparison.OrdinalIgnoreCase))
+            {
+                return RateLimitCategory.Session;
+            }
+        }
+
+        return RateLimitCategory.Credential;
     }
 }
 

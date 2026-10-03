@@ -13,6 +13,7 @@ public sealed record AuthRuntimeContractResponse(
     [property: JsonPropertyName("access_token_lifetime_minutes")] int AccessTokenLifetimeMinutes,
     [property: JsonPropertyName("refresh_token_lifetime_days")] int RefreshTokenLifetimeDays,
     [property: JsonPropertyName("auth_rate_limit_per_minute")] int AuthRateLimitPerMinute,
+    [property: JsonPropertyName("session_rate_limit_per_minute")] int SessionRateLimitPerMinute,
     [property: JsonPropertyName("refresh_cookie")] AuthRefreshCookieContractResponse RefreshCookie,
     [property: JsonPropertyName("deferred")] IReadOnlyList<string> Deferred);
 

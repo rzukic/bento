@@ -750,6 +750,41 @@ public sealed class ApiIntegrationTests
     }
 
     [Fact]
+    public async Task Post_Refresh_IsNotThrottledByTheCredentialLimit()
+    {
+        // Every SPA page load refreshes the session. With the credential limit at 2,
+        // a handful of reloads used to return 429 and drop a valid session.
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "2"
+        });
+
+        await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        using var loginResponse = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+
+        for (var i = 0; i < 10; i++)
+        {
+            using var refreshResponse = await host.Client.PostAsync("/api/v1/auth/refresh", content: null);
+            Assert.Equal(HttpStatusCode.OK, refreshResponse.StatusCode);
+        }
+
+        var contract = await host.Client.GetFromJsonAsync<AuthRuntimeContractResponse>("/api/v1/auth");
+        contract = Assert.IsType<AuthRuntimeContractResponse>(contract);
+        Assert.Equal(2, contract.AuthRateLimitPerMinute);
+        Assert.Equal(120, contract.SessionRateLimitPerMinute);
+    }
+
+    [Fact]
     public async Task Post_Login_ReturnsTooManyRequests_WhenAuthRateLimitIsExceeded()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
