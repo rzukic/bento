@@ -3888,20 +3888,18 @@
     font-size: var(--fs-sm);
 }
 
-.data-controls__menu-button.data-controls__menu-button--active {
-    border-color: var(--line-2);
-    border-bottom-color: transparent;
-    background: var(--surface-raised);
-}
-
+/* The open control is a filled pill and its panel a separate card below
+   it, instead of the old folder tab merged into the panel. */
+.data-controls__menu-button.data-controls__menu-button--active,
 .data-controls__menu-button.data-controls__menu-button--active:hover {
-    background: var(--surface-raised);
-    border-color: var(--line-2);
-    border-bottom-color: transparent;
+    border-color: transparent;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    color: var(--text);
 }
 
 .data-controls__menu-button--active::after {
-    background: var(--surface-raised);
+    content: none;
 }
 
 .data-controls__menu-count {
@@ -3921,6 +3919,27 @@
     border-color: var(--line-2);
     background: var(--surface-raised);
     border-radius: 0 0 var(--r-xl) var(--r-xl);
+}
+
+.data-controls__panel--floating {
+    top: calc(50% + 1.125rem + 0.5rem);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+    animation: data-controls-pop 140ms var(--ease) both;
+}
+
+@keyframes data-controls-pop {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .data-controls__panel--floating {
+        animation: none;
+    }
 }
 
 .data-controls__view-current {
