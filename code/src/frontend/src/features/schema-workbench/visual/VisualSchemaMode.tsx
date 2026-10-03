@@ -84,6 +84,14 @@ type ErdTableDragState = {
   tableName: string;
 };
 
+/** The last canvas view in this browser tab, kept across remounts. */
+let rememberedViewport: VisualCanvasViewport | null = null;
+
+/** Tests start every render from a fresh canvas. */
+export function resetRememberedCanvasViewport() {
+  rememberedViewport = null;
+}
+
 export function VisualSchemaMode({
   activeDiagnosticId,
   backendDiagnostics,
@@ -96,11 +104,16 @@ export function VisualSchemaMode({
   onSelectionChange,
   onReturnToJson,
 }: VisualSchemaModeProps) {
-  const [viewport, setViewport] = useState<VisualCanvasViewport>({
-    x: 0,
-    y: 0,
-    zoom: 1,
-  });
+  const [issuesCollapsed, setIssuesCollapsed] = useState(false);
+  const issueCount = issues.length + backendDiagnostics.length;
+  const [viewport, setViewport] = useState<VisualCanvasViewport>(
+    () => rememberedViewport ?? { x: 0, y: 0, zoom: 1 },
+  );
+  // Apply and Refresh reload the schema and remount this canvas; keep the
+  // view the person was looking at instead of re-fitting.
+  useEffect(() => {
+    rememberedViewport = viewport;
+  }, [viewport]);
   const [relationDrag, setRelationDrag] = useState<ErdRelationDragState | null>(
     null,
   );
@@ -127,7 +140,7 @@ export function VisualSchemaMode({
 
   // The viewport element and the view that fits every table into it.
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const autoFitDone = useRef(false);
+  const autoFitDone = useRef(rememberedViewport !== null);
   const computeFit = (): VisualCanvasViewport | null => {
     const element = viewportRef.current;
     const bounds = geometry ? getErdContentBounds(geometry.nodes) : null;
@@ -499,39 +512,78 @@ export function VisualSchemaMode({
       data-testid="schema-visual-mode"
       aria-label="Visual schema draft"
     >
-      {issues.length > 0 ? (
-        <section
-          className="schema-workbench__visual-issues"
-          aria-label="Problems to fix"
-        >
-          <h3>Problems to fix</h3>
-          <ol>
-            {issues.slice(0, 5).map((issue) => (
-              <li key={`${issue.code}:${issue.path}`}>
-                <span>{issue.message}</span>
-              </li>
-            ))}
-          </ol>
-          {issues.length > 5 ? <p>+{issues.length - 5} more</p> : null}
-        </section>
-      ) : null}
-
-      {backendDiagnostics.length > 0 ? (
-        <VisualPreviewDiagnostics
-          activeDiagnosticId={activeDiagnosticId}
-          diagnostics={backendDiagnostics}
-          document={visualDocument}
-          onSelect={(diagnostic, targetSelection) => {
-            onBackendDiagnosticSelect(diagnostic, targetSelection);
-          }}
-        />
-      ) : null}
-
       <div className="schema-workbench__erd-shell">
+        {issueCount > 0 ? (
+          <div
+            className={
+              issuesCollapsed
+                ? "schema-workbench__canvas-issues schema-workbench__canvas-issues--collapsed"
+                : "schema-workbench__canvas-issues"
+            }
+          >
+            <button
+              type="button"
+              className="schema-workbench__canvas-issues-toggle"
+              aria-expanded={!issuesCollapsed}
+              onClick={() => setIssuesCollapsed((current) => !current)}
+            >
+              <span
+                className={
+                  issues.length > 0 || backendDiagnostics.some((diagnostic) => diagnostic.severity !== "warning")
+                    ? "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                    : "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                }
+                aria-hidden="true"
+              />
+              {issueCount === 1 ? "1 issue" : `${issueCount} issues`}
+              <Icon name={issuesCollapsed ? "chevron-down" : "chevron-up"} size={12} />
+            </button>
+            {issuesCollapsed ? null : (
+              <>
+                {issues.length > 0 ? (
+                  <section
+                    className="schema-workbench__visual-issues"
+                    aria-label="Problems to fix"
+                  >
+                    <h3>Problems to fix</h3>
+                    <ol>
+                      {issues.slice(0, 5).map((issue) => (
+                        <li key={`${issue.code}:${issue.path}`}>
+                          <span
+                            className="schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                            aria-hidden="true"
+                          />
+                          <span>{issue.message}</span>
+                        </li>
+                      ))}
+                    </ol>
+                    {issues.length > 5 ? <p>+{issues.length - 5} more</p> : null}
+                  </section>
+                ) : null}
+
+                {backendDiagnostics.length > 0 ? (
+                  <VisualPreviewDiagnostics
+                    activeDiagnosticId={activeDiagnosticId}
+                    diagnostics={backendDiagnostics}
+                    document={visualDocument}
+                    onSelect={(diagnostic, targetSelection) => {
+                      onBackendDiagnosticSelect(diagnostic, targetSelection);
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
         <div
           ref={viewportRef}
           className="schema-workbench__erd-viewport"
           data-testid="schema-erd-canvas"
+          style={{
+            // The dot grid is part of the canvas: it pans and zooms with it.
+            backgroundSize: `${24 * viewport.zoom}px ${24 * viewport.zoom}px`,
+            backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+          }}
           onPointerDown={startCanvasPan}
           onClick={(event) => {
             // A click on empty canvas (not the end of a pan) clears the

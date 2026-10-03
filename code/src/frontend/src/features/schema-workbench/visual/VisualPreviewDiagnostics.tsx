@@ -103,7 +103,15 @@ export function VisualPreviewDiagnostics({
               onClick={() => onSelect(diagnostic, target.selection)}
             >
               <div className="schema-workbench__diagnostic-meta">
-                <span className="schema-workbench__diagnostic-severity">
+                <span
+                  className={
+                    diagnostic.severity === "warning"
+                      ? "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                      : "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                  }
+                  aria-hidden="true"
+                />
+                <span className="schema-workbench__sr-only">
                   {diagnostic.severity === "warning" ? "Warning" : "Error"}
                 </span>
                 <span className="schema-workbench__diagnostic-location">

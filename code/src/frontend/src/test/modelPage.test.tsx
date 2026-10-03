@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest, useAppStore } from "../stores/appStore";
+import { resetRememberedCanvasViewport } from "../features/schema-workbench/visual/VisualSchemaMode";
 import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
@@ -829,6 +830,7 @@ beforeEach(() => {
   resetAuthStoreForTest();
   seedSetupInitializedForTest();
   resetSchemaStoreForTest();
+  resetRememberedCanvasViewport();
   // The page opens in Visual mode by default and remembers the last mode;
   // these tests start from the JSON editor.
   useAppStore.setState({ schemaMode: "json" });

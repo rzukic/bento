@@ -191,6 +191,12 @@ export function SchemaWorkbenchPage() {
   const [applyFeedback, setApplyFeedback] = useState<ApplyFeedback | null>(
     null,
   );
+  // Success is a passing note; warnings and errors stay until dismissed.
+  useEffect(() => {
+    if (applyFeedback?.tone !== "success") return;
+    const timer = window.setTimeout(() => setApplyFeedback(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [applyFeedback]);
   const [applyDialog, setApplyDialog] = useState<ApplyDialogState>(
     initialApplyDialogState,
   );
@@ -1001,27 +1007,53 @@ export function SchemaWorkbenchPage() {
         />
       ) : null}
 
-      {importFeedback ? (
-        <div className="schema-workbench__import-feedback">
-          <Alert
-            tone="error"
-            title={importFeedback.title}
-            message={importFeedback.message}
-          />
-          {importFeedback.detail ? (
-            <div className="schema-workbench__diagnostic-detail mono">
-              {importFeedback.detail}
+      {applyFeedback || importFeedback ? (
+        <div className="schema-workbench__toasts">
+        {importFeedback ? (
+          <div className="schema-workbench__toast schema-workbench__toast--error" role="alert">
+            <span className="schema-workbench__toast-icon" aria-hidden="true">
+              <Icon name="activity" size={12} />
+            </span>
+            <div className="schema-workbench__toast-body">
+              <div className="schema-workbench__toast-title">{importFeedback.title}</div>
+              <div className="schema-workbench__toast-message">{importFeedback.message}</div>
+              {importFeedback.detail ? (
+                <div className="schema-workbench__toast-detail mono">{importFeedback.detail}</div>
+              ) : null}
             </div>
-          ) : null}
+            <button
+              type="button"
+              className="schema-workbench__toast-close"
+              aria-label="Dismiss"
+              onClick={() => setImportFeedback(null)}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        ) : null}
+        {applyFeedback ? (
+          <div
+            className={`schema-workbench__toast schema-workbench__toast--${applyFeedback.tone}`}
+            role={applyFeedback.tone === "error" ? "alert" : "status"}
+          >
+            <span className="schema-workbench__toast-icon" aria-hidden="true">
+              <Icon name={applyFeedback.tone === "success" ? "check" : "activity"} size={12} />
+            </span>
+            <div className="schema-workbench__toast-body">
+              <div className="schema-workbench__toast-title">{applyFeedback.title}</div>
+              <div className="schema-workbench__toast-message">{applyFeedback.message}</div>
+            </div>
+            <button
+              type="button"
+              className="schema-workbench__toast-close"
+              aria-label="Dismiss"
+              onClick={() => setApplyFeedback(null)}
+            >
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        ) : null}
         </div>
-      ) : null}
-
-      {applyFeedback ? (
-        <Alert
-          tone={applyFeedback.tone}
-          title={applyFeedback.title}
-          message={applyFeedback.message}
-        />
       ) : null}
 
       <div

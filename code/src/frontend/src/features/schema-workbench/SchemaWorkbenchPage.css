@@ -2736,3 +2736,295 @@
 .schema-workbench__advanced[open] > summary {
   margin-bottom: 0.75rem;
 }
+
+/* ── Issues: a floating card on the canvas, rows with a severity dot ── */
+.schema-workbench__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.schema-workbench__issue-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.schema-workbench__issue-dot--warning {
+  background: var(--warning);
+}
+
+.schema-workbench .schema-workbench__canvas-issues {
+  position: absolute;
+  z-index: 3;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - 32px));
+  max-height: calc(100% - 96px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: var(--popover-shadow);
+}
+
+.schema-workbench__canvas-issues--collapsed {
+  width: auto;
+}
+
+.schema-workbench__canvas-issues-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 600 0.8125rem/1.2 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.schema-workbench__canvas-issues-toggle svg {
+  margin-left: auto;
+  color: var(--text-3);
+}
+
+.schema-workbench__canvas-issues-toggle:hover {
+  background: var(--hover);
+}
+
+.schema-workbench .schema-workbench__canvas-issues .schema-workbench__visual-issues,
+.schema-workbench .schema-workbench__canvas-issues .schema-workbench__visual-diagnostics {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.schema-workbench .schema-workbench__canvas-issues h3 {
+  margin: 0;
+  padding: 0.625rem 0.875rem 0.25rem;
+  color: var(--text-3);
+  font: 500 0.6875rem/1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.schema-workbench .schema-workbench__canvas-issues ol {
+  margin: 0;
+  padding: 0 0 0.375rem;
+  list-style: none;
+}
+
+.schema-workbench .schema-workbench__canvas-issues li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.375rem 0.875rem;
+  border: 0;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.schema-workbench .schema-workbench__canvas-issues li .schema-workbench__issue-dot {
+  transform: translateY(-1px);
+}
+
+.schema-workbench .schema-workbench__canvas-issues > section > p {
+  margin: 0;
+  padding: 0 0.875rem 0.625rem;
+  color: var(--text-3);
+  font-size: 0.75rem;
+}
+
+/* Diagnostic rows (canvas card, preview panel, JSON problems strip) */
+.schema-workbench .schema-workbench__diagnostic-list {
+  gap: 0;
+  padding: 0 0 0.375rem;
+}
+
+.schema-workbench .schema-workbench__diagnostic-card {
+  gap: 0.25rem;
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.schema-workbench .schema-workbench__diagnostic-card:hover {
+  background: var(--hover);
+}
+
+.schema-workbench .schema-workbench__diagnostic-card--active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.schema-workbench .schema-workbench__diagnostic-meta {
+  gap: 0.5rem;
+  color: var(--text-3);
+  font: 500 0.75rem/1.2 var(--font-mono);
+}
+
+.schema-workbench .schema-workbench__diagnostic-severity,
+.schema-workbench .schema-workbench__diagnostic-location {
+  font-weight: 500;
+}
+
+.schema-workbench .schema-workbench__diagnostic-message {
+  margin: 0;
+  padding-left: calc(7px + 0.5rem);
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* ── Toasts: apply and import feedback, bottom centre ── */
+.schema-workbench__toasts {
+  position: fixed;
+  z-index: 60;
+  bottom: 24px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.schema-workbench__toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0.75rem 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: var(--popover-shadow);
+  pointer-events: auto;
+  animation: schema-toast-in 180ms ease-out;
+}
+
+@keyframes schema-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.schema-workbench__toast-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.schema-workbench__toast--success .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.schema-workbench__toast--warning .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+.schema-workbench__toast--error .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.schema-workbench__toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-workbench__toast-title {
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.schema-workbench__toast-message {
+  margin-top: 0.125rem;
+  color: var(--text-3);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.schema-workbench__toast-detail {
+  margin-top: 0.375rem;
+  color: var(--text-3);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.schema-workbench__toast-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.schema-workbench__toast-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.schema-workbench .schema-workbench__diagnostic-heading h3 {
+  color: var(--text-3);
+  font: 500 0.6875rem/1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.schema-workbench .schema-workbench__diagnostic-section {
+  gap: 0.25rem;
+}
+
+.schema-workbench .schema-workbench__diagnostic-detail {
+  padding-left: calc(7px + 0.5rem);
+  color: var(--text-3);
+  font-size: 0.75rem;
+}
+
+/* In the side panel the rows bleed to the panel edge so their text lines
+   up with the heading and the hover reaches the edges. */
+.schema-workbench__side-body .schema-workbench__diagnostic-card {
+  width: calc(100% + 40px);
+  margin: 0 -20px;
+  padding-inline: 20px;
+}
+
+.schema-workbench__side-body .schema-workbench__diagnostic-list {
+  padding-bottom: 0.75rem;
+}

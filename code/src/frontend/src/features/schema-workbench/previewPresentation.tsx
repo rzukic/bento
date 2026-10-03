@@ -499,7 +499,15 @@ function DiagnosticsSection({
               }}
             >
               <div className="schema-workbench__diagnostic-meta">
-                <span className="schema-workbench__diagnostic-severity">
+                <span
+                  className={
+                    diagnostic.severity === "error"
+                      ? "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                      : "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                  }
+                  aria-hidden="true"
+                />
+                <span className="schema-workbench__sr-only">
                   {diagnostic.severity === "error" ? "Error" : "Warning"}
                 </span>
                 {locationLabel ? (
