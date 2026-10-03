@@ -1,3 +1,4 @@
+using Dapper;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging.Abstractions;
 using Bento.Api.Db;
@@ -125,6 +126,35 @@ public class DatabaseBootstrapTests
 
         var ex = await Assert.ThrowsAsync<SqliteException>(async () => await duplicate.ExecuteNonQueryAsync());
         Assert.Contains("UNIQUE constraint failed", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Bootstrap_AddsOwnerAndSharingToAnExistingDashboardsTable()
+    {
+        using var env = new TemporarySqliteEnvironment();
+        await using (var conn = (SqliteConnection)await env.SystemPool.GetConnectionAsync())
+        {
+            await conn.ExecuteAsync("""
+                CREATE TABLE dashboards (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    dashboard_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                INSERT INTO dashboards (name, dashboard_json) VALUES ('Old', '{"widgets":[]}');
+                """);
+        }
+
+        var bootstrap = new DatabaseBootstrap(env.SystemPool, NullLogger<DatabaseBootstrap>.Instance);
+        await bootstrap.StartAsync(CancellationToken.None);
+        await bootstrap.StartAsync(CancellationToken.None);
+
+        await using var check = (SqliteConnection)await env.SystemPool.GetConnectionAsync();
+        var columns = (await check.QueryAsync<string>("SELECT name FROM pragma_table_info('dashboards')")).ToList();
+        Assert.Contains("owner_user_id", columns);
+        Assert.Contains("is_shared", columns);
+        Assert.Equal(0, await check.ExecuteScalarAsync<long>("SELECT is_shared FROM dashboards WHERE name = 'Old'"));
     }
 
     private sealed class TemporarySqliteEnvironment : IDisposable

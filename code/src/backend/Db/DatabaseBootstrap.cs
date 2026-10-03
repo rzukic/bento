@@ -223,6 +223,12 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
             ON _system.saved_queries(source_table);
             """);
+
+        // Dashboards (Step 3.3): the table predates owners and sharing.
+        await conn.ExecuteAsync("""
+            ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
+            ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT FALSE;
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -412,5 +418,14 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
             ON saved_queries(source_table);
             """);
+
+        // Dashboards (Step 3.3): the table predates owners and sharing; SQLite
+        // has no ADD COLUMN IF NOT EXISTS.
+        var dashboardColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('dashboards');"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!dashboardColumns.Contains("owner_user_id"))
+            await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN owner_user_id INTEGER;");
+        if (!dashboardColumns.Contains("is_shared"))
+            await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0;");
     }
 }
