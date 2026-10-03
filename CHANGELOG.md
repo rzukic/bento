@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Build Dashboards From Your Tables
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.3 — Dashboards & Charts](working-steps/3.3-dashboards.md)
+
+Dashboards with key figures, line, area, bar and donut charts, tables and text, on a 12-column grid that follows one date range.
+
+**Highlights:**
+- "Monthly cash flow" starter for tables with a date and an amount: balance, net, spending by category, top payees
+- Edit mode with drag, resize and a settings panel per widget (table or saved query, groups, values incl. running totals, conditions, order)
+- Date range in the URL, every month of the range on the axis, refresh on return and by interval; private or shared dashboards
+- Amounts as currency in the browser's language, also in the Data Explorer grid
+
 ### 2026-10-03 — Aggregate Data With The Query API
 
 > **Phase**: Phase 3 — Visualization

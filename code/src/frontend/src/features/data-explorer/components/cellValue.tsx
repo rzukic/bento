@@ -1,4 +1,5 @@
 import { getCurrentLocale } from "./editors/temporalEditing";
+import { formatAmount, toNumber } from "../../../lib/format";
 import type { ModelColumn } from "../../../types/api";
 
 function normalizeCalendarPart(value: string): number | null {
@@ -168,6 +169,17 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
         {value ? "Yes" : "No"}
       </span>
     );
+  }
+
+  if (column.type === "currency") {
+    const amount = toNumber(value);
+    if (amount !== null) {
+      return (
+        <span className={amount < 0 ? "data-grid__mono data-grid__amount data-grid__amount--negative" : "data-grid__mono data-grid__amount"}>
+          {formatAmount(amount)}
+        </span>
+      );
+    }
   }
 
   if (typeof value === "number") {

@@ -18,6 +18,7 @@ src/backend/
 ├── Controllers/          ← API route handlers (one per resource area)
 │   ├── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
 │   ├── QueryController.cs ← Aggregation queries (`/api/v1/query`) and saved queries (`/api/v1/queries`)
+│   ├── DashboardsController.cs ← Dashboard JSON (`/api/v1/dashboards`), private or shared
 │   └── ImportController.cs ← CSV import and mapping profiles (`/api/v1/import/*`)
 ├── Exceptions/
 │   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses

@@ -40,13 +40,13 @@ const navSections: NavSection[] = [
       { to: "/", label: "Home", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
       { to: "/model", label: "Schema", icon: "schema" },
+      { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
     ],
   },
   {
     title: "Coming soon",
     dimmed: true,
     items: [
-      { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
       { to: "/ai", label: "AI", icon: "sparkles" },
     ],

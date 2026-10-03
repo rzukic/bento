@@ -70,7 +70,8 @@ const appRoutes = [
           { path: "data/new/csv", element: <NewTableFromCsvPage /> },
           { path: "data/:tableId/import", element: <ImportPage /> },
           { path: "model", element: <ModelPage /> },
-          { path: "dashboards", element: <DashboardsPage /> },
+          { path: "dashboards", element: <DashboardsListPage /> },
+          { path: "dashboards/:dashboardId", element: <DashboardPage /> },
           { path: "forms", element: <FormsPage /> },
           { path: "ai", element: <AiPage /> },
           { path: "settings", element: <SettingsPage /> }
