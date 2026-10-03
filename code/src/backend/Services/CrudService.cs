@@ -1,3 +1,4 @@
+using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -566,12 +567,13 @@ public sealed class CrudService
     private async Task InsertAsync(
         QueryScope scope,
         string tableName,
-        Dictionary<string, object?> data)
+        Dictionary<string, object?> data,
+        IDbTransaction? transaction = null)
     {
         if (data.Count == 0)
         {
             var defaultValuesSql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES;";
-            await scope.Db.Connection.ExecuteAsync(defaultValuesSql);
+            await scope.Db.Connection.ExecuteAsync(defaultValuesSql, transaction: transaction);
             return;
         }
 
@@ -585,7 +587,41 @@ public sealed class CrudService
         var quotedColumns = string.Join(", ", columns.Select(c => $"\"{c}\""));
         var quotedParams = string.Join(", ", columns.Select((_, i) => $"@p{i}"));
         var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
-        await scope.Db.Connection.ExecuteAsync(sql, parameters);
+        await scope.Db.Connection.ExecuteAsync(sql, parameters, transaction);
+    }
+
+    /// <summary>
+    /// Inserts already validated rows (CRUD request bodies) in one transaction:
+    /// either every row is written or none is. Used by the file import.
+    /// </summary>
+    public async Task<int> InsertManyAsync(TableDef table, IReadOnlyList<JsonElement> bodies)
+    {
+        if (bodies.Count == 0)
+            return 0;
+
+        var columns = GetWritableColumns(table);
+        var primaryKeyColumns = GetPrimaryKeyColumns(table);
+        var generatedUuidKey = primaryKeyColumns.Count == 1 && primaryKeyColumns[0].Type == ColumnType.Uuid
+            ? primaryKeyColumns[0]
+            : null;
+
+        await using var scope = await _queryService.UseDataAsync();
+        var connection = scope.Db.Connection;
+        if (connection.State != ConnectionState.Open)
+            connection.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var body in bodies)
+        {
+            var data = ExtractColumnValues(body, columns);
+            if (generatedUuidKey is not null && (!data.TryGetValue(generatedUuidKey.Name, out var key) || key is null))
+            {
+                var generated = Guid.NewGuid();
+                data[generatedUuidKey.Name] = _dbConfig.Provider == DatabaseProvider.Postgres ? generated : generated.ToString();
+            }
+            await InsertAsync(scope, table.Name, data, transaction);
+        }
+        transaction.Commit();
+        return bodies.Count;
     }
 
     private static List<ColumnDef> GetPrimaryKeyColumns(TableDef table)
@@ -780,7 +816,7 @@ public sealed class CrudService
     /// (column and optional secondary), otherwise the first text column,
     /// otherwise the first non-key column. Search matches what people see.
     /// </summary>
-    private static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
+    internal static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
     {
         var physical = table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type)).ToList();
         bool Exists(string? name) =>

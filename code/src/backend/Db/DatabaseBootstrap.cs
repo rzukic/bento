@@ -188,6 +188,23 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
             ON _system.user_table_explorer_preferences(table_name);
             """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.import_profiles (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
+            ON _system.import_profiles(table_name);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -341,6 +358,23 @@ public class DatabaseBootstrap : IHostedService
         await conn.ExecuteAsync("""
             CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
             ON user_table_explorer_preferences(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS import_profiles (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
+            ON import_profiles(table_name);
             """);
     }
 }

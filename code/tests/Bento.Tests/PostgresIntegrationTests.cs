@@ -8,6 +8,7 @@ using Bento.Api.Models;
 namespace Bento.Tests;
 
 [Trait("Category", "Postgres")]
+[Collection(PostgresCollection.Name)]
 public sealed class PostgresIntegrationTests
 {
     private const string DemoSchema = """
