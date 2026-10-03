@@ -38,11 +38,11 @@ export type ErdRelationDragState = {
   y: number;
 };
 
-const erdTableWidth = 288;
-const erdColumnRowHeight = 34;
-const erdTableHeaderHeight = 88;
-const erdTableBottomInset = 10;
-const erdTableMinHeight = 144;
+const erdTableWidth = 264;
+const erdColumnRowHeight = 30;
+const erdTableHeaderHeight = 44;
+const erdTableBottomInset = 4;
+const erdTableMinHeight = 80;
 const erdGridSize = 48;
 const erdSnapSize = erdGridSize / 4;
 const erdAutoColumnGap = 344;
@@ -190,8 +190,9 @@ const erdRelationObstaclePadding = 6;
 type ErdRouteSide = "left" | "right";
 type ErdRoutePoint = { x: number; y: number };
 
+/** Lines leave and enter a card at its first row (the id). */
 function getErdRelationAnchorY(node: ErdTableNode): number {
-  return node.y + Math.min(node.height - 42, 96);
+  return node.y + Math.min(node.height - 12, erdTableHeaderHeight + erdColumnRowHeight / 2);
 }
 
 function buildErdRelationEdge(
@@ -592,10 +593,72 @@ export function getErdDropTargetTableName(
   return target?.table.name ?? null;
 }
 
+/**
+ * A free spot for a new table: the first cell of a loose grid (left to
+ * right, top to bottom) whose card would not touch any existing table.
+ */
 export function getNextVisualTableLayout(document: SchemaModelDocument) {
-  const index = document.tables.length;
-  return {
-    x: snapToErdGrid(80 + (index % 3) * 320),
-    y: snapToErdGrid(80 + Math.floor(index / 3) * 240),
-  };
+  const nodes = buildErdTableNodes(document);
+  const gap = 48;
+  const newHeight = erdTableMinHeight + erdColumnRowHeight;
+  const fits = (x: number, y: number) =>
+    nodes.every(
+      (node) =>
+        x + erdTableWidth + gap <= node.x ||
+        x >= node.x + node.width + gap ||
+        y + newHeight + gap <= node.y ||
+        y >= node.y + node.height + gap,
+    );
+  for (let row = 0; row < 40; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const x = snapToErdGrid(80 + column * (erdTableWidth + 72));
+      const y = snapToErdGrid(80 + row * 120);
+      if (fits(x, y)) return { x, y };
+    }
+  }
+  const bottom = Math.max(80, ...nodes.map((node) => node.y + node.height));
+  return { x: 80, y: snapToErdGrid(bottom + gap) };
+}
+
+/** Bounding box of all tables, for fitting the view. */
+export function getErdContentBounds(nodes: ErdTableNode[]) {
+  if (nodes.length === 0) return null;
+  const left = Math.min(...nodes.map((node) => node.x));
+  const top = Math.min(...nodes.map((node) => node.y));
+  const right = Math.max(...nodes.map((node) => node.x + node.width));
+  const bottom = Math.max(...nodes.map((node) => node.y + node.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * The routed (orthogonal) path drawn with rounded bends, so relation lines
+ * read as soft curves. Hit-testing and tests keep using the plain path.
+ */
+export function smoothErdPath(path: string, radius = 18): string {
+  const points = [...path.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({
+    x: Number(match[1]),
+    y: Number(match[2]),
+  }));
+  if (points.length < 3) return path;
+  const parts = [`M ${points[0]!.x} ${points[0]!.y}`];
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = points[index - 1]!;
+    const corner = points[index]!;
+    const next = points[index + 1]!;
+    const inLength = Math.hypot(corner.x - previous.x, corner.y - previous.y);
+    const outLength = Math.hypot(next.x - corner.x, next.y - corner.y);
+    const r = Math.min(radius, inLength / 2, outLength / 2);
+    const enter = {
+      x: corner.x - ((corner.x - previous.x) / (inLength || 1)) * r,
+      y: corner.y - ((corner.y - previous.y) / (inLength || 1)) * r,
+    };
+    const leave = {
+      x: corner.x + ((next.x - corner.x) / (outLength || 1)) * r,
+      y: corner.y + ((next.y - corner.y) / (outLength || 1)) * r,
+    };
+    parts.push(`L ${enter.x} ${enter.y}`, `Q ${corner.x} ${corner.y} ${leave.x} ${leave.y}`);
+  }
+  const last = points[points.length - 1]!;
+  parts.push(`L ${last.x} ${last.y}`);
+  return parts.join(" ");
 }

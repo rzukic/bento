@@ -16,6 +16,7 @@ import {
 } from "../../api/schema";
 import { ApiClientError } from "../../api/client";
 import { useAuthStore } from "../../stores/authStore";
+import { useAppStore } from "../../stores/appStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import type {
   SchemaIssue,
@@ -29,7 +30,6 @@ import {
   formatSchemaDraftValueForEditor,
 } from "./schemaDraftPresentation";
 import { validateVisualSchemaDraft } from "./visualSchemaDraft";
-import { buildMiniErdChangeMap, SchemaMiniErd } from "./MiniErd";
 import {
   buildPreviewGroups,
   PreviewDiagnostics,
@@ -195,9 +195,18 @@ export function SchemaWorkbenchPage() {
     initialApplyDialogState,
   );
   const [applyInFlight, setApplyInFlight] = useState(false);
-  const [activeMode, setActiveMode] = useState<WorkbenchMode>("json");
+  const activeMode: WorkbenchMode = useAppStore((store) => store.schemaMode);
+  const setActiveMode = useAppStore((store) => store.setSchemaMode);
+  // The changes panel (preview) shares the right column with the inspector
+  // and is only open on request.
+  const [changesOpen, setChangesOpen] = useState(false);
   const [visualSelection, setVisualSelection] =
     useState<VisualCanvasSelection | null>(null);
+  // Selecting something on the canvas (including via a problem in the list)
+  // hands the side column to the inspector.
+  useEffect(() => {
+    if (visualSelection !== null) setChangesOpen(false);
+  }, [visualSelection]);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const applyReviewRef = useRef<HTMLDivElement | null>(null);
   const previewRequestIdRef = useRef(0);
@@ -447,27 +456,6 @@ export function SchemaWorkbenchPage() {
     () => buildPreviewGroups(previewState.response?.changes ?? []),
     [previewState.response],
   );
-  const miniErdDocument = useMemo(() => {
-    if (draftParse?.status !== "valid") {
-      return null;
-    }
-
-    const previewDocument =
-      previewState.status === "ready"
-        ? previewState.response?.normalizedModel
-        : null;
-
-    return asSchemaModelDocument(previewDocument ?? draftParse.value);
-  }, [draftParse, previewState]);
-  const miniErdChangeMap = useMemo(
-    () =>
-      buildMiniErdChangeMap(
-        previewState.status === "ready"
-          ? (previewState.response?.changes ?? [])
-          : [],
-      ),
-    [previewState.response, previewState.status],
-  );
   const isLayoutOnlyDraft =
     draftParse?.status === "valid" &&
     previewState.status === "ready" &&
@@ -485,6 +473,24 @@ export function SchemaWorkbenchPage() {
     !applyInFlight;
   const previewContentHiddenByErrors =
     draftParse?.status !== "valid" || previewState.status === "error";
+  const draftStatus = !dirty
+    ? "No unapplied changes"
+    : draftParse?.status !== "valid"
+      ? "The draft has syntax errors"
+      : previewState.status === "loading"
+        ? "Checking changes…"
+        : previewState.status === "ready" && previewState.response
+          ? backendErrorDiagnostics.length > 0
+            ? countLabel(backendErrorDiagnostics.length, "problem") + " to fix"
+            : previewState.response.hasChanges
+              ? countLabel(previewState.response.changes.length, "unapplied change")
+              : isLayoutOnlyDraft
+                ? "Layout changes not saved yet"
+                : "No unapplied changes"
+          : "Unapplied changes";
+  const inspectorOpen =
+    activeMode === "visual" && !changesOpen && visualSelection !== null;
+  const sidePanelOpen = changesOpen || inspectorOpen;
   const visualDraftDocument = useMemo(() => {
     if (draftParse?.status !== "valid") {
       return null;
@@ -875,92 +881,99 @@ export function SchemaWorkbenchPage() {
 
   return (
     <div className="schema-workbench">
-      <div
-        className="schema-workbench__toolbar"
-        role="toolbar"
-        aria-label="Schema workbench actions"
-      >
-        <div
-          className="schema-workbench__mode-switch"
-          role="group"
-          aria-label="Schema workbench mode"
-        >
-          <Button
-            size="sm"
-            className={
-              activeMode === "json"
-                ? "schema-workbench__mode-button schema-workbench__mode-button--active"
-                : "schema-workbench__mode-button"
-            }
-            aria-pressed={activeMode === "json"}
-            onClick={() => setActiveMode("json")}
-          >
-            JSON
-          </Button>
-          <Button
-            size="sm"
-            className={
-              activeMode === "visual"
-                ? "schema-workbench__mode-button schema-workbench__mode-button--active"
-                : "schema-workbench__mode-button"
-            }
-            aria-pressed={activeMode === "visual"}
-            onClick={() => setActiveMode("visual")}
-          >
-            Visual
-          </Button>
+      <header className="schema-workbench__header">
+        <div className="schema-workbench__heading">
+          <h1 className="schema-workbench__title">Schema</h1>
+          <div className="schema-workbench__subhead">
+            <div
+              className="schema-workbench__mode-switch"
+              role="group"
+              aria-label="Schema workbench mode"
+            >
+              {(["visual", "json"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={
+                    activeMode === mode
+                      ? "schema-workbench__mode-button schema-workbench__mode-button--active"
+                      : "schema-workbench__mode-button"
+                  }
+                  aria-pressed={activeMode === mode}
+                  onClick={() => setActiveMode(mode)}
+                >
+                  {mode === "json" ? "JSON" : "Visual"}
+                </button>
+              ))}
+            </div>
+            <span className="schema-workbench__status" aria-live="polite">
+              {draftStatus}
+            </span>
+          </div>
         </div>
-        <Button size="sm" onClick={requestSchemaRefresh}>
-          Refresh
-        </Button>
-        <Button
-          size="sm"
-          disabled={draftParse?.status !== "valid"}
-          onClick={() => {
-            if (draftParse?.status !== "valid") {
-              return;
+        <div
+          className="schema-workbench__actions"
+          role="toolbar"
+          aria-label="Schema workbench actions"
+        >
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            onClick={() => {
+              importInputRef.current?.click();
+            }}
+          >
+            Import
+          </button>
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            disabled={draftParse?.status !== "valid"}
+            onClick={handleExportDraft}
+          >
+            Export
+          </button>
+          <button
+            type="button"
+            className="schema-workbench__tool"
+            onClick={requestSchemaRefresh}
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            className={
+              changesOpen
+                ? "schema-workbench__pill schema-workbench__pill--ghost schema-workbench__pill--active"
+                : "schema-workbench__pill schema-workbench__pill--ghost"
             }
-
-            replaceDraftText(formatSchemaDraftValueForEditor(draftParse.value));
-          }}
-        >
-          Format JSON
-        </Button>
-        <Button
-          size="sm"
-          disabled={
-            draftParse?.status !== "valid" || previewState.status === "loading"
-          }
-          onClick={() => {
-            void handlePreview();
-          }}
-        >
-          Preview
-        </Button>
-        <Button
-          size="sm"
-          variant="accent"
-          disabled={!canOpenApplyDialog}
-          onClick={openApplyDialog}
-        >
-          Apply
-        </Button>
-        <Button
-          size="sm"
-          onClick={() => {
-            importInputRef.current?.click();
-          }}
-        >
-          Import
-        </Button>
-        <Button
-          size="sm"
-          disabled={draftParse?.status !== "valid"}
-          onClick={handleExportDraft}
-        >
-          Export
-        </Button>
-      </div>
+            aria-expanded={changesOpen}
+            disabled={
+              draftParse?.status !== "valid" || previewState.status === "loading"
+            }
+            onClick={() => {
+              if (changesOpen) {
+                setChangesOpen(false);
+                return;
+              }
+              setChangesOpen(true);
+              if (previewedDraftTextRef.current !== state.draftText) {
+                void handlePreview();
+              }
+            }}
+          >
+            Preview
+          </button>
+          <button
+            type="button"
+            className="schema-workbench__pill schema-workbench__pill--accent"
+            disabled={!canOpenApplyDialog}
+            onClick={openApplyDialog}
+          >
+            Apply
+          </button>
+        </div>
+      </header>
 
       <input
         ref={importInputRef}
@@ -1011,27 +1024,62 @@ export function SchemaWorkbenchPage() {
         />
       ) : null}
 
-      <div className="schema-workbench__workspace">
-        <Panel
+      <div
+        className={
+          sidePanelOpen
+            ? "schema-workbench__workspace schema-workbench__workspace--with-side"
+            : "schema-workbench__workspace"
+        }
+      >
+        <section
           className={
             activeMode === "json"
-              ? "schema-workbench__editor-panel"
-              : "schema-workbench__editor-panel schema-workbench__visual-panel"
+              ? "schema-workbench__stage schema-workbench__stage--json"
+              : "schema-workbench__stage schema-workbench__stage--visual"
           }
-          bodyClassName="schema-workbench__editor-body"
+          aria-label={activeMode === "json" ? "Schema JSON" : "Schema diagram"}
         >
           {activeMode === "json" ? (
-            <div className="schema-workbench__editor-shell">
-              <JsonCodeEditor
-                activeLine={activeLine}
-                diagnostics={editorDiagnostics}
-                focusLocation={editorFocusLocation}
-                value={state.draftText}
-                onChange={(draftText) => {
-                  replaceDraftText(draftText);
-                }}
-              />
-            </div>
+            <>
+              <div className="schema-workbench__stage-bar">
+                <span className="schema-workbench__stage-label">Schema as JSON</span>
+                <button
+                  type="button"
+                  className="schema-workbench__tool"
+                  disabled={draftParse?.status !== "valid"}
+                  onClick={() => {
+                    if (draftParse?.status !== "valid") {
+                      return;
+                    }
+
+                    replaceDraftText(formatSchemaDraftValueForEditor(draftParse.value));
+                  }}
+                >
+                  Format JSON
+                </button>
+              </div>
+              <div className="schema-workbench__editor-shell">
+                <JsonCodeEditor
+                  activeLine={activeLine}
+                  diagnostics={editorDiagnostics}
+                  focusLocation={editorFocusLocation}
+                  value={state.draftText}
+                  onChange={(draftText) => {
+                    replaceDraftText(draftText);
+                  }}
+                />
+              </div>
+              {previewErrorDiagnostics.length > 0 && !changesOpen ? (
+                <div className="schema-workbench__stage-problems">
+                  <PreviewDiagnostics
+                    activeDiagnosticId={activeDiagnosticId}
+                    errorDiagnostics={previewErrorDiagnostics}
+                    onSelect={focusDiagnostic}
+                    warningDiagnostics={[]}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : (
             <VisualSchemaMode
               activeDiagnosticId={activeDiagnosticId}
@@ -1054,43 +1102,23 @@ export function SchemaWorkbenchPage() {
               onReturnToJson={() => setActiveMode("json")}
             />
           )}
-        </Panel>
+        </section>
 
-        <div className="schema-workbench__side">
-          <Panel
-            title={activeMode === "visual" ? "Edit Selection" : "Schema Map"}
-            className="schema-workbench__side-panel"
-          >
-            {activeMode === "visual" ? (
-              draftParse?.status !== "valid" || !visualDraftDocument ? (
-                <EmptyState
-                  title="Visual inspector unavailable"
-                  description="Fix the JSON errors to edit tables and columns."
-                  icon="pencil"
-                />
-              ) : (
-                <VisualSchemaInspector
-                  baselineDocument={baselineDocument}
-                  document={visualDraftDocument}
-                  selection={visualSelection}
-                  onDocumentChange={(document) => {
-                    replaceDraftText(formatSchemaDraftValueForEditor(document));
-                  }}
-                  onSelectionChange={setVisualSelection}
-                />
-              )
-            ) : (
-              <SchemaMiniErd
-                baselineDocument={baselineDocument}
-                changeMap={miniErdChangeMap}
-                document={miniErdDocument}
-                syntaxInvalid={draftParse?.status !== "valid"}
-              />
-            )}
-          </Panel>
-
-          <Panel title="Preview" className="schema-workbench__side-panel">
-            <div className="schema-workbench__preview-panel">
+        {changesOpen ? (
+          <aside className="schema-workbench__side" aria-label="Changes">
+            <header className="schema-workbench__side-header">
+              <h2 className="schema-workbench__side-title">Preview</h2>
+              <span className="schema-workbench__side-meta">{draftStatus}</span>
+              <button
+                type="button"
+                className="schema-workbench__side-close"
+                aria-label="Close preview"
+                onClick={() => setChangesOpen(false)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </header>
+            <div className="schema-workbench__side-body schema-workbench__preview-panel">
               <PreviewDiagnostics
                 activeDiagnosticId={activeDiagnosticId}
                 errorDiagnostics={previewErrorDiagnostics}
@@ -1099,14 +1127,7 @@ export function SchemaWorkbenchPage() {
               />
 
               {previewContentHiddenByErrors ? null : previewState.status ===
-                "idle" ? (
-                <EmptyState
-                  title="Run Preview to validate this draft"
-                  description="Preview checks your changes and lists what will happen before you apply them."
-                  icon="table"
-                  bullets={["Previewing never changes your data."]}
-                />
-              ) : previewState.status === "loading" ? (
+                "loading" || previewState.status === "idle" ? (
                 <div
                   className="schema-workbench__preview-loading"
                   role="status"
@@ -1124,8 +1145,41 @@ export function SchemaWorkbenchPage() {
                 />
               ) : null}
             </div>
-          </Panel>
-        </div>
+          </aside>
+        ) : inspectorOpen ? (
+          <aside className="schema-workbench__side" aria-label="Edit selection">
+            <header className="schema-workbench__side-header">
+              <h2 className="schema-workbench__side-title">Edit selection</h2>
+              <button
+                type="button"
+                className="schema-workbench__side-close"
+                aria-label="Close inspector"
+                onClick={() => setVisualSelection(null)}
+              >
+                <Icon name="x" size={14} />
+              </button>
+            </header>
+            <div className="schema-workbench__side-body">
+              {draftParse?.status !== "valid" || !visualDraftDocument ? (
+                <EmptyState
+                  title="Visual inspector unavailable"
+                  description="Fix the JSON errors to edit tables and columns."
+                  icon="pencil"
+                />
+              ) : (
+                <VisualSchemaInspector
+                  baselineDocument={baselineDocument}
+                  document={visualDraftDocument}
+                  selection={visualSelection}
+                  onDocumentChange={(document) => {
+                    replaceDraftText(formatSchemaDraftValueForEditor(document));
+                  }}
+                  onSelectionChange={setVisualSelection}
+                />
+              )}
+            </div>
+          </aside>
+        ) : null}
       </div>
 
       <Dialog
@@ -1254,3 +1308,4 @@ function readErrorPath(details: unknown): string | null {
   }
   return null;
 }
+

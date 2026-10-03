@@ -425,6 +425,7 @@ export function VisualSchemaInspector({
           <section className="schema-workbench__visual-inspector-section">
             <h3>Table</h3>
             <TextField
+              underline
               label="Table name"
               value={activeTable.name}
               onChange={(event) =>
@@ -432,6 +433,7 @@ export function VisualSchemaInspector({
               }
             />
             <TextField
+              underline
               label="Table display name"
               value={activeTable.displayName ?? ""}
               onChange={(event) =>
@@ -440,16 +442,22 @@ export function VisualSchemaInspector({
                 })
               }
             />
-            <TextField
-              label="Previous name"
-              message="Set this when renaming so existing data is kept."
-              value={activeTable.renamedFrom ?? ""}
-              onChange={(event) =>
-                updateSelectedTable({
-                  renamedFrom: optionalVisualText(event.currentTarget.value),
-                })
-              }
-            />
+            {/* Renames are tracked automatically; the engine field stays
+                reachable for the rare manual case. */}
+            <details className="schema-workbench__advanced">
+              <summary>Advanced</summary>
+              <TextField
+                underline
+                label="Previous name"
+                message="Set this when renaming so existing data is kept."
+                value={activeTable.renamedFrom ?? ""}
+                onChange={(event) =>
+                  updateSelectedTable({
+                    renamedFrom: optionalVisualText(event.currentTarget.value),
+                  })
+                }
+              />
+            </details>
             <VisualTableColorField
               table={activeTable}
               onChange={(nextColor) => {
@@ -654,11 +662,13 @@ function VisualColumnInspector({
         </div>
       </div>
       <TextField
+        underline
         label="Column name"
         value={column.name}
         onChange={(event) => onChange({ name: event.currentTarget.value })}
       />
       <TextField
+        underline
         label="Column display name"
         value={column.displayName ?? ""}
         onChange={(event) =>
@@ -668,6 +678,7 @@ function VisualColumnInspector({
         }
       />
       <SelectField
+        underline
         label="Column type"
         options={visualColumnTypeOptions}
         value={column.type}
@@ -679,6 +690,7 @@ function VisualColumnInspector({
       />
       {column.type === "reference" ? (
         <SelectField
+          underline
           label="Reference target"
           options={[
             { label: "Select table", value: "" },
@@ -713,6 +725,7 @@ function VisualColumnInspector({
         />
       </div>
       <TextField
+        underline
         label="Default value"
         value={stringifyVisualDefault(column.default)}
         onChange={(event) =>
@@ -722,18 +735,23 @@ function VisualColumnInspector({
           }))
         }
       />
-      <TextField
-        label="Previous name"
-        message="Set this when renaming so existing data is kept."
-        value={column.renamedFrom ?? ""}
-        onChange={(event) =>
-          onChange({
-            renamedFrom: optionalVisualText(event.currentTarget.value),
-          })
-        }
-      />
+      <details className="schema-workbench__advanced">
+        <summary>Advanced</summary>
+        <TextField
+          underline
+          label="Previous name"
+          message="Set this when renaming so existing data is kept."
+          value={column.renamedFrom ?? ""}
+          onChange={(event) =>
+            onChange({
+              renamedFrom: optionalVisualText(event.currentTarget.value),
+            })
+          }
+        />
+      </details>
       {column.type === "enum" ? (
         <TextField
+          underline
           label="Enum values"
           value={(column.values ?? []).join(", ")}
           message="Comma-separated values"

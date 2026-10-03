@@ -2,9 +2,14 @@ import { create } from "zustand";
 
 export type ThemeMode = "system" | "light" | "dark";
 
+export type SchemaWorkbenchMode = "visual" | "json";
+
 type AppStoreState = {
   themeMode: ThemeMode;
   sidebarOpen: boolean;
+  /** Last mode of the schema page; the diagram is the default. */
+  schemaMode: SchemaWorkbenchMode;
+  setSchemaMode: (mode: SchemaWorkbenchMode) => void;
   setThemeMode: (themeMode: ThemeMode) => void;
   setSidebarOpen: (sidebarOpen: boolean) => void;
   toggleSidebar: () => void;
@@ -12,6 +17,25 @@ type AppStoreState = {
 
 const THEME_MODE_STORAGE_KEY = "repere.app.themeMode";
 const SIDEBAR_OPEN_STORAGE_KEY = "repere.app.sidebarOpen";
+const SCHEMA_MODE_STORAGE_KEY = "repere.schema.mode";
+
+function loadPersistedSchemaMode(): SchemaWorkbenchMode {
+  if (typeof window === "undefined") return "visual";
+  try {
+    return window.localStorage.getItem(SCHEMA_MODE_STORAGE_KEY) === "json" ? "json" : "visual";
+  } catch {
+    return "visual";
+  }
+}
+
+function persistSchemaMode(mode: SchemaWorkbenchMode): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SCHEMA_MODE_STORAGE_KEY, mode);
+  } catch {
+    /* ignore */
+  }
+}
 
 function loadPersistedSidebarOpen(): boolean {
   if (typeof window === "undefined") return true;
@@ -53,7 +77,8 @@ function persistThemeMode(mode: ThemeMode): void {
 
 const initialAppStoreState = {
   themeMode: loadPersistedThemeMode(),
-  sidebarOpen: loadPersistedSidebarOpen()
+  sidebarOpen: loadPersistedSidebarOpen(),
+  schemaMode: loadPersistedSchemaMode()
 };
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
@@ -70,6 +95,10 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     const sidebarOpen = !get().sidebarOpen;
     persistSidebarOpen(sidebarOpen);
     set({ sidebarOpen });
+  },
+  setSchemaMode: (schemaMode) => {
+    persistSchemaMode(schemaMode);
+    set({ schemaMode });
   }
 }));
 

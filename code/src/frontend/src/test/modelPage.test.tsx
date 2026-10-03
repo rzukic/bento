@@ -12,7 +12,7 @@ import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { createTestRouter } from "../router";
-import { resetAppStoreForTest } from "../stores/appStore";
+import { resetAppStoreForTest, useAppStore } from "../stores/appStore";
 import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
@@ -829,6 +829,9 @@ beforeEach(() => {
   resetAuthStoreForTest();
   seedSetupInitializedForTest();
   resetSchemaStoreForTest();
+  // The page opens in Visual mode by default and remembers the last mode;
+  // these tests start from the JSON editor.
+  useAppStore.setState({ schemaMode: "json" });
   vi.stubGlobal(
     "fetch",
     vi.fn(() => {
@@ -869,9 +872,10 @@ describe("Model workbench route (/model)", () => {
     expect(
       screen.queryByRole("heading", { name: "Diagnostics" }),
     ).not.toBeInTheDocument();
+    // The preview panel opens on request only.
     expect(
-      screen.getByRole("heading", { name: "Preview" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Preview" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByTestId("model-json-highlight")).toBeNull();
     expect(useSchemaStore.getState().snapshot).toBeNull();
 
@@ -887,6 +891,34 @@ describe("Model workbench route (/model)", () => {
         credentials: "include",
       }),
     );
+  });
+
+  it("opens on the diagram with no side panel until something is selected or Preview is pressed", async () => {
+    seedAuthenticated("admin");
+    useAppStore.setState({ schemaMode: "visual" });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(populatedSchema));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const router = createTestRouter(["/model"]);
+    render(<RouterProvider router={router} />);
+
+    const visualMode = await screen.findByTestId("schema-visual-mode");
+    expect(screen.getByRole("heading", { level: 1, name: "Schema" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Visual" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("No unapplied changes")).toBeInTheDocument();
+    expect(screen.queryByRole("complementary", { name: /Edit selection|Changes/ })).not.toBeInTheDocument();
+
+    const user = userEvent.setup();
+    await user.click(within(visualMode).getByRole("button", { name: /widgets/i }));
+    expect(screen.getByRole("complementary", { name: "Edit selection" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Close inspector" }));
+    expect(screen.queryByRole("complementary", { name: /Edit selection|Changes/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Preview" }));
+    expect(screen.getByRole("complementary", { name: "Changes" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Close preview" }));
+    expect(screen.queryByRole("complementary", { name: /Edit selection|Changes/ })).not.toBeInTheDocument();
   });
 
   it("switches between JSON and Visual modes against the same draft", async () => {
@@ -1053,10 +1085,6 @@ describe("Model workbench route (/model)", () => {
 
     await user.click(
       within(visualMode).getByRole("button", { name: /widgets/i }),
-    );
-
-    await user.click(
-      within(visualMode).getByRole("button", { name: "Reset canvas" }),
     );
     expect(
       screen.getByLabelText("Visual schema inspector"),
@@ -1240,6 +1268,9 @@ describe("Model workbench route (/model)", () => {
       within(visualMode).getByRole("button", { name: /customers/i }),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     await user.click(
       within(inspector).getByRole("button", { name: /add relation/i }),
@@ -1623,6 +1654,9 @@ describe("Model workbench route (/model)", () => {
       within(visualMode).getByRole("button", { name: /customers/i }),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     await user.click(
       within(inspector).getByRole("button", { name: /add relation/i }),
@@ -1723,6 +1757,9 @@ describe("Model workbench route (/model)", () => {
       within(visualMode).getByRole("button", { name: /customers/i }),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     await user.click(
       within(inspector).getByRole("button", { name: /add relation/i }),
@@ -2024,6 +2061,9 @@ describe("Model workbench route (/model)", () => {
     await user.click(
       within(visualMode).getByRole("button", { name: /add table/i }),
     );
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     fireEvent.change(within(inspector).getByLabelText("Table name"), {
       target: { value: "customers" },
@@ -2275,9 +2315,10 @@ describe("Model workbench route (/model)", () => {
     await user.click(screen.getByRole("button", { name: "Visual" }));
 
     const visualMode = await screen.findByTestId("schema-visual-mode");
+    // The inspector only appears once something is selected.
     expect(
-      screen.getByRole("heading", { name: "Edit Selection" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Edit selection" }),
+    ).not.toBeInTheDocument();
     expect(
       within(visualMode).queryByLabelText("Visual schema inspector"),
     ).not.toBeInTheDocument();
@@ -2285,6 +2326,9 @@ describe("Model workbench route (/model)", () => {
       within(visualMode).getByRole("button", { name: /widgets/i }),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     fireEvent.change(within(inspector).getByLabelText("Table name"), {
       target: { value: "inventory_items" },
@@ -2418,6 +2462,9 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.click(getTableButton("accounts"));
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     fireEvent.change(within(inspector).getByLabelText("Table name"), {
       target: { value: "organizations" },
@@ -2492,13 +2539,17 @@ describe("Model workbench route (/model)", () => {
     await user.click(screen.getByRole("button", { name: "Visual" }));
 
     let visualMode = await screen.findByTestId("schema-visual-mode");
+    // The inspector only appears once something is selected.
     expect(
-      screen.getByRole("heading", { name: "Edit Selection" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("heading", { name: "Edit selection" }),
+    ).not.toBeInTheDocument();
     await user.click(
       within(visualMode).getByRole("button", { name: /widgets/i }),
     );
 
+    expect(
+      screen.getByRole("heading", { name: "Edit selection" }),
+    ).toBeInTheDocument();
     let inspector = screen.getByLabelText("Visual schema inspector");
     await user.click(
       within(inspector).getByRole("button", { name: /add column/i }),
@@ -2707,9 +2758,6 @@ describe("Model workbench route (/model)", () => {
     expect(getModelEditorValue()).toBe(
       '{"version":1,"tables":[],"relations":[]}',
     );
-    expect(
-      screen.getByText("Run Preview to validate this draft"),
-    ).toBeInTheDocument();
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Format JSON" }));
@@ -3006,39 +3054,6 @@ describe("Model workbench route (/model)", () => {
     );
   });
 
-  it("renders a read-only mini schema map from the current valid draft", async () => {
-    seedAuthenticated("admin");
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValue(
-          jsonResponse(appliedSchemaWithResolvedRelationMetadata),
-        ),
-    );
-
-    const router = createTestRouter(["/model"]);
-    render(<RouterProvider router={router} />);
-
-    await screen.findByRole("textbox", { name: /schema json editor/i });
-    replaceModelEditorValue(JSON.stringify(appliedSchema, null, 2));
-
-    const schemaMap = screen.getByTestId("schema-mini-erd");
-    expect(
-      screen.getByRole("heading", { name: "Schema Map" }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText("Read-only schema map")).toBeInTheDocument();
-    expect(within(schemaMap).getByText("2")).toBeInTheDocument();
-    expect(within(schemaMap).getByText("tables")).toBeInTheDocument();
-    expect(within(schemaMap).getByLabelText("widgets")).toBeInTheDocument();
-    expect(within(schemaMap).getByLabelText("gadgets")).toBeInTheDocument();
-    expect(within(schemaMap).getByText("color")).toBeInTheDocument();
-    expect(within(schemaMap).getAllByText("integer").length).toBeGreaterThan(0);
-    expect(within(schemaMap).getAllByText("text").length).toBeGreaterThan(0);
-    expect(within(schemaMap).getByText("widget_notes")).toBeInTheDocument();
-    expect(within(schemaMap).getByText("1:N")).toBeInTheDocument();
-  });
-
   it("exports the current draft as canonical JSON", async () => {
     seedAuthenticated("admin");
     vi.stubGlobal(
@@ -3182,18 +3197,12 @@ describe("Model workbench route (/model)", () => {
       screen.queryByText(/backend schema validation is paused/i),
     ).toBeNull();
     expect(screen.queryByText("Fix JSON syntax before previewing")).toBeNull();
-    expect(
-      screen.getByText("Fix JSON syntax to update the schema map"),
-    ).toBeInTheDocument();
 
     replaceModelEditorValue(
       '{\n  "version": 1,\n  "tables": [],\n  "relations": []\n}',
     );
 
     expect(screen.queryByText("Syntax error")).not.toBeInTheDocument();
-    expect(
-      screen.getByText("Run Preview to validate this draft"),
-    ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Format JSON" })).toBeEnabled();
   });
 
@@ -3419,16 +3428,6 @@ describe("Model workbench route (/model)", () => {
     expect(screen.getByText("Add relation widget_notes")).toBeInTheDocument();
     expect(screen.getByText("Add index idx_widgets_name")).toBeInTheDocument();
 
-    const schemaMap = screen.getByTestId("schema-mini-erd");
-    expect(within(schemaMap).getByLabelText("gadgets")).toHaveClass(
-      "schema-workbench__mini-erd-table--added",
-    );
-    expect(within(schemaMap).getByText("color").closest("li")).toHaveClass(
-      "schema-workbench__mini-erd-column--added",
-    );
-    expect(
-      within(schemaMap).getByText("widget_notes").closest("li"),
-    ).toHaveClass("schema-workbench__mini-erd-relation--added");
   });
 
   it("shows destructive relation drops in the grouped preview and schema map", async () => {
@@ -3477,10 +3476,6 @@ describe("Model workbench route (/model)", () => {
       ),
     ).toBeInTheDocument();
 
-    const schemaMap = screen.getByTestId("schema-mini-erd");
-    expect(
-      within(schemaMap).getByText("widget_notes").closest("li"),
-    ).toHaveClass("schema-workbench__mini-erd-relation--removed");
   });
 
   it("shows a clear no-op preview state when the draft matches the current schema", async () => {
@@ -3587,11 +3582,6 @@ describe("Model workbench route (/model)", () => {
     expect(screen.getByText('"two" -> 0')).toBeInTheDocument();
     expect(screen.getByText('"3,9" -> 3')).toBeInTheDocument();
 
-    const schemaMap = screen.getByTestId("schema-mini-erd");
-    expect(within(schemaMap).getByText("text -> integer")).toBeInTheDocument();
-    expect(within(schemaMap).getByText("score").closest("li")).toHaveClass(
-      "schema-workbench__mini-erd-column--changed",
-    );
   });
 
   it("applies a previewed Visual draft through the review modal and refreshes the live schema snapshot", async () => {

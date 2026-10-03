@@ -244,6 +244,7 @@ export function VisualRelationInspector({
         </span>
       </header>
       <TextField
+        underline
         label="Relation name"
         value={pendingName}
         onBlur={commitRename}
@@ -256,6 +257,7 @@ export function VisualRelationInspector({
         }}
       />
       <SelectField
+        underline
         label="Relation type"
         options={relationTypeOptions}
         value={relation.type}
@@ -264,6 +266,7 @@ export function VisualRelationInspector({
         }
       />
       <SelectField
+        underline
         label="From"
         options={tableOptions}
         value={relation.from}
@@ -272,6 +275,7 @@ export function VisualRelationInspector({
         }
       />
       <SelectField
+        underline
         label="To"
         options={tableOptions}
         value={relation.to}
@@ -296,6 +300,7 @@ export function VisualRelationInspector({
       </Button>
       {relation.type === "1:N" ? (
         <TextField
+          underline
           label="Reference column"
           value={relation.column ?? ""}
           onChange={(event) =>
@@ -305,6 +310,7 @@ export function VisualRelationInspector({
       ) : (
         <>
           <TextField
+            underline
             label="Junction table"
             value={relation.junctionTable ?? relation.resolvedJunctionTableName ?? ""}
             onChange={(event) =>
@@ -314,6 +320,7 @@ export function VisualRelationInspector({
             }
           />
           <TextField
+            underline
             label="Source column"
             value={relation.fromColumn ?? ""}
             onChange={(event) =>
@@ -323,6 +330,7 @@ export function VisualRelationInspector({
             }
           />
           <TextField
+            underline
             label="Target column"
             value={relation.toColumn ?? ""}
             onChange={(event) =>
@@ -334,6 +342,7 @@ export function VisualRelationInspector({
         </>
       )}
       <TextField
+        underline
         label="Name on parent records"
         value={relation.fromAccessor ?? ""}
         placeholder={relation.resolvedFromAccessor ?? undefined}
@@ -344,6 +353,7 @@ export function VisualRelationInspector({
         }
       />
       <TextField
+        underline
         label="Name on child records"
         value={relation.toAccessor ?? ""}
         placeholder={relation.resolvedToAccessor ?? undefined}
