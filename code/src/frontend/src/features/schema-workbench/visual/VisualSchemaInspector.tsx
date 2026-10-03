@@ -342,9 +342,12 @@ export function VisualSchemaInspector({
 
   const activeRelationDraft =
     relationDraft?.fromTableName === activeTable.name ? relationDraft : null;
+  // A junction table belongs to the N:M relation it stores the links for.
   const activeTableRelations = document.relations.filter(
     (relation) =>
-      relation.from === activeTable.name || relation.to === activeTable.name,
+      relation.from === activeTable.name ||
+      relation.to === activeTable.name ||
+      (relation.type === "N:M" && relation.junctionTable === activeTable.name),
   );
 
   function startRelationDraft() {
@@ -475,14 +478,6 @@ export function VisualSchemaInspector({
             <div className="schema-workbench__visual-inspector-actions schema-workbench__visual-inspector-actions--wrap">
               <Button
                 size="sm"
-                variant="primary"
-                leadingIcon={<Icon name="plus" size={14} />}
-                onClick={startRelationDraft}
-              >
-                New relation
-              </Button>
-              <Button
-                size="sm"
                 leadingIcon={<Icon name="copy" size={14} />}
                 onClick={duplicateSelectedTable}
               >
@@ -497,17 +492,18 @@ export function VisualSchemaInspector({
                 Delete table
               </Button>
             </div>
-            <Button
-              size="sm"
-              variant="primary"
-              leadingIcon={<Icon name="plus" size={14} />}
-              onClick={addNewColumn}
-            >
-              Add column
-            </Button>
           </section>
           <section className="schema-workbench__visual-inspector-section">
-            <h3>Columns</h3>
+            <div className="schema-workbench__visual-inspector-subhead">
+              <h3>Columns</h3>
+              <Button
+                size="sm"
+                leadingIcon={<Icon name="plus" size={14} />}
+                onClick={addNewColumn}
+              >
+                Add column
+              </Button>
+            </div>
             <ol className="schema-workbench__visual-column-picker">
               {activeTable.columns.map((column) => (
                 <li key={column.name}>
@@ -569,9 +565,14 @@ export function VisualSchemaInspector({
                         })
                       }
                     >
-                      <span>{`${relation.name} (${
-                        relation.type === "N:M" ? "many-to-many" : "one-to-many"
-                      })`}</span>
+                      <span>
+                        {relation.type === "N:M" &&
+                        relation.junctionTable === activeTable.name
+                          ? `${relation.name} (links ${relation.from} and ${relation.to})`
+                          : `${relation.name} (${
+                              relation.type === "N:M" ? "many-to-many" : "one-to-many"
+                            })`}
+                      </span>
                     </button>
                   </li>
                 ))}
