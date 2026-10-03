@@ -278,6 +278,10 @@ internal sealed class SqliteDdlGenerator
             }
         }
 
+        // A table dropped in the same change needs no rebuild: dropping a 1:N
+        // relation together with its child table marks the table above, but
+        // DROP TABLE takes the foreign key with it.
+        rebuild.RemoveWhere(name => !newModel.Tables.Any(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)));
         return rebuild;
     }
 }
