@@ -58,6 +58,18 @@ public static class FormulaTypes
         _ => null
     };
 
+    /// <summary>The column type a formula's value behaves like.</summary>
+    public static ColumnType ToColumnType(FormulaType type) => type switch
+    {
+        FormulaType.Integer => ColumnType.Integer,
+        FormulaType.Number => ColumnType.Float,
+        FormulaType.Currency => ColumnType.Currency,
+        FormulaType.Boolean => ColumnType.Boolean,
+        FormulaType.Date => ColumnType.Date,
+        FormulaType.DateTime => ColumnType.DateTime,
+        _ => ColumnType.Text
+    };
+
     public static FormulaType? FromColumn(ColumnType type) => type switch
     {
         ColumnType.Text or ColumnType.Enum or ColumnType.File or ColumnType.Uuid => FormulaType.Text,
@@ -79,6 +91,7 @@ public sealed record FormulaFunctionInfo(string Name, string Category, string Si
 /// </summary>
 public static class FormulaFunctions
 {
+
     public static readonly IReadOnlyList<FormulaFunctionInfo> Catalog =
     [
         new("IF", "Logic", "IF(condition, then, [else])", "Returns then when the condition is true, otherwise else (empty when left out).", "IF(amount < 0, \"expense\", \"income\")", "the type of then/else"),
@@ -118,7 +131,17 @@ public static class FormulaFunctions
         new("MINUTE", "Date", "MINUTE(datetime)", "The minute, 0–59 (0 for dates).", "MINUTE(recorded_at)", "integer"),
         new("DATEDIFF", "Date", "DATEDIFF(start, end, unit)", "Whole days, weeks, months or years from start to end (negative when end is earlier). The time of day is ignored.", "DATEDIFF(booked_on, TODAY(), \"months\")", "integer"),
         new("DATEADD", "Date", "DATEADD(date, count, unit)", "Adds count days, weeks, months or years (count may be negative). Month ends stay in their month: Jan 31 + 1 month is Feb 28.", "DATEADD(booked_on, 1, \"months\")", "the type of date"),
+        new("SUM", RelatedRows, "SUM(link.column, [condition])", "Adds up a column of the related rows (0 when there are none), optionally only those meeting the condition.", "SUM(transactions.amount)", "the type of column"),
+        new("COUNT", RelatedRows, "COUNT(link, [condition])", "The number of related rows, or of their non-empty values with COUNT(link.column).", "COUNT(transactions, transactions.amount < 0)", "integer"),
+        new("AVG", RelatedRows, "AVG(link.column, [condition])", "The average of a column of the related rows; empty when there are none.", "AVG(transactions.amount)", "float or currency"),
+        new("MIN", RelatedRows, "MIN(link.column, [condition])", "The smallest number or earliest date among the related rows.", "MIN(transactions.booked_on)", "the type of column"),
+        new("MAX", RelatedRows, "MAX(link.column, [condition])", "The largest number or latest date among the related rows.", "MAX(transactions.booked_on)", "the type of column"),
+        new("SUMIF", RelatedRows, "SUMIF(link.column, condition)", "SUM with a condition.", "SUMIF(transactions.amount, transactions.amount < 0)", "the type of column"),
+        new("COUNTIF", RelatedRows, "COUNTIF(link, condition)", "COUNT with a condition.", "COUNTIF(transactions, transactions.amount < 0)", "integer"),
+        new("AVGIF", RelatedRows, "AVGIF(link.column, condition)", "AVG with a condition.", "AVGIF(transactions.amount, transactions.amount < 0)", "float or currency"),
     ];
+
+    public const string RelatedRows = "Related rows";
 
     public static readonly IReadOnlyDictionary<string, string> Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {

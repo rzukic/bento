@@ -8,16 +8,18 @@ import {
   type FormulaValidation,
 } from "../../api/formulas";
 import { formatAmount, formatNumber, toNumber } from "../../lib/format";
-import type { SchemaColumn } from "../../types/api";
+import type { SchemaModelDocument } from "../../types/api";
 import { FormulaEditor } from "./FormulaEditor";
-import { describeFormulaType, usableColumns } from "./formulaLanguage";
+import { describeFormulaType, formulaLinks, usableColumns } from "./formulaLanguage";
 import "./Formulas.css";
 
 type FormulaFieldProps = {
   /** The table the formula belongs to. */
   table: string;
-  /** The table's columns as drafted (without the formula's own column). */
-  columns: SchemaColumn[];
+  /** The computed column the formula belongs to: using itself is a cycle. */
+  column?: string;
+  /** The drafted model: columns, other tables and links as in the designer. */
+  model: Pick<SchemaModelDocument, "tables" | "relations">;
   value: string;
   onChange: (value: string) => void;
   /** Rows shown in the preview. */
@@ -33,19 +35,25 @@ type CheckState =
   | { status: "failed"; message: string };
 
 /**
- * A formula with live feedback (Step 3.4): the server checks it against the
- * drafted columns as you type, names its result type, underlines errors and
- * shows its values on the first rows of the applied table.
+ * A formula with live feedback (Steps 3.4, 3.5): the server checks it against
+ * the drafted model as you type, names its result type, underlines errors and
+ * shows its values on the first rows of the applied table. Completions offer
+ * columns, links ("account.name", "SUM(transactions.amount)") and functions.
  */
-export function FormulaField({ table, columns, value, onChange, previewRows = 5 }: FormulaFieldProps) {
+export function FormulaField({ table, column, model, value, onChange, previewRows = 5 }: FormulaFieldProps) {
   const [functions, setFunctions] = useState<FormulaFunction[]>([]);
   const [check, setCheck] = useState<CheckState>({ status: "idle" });
-  const columnsKey = JSON.stringify(columns);
-  const editorColumns = useMemo(
-    () => columns.map((column) => ({ name: column.name, displayName: column.displayName, type: column.type })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [columnsKey],
-  );
+  const modelKey = JSON.stringify({ tables: model.tables, relations: model.relations });
+  const { editorColumns, links } = useMemo(() => {
+    const draft = JSON.parse(modelKey) as Pick<SchemaModelDocument, "tables" | "relations">;
+    const own = draft.tables.find((t) => t.name === table)?.columns ?? [];
+    return {
+      editorColumns: own
+        .filter((c) => c.name !== column)
+        .map((c) => ({ name: c.name, displayName: c.displayName, type: c.type, resultType: c.resultType })),
+      links: formulaLinks(draft, table),
+    };
+  }, [column, modelKey, table]);
 
   useEffect(() => {
     let cancelled = false;
@@ -69,7 +77,7 @@ export function FormulaField({ table, columns, value, onChange, previewRows = 5 
     setCheck((current) => (current.status === "done" ? current : { status: "checking" }));
     const timer = window.setTimeout(async () => {
       try {
-        const validation = await validateFormula({ table, formula: value, columns: JSON.parse(columnsKey) });
+        const validation = await validateFormula({ table, formula: value, column, model: JSON.parse(modelKey) });
         if (cancelled) return;
         if (!validation.valid) {
           setCheck({ status: "done", validation, preview: null, previewNote: null });
@@ -78,7 +86,7 @@ export function FormulaField({ table, columns, value, onChange, previewRows = 5 
         let preview: FormulaPreview | null = null;
         let previewNote: string | null = null;
         try {
-          preview = await previewFormula({ table, formula: value, limit: previewRows });
+          preview = await previewFormula({ table, formula: value, column, limit: previewRows });
           if (preview.rows.length === 0) previewNote = "The table has no rows yet.";
         } catch {
           previewNote = "Apply the draft to see values from your data.";
@@ -94,7 +102,7 @@ export function FormulaField({ table, columns, value, onChange, previewRows = 5 
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [columnsKey, previewRows, table, value]);
+  }, [column, modelKey, previewRows, table, value]);
 
   const errors = check.status === "done" ? check.validation.errors : [];
   const usable = usableColumns(editorColumns);
@@ -106,6 +114,7 @@ export function FormulaField({ table, columns, value, onChange, previewRows = 5 
         onChange={onChange}
         columns={editorColumns}
         functions={functions}
+        links={links}
         errors={errors}
       />
       <FormulaStatus check={check} hasColumns={usable.length > 0} />

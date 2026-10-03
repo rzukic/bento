@@ -309,7 +309,14 @@ public sealed class OpenApiDocumentBuilder
                 ["type"] = "array",
                 ["description"] = "Validate only: draft column definitions (Model JSON) to check against instead of the applied table.",
                 ["items"] = anyObject.DeepClone()
-            }
+            },
+            ["model"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["description"] = "Validate only: a whole draft Model JSON (tables and relations) to check against.",
+                ["additionalProperties"] = true
+            },
+            ["column"] = Str(example: "balance")
         });
         paths["/formulas/validate"] = new JsonObject
         {

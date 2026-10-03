@@ -34,38 +34,68 @@ public sealed record FormulaCheck(CompiledFormula? Result, IReadOnlyList<Formula
 /// </summary>
 public sealed class FormulaCompiler
 {
-    private sealed record Expr(string Sql, FormulaType Type, FormulaNode Node, object? Constant = null)
+    private sealed record Expr(string Sql, FormulaType Type, FormulaNode Node, object? Constant = null, bool IsRows = false)
     {
         public bool IsConstant => Node is NumberLiteral or StringLiteral or BooleanLiteral or NullLiteral;
     }
 
-    private static readonly HashSet<string> AggregateNames = new(StringComparer.OrdinalIgnoreCase)
-        { "SUM", "AVG", "MIN", "MAX", "COUNT", "COUNTIF", "SUMIF", "AVGIF" };
+    /// <summary>The table a column name is looked up in, and the SQL alias of its row.</summary>
+    private sealed record Scope(TableDef Table, string Alias);
 
-    private readonly TableDef _table;
-    private readonly Func<string, TableDef?> _findTable;
-    private readonly bool _pg;
-    private readonly string _alias;
+    /// <summary>State shared by a formula and the computed columns it pulls in.</summary>
+    private sealed class Shared(FormulaSchema schema, bool pg)
+    {
+        public FormulaSchema Schema { get; } = schema;
+        public bool Pg { get; } = pg;
+        /// <summary>"table.column" of the computed columns being compiled, for cycle errors.</summary>
+        public List<string> Chain { get; } = [];
+        private int _aliases;
+        public string NextAlias(string prefix) => $"__{prefix}{++_aliases}";
+    }
+
+    /// <summary>The related rows one SUM/COUNT/AVG/MIN/MAX runs over.</summary>
+    private sealed class AggregateFrame(Scope outer)
+    {
+        public Scope Outer { get; } = outer;
+        public FormulaNavigation? Navigation { get; set; }
+        public Scope? Rows { get; set; }
+    }
+
+    private readonly Shared _shared;
+    private readonly Scope _root;
+    private Scope _scope;
+    private AggregateFrame? _aggregate;
     private readonly List<FormulaError> _errors = [];
     private readonly List<string> _columns = [];
 
-    private FormulaCompiler(TableDef table, Func<string, TableDef?> findTable, DatabaseProvider provider, string alias)
+    private bool _pg => _shared.Pg;
+
+    private FormulaCompiler(Shared shared, Scope scope)
     {
-        _table = table;
-        _findTable = findTable;
-        _pg = provider == DatabaseProvider.Postgres;
-        _alias = alias;
+        _shared = shared;
+        _root = scope;
+        _scope = scope;
     }
 
-    /// <param name="alias">The table alias the SQL refers to (<c>t."amount"</c>).</param>
+    /// <param name="alias">The SQL alias (or quoted table name) of the row: <c>t."amount"</c>.</param>
     /// <param name="expected">The declared result type; a formula that cannot produce it is an error.</param>
+    /// <param name="column">The computed column the formula belongs to, so using itself is a cycle.</param>
     public static FormulaCheck Compile(
         string formula,
         TableDef table,
-        Func<string, TableDef?> findTable,
+        FormulaSchema schema,
         DatabaseProvider provider,
         string alias = "t",
-        FormulaType? expected = null)
+        FormulaType? expected = null,
+        string? column = null)
+    {
+        var shared = new Shared(schema, provider == DatabaseProvider.Postgres);
+        if (column is not null)
+            shared.Chain.Add($"{table.Name}.{column}");
+        return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected);
+    }
+
+    private FormulaCheck Run(string? formula, FormulaType? expected)
     {
         FormulaNode root;
         try
@@ -77,10 +107,11 @@ public sealed class FormulaCompiler
             return new FormulaCheck(null, [e.Error]);
         }
 
-        var compiler = new FormulaCompiler(table, findTable, provider, alias);
-        var expr = compiler.Bind(root);
-        if (expr is null || compiler._errors.Count > 0)
-            return new FormulaCheck(null, compiler._errors);
+        var expr = Bind(root);
+        if (expr is null || _errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+        if (expr.IsRows)
+            return new FormulaCheck(null, [new FormulaError("A formula gives one value; count the rows with COUNT(…).", root.Start, root.End)]);
 
         var type = expr.Type;
         var sql = expr.Sql;
@@ -88,14 +119,14 @@ public sealed class FormulaCompiler
         {
             if (!Fits(type, target))
                 return new FormulaCheck(null, [new FormulaError(
-                    $"The formula gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, formula!.Length)]);
-            sql = compiler.Convert(expr, target);
+                    $"The formula gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, (formula ?? "").Length)]);
+            sql = Convert(expr, target);
             type = target;
         }
         if (type == FormulaType.Null)
             type = expected ?? FormulaType.Text;
 
-        return new FormulaCheck(new CompiledFormula(sql, type, compiler._columns), []);
+        return new FormulaCheck(new CompiledFormula(sql, type, _columns), []);
     }
 
     private static bool Fits(FormulaType actual, FormulaType expected) =>
@@ -120,34 +151,40 @@ public sealed class FormulaCompiler
 
     private Expr? BindColumn(ColumnReference reference)
     {
+        var table = _scope.Table;
         var name = reference.Path[0];
-        var column = _table.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
-            ?? _table.Columns.FirstOrDefault(c => string.Equals(c.DisplayName?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+        var column = table.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
+            ?? table.Columns.FirstOrDefault(c => string.Equals(c.DisplayName?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+
+        if (reference.Path.Count > 1)
+            return BindPath(reference, column);
 
         if (column is null)
         {
-            var candidates = _table.Columns.Where(c => c.Type != ColumnType.Json).Select(c => c.Name);
+            var navigation = _shared.Schema.FindNavigation(table, name);
+            if (navigation is not null && navigation.ToMany)
+                return BindRows(reference, navigation, []);
+
+            var candidates = table.Columns.Where(c => c.Type != ColumnType.Json).Select(c => c.Name);
             var suggestion = Suggest(name, candidates);
             if (suggestion is null && FormulaFunctions.Find(name) is not null)
                 return Fail(reference, $"{name.ToUpperInvariant()} is a function; call it with parentheses: {name.ToUpperInvariant()}(…).");
-            return Fail(reference, $"Column '{name}' not found in {_table.DisplayName ?? _table.Name}" +
+            return Fail(reference, $"Column '{name}' not found in {table.DisplayName ?? table.Name}" +
                 (suggestion is null ? "." : $" — did you mean '{suggestion}'?"));
         }
 
-        if (reference.Path.Count > 1)
-            return Fail(reference, $"Values from related tables ({string.Join(".", reference.Path)}) are not supported in formulas yet.");
         if (column.Type == ColumnType.Computed)
-            return Fail(reference, $"'{column.Name}' is computed itself; formulas cannot use computed columns yet.");
+            return BindComputed(reference, column);
         if (FormulaTypes.FromColumn(column.Type) is not { } type)
             return Fail(reference, $"'{column.Name}' is a {column.Type.ToString().ToLowerInvariant()} column; formulas cannot use those.");
 
-        if (!_columns.Contains(column.Name, StringComparer.Ordinal))
+        if (ReferenceEquals(_scope, _root) && !_columns.Contains(column.Name, StringComparer.Ordinal))
             _columns.Add(column.Name);
 
-        var sql = $"{_alias}.{Q(column.Name)}";
+        var sql = $"{_scope.Alias}.{Q(column.Name)}";
         var textKey = column.Type == ColumnType.Uuid ||
             (column.Type == ColumnType.Reference && column.References is not null &&
-             _findTable(column.References)?.Columns.FirstOrDefault(c => c.PrimaryKey)?.Type == ColumnType.Uuid);
+             _shared.Schema.Table(column.References)?.Columns.FirstOrDefault(c => c.PrimaryKey)?.Type == ColumnType.Uuid);
         if (textKey)
         {
             type = FormulaType.Text;
@@ -163,6 +200,104 @@ public sealed class FormulaCompiler
             sql = _pg ? $"({sql} AT TIME ZONE 'UTC')" : $"datetime({sql})";
         }
         return new Expr(sql, type, reference);
+    }
+
+    /// <summary>Another computed column: its formula inlined, cycles reported.</summary>
+    private Expr? BindComputed(ColumnReference reference, ColumnDef column)
+    {
+        var key = $"{_scope.Table.Name}.{column.Name}";
+        var start = _shared.Chain.FindIndex(k => string.Equals(k, key, StringComparison.OrdinalIgnoreCase));
+        if (start >= 0)
+            return Fail(reference, $"Circular reference: {string.Join(" → ", _shared.Chain.Skip(start).Append(key))}.");
+
+        if (ReferenceEquals(_scope, _root) && !_columns.Contains(column.Name, StringComparer.Ordinal))
+            _columns.Add(column.Name);
+
+        _shared.Chain.Add(key);
+        var check = new FormulaCompiler(_shared, _scope).Run(column.Formula, FormulaTypes.FromName(column.ResultType));
+        _shared.Chain.RemoveAt(_shared.Chain.Count - 1);
+
+        if (!check.IsValid)
+        {
+            var problem = check.Errors.FirstOrDefault()?.Message ?? "it does not check";
+            return problem.StartsWith("Circular reference", StringComparison.Ordinal)
+                ? Fail(reference, problem)
+                : Fail(reference, $"'{column.Name}' has an error: {problem}");
+        }
+        return new Expr($"({check.Result!.Sql})", check.Result.Type, reference);
+    }
+
+    /// <summary><c>link.column</c>: a value of the referenced row, or related rows inside an aggregate.</summary>
+    private Expr? BindPath(ColumnReference reference, ColumnDef? column)
+    {
+        var table = _scope.Table;
+        var name = reference.Path[0];
+        var navigation = _shared.Schema.FindNavigation(table, name);
+        if (navigation is null)
+        {
+            if (column is not null)
+                return Fail(reference, $"'{column.Name}' is not a link; only reference columns and relations can be followed with a dot.");
+            var names = _shared.Schema.Navigations(table).SelectMany(n => n.Names);
+            var suggestion = Suggest(name, names);
+            return Fail(reference, $"'{name}' is not a column or link of {table.DisplayName ?? table.Name}" +
+                (suggestion is null ? "." : $" — did you mean '{suggestion}'?"));
+        }
+
+        var rest = reference with { Path = reference.Path.Skip(1).ToList() };
+        if (navigation.ToMany)
+            return BindRows(reference, navigation, rest.Path);
+
+        var target = _shared.Schema.Table(navigation.Target)!;
+        var key = target.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null)
+            return Fail(reference, $"'{target.Name}' has no key to look rows up by.");
+
+        var alias = _shared.NextAlias("p");
+        var outer = _scope;
+        var frame = _aggregate;
+        _scope = new Scope(target, alias);
+        // A lookup from inside an aggregate stays inside it; links to several rows end there.
+        _aggregate = null;
+        var value = BindColumn(rest);
+        _scope = outer;
+        _aggregate = frame;
+        if (value is null)
+            return null;
+        if (value.IsRows)
+            return Fail(reference, "A link to several rows can only be used directly in SUM, COUNT, AVG, MIN or MAX.");
+
+        return value with
+        {
+            Sql = $"(SELECT {value.Sql} FROM {Q(target.Name)} {alias} WHERE {alias}.{Q(key.Name)} = {outer.Alias}.{Q(navigation.ForeignKey!)})",
+            Node = reference
+        };
+    }
+
+    /// <summary>Related rows (<c>transactions</c>, <c>transactions.amount</c>) inside an aggregate.</summary>
+    private Expr? BindRows(ColumnReference reference, FormulaNavigation navigation, IReadOnlyList<string> rest)
+    {
+        var display = string.Join(".", reference.Path);
+        if (_aggregate is null)
+            return Fail(reference, $"'{reference.Path[0]}' holds several rows; use SUM({(rest.Count > 0 ? display : reference.Path[0] + ".column")}), COUNT({reference.Path[0]}), AVG, MIN or MAX.");
+        if (!ReferenceEquals(_aggregate.Outer, _scope))
+            return Fail(reference, "Related rows of related rows cannot be aggregated; add a computed column on the related table and use that.");
+        if (_aggregate.Navigation is { } used && !ReferenceEquals(used, navigation))
+            return Fail(reference, $"One aggregate can use one link; this one already uses '{used.Name}'.");
+
+        var target = _shared.Schema.Table(navigation.Target)!;
+        _aggregate.Navigation = navigation;
+        _aggregate.Rows ??= new Scope(target, _shared.NextAlias("r"));
+        if (rest.Count == 0)
+            return new Expr("*", FormulaType.Null, reference, IsRows: true);
+
+        var outer = _scope;
+        var frame = _aggregate;
+        _scope = frame.Rows;
+        _aggregate = null;
+        var value = BindColumn(reference with { Path = rest });
+        _scope = outer;
+        _aggregate = frame;
+        return value is null ? null : value with { Node = reference };
     }
 
     private Expr? BindUnary(UnaryExpression unary)
@@ -304,14 +439,15 @@ public sealed class FormulaCompiler
         var info = FormulaFunctions.Find(call.Name);
         if (info is null)
         {
-            if (AggregateNames.Contains(call.Name))
-                return Fail(call.Start, call.NameEnd, $"{call.Name.ToUpperInvariant()} works across several rows; formulas on a single row cannot use it yet.");
             var suggestion = Suggest(call.Name, FormulaFunctions.Catalog.Select(f => f.Name));
             return Fail(call.Start, call.NameEnd, $"Unknown function {call.Name.ToUpperInvariant()}" +
                 (suggestion is null ? "." : $" — did you mean {suggestion}?"));
         }
 
         var name = info.Name;
+        if (info.Category == FormulaFunctions.RelatedRows)
+            return BindAggregate(call, name);
+
         var args = new List<Expr>();
         var failed = false;
         foreach (var argument in call.Arguments)
@@ -537,6 +673,92 @@ public sealed class FormulaCompiler
             }
         }
         throw new InvalidOperationException($"{name} is in the catalog but not implemented.");
+    }
+
+    /// <summary>
+    /// SUM/AVG/MIN/MAX/COUNT over related rows, optionally with a condition
+    /// (also written SUMIF/COUNTIF/AVGIF): a correlated subquery per row.
+    /// </summary>
+    private Expr? BindAggregate(FunctionCall call, string name)
+    {
+        var conditional = name.EndsWith("IF", StringComparison.Ordinal);
+        var fn = conditional ? name[..^2] : name;
+        if (!Arity(call, conditional ? 2 : 1, 2))
+            return null;
+        if (_aggregate is not null)
+            return Fail(call, $"{name} cannot be used inside another aggregate.");
+
+        var frame = new AggregateFrame(_scope);
+        _aggregate = frame;
+        var args = call.Arguments.Select(Bind).ToList();
+        _aggregate = null;
+        if (args.Any(a => a is null))
+            return null;
+
+        if (frame.Navigation is null || frame.Rows is null)
+            return Fail(call, $"{name} adds up related rows; name the link, e.g. {fn}(transactions{(fn == "COUNT" ? "" : ".amount")}).");
+
+        var value = args[0]!;
+        var condition = args.Count > 1 ? args[1] : null;
+        if (condition is not null && (condition.IsRows || !RequireBoolean(condition, $"The condition of {name}")))
+            return condition.IsRows ? Fail(condition.Node, $"The condition of {name} needs yes/no, e.g. transactions.amount < 0.") : null;
+        if (value.IsRows && fn != "COUNT")
+            return Fail(value.Node, $"{name} needs a column of the related rows, e.g. {fn}({value.Node switch { ColumnReference r => string.Join(".", r.Path), _ => "transactions" }}.amount).");
+
+        string aggregate;
+        FormulaType type;
+        switch (fn)
+        {
+            case "COUNT":
+                aggregate = value.IsRows ? "COUNT(*)" : $"COUNT({value.Sql})";
+                type = FormulaType.Integer;
+                break;
+            case "SUM" or "AVG":
+                if (!RequireNumber(value, name))
+                    return null;
+                type = fn == "AVG"
+                    ? value.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number
+                    : value.Type == FormulaType.Null ? FormulaType.Number : value.Type;
+                aggregate = $"{fn}({value.Sql})";
+                break;
+            default:
+                if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type)))
+                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                type = value.Type;
+                aggregate = $"{fn}({value.Sql})";
+                break;
+        }
+
+        // Postgres sums whole numbers as NUMERIC; SQLite as INTEGER.
+        if (type == FormulaType.Integer && fn != "COUNT")
+            aggregate = $"CAST({aggregate} AS {(_pg ? "BIGINT" : "INTEGER")})";
+        if (fn is "SUM" or "COUNT")
+            aggregate = $"COALESCE({aggregate}, 0)";
+
+        var navigation = frame.Navigation;
+        var rows = frame.Rows;
+        var outer = frame.Outer;
+        var key = outer.Table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        var target = rows.Table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null || (navigation.Kind == NavigationKind.Junction && target is null))
+            return Fail(call, $"'{outer.Table.Name}' has no key to find its related rows by.");
+
+        string from;
+        if (navigation.Kind == NavigationKind.Children)
+        {
+            from = $"FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {outer.Alias}.{Q(key.Name)}";
+        }
+        else
+        {
+            var junction = _shared.NextAlias("j");
+            from = $"FROM {Q(rows.Table.Name)} {rows.Alias} JOIN {Q(navigation.Junction!)} {junction} " +
+                   $"ON {junction}.{Q(navigation.JunctionTarget!)} = {rows.Alias}.{Q(target!.Name)} " +
+                   $"WHERE {junction}.{Q(navigation.JunctionThis!)} = {outer.Alias}.{Q(key.Name)}";
+        }
+        if (condition is not null)
+            from += $" AND {condition.Sql}";
+
+        return new Expr($"(SELECT {aggregate} {from})", type, call);
     }
 
     // ── Checks ───────────────────────────────────────────────────────────
@@ -769,7 +991,17 @@ public sealed class FormulaCompiler
         return value < 0 ? $"({text})" : text;
     }
 
-    private static string Str(string value) => "'" + value.Replace("'", "''") + "'";
+    /// <summary>
+    /// A text literal. A "?" is written as char(63): SqlKata reads "?" in raw
+    /// SQL as a parameter placeholder, even inside quotes.
+    /// </summary>
+    private string Str(string value)
+    {
+        var parts = value.Split('?').Select(part => "'" + part.Replace("'", "''") + "'");
+        return value.Contains('?')
+            ? "(" + string.Join($" || {(_pg ? "chr" : "char")}(63) || ", parts) + ")"
+            : parts.Single();
+    }
 
     private string DateLiteral(DateOnly date)
     {

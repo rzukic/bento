@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { valueTypeOf } from "../../lib/columns";
 import { createPortal } from "react-dom";
 import type { DashboardWidget, WidgetDisplay, WidgetType } from "../../api/dashboards";
 import { listSavedQueries, type AggregationQuery, type QueryBucket, type QueryFunction, type QueryMeasure, type SavedQuery } from "../../api/query";
@@ -114,7 +115,10 @@ export function WidgetEditor({
   const savedId = widget.data?.savedQueryId;
   const table = useMemo(() => sources.find((t) => t.name === (query?.source ?? saved.find((s) => s.id === savedId)?.source)), [sources, query, saved, savedId]);
   // The generated key is neither a useful group nor a number to add up.
-  const columns = (table?.columns ?? []).filter((c) => c.type !== "computed" && !c.primaryKey);
+  // Computed columns take part like stored ones, typed by their result.
+  const columns = (table?.columns ?? [])
+    .filter((c) => !c.primaryKey)
+    .map((c) => (c.type === "computed" ? { ...c, type: valueTypeOf(c) } : c));
 
   const set = (patch: Partial<DashboardWidget>) => onChange({ ...widget, ...patch });
   const setQuery = (next: AggregationQuery) => set({ data: { ...widget.data, query: next, savedQueryId: undefined } });

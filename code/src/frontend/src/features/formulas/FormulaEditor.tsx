@@ -22,6 +22,7 @@ import {
   formulaHighlightStyle,
   formulaLanguage,
   type FormulaColumn,
+  type FormulaLink,
 } from "./formulaLanguage";
 
 type FormulaEditorProps = {
@@ -29,6 +30,8 @@ type FormulaEditorProps = {
   onChange: (value: string) => void;
   columns: FormulaColumn[];
   functions: FormulaFunction[];
+  /** Links to other tables, for completions after "link.". */
+  links?: FormulaLink[];
   /** Ranges to underline; offsets refer to the current value. */
   errors?: FormulaError[];
   ariaLabel?: string;
@@ -36,6 +39,7 @@ type FormulaEditorProps = {
 };
 
 const setErrors = StateEffect.define<FormulaError[]>();
+const noLinks: FormulaLink[] = [];
 const errorMark = Decoration.mark({ class: "formula-editor__error" });
 
 /** Error underlines; they follow edits until the next check replaces them. */
@@ -74,6 +78,7 @@ export function FormulaEditor({
   onChange,
   columns,
   functions,
+  links = noLinks,
   errors = [],
   ariaLabel = "Formula",
   placeholder = "= amount * -1",
@@ -84,7 +89,7 @@ export function FormulaEditor({
   const suppressChangeRef = useRef(false);
   const completionCompartment = useRef(new Compartment()).current;
   // The view is created once from the first props; later changes are applied below.
-  const initialRef = useRef({ value, columns, functions, ariaLabel, placeholder });
+  const initialRef = useRef({ value, columns, functions, links, ariaLabel, placeholder });
 
   useEffect(() => {
     onChangeRef.current = onChange;
@@ -102,7 +107,7 @@ export function FormulaEditor({
           history(),
           formulaLanguage,
           syntaxHighlighting(formulaHighlightStyle),
-          completionCompartment.of(autocompletion({ override: [formulaCompletions(initial.columns, initial.functions)] })),
+          completionCompartment.of(autocompletion({ override: [formulaCompletions(initial.columns, initial.functions, initial.links)] })),
           keymap.of([...completionKeymap, ...defaultKeymap, ...historyKeymap]),
           errorField,
           EditorView.lineWrapping,
@@ -140,10 +145,10 @@ export function FormulaEditor({
   useEffect(() => {
     viewRef.current?.dispatch({
       effects: completionCompartment.reconfigure(
-        autocompletion({ override: [formulaCompletions(columns, functions)] }),
+        autocompletion({ override: [formulaCompletions(columns, functions, links)] }),
       ),
     });
-  }, [columns, completionCompartment, functions]);
+  }, [columns, completionCompartment, functions, links]);
 
   useEffect(() => {
     viewRef.current?.dispatch({ effects: setErrors.of(errors) });

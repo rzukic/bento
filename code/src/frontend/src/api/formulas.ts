@@ -37,8 +37,12 @@ export type FormulaRequest = {
   table: string;
   formula: string;
   resultType?: string;
+  /** The computed column the formula belongs to: using itself is reported as a cycle. */
+  column?: string;
   /** Validate only: the table's draft columns (Model JSON) instead of the applied ones. */
   columns?: unknown[];
+  /** Validate only: the whole drafted Model JSON (other tables and links too). */
+  model?: unknown;
   limit?: number;
 };
 

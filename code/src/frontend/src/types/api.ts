@@ -51,6 +51,8 @@ export type ModelColumn = {
   values?: string[];
   references?: unknown;
   formula?: unknown;
+  /** Computed columns: text, integer, float, currency, boolean, date or datetime. */
+  resultType?: string | null;
   relationName?: string | null;
   renamedFrom?: string | null;
 };
@@ -171,6 +173,7 @@ export type SchemaColumn = {
   values?: string[];
   references?: string | null;
   formula?: string | null;
+  resultType?: string | null;
   relationName?: string | null;
   renamedFrom?: string | null;
   [key: string]: unknown;

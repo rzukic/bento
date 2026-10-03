@@ -28,7 +28,7 @@ Choose **Edit**:
 - The gear opens the widget's settings:
   - **Data from**: a table or a saved query
   - **Group by**: the axis or rows (dates per day, week, month, quarter or year) and an optional split into one series per value (e.g. spending per category per month)
-  - **Values**: sum, count, average, smallest, largest or distinct values of a column; for sums and counts over dates a **running total**, optionally **including earlier rows** (for balances)
+  - **Values**: sum, count, average, smallest, largest or distinct values of a column (computed columns too, e.g. a balance); for sums and counts over dates a **running total**, optionally **including earlier rows** (for balances)
   - **Only rows where**: conditions such as amount < 0
   - **Order** and **Limit** (e.g. the top 10)
   - **Date range filters**: which date column the dashboard range applies to, or none

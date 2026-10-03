@@ -349,7 +349,9 @@ curl -fsS "$API_ROOT/formulas/preview" -H "Authorization: Bearer $TOKEN" -H "Con
 
 - an invalid formula returns `"valid": false` from validate with `errors: [{ "message", "start", "end" }]`, and 400 from preview
 - `resultType` (`text`, `integer`, `float`, `currency`, `boolean`, `date`, `datetime`) checks that the formula can produce it
-- validate also takes `columns` — the table's columns as Model JSON — to check a drafted table that is not applied yet
+- validate also takes `model` — a whole draft Model JSON — or `columns` (the table's columns) to check a draft that is not applied yet, and `column`, the computed column the formula belongs to, so a formula using itself is reported as a cycle
+
+Computed columns (`"type": "computed"` with a `formula`) are part of every read: list, single row, write responses, related rows and includes. They can be used in `filter[...]`, `sort` and `fields` like stored columns, and in `/query` groups and measures; writing them is rejected.
 - `GET $API_ROOT/formulas/functions` lists every function with signature, description and example
 
 ---

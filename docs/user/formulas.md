@@ -1,16 +1,20 @@
 # Formulas
 
-Formulas compute a value from the other columns of a row, like a spreadsheet: `= amount * -1`, `= IF(amount < 0, "expense", "income")`, `= YEAR(booked_on)`. They give the same result on SQLite and Postgres.
+Formulas compute a value from the other columns of a row, like a spreadsheet: `= amount * -1`, `= IF(amount < 0, "expense", "income")`, `= YEAR(booked_on)`. They can read linked records (`account.name`) and add up related rows (`= opening_balance + SUM(transactions.amount)`). They give the same result on SQLite and Postgres.
 
 ## Where To Write Them
 
 In the [Schema Designer](schema-designer.md), give a column the type **computed**. The inspector shows a formula editor:
 
-- column names and functions are suggested as you type (`Ctrl+Space` opens the list); `[` suggests columns by their display name, e.g. `[Booked on]`
-- the formula is checked as you type: errors are underlined and explained, for example "Column 'amout' not found in Transactions — did you mean 'amount'?"
+- column names, links and functions are suggested as you type (`Ctrl+Space` opens the list); after `account.` the linked table's columns; `[` suggests columns by their display name, e.g. `[Booked on]`
+- the formula is checked as you type against the draft, including tables and links not applied yet: errors are underlined and explained, for example "Column 'amout' not found in Transactions — did you mean 'amount'?"
 - a valid formula names its result ("Gives an amount · uses amount") and shows its values on the first rows of the table — once the table and the columns it uses are applied
 
-Computed columns are saved with the schema. Their values appear in the Data Explorer with the next step (3.5); until then the editor's preview shows them.
+A formula that does not check, or computed columns that use each other in a circle ("Circular reference: accounts.a → accounts.b → accounts.a"), cannot be applied. The result type is stored with the column (`resultType`) and can be fixed by hand in JSON mode; the formula must then produce it.
+
+## Live Values
+
+Computed columns are never stored: every read computes them from the current data. In the Data Explorer they appear like other columns, read-only (marked "Calculated" in the record editor) and formatted by their result — amounts in euros, dates, yes/no. They can be filtered and sorted, exported, used in dashboard widgets (grouped by, summed) and read through the API like stored columns (`?filter[balance][gt]=0&sort=-balance&fields=name,balance`).
 
 ## Writing A Formula
 
@@ -28,6 +32,25 @@ The leading `=` is optional. Spaces and line breaks do not matter.
 | `AND` / `&&`, `OR` / `\|\|`, `NOT` / `!` | combine conditions; also as functions `AND(a, b)` |
 | `,` or `;` | separate function arguments |
 
+## Links And Related Rows
+
+A dot follows a link to another table:
+
+- **One linked record** — through a reference column or its link name: `account_id.name`, `account.name`, `category.parent.name`. Empty when nothing is linked.
+- **Related rows** — through a 1:N or N:M relation, from the table the others link to. Several rows only go into an aggregate:
+
+| Write | Gives |
+|---|---|
+| `SUM(transactions.amount)` | the total; 0 when there are none |
+| `COUNT(transactions)`, `COUNT(transactions.note)` | the number of rows, or of non-empty values |
+| `AVG(transactions.amount)`, `MIN(…)`, `MAX(transactions.booked_on)` | average, smallest, largest (numbers and dates); empty when there are none |
+| `SUM(transactions.amount, transactions.amount < 0)` or `SUMIF(…)` | only the rows meeting the condition; also `COUNTIF`, `AVGIF` |
+| `SUM(transactions.amount * -1)` | an expression over each related row |
+
+A link is named like in the API: the reference column (`account_id`), its link name (`account`), the relation's name (`account_transactions`) or — when only one link leads there — the other table's name (`transactions`). Inside an aggregate, columns without a link are the current row's: `COUNT(transactions, transactions.amount > limit)`.
+
+Computed columns can use other computed columns, also of linked tables: `SUM(transactions.net)`.
+
 Dates: `booked_on + 30` is 30 days later, `booked_on - other_date` is the number of days between them, and text such as `"2026-01-31"` compared with a date counts as a date. Date-times are read in UTC: a value saved as `2026-03-01T00:15:00+02:00` is `2026-02-28 22:15`.
 
 ## Types
@@ -41,6 +64,7 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Logic | `IF(condition, then, [else])`, `AND`, `OR`, `NOT`, `SWITCH(value, match1, result1, …, [default])`, `COALESCE(a, b, …)`, `ISBLANK(value)` |
 | Math | `ROUND(number, [digits])`, `FLOOR`, `CEIL`, `ABS`, `MOD(number, divisor)`, `POWER(number, exponent)`, `SQRT` |
 | Text | `CONCAT(a, b, …)`, `LEFT(text, count)`, `RIGHT(text, count)`, `MID(text, start, count)`, `LEN`, `UPPER`, `LOWER`, `TRIM`, `REPLACE(text, search, replacement)`, `SEARCH(search, text)`, `CONTAINS(text, search)` |
+| Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
 
 A few details:
@@ -55,6 +79,6 @@ The full list with descriptions and examples is at `GET /api/v1/formulas/functio
 
 ## Not Yet
 
-- values of related records (`orders.total`) and sums over them (`SUM(transactions.amount)`) — step 3.5
 - formulas in dashboard widgets (`SUM(amount WHERE amount > 0)`), running sums and as-of lookups — step 3.6
-- computed columns that use other computed columns
+- aggregates over related rows of related rows (add a computed column on the related table and sum that)
+- the app's text search does not look into computed columns

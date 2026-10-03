@@ -733,7 +733,8 @@ function VisualColumnInspector({
           <span className="formula-field__label">Formula</span>
           <FormulaField
             table={table.name}
-            columns={table.columns.filter((candidate) => candidate.name !== column.name)}
+            column={column.name}
+            model={document}
             value={typeof column.formula === "string" ? column.formula : ""}
             onChange={(formula) => onChange({ formula })}
           />

@@ -113,7 +113,7 @@ public class SchemaValidatorTests
     }
 
     [Fact]
-    public void Validate_WarnsAboutComputedFormulasThatDoNotCheck()
+    public void Validate_RejectsComputedFormulasThatDoNotCheck_AndFillsInResultTypes()
     {
         var model = ModelJsonSerializer.Parse("""
             {
@@ -135,10 +135,11 @@ public class SchemaValidatorTests
 
         var result = _validator.Validate(model);
 
-        Assert.True(result.IsValid);
-        var warning = Assert.Single(result.Warnings, w => w.Code == "computed_formula_invalid");
-        Assert.Equal("Formula of 'orders.broken': Column 'nett' not found in orders — did you mean 'net'?", warning.Message);
-        Assert.Equal("tables[0].columns[3].formula", warning.Path);
+        Assert.False(result.IsValid);
+        var error = Assert.Single(result.Errors, e => e.Code == "computed_formula_invalid");
+        Assert.Equal("Formula of 'orders.broken': Column 'nett' not found in orders — did you mean 'net'?", error.Message);
+        Assert.Equal("tables[0].columns[3].formula", error.Path);
+        Assert.Equal("currency", result.NormalizedModel.Tables[0].Columns[2].ResultType);
     }
 
     [Fact]
