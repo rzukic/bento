@@ -42,6 +42,7 @@ export function KanbanView({
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [dragError, setDragError] = useState<{ rowId: string; msg: string } | null>(null);
   const [dragOverLane, setDragOverLane] = useState<string | null>(null);
+  const [draggingRowId, setDraggingRowId] = useState<string | null>(null);
   const dragRef = useRef<{ rowId: string; sourceLane: string } | null>(null);
 
   const groupingColumn = useMemo<ModelColumn | null>(() => {
@@ -99,22 +100,27 @@ export function KanbanView({
   }, [groupingColumn, rows, hiddenLaneValues, overrides]);
 
   function handleDragStart(
-    e: React.DragEvent<HTMLSpanElement>,
+    e: React.DragEvent<HTMLElement>,
     rowId: string,
     laneId: string,
   ) {
-    const card = (e.currentTarget as HTMLElement).closest("article");
-    if (card && e.dataTransfer) e.dataTransfer.setDragImage(card, 20, 20);
+    // A reference chip inside the card starts no card drag.
+    if ((e.target as HTMLElement).closest?.("button,a")) {
+      e.preventDefault();
+      return;
+    }
     if (e.dataTransfer) {
       e.dataTransfer.effectAllowed = "move";
       e.dataTransfer.setData("text/plain", rowId);
     }
     dragRef.current = { rowId, sourceLane: laneId };
+    setDraggingRowId(rowId);
   }
 
   function handleDragEnd() {
     dragRef.current = null;
     setDragOverLane(null);
+    setDraggingRowId(null);
   }
 
   function handleDragOver(e: React.DragEvent<HTMLDivElement>, laneId: string) {
@@ -251,7 +257,11 @@ export function KanbanView({
           onDrop={(e) => void handleDrop(e, lane.id)}
         >
           <div className="kanban-lane__header">
-            <span className="kanban-lane__label">{lane.label}</span>
+            <span className="kanban-lane__label">
+              {groupingColumn && lane.id !== UNASSIGNED_LANE_ID
+                ? renderCellValue(groupingColumn, lane.label)
+                : lane.label}
+            </span>
             <span className="kanban-lane__count" aria-label={`${lane.rows.length} cards`}>
               {lane.rows.length}
             </span>
@@ -273,9 +283,13 @@ export function KanbanView({
                       "kanban-card",
                       isSaving ? "kanban-card--saving" : "",
                       onOpenRecord ? "kanban-card--interactive" : "",
+                      draggingRowId === rowId ? "kanban-card--dragging" : "",
                     ]
                       .filter(Boolean)
                       .join(" ")}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, rowId, lane.id)}
+                    onDragEnd={handleDragEnd}
                     tabIndex={0}
                     role={onOpenRecord ? "button" : undefined}
                     aria-label={onOpenRecord ? `Open record ${rowId}` : undefined}
@@ -286,7 +300,6 @@ export function KanbanView({
                       // those already call stopPropagation on their own handlers
                       // but we guard defensively for future additions.
                       const target = e.target as HTMLElement | null;
-                      if (target?.closest(".kanban-card__drag-handle")) return;
                       if (target?.closest("button,a,input,select,textarea")) return;
                       onOpenRecord(row);
                     }}
@@ -298,16 +311,6 @@ export function KanbanView({
                       }
                     }}
                   >
-                    <span
-                      className="kanban-card__drag-handle"
-                      draggable
-                      aria-label="Drag to move"
-                      onClick={(e) => e.stopPropagation()}
-                      onDragStart={(e) => handleDragStart(e, rowId, lane.id)}
-                      onDragEnd={handleDragEnd}
-                    >
-                      <Icon name="grip-vertical" size={14} />
-                    </span>
                     <div className="kanban-card__body">
                       {allFields.length > 0 ? (
                         <dl className="kanban-card__fields">
@@ -316,6 +319,8 @@ export function KanbanView({
                               key={col.name}
                               className={["kanban-card__field", i === 0 ? "kanban-card__field--primary" : ""].filter(Boolean).join(" ")}
                             >
+                              {/* Values speak for themselves on a card; the
+                                  label stays for screen readers. */}
                               <dt className="kanban-card__field-label">
                                 {col.displayName ?? col.name}
                               </dt>
@@ -355,6 +360,11 @@ export function KanbanView({
                                   );
                                 })()}
                               </dd>
+                              {i === 0 ? (
+                                <span className="kanban-card__id" aria-hidden="true">
+                                  #{rowId}
+                                </span>
+                              ) : null}
                             </div>
                           ))}
                         </dl>

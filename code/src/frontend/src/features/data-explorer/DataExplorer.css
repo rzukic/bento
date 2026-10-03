@@ -4037,7 +4037,7 @@
 }
 
 /* Quiet hover: a slightly brighter surface and border, no lift or heavy
-   shadow; the grip only appears when the card is hovered or focused. */
+   shadow. */
 .kanban-card,
 .kanban-card:hover {
     transform: none;
@@ -4055,33 +4055,6 @@
     box-shadow: none;
 }
 
-.kanban-card__drag-handle {
-    width: 1rem;
-    height: 1.5rem;
-    border-radius: var(--r-sm);
-    background: transparent;
-    color: var(--text-4);
-    opacity: 0;
-    transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-
-.kanban-card:hover .kanban-card__drag-handle,
-.kanban-card:focus-visible .kanban-card__drag-handle,
-.kanban-card__drag-handle:focus-visible {
-    opacity: 1;
-    background: transparent;
-    color: var(--text-3);
-}
-
-.kanban-card__drag-handle:hover {
-    color: var(--text);
-}
-
-@media (hover: none) {
-    .kanban-card__drag-handle {
-        opacity: 1;
-    }
-}
 
 .kanban-card__field--primary .kanban-card__field-value {
     font-family: var(--font-display);
@@ -4466,4 +4439,415 @@
 /* Drafts have no selection toggle, so their marker stays visible on hover. */
 .data-grid__row--pending-new:hover .data-grid__primary-value {
     opacity: 1;
+}
+
+/* -------------------------------------------------------------------------
+   Record editor as in the design fragment: header with Prev/Next, fields
+   on the left as underline fields, related records on the right, an
+   action footer.
+   ------------------------------------------------------------------------- */
+.record-editor__panel {
+    height: min(760px, calc(100vh - 3rem));
+    background: var(--surface);
+}
+
+.record-editor__header {
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.record-editor__eyebrow {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.record-editor__title-id {
+    color: var(--text-4);
+}
+
+.record-editor__header-actions {
+    gap: 0.5rem;
+}
+
+.record-editor__tool,
+.record-editor__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-2);
+    font: 500 var(--fs-sm) var(--font-ui);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.record-editor__close {
+    width: 2rem;
+    padding: 0;
+}
+
+.record-editor__tool:hover:not(:disabled),
+.record-editor__close:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.record-editor__tool:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.record-editor__body {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    overflow: auto;
+}
+
+.record-editor__main,
+.record-editor__side {
+    padding: 1.75rem 2rem;
+}
+
+.record-editor__body--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.record-editor__body--split .record-editor__main,
+.record-editor__body--split .record-editor__side {
+    min-height: 0;
+    overflow: auto;
+}
+
+.record-editor__body--split .record-editor__main {
+    border-right: 1px solid var(--line);
+}
+
+.record-editor__fields {
+    gap: 1.625rem;
+}
+
+.record-editor__field-label {
+    font-size: 0.6875rem;
+}
+
+.record-editor__field-display,
+.record-editor__field-readonly,
+.record-editor .field__control {
+    min-height: 2.75rem;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+}
+
+.record-editor__field-value {
+    font-size: inherit;
+}
+
+.record-editor__field-readonly {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px dashed var(--line-2);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-3);
+}
+
+/* Related records: a titled list per relation, rows joined in one card */
+.record-editor__relations {
+    gap: 1.75rem;
+}
+
+.record-editor__relation-section {
+    gap: 0.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.record-editor__relation-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.record-editor__relation-count {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+.record-editor__relation-list {
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.record-editor__relation-list > li + li .record-editor__relation-row {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-row {
+    padding: 0.625rem 0.875rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.record-editor__relation-row:hover,
+.record-editor__relation-row:focus-visible {
+    border-color: var(--line);
+    background: var(--hover);
+    transform: none;
+}
+
+.record-editor__relation-row-meta {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-3);
+}
+
+/* Action footer */
+.record-editor__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.125rem 2rem;
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__actions-start,
+.record-editor__actions-end {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.record-editor__actions-hint {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.record-editor__actions-error {
+    font-size: var(--fs-xs);
+    color: var(--danger);
+}
+
+.record-editor__pill {
+    height: 2.25rem;
+    padding: 0 1rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font: 500 var(--fs-sm) var(--font-ui);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+.record-editor__pill:hover {
+    background: var(--hover);
+}
+
+.record-editor__pill--danger {
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
+}
+
+.record-editor__pill--danger:hover {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+@media (max-width: 760px) {
+    .record-editor__body--split {
+        display: block;
+        overflow: auto;
+    }
+
+    .record-editor__body--split .record-editor__main {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .record-editor__main,
+    .record-editor__side {
+        padding: 1.25rem 1rem;
+    }
+
+    .record-editor__header,
+    .record-editor__actions {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .record-editor__header {
+        flex-wrap: wrap;
+    }
+
+    .record-editor__actions-hint {
+        display: none;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Kanban as in the design fragment: lanes share the full width (scrolling
+   only when there are many), a value chip and count per lane, cards that
+   show values without labels (first value large, the record id beside it)
+   and can be dragged anywhere.
+   ------------------------------------------------------------------------- */
+.kanban-board {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(15rem, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+    padding: 0.25rem 0 1.25rem;
+}
+
+.kanban-lane {
+    flex: none;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+}
+
+.kanban-lane__header {
+    padding: 0 0.25rem 0.625rem;
+    transition: border-color var(--dur) var(--ease);
+}
+
+.kanban-lane__label {
+    font-family: var(--font-ui);
+    text-transform: none;
+    letter-spacing: 0;
+    overflow: visible;
+}
+
+.kanban-lane__count {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+.kanban-lane__list {
+    gap: 0.625rem;
+    padding: 0.75rem 0 0;
+    border-radius: 14px;
+    transition: background var(--dur) var(--ease);
+}
+
+.kanban-lane__empty {
+    border-color: var(--line-2);
+    border-radius: 12px;
+    color: var(--text-4);
+}
+
+.kanban-lane--drag-over .kanban-lane__header {
+    border-bottom-color: var(--accent);
+}
+
+.kanban-lane--drag-over .kanban-lane__list {
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.kanban-card {
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+    border-radius: 12px;
+    cursor: grab;
+}
+
+.kanban-card--interactive {
+    cursor: pointer;
+}
+
+.kanban-card--dragging {
+    opacity: 0.35;
+    border-style: dashed;
+}
+
+.kanban-card__fields {
+    gap: 0.5rem;
+}
+
+.kanban-card__field {
+    position: relative;
+    display: block;
+    min-width: 0;
+}
+
+.kanban-card__field--primary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+/* Labels are for screen readers only on cards. */
+.kanban-card__field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.kanban-card__field-value {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.kanban-card__field--primary .kanban-card__field-value {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-card__id {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+/* The first value is the card's headline whatever its type (numbers and
+   dates otherwise render in the small mono face). */
+.kanban-card__field--primary .kanban-card__field-value,
+.kanban-card__field--primary .kanban-card__field-value * {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text);
 }

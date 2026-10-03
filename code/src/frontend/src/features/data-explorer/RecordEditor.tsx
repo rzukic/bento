@@ -10,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { buildQueryString, createRow, fetchTableRows, patchRow } from "../../api/data";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Spinner } from "../../components/ui/Spinner";
 import {
   buildCompositeRowId,
@@ -173,6 +174,8 @@ export function RecordEditor() {
   const navigate = useNavigate();
   const editorState = useExplorerStore((state) => state.recordEditor);
   const closeRecordEditor = useExplorerStore((state) => state.closeRecordEditor);
+  const openRecordEditor = useExplorerStore((state) => state.openRecordEditor);
+  const deleteRow = useExplorerStore((state) => state.deleteRow);
   const popRecordEditor = useExplorerStore((state) => state.popRecordEditor);
   const pushRecordEditor = useExplorerStore((state) => state.pushRecordEditor);
   const retryRecordEditorLoad = useExplorerStore(
@@ -228,6 +231,20 @@ export function RecordEditor() {
     referenceRows,
   );
 
+  // Prev/Next walk the rows of the table view the editor was opened from
+  // (only for the record at the root of the stack; drilled-in records have
+  // no list to walk).
+  const neighbours = useMemo(() => {
+    if (!top || !view || depth !== 1) return { prev: null, next: null };
+    const pending = new Set(view.pendingNewRowIds);
+    const saved = view.rows.filter((row) => !pending.has(String(row.id ?? "")));
+    const index = saved.findIndex((row) => String(row.id ?? "") === top.rowId);
+    if (index === -1) return { prev: null, next: null };
+    return { prev: saved[index - 1] ?? null, next: saved[index + 1] ?? null };
+  }, [top, view, depth]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const previouslyFocusedRef = useRef<HTMLElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -280,6 +297,28 @@ export function RecordEditor() {
   const topRowId = top.rowId;
   const topTableName = top.table;
   const showBack = depth > 1;
+
+  function openNeighbour(row: Record<string, unknown> | null) {
+    if (!row) return;
+    setDeleteError(null);
+    void openRecordEditor({ table: topTableName, rowId: String(row.id ?? ""), row });
+  }
+
+  async function handleDelete() {
+    setConfirmDelete(false);
+    setDeleteError(null);
+    const deleted = await deleteRow(topTableName, topRowId);
+    if (!deleted) {
+      setDeleteError("The record could not be deleted.");
+      return;
+    }
+    if (depth > 1) popRecordEditor();
+    else closeRecordEditor();
+  }
+
+  const hasRelations = Boolean(table && currentRow && incomingRelationSections.length > 0);
+  const titleSuffix = ` #${topRowId}`;
+  const titleMain = title.endsWith(titleSuffix) ? title.slice(0, -titleSuffix.length) : title;
 
   function handleGoToTable() {
     closeRecordEditor();
@@ -343,21 +382,43 @@ export function RecordEditor() {
               />
             ) : null}
             <span className="record-editor__eyebrow">
-              {table?.displayName ?? table?.name ?? top.table}
+              {table?.displayName ?? table?.name ?? top.table} · record
             </span>
             <h2 id="record-editor-title" className="record-editor__title">
-              {title}
+              {titleMain}
+              {titleMain !== title ? (
+                <span className="record-editor__title-id">{titleSuffix}</span>
+              ) : null}
             </h2>
           </div>
           <div className="record-editor__header-actions">
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={handleGoToTable}
-            >
+            {depth === 1 ? (
+              <>
+                <button
+                  type="button"
+                  className="record-editor__tool"
+                  onClick={() => openNeighbour(neighbours.prev)}
+                  disabled={!neighbours.prev}
+                  aria-label="Previous record"
+                >
+                  <Icon name="chevron-left" size={13} />
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  className="record-editor__tool"
+                  onClick={() => openNeighbour(neighbours.next)}
+                  disabled={!neighbours.next}
+                  aria-label="Next record"
+                >
+                  Next
+                  <Icon name="chevron-right" size={13} />
+                </button>
+              </>
+            ) : null}
+            <button type="button" className="record-editor__tool" onClick={handleGoToTable}>
               Go to table
-            </Button>
+            </button>
             <button
               ref={closeButtonRef}
               type="button"
@@ -370,7 +431,15 @@ export function RecordEditor() {
           </div>
         </header>
 
-        <div className="record-editor__body">
+        <div
+          className={[
+            "record-editor__body",
+            hasRelations ? "record-editor__body--split" : "",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          <section className="record-editor__main" aria-label="Fields">
           {top.status === "loading" && !currentRow ? (
             <div className="record-editor__status" data-testid="record-editor-loading">
               <Spinner label="Loading record" />
@@ -418,21 +487,61 @@ export function RecordEditor() {
               <Spinner label="Loading record" />
             </div>
           )}
+          </section>
+
+          {hasRelations && currentRow ? (
+            <RecordEditorRelations
+              currentRowId={top.rowId}
+              currentRow={currentRow}
+              sections={incomingRelationSections}
+              snapshot={snapshot}
+              onOpenRecord={(targetTable, rowId, row) =>
+                void pushRecordEditor({ table: targetTable, rowId, row })
+              }
+              onViewAll={handleViewAllRelated}
+            />
+          ) : null}
         </div>
 
-        {table && currentRow && incomingRelationSections.length > 0 ? (
-          <RecordEditorRelations
-            currentRowId={top.rowId}
-            currentRow={currentRow}
-            sections={incomingRelationSections}
-            snapshot={snapshot}
-            onOpenRecord={(targetTable, rowId, row) =>
-              void pushRecordEditor({ table: targetTable, rowId, row })
-            }
-            onViewAll={handleViewAllRelated}
-          />
-        ) : null}
+        <footer className="record-editor__actions">
+          <div className="record-editor__actions-start">
+            {currentRow ? (
+              <button
+                type="button"
+                className="record-editor__pill record-editor__pill--danger"
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete record
+              </button>
+            ) : null}
+            {deleteError ? (
+              <span className="record-editor__actions-error" role="alert">
+                {deleteError}
+              </span>
+            ) : null}
+          </div>
+          <div className="record-editor__actions-end">
+            <span className="record-editor__actions-hint">Changes save automatically</span>
+            <button
+              type="button"
+              className="record-editor__pill"
+              onClick={() => closeRecordEditor()}
+            >
+              Close
+            </button>
+          </div>
+        </footer>
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title={`Delete ${title}?`}
+        description="You can undo this from the table right after."
+        confirmLabel="Delete record"
+        confirmVariant="danger"
+        onConfirm={() => void handleDelete()}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }
@@ -520,7 +629,7 @@ function RecordEditorRelations({
   onViewAll,
 }: RecordEditorRelationsProps) {
   return (
-    <footer className="record-editor__footer record-editor__footer--relations">
+    <section className="record-editor__side" aria-label="Related records">
       <div className="record-editor__relations">
         {sections.map((section) => {
           const relatedTable =
@@ -540,7 +649,7 @@ function RecordEditorRelations({
           );
         })}
       </div>
-    </footer>
+    </section>
   );
 }
 
