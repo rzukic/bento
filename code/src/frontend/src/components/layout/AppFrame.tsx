@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAppStore } from "../../stores/appStore";
-import { useSetupStore } from "../../features/setup/setupStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { Icon, type IconName } from "../common/Icon";
@@ -26,7 +25,7 @@ type NavItem = {
 type NavSection = {
   title: string;
   items: NavItem[];
-  /** Modules that exist in the plan but not yet in the product render dimmed. */
+  /** Modules that are not built yet render dimmed. */
   dimmed?: boolean;
 };
 
@@ -34,13 +33,13 @@ const navSections: NavSection[] = [
   {
     title: "Workspace",
     items: [
-      { to: "/", label: "Overview", icon: "home" },
+      { to: "/", label: "Home", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
       { to: "/model", label: "Schema", icon: "schema" },
     ],
   },
   {
-    title: "Later modules",
+    title: "Coming soon",
     dimmed: true,
     items: [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
@@ -59,7 +58,6 @@ export function AppFrame({ children }: AppFrameProps) {
   const navigate = useNavigate();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
-  const setupInfo = useSetupStore((state) => state.info);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const schemaSnapshot = useSchemaStore((state) => state.snapshot);
@@ -143,20 +141,8 @@ export function AppFrame({ children }: AppFrameProps) {
           </div>
           <div className="shell__brand-text">
             <span className="shell__brand-name">Repere</span>
-            <span className="shell__brand-env">repere · local</span>
           </div>
         </div>
-
-        <button
-          type="button"
-          className="shell__search"
-          aria-label="Open command palette"
-        >
-          <Icon name="search" size={14} />
-          <span className="shell__search-text">Search or jump…</span>
-          <span className="kbd">⌘</span>
-          <span className="kbd">K</span>
-        </button>
 
         <nav className="shell__nav" aria-label="Main navigation">
           {navSections.map((section) => (
@@ -234,11 +220,6 @@ export function AppFrame({ children }: AppFrameProps) {
 
           <div className="shell__topbar-spacer" />
 
-          <span className="badge">
-            <span className="badge__dot badge__dot--ok" aria-hidden="true" />
-            {setupInfo?.database_provider ?? "sqlite"} · {import.meta.env.DEV ? "dev" : setupInfo?.auth_mode ?? "standard"}
-          </span>
-          <span className="badge">v{setupInfo?.version ?? "dev"}</span>
           <ThemeSwitch className="shell__theme" />
         </header>
 
@@ -273,7 +254,7 @@ export function AppFrame({ children }: AppFrameProps) {
       <ConfirmDialog
         open={logoutOpen}
         title="Sign out of this workspace?"
-        description="This clears the in-memory access token and sends you back to the public login route. The refresh cookie remains managed by the backend auth flow."
+        description="You will need to sign in again to get back to your workspace."
         confirmLabel="Sign out"
         confirmVariant="danger"
         onConfirm={handleLogout}

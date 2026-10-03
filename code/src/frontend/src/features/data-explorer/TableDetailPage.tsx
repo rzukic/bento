@@ -379,10 +379,10 @@ export function TableDetailPage() {
     setOperationNotice({
       tone: result.successCount > 0 ? "warning" : "error",
       title:
-        result.successCount > 0 ? "Undo partially completed" : "Undo failed",
+        result.successCount > 0 ? "Some rows couldn't be restored" : "Undo failed",
       message:
         result.successCount > 0
-          ? `Restored ${result.successCount}/${result.total} rows. ${result.failureCount} could not be restored.`
+          ? `Restored ${result.successCount} of ${result.total} rows.`
           : `Could not restore ${result.total} ${restoredLabel}.`,
     });
   }
@@ -446,7 +446,8 @@ export function TableDetailPage() {
           message={
             <>
               <span>
-                {schemaError ?? "Unable to load the schema snapshot."}
+                {schemaError ??
+                  "Your tables could not be loaded. Try again in a moment."}
               </span>{" "}
               <Button
                 variant="ghost"
@@ -490,6 +491,11 @@ export function TableDetailPage() {
 
   // Table found — render detail
   const displayName = resolvedTable.displayName ?? resolvedTable.name;
+  const contextParentDisplayName =
+    context?.kind === "related"
+      ? (tableTabs.find((item) => item.name === context.parentTable)
+          ?.displayName ?? context.parentTable)
+      : null;
 
   function handleSortChange(sortClauses: SortClause[]) {
     if (context) {
@@ -717,7 +723,7 @@ export function TableDetailPage() {
           title: "Export canceled",
           message:
             result.exportedRows > 0
-              ? `Canceled ${format.toUpperCase()} export after fetching ${result.exportedRows} rows.`
+              ? `Export canceled after ${result.exportedRows} ${getRowLabel(result.exportedRows)}.`
               : `Canceled ${format.toUpperCase()} export before a file was created.`,
         });
         return;
@@ -801,11 +807,11 @@ export function TableDetailPage() {
           ? "Rows deleted"
           : successCount === 0
             ? "No rows deleted"
-            : "Bulk delete partially completed";
+            : "Some rows couldn't be deleted";
       const message =
         failureCount === 0
-          ? `Successfully deleted ${successCount}/${rowIds.length} rows.`
-          : `Successfully deleted ${successCount}/${rowIds.length} rows. ${failureCount} could not be deleted.`;
+          ? `Deleted ${successCount} ${getRowLabel(successCount)}.`
+          : `Deleted ${successCount} of ${rowIds.length} rows.`;
       setOperationNotice({ tone, title, message });
     }
   }
@@ -888,14 +894,8 @@ export function TableDetailPage() {
                     Related records
                   </span>
                   <span className="explorer-context__title">
-                    {displayName} related to {context.parentTable}{" "}
-                    {context.parentRowIds.length === 1 ? "row" : "rows"}{" "}
-                    {context.parentRowIds.join(", ")}
-                  </span>
-                  <span className="explorer-context__description">
-                    {context.via === "filter"
-                      ? `Using the normal filter flow on ${context.filterColumn ?? "the related field"} via ${context.accessor}.`
-                      : `Using relation accessor ${context.accessor} through the backend relation endpoint.`}
+                    {displayName} related to {contextParentDisplayName}{" "}
+                    {context.parentRowIds.map((rowId) => `#${rowId}`).join(", ")}
                   </span>
                 </div>
                 <Button
@@ -1026,12 +1026,12 @@ export function TableDetailPage() {
                     content: (
                       <div className="explorer-related">
                         <span className="explorer-related__label">
-                          Selection operations
+                          Selected rows
                         </span>
                         <span className="explorer-context__description">
                           {selectedRowIds.length === 1
                             ? "Duplicate, delete, or open related rows from the selected row."
-                            : "Delete the current selection or open related rows when that relation supports normal table filters."}
+                            : "Delete the selected rows or open their related records."}
                         </span>
                         <div className="explorer-related__actions">
                           <Button
@@ -1271,13 +1271,9 @@ export function TableDetailPage() {
         title={
           (deleteDialogRowIds?.length ?? 0) === 1
             ? "Delete this row?"
-            : `Delete these rows? (${deleteDialogRowIds?.length ?? 0} rows)`
+            : `Delete ${deleteDialogRowIds?.length ?? 0} rows?`
         }
-        description={
-          (deleteDialogRowIds?.length ?? 0) === 1
-            ? "This cannot be undone."
-            : "This cannot be undone."
-        }
+        description="You can undo this right after."
         confirmLabel={
           (deleteDialogRowIds?.length ?? 0) === 1 ? "Delete row" : "Delete rows"
         }
@@ -1298,7 +1294,7 @@ function getExportProgressLabel(
 ) {
   const formatLabel = format?.toUpperCase() ?? "Export";
   if (phase === "references") {
-    return `Resolving references for ${fetchedRows.toLocaleString()} ${getRowLabel(fetchedRows)} (${formatLabel})`;
+    return `Preparing ${formatLabel}…`;
   }
   if (phase === "download") {
     return `Preparing ${formatLabel} download`;

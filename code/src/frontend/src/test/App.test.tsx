@@ -88,7 +88,7 @@ describe("App scaffold", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
   });
 });
 
@@ -101,7 +101,7 @@ describe("Route guard", () => {
 
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
-    expect(screen.getByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
   });
 
   it("bounces already-authenticated visitors away from /login", () => {

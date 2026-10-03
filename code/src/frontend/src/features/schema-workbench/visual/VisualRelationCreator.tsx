@@ -213,14 +213,14 @@ export function VisualRelationCreator({
         </>
       )}
       <TextField
-        label="Parent accessor"
+        label="Name on parent records"
         value={draft.fromAccessor}
         onChange={(event) =>
           onChange({ ...draft, fromAccessor: event.currentTarget.value })
         }
       />
       <TextField
-        label="Child accessor"
+        label="Name on child records"
         value={draft.toAccessor}
         onChange={(event) =>
           onChange({ ...draft, toAccessor: event.currentTarget.value })
@@ -239,7 +239,6 @@ export function VisualRelationCreator({
         <ol className="schema-workbench__visual-relation-errors">
           {issues.map((issue) => (
             <li key={`${issue.code}:${issue.path}`}>
-              <strong>{issue.code}</strong>
               <span>{issue.message}</span>
             </li>
           ))}

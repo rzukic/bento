@@ -153,7 +153,7 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
         <span
           className={`data-grid__boolean data-grid__boolean--${booleanValue ? "true" : "false"}`}
         >
-          {booleanValue ? "true" : "false"}
+          {booleanValue ? "Yes" : "No"}
         </span>
       );
     }
@@ -164,7 +164,7 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
       <span
         className={`data-grid__boolean data-grid__boolean--${value ? "true" : "false"}`}
       >
-        {value ? "true" : "false"}
+        {value ? "Yes" : "No"}
       </span>
     );
   }

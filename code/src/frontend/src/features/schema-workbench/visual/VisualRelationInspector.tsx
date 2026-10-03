@@ -229,19 +229,6 @@ export function VisualRelationInspector({
   }
 
   const advancedRelationFields = getAdvancedRelationFields(relation);
-  const resolvedFromAccessor =
-    relation.fromAccessor && relation.fromAccessor.trim().length > 0
-      ? null
-      : (relation.resolvedFromAccessor ?? null);
-  const resolvedToAccessor =
-    relation.toAccessor && relation.toAccessor.trim().length > 0
-      ? null
-      : (relation.resolvedToAccessor ?? null);
-  const resolvedJunctionTable =
-    relation.type === "N:M" &&
-    !(relation.junctionTable && relation.junctionTable.trim().length > 0)
-      ? (relation.resolvedJunctionTableName ?? null)
-      : null;
 
   return (
     <section
@@ -250,7 +237,7 @@ export function VisualRelationInspector({
     >
       <header className="schema-workbench__visual-relation-summary-header">
         <span className="schema-workbench__visual-relation-summary-type">
-          {relation.type}
+          {relation.type === "N:M" ? "Many-to-many" : "One-to-many"}
         </span>
         <span className="schema-workbench__visual-relation-summary-arrow">
           {`${relation.from} → ${relation.to}`}
@@ -347,8 +334,9 @@ export function VisualRelationInspector({
         </>
       )}
       <TextField
-        label="Parent accessor"
+        label="Name on parent records"
         value={relation.fromAccessor ?? ""}
+        placeholder={relation.resolvedFromAccessor ?? undefined}
         onChange={(event) =>
           relation.type === "1:N"
             ? commitOneToMany({ fromAccessor: event.currentTarget.value })
@@ -356,8 +344,9 @@ export function VisualRelationInspector({
         }
       />
       <TextField
-        label="Child accessor"
+        label="Name on child records"
         value={relation.toAccessor ?? ""}
+        placeholder={relation.resolvedToAccessor ?? undefined}
         onChange={(event) =>
           relation.type === "1:N"
             ? commitOneToMany({ toAccessor: event.currentTarget.value })
@@ -371,49 +360,19 @@ export function VisualRelationInspector({
         >
           {issues.map((issue) => (
             <li key={`${issue.code}:${issue.path}`}>
-              <strong>{issue.code}</strong>
               <span>{issue.message}</span>
             </li>
           ))}
         </ol>
-      ) : null}
-      {resolvedFromAccessor || resolvedToAccessor || resolvedJunctionTable ? (
-        <dl className="schema-workbench__visual-relation-resolved">
-          {resolvedFromAccessor ? (
-            <div>
-              <dt>Resolved parent accessor</dt>
-              <dd>
-                <code>{resolvedFromAccessor}</code>
-              </dd>
-            </div>
-          ) : null}
-          {resolvedToAccessor ? (
-            <div>
-              <dt>Resolved child accessor</dt>
-              <dd>
-                <code>{resolvedToAccessor}</code>
-              </dd>
-            </div>
-          ) : null}
-          {resolvedJunctionTable ? (
-            <div>
-              <dt>Resolved junction table</dt>
-              <dd>
-                <code>{resolvedJunctionTable}</code>
-              </dd>
-            </div>
-          ) : null}
-        </dl>
       ) : null}
       {advancedRelationFields.length > 0 ? (
         <details
           className="schema-workbench__visual-relation-advanced"
           data-testid="visual-relation-advanced"
         >
-          <summary>Advanced (read-only)</summary>
+          <summary>Advanced</summary>
           <p className="schema-workbench__visual-muted">
-            These fields are not editable from the visual designer yet. Use JSON
-            mode if you need to change them.
+            Edit these in JSON mode.
           </p>
           <dl>
             {advancedRelationFields.map((field) => (

@@ -109,16 +109,16 @@ type SortDraftClause = { column: string; dir: SortDir };
 type FilterOperatorOption = { label: string; value: FilterOp };
 
 const defaultFilterOperatorOptions: FilterOperatorOption[] = [
-  { label: "Equals (=)", value: "eq" },
-  { label: "Does not equal (!=)", value: "neq" },
-  { label: "One of (in)", value: "in" },
-  { label: "Contains (~)", value: "like" },
-  { label: "Greater than (>)", value: "gt" },
-  { label: "Greater or equal (>=)", value: "gte" },
-  { label: "Less than (<)", value: "lt" },
-  { label: "Less or equal (<=)", value: "lte" },
-  { label: "Is empty (null)", value: "null" },
-  { label: "Is not empty (!null)", value: "notnull" },
+  { label: "Equals", value: "eq" },
+  { label: "Does not equal", value: "neq" },
+  { label: "Is one of", value: "in" },
+  { label: "Contains", value: "like" },
+  { label: "Greater than", value: "gt" },
+  { label: "Greater or equal", value: "gte" },
+  { label: "Less than", value: "lt" },
+  { label: "Less or equal", value: "lte" },
+  { label: "Is empty", value: "null" },
+  { label: "Is not empty", value: "notnull" },
 ];
 
 const nullaryFilterOps: FilterOp[] = ["null", "notnull"];
@@ -169,11 +169,11 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
 
   if (normalizedType === "enum") {
     return [
-      { label: "Equals (=)", value: "eq" },
-      { label: "Does not equal (!=)", value: "neq" },
-      { label: "One of (in)", value: "in" },
-      { label: "Is empty (null)", value: "null" },
-      { label: "Is not empty (!null)", value: "notnull" },
+      { label: "Equals", value: "eq" },
+      { label: "Does not equal", value: "neq" },
+      { label: "Is one of", value: "in" },
+      { label: "Is empty", value: "null" },
+      { label: "Is not empty", value: "notnull" },
     ];
   }
 
@@ -202,14 +202,14 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
   if (temporalColumnTypes.has(normalizedType)) {
     const temporalNoun = normalizedType === "datetime" ? "date/time" : "date";
     return [
-      { label: `On ${temporalNoun} (=)`, value: "eq" },
-      { label: `Not on ${temporalNoun} (!=)`, value: "neq" },
-      { label: `After ${temporalNoun} (>)`, value: "gt" },
-      { label: `On or after ${temporalNoun} (>=)`, value: "gte" },
-      { label: `Before ${temporalNoun} (<)`, value: "lt" },
-      { label: `On or before ${temporalNoun} (<=)`, value: "lte" },
-      { label: "Is empty (null)", value: "null" },
-      { label: "Is not empty (!null)", value: "notnull" },
+      { label: `On ${temporalNoun}`, value: "eq" },
+      { label: `Not on ${temporalNoun}`, value: "neq" },
+      { label: `After ${temporalNoun}`, value: "gt" },
+      { label: `On or after ${temporalNoun}`, value: "gte" },
+      { label: `Before ${temporalNoun}`, value: "lt" },
+      { label: `On or before ${temporalNoun}`, value: "lte" },
+      { label: "Is empty", value: "null" },
+      { label: "Is not empty", value: "notnull" },
     ];
   }
 
@@ -324,8 +324,8 @@ function getSortDirectionOptions(
 
   if (normalizedType === "boolean") {
     return [
-      { label: "False first", value: "asc" },
-      { label: "True first", value: "desc" },
+      { label: "No first", value: "asc" },
+      { label: "Yes first", value: "desc" },
     ];
   }
 
@@ -339,37 +339,67 @@ function createEmptySortDraft(): SortDraftClause {
   return { column: "", dir: "asc" };
 }
 
-function formatFilterChip(filter: FilterClause): string {
+function formatFilterChipValue(
+  column: ModelColumn | undefined,
+  value: string | null | undefined,
+): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "—";
+  if (normalizeColumnType(column?.type) === "boolean") {
+    if (trimmed.toLowerCase() === "true") return "Yes";
+    if (trimmed.toLowerCase() === "false") return "No";
+  }
+  return trimmed;
+}
+
+function formatFilterChip(
+  filter: FilterClause,
+  columns: ModelColumn[],
+): string {
+  const column = columns.find((item) => item.name === filter.column);
+  const name = column?.displayName ?? filter.column;
+  const value = formatFilterChipValue(column, filter.value);
+  const isTemporal = temporalColumnTypes.has(normalizeColumnType(column?.type));
+
   switch (filter.op) {
     case "eq":
-      return `${filter.column} = ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on" : "is"} ${value}`;
     case "neq":
-      return `${filter.column} != ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is not on" : "is not"} ${value}`;
     case "like":
-      return `${filter.column} contains ${filter.value ?? "—"}`;
+      return `${name} contains ${value}`;
     case "gt":
-      return `${filter.column} > ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is after" : "is greater than"} ${value}`;
     case "gte":
-      return `${filter.column} >= ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on or after" : "is at least"} ${value}`;
     case "lt":
-      return `${filter.column} < ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is before" : "is less than"} ${value}`;
     case "lte":
-      return `${filter.column} <= ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on or before" : "is at most"} ${value}`;
     case "null":
-      return `${filter.column} is empty`;
+      return `${name} is empty`;
     case "notnull":
-      return `${filter.column} is not empty`;
+      return `${name} is not empty`;
     case "in":
-      return `${filter.column} one of ${
-        (filter.value ?? "—")
+      return `${name} is one of ${
+        (filter.value ?? "")
           .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
+          .map((item) => formatFilterChipValue(column, item))
+          .filter((item) => item !== "—")
           .join(", ") || "—"
       }`;
     default:
-      return `${filter.column} ${filter.op} ${filter.value ?? "—"}`;
+      return `${name} ${filter.op} ${value}`;
   }
+}
+
+function formatSortChip(sort: SortClause, columns: ModelColumn[]): string {
+  const column = columns.find((item) => item.name === sort.column);
+  const name = column?.displayName ?? sort.column;
+  const direction =
+    getSortDirectionOptions(column).find((option) => option.value === sort.dir)
+      ?.label ?? sort.dir;
+  return `${name} (${direction})`;
 }
 
 function getInitialPanel(query: ExplorerQuery): UtilityPanel {
@@ -898,7 +928,7 @@ export function DataQueryControls({
   const searchLabel = query.search ? `Search: ${query.search}` : null;
   const sortLabel =
     query.sort.length > 0
-      ? `Sort: ${query.sort.map((sort) => `${sort.column} ${sort.dir}`).join(", ")}`
+      ? `Sort: ${query.sort.map((sort) => formatSortChip(sort, table.columns)).join(", ")}`
       : null;
 
   const canAddFilter =
@@ -1751,8 +1781,8 @@ export function DataQueryControls({
                     }
                     placeholder={
                       filterOp === "in"
-                        ? "Choose enum values"
-                        : "Choose enum value"
+                        ? "Choose values"
+                        : "Choose a value"
                     }
                     options={selectedFilterColumn.values}
                     values={
@@ -1779,9 +1809,9 @@ export function DataQueryControls({
                     value={filterValue}
                     onChange={(event) => setFilterValue(event.target.value)}
                     options={[
-                      { label: "Choose true or false", value: "" },
-                      { label: "true", value: "true" },
-                      { label: "false", value: "false" },
+                      { label: "Choose yes or no", value: "" },
+                      { label: "Yes", value: "true" },
+                      { label: "No", value: "false" },
                     ]}
                     disabled={disabled}
                   />
@@ -1971,14 +2001,14 @@ export function DataQueryControls({
                 className="data-controls__chip data-controls__chip--filter data-controls__chip--editable"
               >
                 <span className="data-controls__chip-label">
-                  {formatFilterChip(filter)}
+                  {formatFilterChip(filter, table.columns)}
                 </span>
                 <span className="data-controls__chip-actions">
                   <button
                     type="button"
                     className="data-controls__chip-action"
                     onClick={() => handleStartEditingFilter(index)}
-                    aria-label={`Edit filter ${formatFilterChip(filter)}`}
+                    aria-label={`Edit filter ${formatFilterChip(filter, table.columns)}`}
                     title="Edit filter"
                   >
                     <Icon name="pencil" size={12} />
@@ -1987,7 +2017,7 @@ export function DataQueryControls({
                     type="button"
                     className="data-controls__chip-action"
                     onClick={() => handleRemoveFilter(index)}
-                    aria-label={`Remove filter ${formatFilterChip(filter)}`}
+                    aria-label={`Remove filter ${formatFilterChip(filter, table.columns)}`}
                     title="Remove filter"
                   >
                     <Icon name="x" size={12} />
@@ -2073,7 +2103,7 @@ export function DataQueryControls({
                     aria-checked={createViewTypeDraft === "kanban"}
                     disabled={!hasEnumColumns && createViewTypeDraft !== "kanban"}
                     title={
-                      !hasEnumColumns ? "Kanban requires at least one enum column" : undefined
+                      !hasEnumColumns ? "Kanban needs a choice column to group by." : undefined
                     }
                     className={
                       createViewTypeDraft === "kanban"
@@ -2180,7 +2210,7 @@ export function DataQueryControls({
                         }
                         title={
                           !hasEnumColumns
-                            ? "Kanban requires at least one enum column"
+                            ? "Kanban needs a choice column to group by."
                             : undefined
                         }
                         className={
@@ -2235,7 +2265,7 @@ export function DataQueryControls({
                     <div className="view-modal__toggle-info">
                       <span className="view-modal__toggle-name">Auto-save</span>
                       <span className="view-modal__toggle-hint">
-                        Persist changes to this view as you edit
+                        Save changes to this view automatically
                       </span>
                     </div>
                     <button

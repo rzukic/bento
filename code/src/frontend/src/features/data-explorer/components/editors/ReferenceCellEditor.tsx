@@ -94,7 +94,11 @@ export function ReferenceCellEditor({
       displayLabel={resolvedLabel ?? stringValue}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder={refTableName ? `Search ${refTableName}…` : "Search…"}
+      searchPlaceholder={
+        refTableName
+          ? `Search ${refTable?.displayName ?? refTableName}…`
+          : "Search…"
+      }
       loadOptions={loadOptions}
       asyncSearch
       error={error}

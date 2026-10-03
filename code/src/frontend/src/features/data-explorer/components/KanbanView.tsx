@@ -156,7 +156,7 @@ export function KanbanView({
         setTimeout(() => setOverrides((p) => { const n = { ...p }; delete n[rowId]; return n; }), 0);
         return next;
       });
-      setDragError({ rowId, msg: "Failed to save — changes were not saved." });
+      setDragError({ rowId, msg: "Couldn't save this change. Try again." });
     } finally {
       setSaving((prev) => {
         const next = new Set(prev);
@@ -175,7 +175,7 @@ export function KanbanView({
         </div>
         <h3 className="kanban-empty__title">Kanban view not configured</h3>
         <p className="kanban-empty__description">
-          Choose an enum column to group rows into lanes.
+          Pick a choice column to group cards into lanes.
         </p>
         {onConfigureView ? (
           <button type="button" className="kanban-empty__action" onClick={onConfigureView}>

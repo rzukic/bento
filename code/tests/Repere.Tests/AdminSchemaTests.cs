@@ -1125,6 +1125,22 @@ public sealed class AdminSchemaTests
     }
 
     [Fact]
+    public async Task PutSchema_WrongValueType_DescribesThePositionWithoutDotNetTypeNames()
+    {
+        await using var host = await CreateHostAsync();
+
+        const string columnAsNumber = """{"version":1,"tables":[{"name":"t","columns":[42]}],"relations":[]}""";
+        using var response = await host.Client.PutAsync("/api/v1/admin/schema",
+            new StringContent(columnAsNumber, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error");
+        Assert.Equal("The schema could not be read: a value has the wrong format (table 1, column 1).",
+            error.GetProperty("message").GetString());
+        Assert.Equal("$.tables[0].columns[0]", error.GetProperty("details").GetProperty("path").GetString());
+    }
+
+    [Fact]
     public async Task PutSchema_DestructiveChange_Returns409WithoutConfirmation()
     {
         await using var host = await CreateHostAsync();

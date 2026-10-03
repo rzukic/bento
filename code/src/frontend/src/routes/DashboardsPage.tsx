@@ -4,10 +4,10 @@ export function DashboardsPage() {
   return (
     <PlaceholderCard
       module="Dashboards"
-      phase={3}
-      title="Dashboards are on the way."
-      description="Build dashboards from your tables: KPI cards, line, bar and pie charts, tables and Sankey diagrams, with global filters and live refresh."
-      bullets={["Excel-like formulas for computed columns and widget values", "Embeddable views and signed share links"]}
+      mark="D"
+      title="See your data at a glance."
+      description="Build dashboards from your tables with key figures, charts and lists, filter them all at once and watch them update as your data changes."
+      bullets={["Spreadsheet-style formulas for calculated values", "Share a dashboard with a link"]}
     />
   );
 }

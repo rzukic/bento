@@ -1045,7 +1045,7 @@ function RecordFieldList({
               {column.primaryKey ? (
                 <span className="record-editor__field-tag">PK</span>
               ) : column.type === "computed" ? (
-                <span className="record-editor__field-tag">computed</span>
+                <span className="record-editor__field-tag">Calculated</span>
               ) : null}
               {pending ? (
                 <span className="record-editor__field-pending" aria-live="polite">

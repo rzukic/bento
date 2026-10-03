@@ -3,10 +3,7 @@ import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import type { SchemaModelDocument, SchemaTable } from "../../../types/api";
-import {
-  countLabel,
-  formatMiniErdTypeValue,
-} from "../schemaWorkbenchHelpers";
+import { formatMiniErdTypeValue } from "../schemaWorkbenchHelpers";
 import type { VisualCanvasSelection, WorkbenchDiagnostic } from "../types";
 import {
   createOneToManyRelation,
@@ -113,12 +110,8 @@ export function VisualSchemaMode({
       <div className="schema-workbench__visual-shell">
         <EmptyState
           title="Fix JSON syntax to use Visual mode"
-          description="Visual mode reads the same draft as the JSON editor. The current draft stays untouched until the JSON parses again."
+          description="Fix the JSON errors to use the visual designer."
           icon="schema"
-          bullets={[
-            "Return to JSON to fix the syntax",
-            "Preview and apply remain disabled for invalid drafts",
-          ]}
         />
         <div className="schema-workbench__visual-actions">
           <Button variant="primary" onClick={onReturnToJson}>
@@ -134,9 +127,8 @@ export function VisualSchemaMode({
       <div className="schema-workbench__visual-shell">
         <EmptyState
           title="Draft cannot be shown visually"
-          description="The JSON parses, but it does not expose the tables and relations arrays the visual designer needs."
+          description="The schema needs a tables list and a relations list."
           icon="schema"
-          bullets={["Add a tables array", "Add a relations array"]}
         />
         <div className="schema-workbench__visual-actions">
           <Button variant="primary" onClick={onReturnToJson}>
@@ -433,21 +425,17 @@ export function VisualSchemaMode({
       {issues.length > 0 ? (
         <section
           className="schema-workbench__visual-issues"
-          aria-label="Visual draft checks"
+          aria-label="Problems to fix"
         >
-          <h3>Visual draft checks</h3>
+          <h3>Problems to fix</h3>
           <ol>
             {issues.slice(0, 5).map((issue) => (
               <li key={`${issue.code}:${issue.path}`}>
-                <strong>{issue.code}</strong>
                 <span>{issue.message}</span>
-                <code>{issue.path}</code>
               </li>
             ))}
           </ol>
-          {issues.length > 5 ? (
-            <p>{countLabel(issues.length - 5, "additional issue")} hidden.</p>
-          ) : null}
+          {issues.length > 5 ? <p>+{issues.length - 5} more</p> : null}
         </section>
       ) : null}
 
@@ -564,12 +552,8 @@ export function VisualSchemaMode({
           {visualDocument.tables.length === 0 ? (
             <EmptyState
               title="No tables in this draft"
-              description="The ERD canvas will render here once the shared Model JSON draft includes at least one table."
+              description="Add a table to start designing."
               icon="schema"
-              bullets={[
-                "JSON mode remains available",
-                "Import, preview, and apply still use the shared draft",
-              ]}
             />
           ) : (
             <div

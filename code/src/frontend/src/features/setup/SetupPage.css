@@ -589,10 +589,6 @@
     text-align: left;
   }
 
-  .setup__hint--env {
-    display: none;
-  }
-
   .setup__steps {
     gap: 1.25rem;
   }

@@ -55,7 +55,7 @@ export const useSchemaStore = create<SchemaStoreState>((set, get) => ({
         const message =
           cause instanceof ApiClientError
             ? cause.message
-            : "Unable to load the schema snapshot.";
+            : "Your tables could not be loaded. Try again in a moment.";
         set({ status: "error", error: message, inFlight: null });
         return null;
       }

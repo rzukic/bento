@@ -225,7 +225,7 @@ describe("BooleanCellEditor", () => {
     const input = screen.getByRole("combobox");
     fireEvent.focus(input);
     const listbox = await screen.findByRole("listbox");
-    fireEvent.mouseDown(within(listbox).getByText("True"));
+    fireEvent.mouseDown(within(listbox).getByText("Yes"));
     expect(onCommit).toHaveBeenCalledWith(true);
   });
 

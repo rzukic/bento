@@ -76,6 +76,8 @@ type PreviewState = {
   response: SchemaPreviewResponse | null;
   error: string | null;
   errorCode: string | null;
+  /** JSON path the server reported for a malformed draft, e.g. "$.tables[0]". */
+  errorPath?: string | null;
 };
 
 type ApplyFeedback = {
@@ -261,7 +263,7 @@ export function SchemaWorkbenchPage() {
         const message =
           error instanceof ApiClientError
             ? error.message
-            : "Unable to load the current Model JSON.";
+            : "Your schema could not be loaded. Try again in a moment.";
 
         setState((current) => ({
           ...current,
@@ -385,6 +387,7 @@ export function SchemaWorkbenchPage() {
     const location = resolvePreviewErrorLocation(
       previewState.error,
       state.draftText,
+      previewState.errorPath ?? null,
     );
 
     return [
@@ -402,6 +405,7 @@ export function SchemaWorkbenchPage() {
   }, [
     previewState.error,
     previewState.errorCode,
+    previewState.errorPath,
     previewState.status,
     state.draftText,
   ]);
@@ -599,11 +603,12 @@ export function SchemaWorkbenchPage() {
         error:
           error instanceof ApiClientError
             ? error.message
-            : "Unable to preview the schema draft right now.",
+            : "The preview could not be run. Try again in a moment.",
         errorCode:
           error instanceof ApiClientError
             ? (error.code ?? "preview_request_failed")
             : "preview_request_failed",
+        errorPath: error instanceof ApiClientError ? readErrorPath(error.details) : null,
       });
     }
   }
@@ -715,24 +720,22 @@ export function SchemaWorkbenchPage() {
         setApplyFeedback({
           tone: "warning",
           title: "No schema changes applied",
-          message:
-            "The backend reported that the draft already matches the current schema, so nothing was persisted.",
+          message: "Your draft already matches the current schema. Nothing to apply.",
         });
         return;
       }
 
-      let appliedSnapshot: SchemaModelDocument;
       try {
-        appliedSnapshot = await refreshAppliedSchemaState();
+        await refreshAppliedSchemaState();
       } catch (error) {
         const message =
           error instanceof ApiClientError
             ? error.message
-            : "The schema was applied, but the refreshed live snapshot could not be loaded.";
+            : "Changes applied, but the latest schema could not be reloaded. Refresh the page to see it.";
 
         setApplyFeedback({
           tone: "warning",
-          title: `Schema applied at version ${applyResult.version}`,
+          title: "Schema changes applied",
           message,
         });
         resetPreviewState();
@@ -745,11 +748,11 @@ export function SchemaWorkbenchPage() {
       setApplyFeedback({
         tone: "success",
         title: applyResult.metadataOnly
-          ? `Layout saved at version ${appliedSnapshot.version}`
-          : `Applied schema version ${appliedSnapshot.version}`,
+          ? "Layout saved"
+          : "Schema changes applied",
         message: applyResult.metadataOnly
-          ? "Layout/metadata saved without a database migration."
-          : `${countLabel(applyResult.changes.length, "change")} committed and the live schema snapshot was refreshed.`,
+          ? "Table colors and positions saved."
+          : `${countLabel(applyResult.changes.length, "change")} applied.`,
       });
     } catch (error) {
       const validationDetails = getSchemaValidationFailedDetails(error);
@@ -774,7 +777,7 @@ export function SchemaWorkbenchPage() {
           tone: "error",
           title: "Apply blocked by validation errors",
           message:
-            "The draft was not applied. Review the diagnostics panel, fix the schema errors, and preview again.",
+            "Your changes were not applied. Fix the problems listed under Preview, then preview again.",
         });
         return;
       }
@@ -785,7 +788,7 @@ export function SchemaWorkbenchPage() {
           ...current,
           confirmationRequired: true,
           error:
-            "This migration includes destructive changes. Review the preview and click Apply destructive changes to continue.",
+            "Some changes will delete data. Review them, then click Apply destructive changes.",
         }));
         return;
       }
@@ -818,13 +821,8 @@ export function SchemaWorkbenchPage() {
         <Panel>
           <EmptyState
             title="Admin access required"
-            description="Editing the schema is reserved for administrators. Sign in with an admin account to stage, preview, or apply schema drafts."
+            description="Only administrators can change the schema."
             icon="schema"
-            bullets={[
-              "Loads the current server schema into a local draft",
-              "Keeps the shared schema store on the last applied snapshot",
-              "Preview and apply actions stay gated to administrators",
-            ]}
           />
         </Panel>
       </div>
@@ -841,9 +839,6 @@ export function SchemaWorkbenchPage() {
             aria-live="polite"
           >
             <Spinner label="Loading current schema" />
-            <p className="schema-workbench__state-copy">
-              Fetching the current Model JSON from the admin schema API.
-            </p>
           </div>
         </Panel>
       </div>
@@ -857,7 +852,10 @@ export function SchemaWorkbenchPage() {
           <Alert
             tone="error"
             title="Unable to load the schema workbench"
-            message={state.error ?? "Unable to load the current Model JSON."}
+            message={
+              state.error ??
+              "Your schema could not be loaded. Try again in a moment."
+            }
           />
           <div className="schema-workbench__state-actions">
             <Button
@@ -986,7 +984,7 @@ export function SchemaWorkbenchPage() {
         <Alert
           tone="info"
           title="New workspace schema"
-          message="No tables or relations are currently applied. This shell still seeds a local draft so the next tasks can build editor, preview, and import flows on top of a stable empty-schema state."
+          message="Your workspace has no tables yet. Add one in Visual mode or import a schema file."
         />
       ) : null}
 
@@ -1067,7 +1065,7 @@ export function SchemaWorkbenchPage() {
               draftParse?.status !== "valid" || !visualDraftDocument ? (
                 <EmptyState
                   title="Visual inspector unavailable"
-                  description="Fix the JSON draft before editing visual table and column details."
+                  description="Fix the JSON errors to edit tables and columns."
                   icon="pencil"
                 />
               ) : (
@@ -1104,12 +1102,9 @@ export function SchemaWorkbenchPage() {
                 "idle" ? (
                 <EmptyState
                   title="Run Preview to validate this draft"
-                  description="Preview validates the draft against the backend schema engine and turns the diff into a grouped change summary before you open the apply review."
+                  description="Preview checks your changes and lists what will happen before you apply them."
                   icon="table"
-                  bullets={[
-                    "Preview is non-mutating and safe to rerun",
-                    "Destructive changes will be highlighted before apply",
-                  ]}
+                  bullets={["Previewing never changes your data."]}
                 />
               ) : previewState.status === "loading" ? (
                 <div
@@ -1117,11 +1112,7 @@ export function SchemaWorkbenchPage() {
                   role="status"
                   aria-live="polite"
                 >
-                  <Spinner label="Preparing preview result" />
-                  <p className="schema-workbench__preview-copy">
-                    Building the grouped schema summary and destructive-change
-                    details from the backend preview result.
-                  </p>
+                  <Spinner label="Checking your changes…" />
                 </div>
               ) : previewState.response ? (
                 <PreviewSummary
@@ -1140,7 +1131,7 @@ export function SchemaWorkbenchPage() {
       <Dialog
         open={applyDialog.open}
         title="Review and apply schema changes"
-        description="This dialog uses the latest preview result. Scroll through the summary to the end before applying the draft."
+        description="Review every change below, then apply."
         onClose={() => {
           if (applyInFlight) {
             return;
@@ -1184,7 +1175,7 @@ export function SchemaWorkbenchPage() {
               tone={applyDialog.confirmationRequired ? "warning" : "error"}
               title={
                 applyDialog.confirmationRequired
-                  ? "Explicit destructive confirmation required"
+                  ? "Confirm data loss"
                   : "Apply failed"
               }
               message={applyDialog.error}
@@ -1227,7 +1218,7 @@ export function SchemaWorkbenchPage() {
         title="Replace the current draft?"
         description={
           pendingImport
-            ? `Importing “${pendingImport.fileName}” will replace your unsaved local edits in the Model JSON draft.`
+            ? `Importing “${pendingImport.fileName}” will replace your unsaved changes.`
             : ""
         }
         confirmLabel="Replace draft"
@@ -1245,7 +1236,7 @@ export function SchemaWorkbenchPage() {
       <ConfirmDialog
         open={refreshConfirmOpen}
         title="Discard local draft edits?"
-        description="Refreshing will replace your unsaved local edits in the Model JSON draft with the latest server snapshot."
+        description="Refreshing will replace your unsaved changes with the saved schema."
         confirmLabel="Discard edits and refresh"
         cancelLabel="Keep editing"
         confirmVariant="danger"
@@ -1254,4 +1245,12 @@ export function SchemaWorkbenchPage() {
       />
     </div>
   );
+}
+
+function readErrorPath(details: unknown): string | null {
+  if (details && typeof details === "object" && "path" in details) {
+    const path = (details as { path: unknown }).path;
+    return typeof path === "string" && path.length > 0 ? path : null;
+  }
+  return null;
 }

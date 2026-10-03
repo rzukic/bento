@@ -357,12 +357,8 @@ export function SchemaMiniErd({
     return (
       <EmptyState
         title="Fix JSON syntax to update the schema map"
-        description="The map stays empty while the draft is not valid JSON, so it never shows a stale structure."
+        description="Fix the JSON errors to see the map."
         icon="schema"
-        bullets={[
-          "The JSON editor remains editable",
-          "The schema map updates again as soon as the draft parses",
-        ]}
       />
     );
   }
@@ -371,12 +367,8 @@ export function SchemaMiniErd({
     return (
       <EmptyState
         title="Draft structure is not ready for a schema map"
-        description="The JSON parses, but the draft does not expose the tables and relations arrays the workbench needs for a read-only topology preview."
+        description="The schema needs a tables list and a relations list."
         icon="schema"
-        bullets={[
-          "Add a tables array",
-          "Add a relations array, even when it is empty",
-        ]}
       />
     );
   }
@@ -394,10 +386,6 @@ export function SchemaMiniErd({
         title="No tables in this draft"
         description="The schema map will appear here once the draft includes at least one table."
         icon="schema"
-        bullets={[
-          "Empty schemas are valid for a new workspace",
-          "Relations appear after both endpoints exist in the draft",
-        ]}
       />
     );
   }

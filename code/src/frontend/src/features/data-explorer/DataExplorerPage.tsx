@@ -1,10 +1,12 @@
 import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
+import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { TableCard } from "./components/TableCard";
 import "./DataExplorer.css";
@@ -14,6 +16,8 @@ export function DataExplorerPage() {
   const snapshot = useSchemaStore((state) => state.snapshot);
   const error = useSchemaStore((state) => state.error);
   const load = useSchemaStore((state) => state.load);
+  const user = useAuthStore((state) => state.user);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (status === "idle") {
@@ -44,7 +48,7 @@ export function DataExplorerPage() {
           title="Schema unavailable"
           message={
             <>
-              <span>{error ?? "Unable to load the schema snapshot."}</span>{" "}
+              <span>{error ?? "Your tables could not be loaded. Try again in a moment."}</span>{" "}
               <Button
                 variant="ghost"
                 size="sm"
@@ -62,27 +66,33 @@ export function DataExplorerPage() {
 
   // Empty schema — no tables defined yet
   if (tables.length === 0) {
+    const canDesignSchema = user === null || user.role === "admin";
     return (
       <Panel>
         <EmptyState
           icon="database"
           title="No tables yet"
-          description="This schema doesn't define any tables. Create a Model JSON schema to get started, then come back to browse your data."
+          description={
+            canDesignSchema
+              ? "Create your first table in the schema designer, then come back here to browse your data."
+              : "An administrator can create the first table in the schema designer."
+          }
           actions={
-            <Button
-              variant="primary"
-              leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
-            >
-              Define schema
-            </Button>
+            canDesignSchema ? (
+              <Button
+                variant="primary"
+                leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
+                onClick={() => navigate("/model")}
+              >
+                Open schema designer
+              </Button>
+            ) : undefined
           }
         />
       </Panel>
     );
   }
 
-  // Ready with tables — snapshot is guaranteed non-null when tables.length > 0
-  const version = snapshot!.version;
   return (
     <div className="explorer-landing">
       <div className="explorer-summary">
@@ -100,9 +110,6 @@ export function DataExplorerPage() {
             {relationCount} relation{relationCount !== 1 ? "s" : ""}
           </span>
         ) : null}
-        <span className="explorer-summary__chip">
-          v{version}
-        </span>
       </div>
 
       <ul className="table-list" role="list">

@@ -113,53 +113,6 @@
   letter-spacing: -0.01em;
 }
 
-.shell__brand-env {
-  margin-top: 2px;
-  font-family: var(--font-mono);
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-4);
-}
-
-/* Search pill */
-.shell__search {
-  display: flex;
-  align-items: center;
-  gap: 0.625rem;
-  width: 100%;
-  height: 2.25rem;
-  padding: 0 0.625rem 0 0.75rem;
-  border: 1px solid var(--line-2);
-  border-radius: var(--r-pill);
-  background: var(--hover);
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  transition: border-color var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-
-.shell__search:hover {
-  border-color: color-mix(in srgb, var(--text) 24%, transparent);
-  color: var(--text-2);
-}
-
-.shell__search-text {
-  flex: 1;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.shell__search .kbd {
-  flex-shrink: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-4);
-  font-size: 0.625rem;
-  letter-spacing: 0.08em;
-}
-
 /* Nav */
 .shell__nav {
   flex: 1;
@@ -319,8 +272,6 @@
 
 /* Collapsed sidebar */
 .shell--collapsed .shell__brand-text,
-.shell--collapsed .shell__search-text,
-.shell--collapsed .shell__search .kbd,
 .shell--collapsed .shell__nav-label,
 .shell--collapsed .shell__nav-section-title,
 .shell--collapsed .shell__user-text,
@@ -335,13 +286,6 @@
 .shell--collapsed .shell__brand,
 .shell--collapsed .shell__user {
   justify-content: center;
-}
-
-.shell--collapsed .shell__search {
-  padding: 0;
-  justify-content: center;
-  width: 2.25rem;
-  margin: 0 auto;
 }
 
 .shell--collapsed .shell__nav-link {
@@ -482,8 +426,7 @@
     padding: 0.625rem 0.75rem;
   }
 
-  .shell__sidebar-footer,
-  .shell__search {
+  .shell__sidebar-footer {
     display: none;
   }
 
@@ -521,12 +464,6 @@
   .shell__topbar {
     height: 48px;
     padding: 0 0.75rem;
-  }
-
-  /* Provider and version are already on the setup and login pages; on a
-     phone the top bar keeps breadcrumbs and the theme switch only. */
-  .shell__topbar .badge {
-    display: none;
   }
 
   .shell__brand-text {

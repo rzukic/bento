@@ -136,7 +136,7 @@ describe("First-run routing", () => {
     render(<RouterProvider router={router} />);
 
     // Unauthenticated → the regular login page, not the wizard.
-    expect(await screen.findByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/login");
   });
 
@@ -148,7 +148,7 @@ describe("First-run routing", () => {
     const router = createTestRouter(["/"]);
     render(<RouterProvider router={router} />);
 
-    expect(await screen.findByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
     expect(useSetupStore.getState().status).toBe("error");
   });
 
@@ -219,10 +219,11 @@ describe("Setup wizard", () => {
     await user.click(screen.getByRole("button", { name: /get started/i }));
 
     // Environment: read-only facts from the status endpoint
-    await screen.findByRole("heading", { name: /read from your deployment/i });
-    expect(screen.getByText("sqlite")).toBeInTheDocument();
-    expect(screen.getByText("standard")).toBeInTheDocument();
+    await screen.findByRole("heading", { name: /your installation/i });
+    expect(screen.getByText("SQLite")).toBeInTheDocument();
+    expect(screen.getByText("Accounts required")).toBeInTheDocument();
     expect(screen.getByText("0.2.0-test")).toBeInTheDocument();
+    expect(screen.queryByText(/schema/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
     // Admin account: confirm must match before the submit enables
@@ -245,7 +246,7 @@ describe("Setup wizard", () => {
 
     await user.click(screen.getByRole("button", { name: /load sample data/i }));
     expect(await screen.findByText(/demo workspace loaded/i)).toBeInTheDocument();
-    expect(screen.getByText(/3 tables \(customers, orders, products\), 21 rows, schema version 1/i)).toBeInTheDocument();
+    expect(screen.getByText(/3 tables \(customers, orders, products\), 21 rows\.$/i)).toBeInTheDocument();
     expect(sampleCalls).toBe(1);
     const sampleCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/api/v1/setup/sample-data"));
     expect(new Headers(sampleCall?.[1]?.headers).get("Authorization")).toBe("Bearer wizard-token");

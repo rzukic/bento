@@ -101,7 +101,7 @@ export const useAuthStore = create<AuthStoreState>((set, get) => ({
       const message =
         cause instanceof ApiClientError
           ? cause.message
-          : "Unable to reach the authentication service.";
+          : "Could not reach the server. Check your connection and try again.";
       set({ loginInFlight: false, error: message });
       throw cause;
     }

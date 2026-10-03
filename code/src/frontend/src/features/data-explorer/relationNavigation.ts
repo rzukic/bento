@@ -276,7 +276,7 @@ function addRelatedDrillIn(
     accessor,
     targetTable: options.targetTable,
     label,
-    description: `Related ${label} via ${accessor}`,
+    description: `Show related ${label}`,
     mode: filterConfig ? "filter" : "endpoint",
     filterColumn: filterConfig?.filterColumn,
     valueColumn: filterConfig?.valueColumn
@@ -304,7 +304,7 @@ function addFallbackDrillIn(
     accessor: normalizedAccessor,
     targetTable: targetTable.name,
     label,
-    description: `Related ${label} via ${column.displayName ?? column.name}`,
+    description: `Show related ${label}`,
     mode: "filter",
     filterColumn: column.name
   });
@@ -329,7 +329,7 @@ function addIncomingRelationSection(
   sections.set(key, {
     targetTable: targetTable.name,
     label,
-    description: `Related ${label} where ${filterColumn} points at this record`,
+    description: `Show related ${label}`,
     filterColumn,
     filterColumnLabel: filterColumnLabel ?? filterColumn,
     relationType: options?.relationType ?? "1:N",

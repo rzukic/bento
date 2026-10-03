@@ -89,8 +89,6 @@ export function HomePage() {
   const tables = ready ? snapshot.tables : [];
   const relations = ready ? snapshot.relations ?? [] : [];
   const columnCount = tables.reduce((acc, table) => acc + table.columns.length, 0);
-  const oneToMany = relations.filter((relation) => relation.type === "1:N").length;
-  const manyToMany = relations.filter((relation) => relation.type === "N:M").length;
 
   const visibleTables = tables.slice(0, MAX_TABLES_ON_HOME);
   const hiddenTableCount = tables.length - visibleTables.length;
@@ -107,38 +105,35 @@ export function HomePage() {
       label: "Tables",
       value: loading ? "—" : String(tables.length),
       numeral: String(tables.length),
-      detail: loading ? "loading schema…" : status === "error" ? "schema unavailable" : `${columnCount} columns`
+      detail: loading ? "loading…" : status === "error" ? "unavailable" : tables.length === 0 ? "none yet" : "in this workspace"
     },
     {
-      label: "Schema version",
-      value: loading ? "—" : ready ? `v${snapshot.version}` : "—",
-      numeral: ready ? String(snapshot.version) : "0",
-      detail: loading ? "loading…" : ready && snapshot.version === 0 ? "nothing applied yet" : "current"
+      label: "Columns",
+      value: loading ? "—" : String(columnCount),
+      numeral: String(columnCount),
+      detail: loading ? "loading…" : columnCount === 0 ? "none yet" : "across all tables"
     },
     {
       label: "Relations",
       value: loading ? "—" : String(relations.length),
       numeral: String(relations.length),
-      detail:
-        relations.length === 0
-          ? "none defined"
-          : [oneToMany ? `${oneToMany} × 1:N` : null, manyToMany ? `${manyToMany} × N:M` : null].filter(Boolean).join(" · ")
+      detail: relations.length === 0 ? "none yet" : "between tables"
     },
     {
       label: "Rows",
       value: loading ? "—" : rowsKnown ? String(totalRows) : visibleTables.length === 0 ? "0" : "…",
       numeral: rowsKnown ? String(totalRows) : "0",
-      detail: visibleTables.length === 0 ? "no data yet" : rowsKnown ? "across visible tables" : "counting…"
+      detail: visibleTables.length === 0 ? "none yet" : rowsKnown ? "across all tables" : "counting…"
     }
   ];
 
   const subline = loading
-    ? "Loading the schema…"
+    ? "Loading your workspace…"
     : status === "error"
-      ? "The schema could not be loaded."
+      ? "Your workspace could not be loaded."
       : isEmpty
-        ? "Schema v0 · no tables · no rows. Repere becomes useful the moment the first table exists."
-        : `Schema v${snapshot?.version ?? 0} · ${tables.length} ${tables.length === 1 ? "table" : "tables"}${rowsKnown ? ` · ${totalRows} rows` : ""}`;
+        ? "Create your first table or load the demo to get started."
+        : `${tables.length} ${tables.length === 1 ? "table" : "tables"}${rowsKnown ? ` · ${totalRows} ${totalRows === 1 ? "row" : "rows"}` : ""}`;
 
   return (
     <>
@@ -178,10 +173,10 @@ export function HomePage() {
       {status === "error" && error ? (
         <Alert
           tone="error"
-          title="Schema snapshot unavailable"
+          title="Couldn't load your workspace"
           message={
             <>
-              <span>Schema snapshot could not be loaded: {error}</span>{" "}
+              <span>{error}</span>{" "}
               <Button variant="ghost" size="sm" className="home-banner__retry" onClick={() => void load({ force: true })}>
                 Retry
               </Button>
@@ -274,7 +269,7 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
       await reloadSetup({ force: true });
       await reloadSchema({ force: true });
     } catch (cause) {
-      setError(cause instanceof ApiClientError ? cause.message : "Unable to reach the backend to load the sample data.");
+      setError(cause instanceof ApiClientError ? cause.message : "The demo could not be loaded. Check your connection and try again.");
       setLoading(false);
     }
   }
@@ -286,8 +281,8 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
         <h2 className="home-empty__title display">Draw your first table.</h2>
         <p className="home-empty__text">
           {isAdmin
-            ? "Open the schema designer, add a table and its columns, preview the migration and apply it. The API routes and the Data Explorer follow automatically."
-            : "An administrator defines the schema in the designer; the Data Explorer and the API routes follow automatically."}
+            ? "Open the schema designer, add a table and its columns, review the changes and apply them. The table shows up in the Data Explorer right away."
+            : "An administrator sets up tables in the schema designer. Once they exist, you will find them in the Data Explorer."}
         </p>
         {isAdmin ? (
           <div>
@@ -301,8 +296,8 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
         <span className="section-label">Or look around first</span>
         <h2 className="home-empty__title display">Load the demo workspace.</h2>
         <p className="home-empty__text">
-          Customers, orders and products with two relations and 21 rows. Only possible while the installation is
-          empty; you can replace it later.
+          A small example with customers, orders and products, already linked together, so you can try things out
+          before adding your own data.
         </p>
         {error ? (
           <p className="home-empty__error" role="alert">
@@ -312,16 +307,16 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
         <div className="home-empty__actions">
           {isAdmin && sampleAvailable ? (
             <Button onClick={() => void loadSample()} disabled={loading} leadingIcon={<Icon name="database" size={14} />}>
-              {loading ? "Applying schema and rows…" : "Load sample data"}
+              {loading ? "Loading the demo…" : "Load the demo"}
             </Button>
           ) : (
             <span className="home-empty__note mono">
-              {isAdmin ? "Sample data is only available on an empty installation." : "Ask an administrator to load it."}
+              {isAdmin ? "The demo can only be loaded into an empty workspace." : "Ask an administrator to load it."}
             </span>
           )}
           {isAdmin ? (
             <Link to="/model" className="section-label home-empty__link">
-              Import Model JSON
+              Import a schema file
             </Link>
           ) : null}
         </div>

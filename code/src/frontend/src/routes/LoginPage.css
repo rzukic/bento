@@ -175,10 +175,6 @@
     padding-left: 0;
   }
 
-  .login__hint--env {
-    display: none;
-  }
-
   .login__row {
     flex-direction: column;
     align-items: stretch;

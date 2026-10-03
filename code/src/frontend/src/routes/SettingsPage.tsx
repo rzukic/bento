@@ -6,22 +6,18 @@ import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useAuthStore } from "../stores/authStore";
-import { useSchemaStore } from "../stores/schemaStore";
 import "./SettingsPage.css";
 
 export function SettingsPage() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const setupInfo = useSetupStore((state) => state.info);
-  const snapshot = useSchemaStore((state) => state.snapshot);
   const navigate = useNavigate();
   const [logoutOpen, setLogoutOpen] = useState(false);
 
   const facts: Array<[string, string]> = [
-    ["Database", setupInfo?.database_provider ?? "—"],
-    ["Auth mode", setupInfo?.auth_mode ?? "—"],
-    ["Backend", setupInfo ? `v${setupInfo.version}` : "—"],
-    ["Schema", snapshot ? `version ${snapshot.version}` : setupInfo ? `version ${setupInfo.schema_version}` : "—"]
+    ["Version", setupInfo?.version ?? "—"],
+    ["Database", databaseLabel(setupInfo?.database_provider)]
   ];
 
   return (
@@ -33,7 +29,7 @@ export function SettingsPage() {
         </div>
       </Panel>
 
-      <Panel title="Deployment" description="Read from the environment or Docker Compose; change it there and restart the stack.">
+      <Panel title="About">
         <dl className="settings__facts">
           {facts.map(([label, value]) => (
             <div key={label} className="settings__fact">
@@ -44,7 +40,7 @@ export function SettingsPage() {
         </dl>
       </Panel>
 
-      <Panel title="Account" description="Additional users can be created through the API until user management lands in the UI.">
+      <Panel title="Account">
         <div className="settings__row">
           <div className="settings__account">
             <span className="settings__avatar display" aria-hidden="true">
@@ -64,7 +60,7 @@ export function SettingsPage() {
       <ConfirmDialog
         open={logoutOpen}
         title="Sign out of this workspace?"
-        description="This ends the session in this browser; the refresh cookie is revoked on the server."
+        description="You will need to sign in again to get back to your workspace."
         confirmLabel="Sign out"
         confirmVariant="danger"
         onConfirm={() => {
@@ -76,4 +72,16 @@ export function SettingsPage() {
       />
     </div>
   );
+}
+
+function databaseLabel(provider: string | undefined): string {
+  switch (provider) {
+    case "sqlite":
+      return "SQLite";
+    case "postgres":
+    case "postgresql":
+      return "PostgreSQL";
+    default:
+      return provider ?? "—";
+  }
 }

@@ -54,7 +54,7 @@ function readBlobText(blob: Blob): Promise<string> {
 }
 
 function getModelEditorElement(): HTMLElement {
-  return screen.getByRole("textbox", { name: /model json draft/i });
+  return screen.getByRole("textbox", { name: /schema json editor/i });
 }
 
 function getModelEditorView(): EditorView {
@@ -852,7 +852,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(
       getVisibleSchemaDraftText(populatedSchema),
     );
@@ -897,7 +897,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(screen.getByRole("button", { name: "JSON" })).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -931,7 +931,7 @@ describe("Model workbench route (/model)", () => {
       "true",
     );
     expect(
-      screen.queryByRole("textbox", { name: /model json draft/i }),
+      screen.queryByRole("textbox", { name: /schema json editor/i }),
     ).not.toBeInTheDocument();
     expect(within(visualMode).getAllByText("gadgets").length).toBeGreaterThan(
       0,
@@ -944,7 +944,7 @@ describe("Model workbench route (/model)", () => {
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(getVisibleSchemaDraftText(editedSchema));
   });
 
@@ -956,7 +956,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const invalidDraft = `${getVisibleSchemaDraftText(populatedSchema)}\n{`;
     replaceModelEditorValue(invalidDraft);
 
@@ -969,12 +969,12 @@ describe("Model workbench route (/model)", () => {
     expect(screen.getByRole("button", { name: "Preview" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Export" })).toBeDisabled();
     expect(
-      screen.queryByRole("textbox", { name: /model json draft/i }),
+      screen.queryByRole("textbox", { name: /schema json editor/i }),
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Return to JSON" }));
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(invalidDraft);
     expect(screen.getByRole("button", { name: "JSON" })).toHaveAttribute(
       "aria-pressed",
@@ -990,7 +990,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1018,7 +1018,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1073,7 +1073,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1114,7 +1114,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1137,15 +1137,15 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.selectOptions(within(inspector).getByLabelText("From"), "users");
-    fireEvent.change(within(inspector).getByLabelText("Parent accessor"), {
+    fireEvent.change(within(inspector).getByLabelText("Name on parent records"), {
       target: { value: "accounts" },
     });
-    fireEvent.change(within(inspector).getByLabelText("Child accessor"), {
+    fireEvent.change(within(inspector).getByLabelText("Name on child records"), {
       target: { value: "user" },
     });
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).toContainEqual(
@@ -1169,7 +1169,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1198,7 +1198,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables).toContainEqual(
@@ -1230,7 +1230,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1258,7 +1258,7 @@ describe("Model workbench route (/model)", () => {
     ).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).toContainEqual(
@@ -1282,7 +1282,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1309,10 +1309,10 @@ describe("Model workbench route (/model)", () => {
     expect(within(inspector).getByLabelText("Column name")).toHaveValue(
       "customer_id",
     );
-    expect(within(inspector).getByLabelText("Parent accessor")).toHaveValue(
+    expect(within(inspector).getByLabelText("Name on parent records")).toHaveValue(
       "orders",
     );
-    expect(within(inspector).getByLabelText("Child accessor")).toHaveValue(
+    expect(within(inspector).getByLabelText("Name on child records")).toHaveValue(
       "customer",
     );
 
@@ -1328,7 +1328,7 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     const orders = draft.tables.find((table) => table.name === "orders");
@@ -1368,7 +1368,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1420,7 +1420,7 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables).toContainEqual(
@@ -1466,7 +1466,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1499,7 +1499,7 @@ describe("Model workbench route (/model)", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables.some((table) => table.name === "_jt_customers_orders")).toBe(
@@ -1544,7 +1544,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1570,7 +1570,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).toContainEqual(
@@ -1613,7 +1613,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1649,7 +1649,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables.some((table) => table.name === "_jt_customers_orders")).toBe(
@@ -1672,7 +1672,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1692,7 +1692,7 @@ describe("Model workbench route (/model)", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).not.toContainEqual(
@@ -1713,7 +1713,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1748,7 +1748,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).toEqual([]);
@@ -1765,7 +1765,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1793,7 +1793,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1818,7 +1818,7 @@ describe("Model workbench route (/model)", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations.map((relation) => relation.name)).toContain(
@@ -1837,7 +1837,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1858,7 +1858,9 @@ describe("Model workbench route (/model)", () => {
     fireEvent.blur(nameField);
 
     const errors = await screen.findByTestId("visual-relation-inspector-errors");
-    expect(within(errors).getByText(/visual_relation_name_taken/)).toBeInTheDocument();
+    expect(
+      within(errors).getByText('Relation name "user_groups" is already in use.'),
+    ).toBeInTheDocument();
 
     expect(nameField).toHaveValue("account_users");
   });
@@ -1879,7 +1881,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1912,7 +1914,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -1968,7 +1970,7 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.relations).toContainEqual(
@@ -2003,7 +2005,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2032,7 +2034,7 @@ describe("Model workbench route (/model)", () => {
     fireEvent.change(within(inspector).getByLabelText("Column name"), {
       target: { value: "name" },
     });
-    fireEvent.change(within(inspector).getByLabelText("Renamed from"), {
+    fireEvent.change(within(inspector).getByLabelText(/^Previous name/), {
       target: { value: "" },
     });
     await user.click(
@@ -2056,7 +2058,7 @@ describe("Model workbench route (/model)", () => {
       within(inspector).getByLabelText("Column type"),
       "integer",
     );
-    fireEvent.change(within(inspector).getByLabelText("Renamed from"), {
+    fireEvent.change(within(inspector).getByLabelText(/^Previous name/), {
       target: { value: "" },
     });
 
@@ -2098,10 +2100,10 @@ describe("Model workbench route (/model)", () => {
     await user.click(confirmButton);
 
     expect(
-      await screen.findByText("Applied schema version 1"),
+      await screen.findByText("Schema changes applied"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(
       getVisibleSchemaDraftText(visualCreatedAppliedSchema),
     );
@@ -2132,7 +2134,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2149,7 +2151,7 @@ describe("Model workbench route (/model)", () => {
     fireEvent.input(colorInput, { target: { value: "#ff8800" } });
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     const customers = draft.tables.find((table) => table.name === "customers");
@@ -2177,7 +2179,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2198,7 +2200,7 @@ describe("Model workbench route (/model)", () => {
     expect(within(inspector).getByText(/no color/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     const customers = draft.tables.find((table) => table.name === "customers");
@@ -2235,7 +2237,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2267,7 +2269,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2315,7 +2317,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     expect(
-      within(visualMode).getByText("visual_enum_values_required"),
+      within(visualMode).getByText(/must define at least one value/),
     ).toBeInTheDocument();
 
     fireEvent.change(within(inspector).getByLabelText(/enum values/i), {
@@ -2324,7 +2326,7 @@ describe("Model workbench route (/model)", () => {
     fireEvent.change(within(inspector).getByLabelText("Default value"), {
       target: { value: "active" },
     });
-    fireEvent.change(within(inspector).getByLabelText("Renamed from"), {
+    fireEvent.change(within(inspector).getByLabelText(/^Previous name/), {
       target: { value: "legacy_status" },
     });
     await user.click(within(inspector).getByLabelText("Required"));
@@ -2350,7 +2352,7 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     const table = draft.tables.find(
@@ -2391,7 +2393,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2420,7 +2422,7 @@ describe("Model workbench route (/model)", () => {
     fireEvent.change(within(inspector).getByLabelText("Table name"), {
       target: { value: "organizations" },
     });
-    expect(within(inspector).getByLabelText("Table renamed from")).toHaveValue(
+    expect(within(inspector).getByLabelText(/^Previous name/)).toHaveValue(
       "accounts",
     );
 
@@ -2441,11 +2443,11 @@ describe("Model workbench route (/model)", () => {
       within(inspector).getByRole("button", { name: /delete table/i }),
     );
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete table "organizations" from the visual draft? 1 relation will be removed. 2 reference columns will be removed.',
+      'Delete table "organizations"? 1 relation will be removed. 2 reference columns will be removed.',
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables.map((table) => table.name)).toEqual([
@@ -2484,7 +2486,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -2518,7 +2520,7 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     let draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables[0].columns.map((column) => column.name)).toEqual([
       "id",
@@ -2538,11 +2540,11 @@ describe("Model workbench route (/model)", () => {
       within(inspector).getByRole("button", { name: "Delete column" }),
     );
     expect(confirmSpy).toHaveBeenCalledWith(
-      'Delete column "widgets.color" from the visual draft?',
+      'Delete column "widgets.color"?',
     );
 
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     draft = JSON.parse(getModelEditorValue()) as SchemaModelDocument;
     expect(draft.tables[0].columns.map((column) => column.name)).toEqual([
       "id",
@@ -2561,7 +2563,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Refresh" }));
@@ -2596,7 +2598,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const dirtyDraft = `${getVisibleSchemaDraftText(populatedSchema)}\n{`;
     replaceModelEditorValue(dirtyDraft);
 
@@ -2656,7 +2658,7 @@ describe("Model workbench route (/model)", () => {
 
     expect(screen.getByText("Admin access required")).toBeInTheDocument();
     expect(
-      screen.getByText(/sign in with an admin account/i),
+      screen.getByText("Only administrators can change the schema."),
     ).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -2672,9 +2674,6 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByText(/loading current schema/i),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(/fetching the current model json/i),
-    ).toBeInTheDocument();
   });
 
   it("shows an empty-schema notice when no schema is currently applied", async () => {
@@ -2688,7 +2687,7 @@ describe("Model workbench route (/model)", () => {
     render(<RouterProvider router={router} />);
 
     expect(await screen.findByText("New workspace schema")).toBeInTheDocument();
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(JSON.stringify(emptySchema, null, 2));
   });
 
@@ -2702,7 +2701,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue('{"version":1,"tables":[],"relations":[]}');
 
     expect(getModelEditorValue()).toBe(
@@ -2731,7 +2730,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     vi.useFakeTimers();
     try {
@@ -2775,7 +2774,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const visibleDraftText = JSON.stringify(renamedColumnDraftSchema, null, 2);
     replaceModelEditorValue(visibleDraftText);
 
@@ -2817,7 +2816,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const visibleRequestSchema = getVisibleSchemaDraft(
       renamedColumnRequestSchema,
     );
@@ -2860,7 +2859,7 @@ describe("Model workbench route (/model)", () => {
     await user.click(confirmButton);
 
     expect(
-      await screen.findByText("Applied schema version 4"),
+      await screen.findByText("Schema changes applied"),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
@@ -2888,7 +2887,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const visibleDraftText = JSON.stringify(
       getVisibleSchemaDraft(renamedPrimaryKeyRequestSchema),
       null,
@@ -2907,14 +2906,12 @@ describe("Model workbench route (/model)", () => {
       await screen.findByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("primary_key_rename_unsupported"),
-    ).toBeInTheDocument();
-    expect(
       screen.getByText(
         "Primary key column rename is not supported for table 'widgets'. Keep the primary key column named 'id'.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("tables[0].columns[0].name")).toBeInTheDocument();
+    expect(screen.queryByText("primary_key_rename_unsupported")).toBeNull();
+    expect(screen.queryByText("tables[0].columns[0].name")).toBeNull();
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
     expect(fetchMock).toHaveBeenNthCalledWith(
       2,
@@ -2928,7 +2925,9 @@ describe("Model workbench route (/model)", () => {
     );
 
     await user.click(
-      screen.getByRole("button", { name: /primary_key_rename_unsupported/i }),
+      screen.getByRole("button", {
+        name: /primary key column rename is not supported/i,
+      }),
     );
 
     await waitFor(() => {
@@ -2956,7 +2955,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const visibleDraftText = getVisibleSchemaDraftText(
       movedPrimaryKeyDraftSchema,
     );
@@ -2967,7 +2966,7 @@ describe("Model workbench route (/model)", () => {
 
     expect(await screen.findByTestId("schema-visual-mode")).toBeInTheDocument();
     expect(
-      screen.queryByRole("region", { name: "Visual draft checks" }),
+      screen.queryByRole("region", { name: "Problems to fix" }),
     ).not.toBeInTheDocument();
     expect(screen.queryByText("visual_primary_key_must_be_id")).toBeNull();
 
@@ -2976,26 +2975,21 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("primary_key_must_be_id").length).toBeGreaterThan(
-      0,
-    );
     expect(
       screen.getAllByText(
         "Table 'widgets' uses 'name' as the primary key. User tables support only the 'id' column as primaryKey.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("tables[0].columns[1].primaryKey").length,
-    ).toBeGreaterThan(0);
+    expect(screen.queryByText("tables[0].columns[1].primaryKey")).toBeNull();
     const visualDiagnostics = within(
       await screen.findByTestId("schema-visual-mode"),
-    ).getByRole("region", { name: "Visual preview diagnostics" });
+    ).getByRole("region", { name: "Issues found" });
     expect(
       within(visualDiagnostics).getByText("widgets.name"),
     ).toBeInTheDocument();
     await user.click(
       within(visualDiagnostics).getByRole("button", {
-        name: /primary_key_must_be_id/i,
+        name: /uses 'name' as the primary key/i,
       }),
     );
 
@@ -3026,7 +3020,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue(JSON.stringify(appliedSchema, null, 2));
 
     const schemaMap = screen.getByTestId("schema-mini-erd");
@@ -3082,7 +3076,7 @@ describe("Model workbench route (/model)", () => {
       const router = createTestRouter(["/model"]);
       render(<RouterProvider router={router} />);
 
-      await screen.findByRole("textbox", { name: /model json draft/i });
+      await screen.findByRole("textbox", { name: /schema json editor/i });
       expect(getModelEditorValue()).not.toContain("resolvedFromAccessor");
       expect(getModelEditorValue()).not.toContain("resolvedToAccessor");
       expect(getModelEditorValue()).not.toContain("resolvedJunctionTableName");
@@ -3123,7 +3117,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue(`${JSON.stringify(populatedSchema, null, 2)}\n`);
 
     const file = new File(
@@ -3164,7 +3158,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue(
       '{\n  "version": 1,\n  "lable": faalse,\n  "tables": [],\n  "relations": []\n}',
     );
@@ -3176,7 +3170,8 @@ describe("Model workbench route (/model)", () => {
     expect(
       screen.getByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("json_parse_error")).toBeInTheDocument();
+    expect(screen.getByText(/is not valid JSON yet/)).toBeInTheDocument();
+    expect(screen.queryByText("json_parse_error")).toBeNull();
     expect(screen.getByRole("button", { name: "Format JSON" })).toBeDisabled();
     expect(
       document.querySelector(
@@ -3213,7 +3208,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const draftText = getVisibleSchemaDraftText(populatedSchema);
     const expectedIndex = draftText.indexOf('"type": "text"');
     const expectedLine = draftText.slice(0, expectedIndex).split("\n").length;
@@ -3227,13 +3222,19 @@ describe("Model workbench route (/model)", () => {
     expect(
       screen.getByRole("heading", { name: "1 warning" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("missing_column_type")).toBeInTheDocument();
-    expect(screen.getByText("reserved_table_name")).toBeInTheDocument();
-    expect(screen.getByText("tables[0].columns[1].type")).toBeInTheDocument();
-    expect(screen.getByText("tables[0].name")).toBeInTheDocument();
+    expect(
+      screen.getByText("Column 'widgets.name' is missing a required type."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Table 'widgets' is a SQL reserved word and may require quoting.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("missing_column_type")).toBeNull();
+    expect(screen.queryByText("tables[0].columns[1].type")).toBeNull();
 
     await user.click(
-      screen.getByRole("button", { name: /missing_column_type/i }),
+      screen.getByRole("button", { name: /is missing a required type/i }),
     );
 
     await waitFor(() => {
@@ -3287,7 +3288,7 @@ describe("Model workbench route (/model)", () => {
             {
               error: {
                 code: "VALIDATION_FAILED",
-                message: "Invalid Model JSON: Unsupported column type 'taext'.",
+                message: "The schema could not be read: Unsupported column type 'taext'.",
               },
             },
             400,
@@ -3298,7 +3299,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue(draftText);
 
     const user = userEvent.setup();
@@ -3307,17 +3308,16 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("VALIDATION_FAILED")).toBeInTheDocument();
     expect(
-      screen.getByText("Invalid Model JSON: Unsupported column type 'taext'."),
+      screen.getByText("The schema could not be read: Unsupported column type 'taext'."),
     ).toBeInTheDocument();
-    expect(screen.getByText("tables[0].columns[1].type")).toBeInTheDocument();
+    expect(screen.queryByText("VALIDATION_FAILED")).toBeNull();
     expect(screen.getByText(`Line ${expectedLine}`)).toBeInTheDocument();
     expect(screen.queryByText("Preview unavailable")).not.toBeInTheDocument();
     expect(screen.queryByText("Fix JSON syntax before previewing")).toBeNull();
 
     await user.click(
-      screen.getByRole("button", { name: /VALIDATION_FAILED/i }),
+      screen.getByRole("button", { name: /unsupported column type/i }),
     );
 
     await waitFor(() => {
@@ -3348,7 +3348,8 @@ describe("Model workbench route (/model)", () => {
               error: {
                 code: "VALIDATION_FAILED",
                 message:
-                  "Invalid Model JSON: The JSON value could not be converted to Repere.Api.Db.Schema.ColumnDef. Path: $.tables[0].columns[0] | LineNumber: 0 | BytePositionInLine: 189.",
+                  "The schema could not be read: a value has the wrong format (table 1, column 1).",
+                details: { path: "$.tables[0].columns[0]" },
               },
             },
             400,
@@ -3359,7 +3360,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3367,11 +3368,10 @@ describe("Model workbench route (/model)", () => {
     expect(
       await screen.findByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
-    expect(screen.getByText("tables[0].columns[0]")).toBeInTheDocument();
     expect(screen.getByText(`Line ${expectedLine}`)).toBeInTheDocument();
 
     await user.click(
-      screen.getByRole("button", { name: /VALIDATION_FAILED/i }),
+      screen.getByRole("button", { name: /wrong format/i }),
     );
 
     await waitFor(() => {
@@ -3399,7 +3399,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3446,7 +3446,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     replaceModelEditorValue(getVisibleSchemaDraftText(relationDropDraftSchema));
 
     const user = userEvent.setup();
@@ -3496,7 +3496,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3506,7 +3506,7 @@ describe("Model workbench route (/model)", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Preview completed successfully. This draft matches the current schema, so there is nothing to apply.",
+        "Your draft matches the current schema, so there is nothing to apply.",
       ),
     ).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Apply" })).toBeDisabled();
@@ -3536,7 +3536,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     replaceModelEditorValue(`${JSON.stringify(populatedSchema, null, 2)}\n`);
 
@@ -3566,7 +3566,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3579,7 +3579,7 @@ describe("Model workbench route (/model)", () => {
       screen.getByText("Change type of widgets.score from text to integer"),
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Example Casts (first 5 rows)"),
+      screen.getByText("How existing values will convert"),
     ).toBeInTheDocument();
     expect(screen.getByText('"1,0" -> 1')).toBeInTheDocument();
     expect(screen.getByText('"2,0" -> 2')).toBeInTheDocument();
@@ -3615,7 +3615,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -3656,10 +3656,10 @@ describe("Model workbench route (/model)", () => {
     });
 
     expect(
-      await screen.findByText("Applied schema version 4"),
+      await screen.findByText("Schema changes applied"),
     ).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(
       getVisibleSchemaDraftText(appliedSchema),
     );
@@ -3715,7 +3715,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3736,10 +3736,10 @@ describe("Model workbench route (/model)", () => {
       await screen.findByText("No schema changes applied"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByText("Applied schema version 3"),
+      screen.queryByText("Schema changes applied"),
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Layout saved at version 3"),
+      screen.queryByText("Layout saved"),
     ).not.toBeInTheDocument();
   });
 
@@ -3774,7 +3774,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Visual" }));
@@ -3809,16 +3809,16 @@ describe("Model workbench route (/model)", () => {
     expect(
       screen.getByRole("heading", { name: "1 error" }),
     ).toBeInTheDocument();
-    expect(screen.getAllByText("duplicate_table_name").length).toBeGreaterThan(
-      0,
-    );
-    expect(screen.getAllByText("tables[1].name").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Table 'widgets' already exists.").length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByText("duplicate_table_name")).toBeNull();
     const visualDiagnostics = within(
       await screen.findByTestId("schema-visual-mode"),
-    ).getByRole("region", { name: "Visual preview diagnostics" });
+    ).getByRole("region", { name: "Issues found" });
     expect(within(visualDiagnostics).getByText("Canvas")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "JSON" }));
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     expect(getModelEditorValue()).toBe(
       getVisibleSchemaDraftText(populatedSchema),
     );
@@ -3869,7 +3869,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
 
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Preview" }));
@@ -3890,7 +3890,7 @@ describe("Model workbench route (/model)", () => {
 
     expect(
       await within(dialog).findByText(
-        "Explicit destructive confirmation required",
+        "Confirm data loss",
       ),
     ).toBeInTheDocument();
 
@@ -3910,7 +3910,7 @@ describe("Model workbench route (/model)", () => {
     });
 
     expect(
-      await screen.findByText("Applied schema version 4"),
+      await screen.findByText("Schema changes applied"),
     ).toBeInTheDocument();
     expect(fetchMock).toHaveBeenNthCalledWith(
       3,
@@ -3941,7 +3941,7 @@ describe("Model workbench route (/model)", () => {
     const router = createTestRouter(["/model"]);
     render(<RouterProvider router={router} />);
 
-    await screen.findByRole("textbox", { name: /model json draft/i });
+    await screen.findByRole("textbox", { name: /schema json editor/i });
     const originalText = getVisibleSchemaDraftText(populatedSchema);
 
     const file = new File(['{\n  "version": 1,\n}'], "broken-model.json", {

@@ -1064,7 +1064,7 @@ export function updateOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Parent-table accessor is required.",
+      "Name on parent records is required.",
       `relations[].fromAccessor`,
     );
   } else if (
@@ -1074,7 +1074,7 @@ export function updateOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${fromAccessor}" is already used on table "${options.fromTableName}".`,
+      `The name "${fromAccessor}" is already used on table "${options.fromTableName}".`,
       `relations[].fromAccessor`,
     );
   }
@@ -1083,7 +1083,7 @@ export function updateOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Child-table accessor is required.",
+      "Name on child records is required.",
       `relations[].toAccessor`,
     );
   } else if (
@@ -1093,7 +1093,7 @@ export function updateOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${toAccessor}" is already used on table "${options.toTableName}".`,
+      `The name "${toAccessor}" is already used on table "${options.toTableName}".`,
       `relations[].toAccessor`,
     );
   }
@@ -1107,7 +1107,7 @@ export function updateOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${options.fromTableName}".`,
+      `Names on parent and child records must be different on table "${options.fromTableName}".`,
       `relations[].toAccessor`,
     );
   }
@@ -1242,7 +1242,7 @@ export function updateManyToManyRelation(
       issues: [
         {
           code: "visual_invalid_relation_type",
-          message: `Relation "${options.relationName}" is not an N:M relation.`,
+          message: `Relation "${options.relationName}" is not a many-to-many relation.`,
           path: "relations[]",
           severity: "error",
         },
@@ -1379,14 +1379,14 @@ export function updateManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Source-table accessor is required.",
+      "Name on parent records is required.",
       "relations[].fromAccessor",
     );
   } else if (fromTable && relationUsesAccessor(document, nextFrom, nextFromAccessor, relation.name)) {
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${nextFromAccessor}" is already used on table "${nextFrom}".`,
+      `The name "${nextFromAccessor}" is already used on table "${nextFrom}".`,
       "relations[].fromAccessor",
     );
   }
@@ -1395,14 +1395,14 @@ export function updateManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Target-table accessor is required.",
+      "Name on child records is required.",
       "relations[].toAccessor",
     );
   } else if (toTable && relationUsesAccessor(document, nextTo, nextToAccessor, relation.name)) {
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${nextToAccessor}" is already used on table "${nextTo}".`,
+      `The name "${nextToAccessor}" is already used on table "${nextTo}".`,
       "relations[].toAccessor",
     );
   }
@@ -1416,7 +1416,7 @@ export function updateManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${nextFrom}".`,
+      `Names on parent and child records must be different on table "${nextFrom}".`,
       "relations[].toAccessor",
     );
   }
@@ -1508,7 +1508,7 @@ export function switchManyToManyRelationDirection(
       issues: [
         {
           code: "visual_invalid_relation_type",
-          message: `Relation "${relationName}" is not an N:M relation.`,
+          message: `Relation "${relationName}" is not a many-to-many relation.`,
           path: "relations[]",
           severity: "error",
         },
@@ -1746,7 +1746,7 @@ export function createOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Parent-table accessor is required.",
+      "Name on parent records is required.",
       "relations[].fromAccessor",
     );
   } else if (
@@ -1756,7 +1756,7 @@ export function createOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${fromAccessor}" is already used on table "${options.fromTableName}".`,
+      `The name "${fromAccessor}" is already used on table "${options.fromTableName}".`,
       "relations[].fromAccessor",
     );
   }
@@ -1765,7 +1765,7 @@ export function createOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Child-table accessor is required.",
+      "Name on child records is required.",
       "relations[].toAccessor",
     );
   } else if (
@@ -1775,7 +1775,7 @@ export function createOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${toAccessor}" is already used on table "${options.toTableName}".`,
+      `The name "${toAccessor}" is already used on table "${options.toTableName}".`,
       "relations[].toAccessor",
     );
   }
@@ -1789,7 +1789,7 @@ export function createOneToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${options.fromTableName}".`,
+      `Names on parent and child records must be different on table "${options.fromTableName}".`,
       "relations[].toAccessor",
     );
   }
@@ -1992,7 +1992,7 @@ export function createManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Source-table accessor is required.",
+      "Name on parent records is required.",
       "relations[].fromAccessor",
     );
   } else if (
@@ -2002,7 +2002,7 @@ export function createManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${fromAccessor}" is already used on table "${options.fromTableName}".`,
+      `The name "${fromAccessor}" is already used on table "${options.fromTableName}".`,
       "relations[].fromAccessor",
     );
   }
@@ -2011,7 +2011,7 @@ export function createManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Target-table accessor is required.",
+      "Name on child records is required.",
       "relations[].toAccessor",
     );
   } else if (
@@ -2021,7 +2021,7 @@ export function createManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${toAccessor}" is already used on table "${options.toTableName}".`,
+      `The name "${toAccessor}" is already used on table "${options.toTableName}".`,
       "relations[].toAccessor",
     );
   }
@@ -2035,7 +2035,7 @@ export function createManyToManyRelation(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${options.fromTableName}".`,
+      `Names on parent and child records must be different on table "${options.fromTableName}".`,
       "relations[].toAccessor",
     );
   }
@@ -2118,7 +2118,7 @@ export function convertOneToManyRelationToManyToMany(
       issues: [
         {
           code: "visual_invalid_relation_type",
-          message: `Relation "${options.relationName}" is not a 1:N relation.`,
+          message: `Relation "${options.relationName}" is not a one-to-many relation.`,
           path: "relations[]",
           severity: "error",
         },
@@ -2214,7 +2214,7 @@ export function convertOneToManyRelationToManyToMany(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Source-table accessor is required.",
+      "Name on parent records is required.",
       "relations[].fromAccessor",
     );
   } else if (
@@ -2223,7 +2223,7 @@ export function convertOneToManyRelationToManyToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${fromAccessor}" is already used on table "${relation.from}".`,
+      `The name "${fromAccessor}" is already used on table "${relation.from}".`,
       "relations[].fromAccessor",
     );
   }
@@ -2232,7 +2232,7 @@ export function convertOneToManyRelationToManyToMany(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Target-table accessor is required.",
+      "Name on child records is required.",
       "relations[].toAccessor",
     );
   } else if (
@@ -2241,7 +2241,7 @@ export function convertOneToManyRelationToManyToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${toAccessor}" is already used on table "${relation.to}".`,
+      `The name "${toAccessor}" is already used on table "${relation.to}".`,
       "relations[].toAccessor",
     );
   }
@@ -2255,7 +2255,7 @@ export function convertOneToManyRelationToManyToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${relation.from}".`,
+      `Names on parent and child records must be different on table "${relation.from}".`,
       "relations[].toAccessor",
     );
   }
@@ -2362,7 +2362,7 @@ export function convertManyToManyRelationToOneToMany(
       issues: [
         {
           code: "visual_invalid_relation_type",
-          message: `Relation "${options.relationName}" is not an N:M relation.`,
+          message: `Relation "${options.relationName}" is not a many-to-many relation.`,
           path: "relations[]",
           severity: "error",
         },
@@ -2418,7 +2418,7 @@ export function convertManyToManyRelationToOneToMany(
     pushIssue(
       issues,
       "visual_relation_from_accessor_required",
-      "Parent-table accessor is required.",
+      "Name on parent records is required.",
       "relations[].fromAccessor",
     );
   } else if (
@@ -2427,7 +2427,7 @@ export function convertManyToManyRelationToOneToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${fromAccessor}" is already used on table "${relation.from}".`,
+      `The name "${fromAccessor}" is already used on table "${relation.from}".`,
       "relations[].fromAccessor",
     );
   }
@@ -2436,7 +2436,7 @@ export function convertManyToManyRelationToOneToMany(
     pushIssue(
       issues,
       "visual_relation_to_accessor_required",
-      "Child-table accessor is required.",
+      "Name on child records is required.",
       "relations[].toAccessor",
     );
   } else if (
@@ -2445,7 +2445,7 @@ export function convertManyToManyRelationToOneToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Accessor "${toAccessor}" is already used on table "${relation.to}".`,
+      `The name "${toAccessor}" is already used on table "${relation.to}".`,
       "relations[].toAccessor",
     );
   }
@@ -2459,7 +2459,7 @@ export function convertManyToManyRelationToOneToMany(
     pushIssue(
       issues,
       "visual_relation_accessor_collision",
-      `Self-referential relation accessors must be distinct on table "${relation.from}".`,
+      `Names on parent and child records must be different on table "${relation.from}".`,
       "relations[].toAccessor",
     );
   }
@@ -2580,7 +2580,7 @@ export function validateVisualSchemaDraft(
         pushIssue(
           issues,
           "visual_invalid_table_layout",
-          "Table layout metadata must be an object.",
+          "Table layout must be an object.",
           `tables[${tableIndex}].${visualTableLayoutField}`,
         );
       } else {
@@ -2588,7 +2588,7 @@ export function validateVisualSchemaDraft(
           pushIssue(
             issues,
             "visual_invalid_table_layout_position",
-            "Table layout metadata must include numeric x and y coordinates.",
+            "Table layout must include numeric x and y positions.",
             `tables[${tableIndex}].${visualTableLayoutField}`,
           );
         }
@@ -2732,7 +2732,7 @@ export function validateVisualSchemaDraft(
       pushIssue(
         issues,
         "visual_relation_from_accessor_required",
-        `Relation "${relation.name}" requires a parent-table accessor.`,
+        `Relation "${relation.name}" needs a name on parent records.`,
         `relations[${relationIndex}].fromAccessor`,
       );
     } else if (
@@ -2742,7 +2742,7 @@ export function validateVisualSchemaDraft(
       pushIssue(
         issues,
         "visual_relation_accessor_collision",
-        `Accessor "${fromAccessor}" is already used on table "${relation.from}".`,
+        `The name "${fromAccessor}" is already used on table "${relation.from}".`,
         `relations[${relationIndex}].fromAccessor`,
       );
     }
@@ -2751,7 +2751,7 @@ export function validateVisualSchemaDraft(
       pushIssue(
         issues,
         "visual_relation_to_accessor_required",
-        `Relation "${relation.name}" requires a child-table accessor.`,
+        `Relation "${relation.name}" needs a name on child records.`,
         `relations[${relationIndex}].toAccessor`,
       );
     } else if (
@@ -2761,7 +2761,7 @@ export function validateVisualSchemaDraft(
       pushIssue(
         issues,
         "visual_relation_accessor_collision",
-        `Accessor "${toAccessor}" is already used on table "${relation.to}".`,
+        `The name "${toAccessor}" is already used on table "${relation.to}".`,
         `relations[${relationIndex}].toAccessor`,
       );
     }
@@ -2775,7 +2775,7 @@ export function validateVisualSchemaDraft(
       pushIssue(
         issues,
         "visual_relation_accessor_collision",
-        `Self-referential relation accessors must be distinct on table "${relation.from}".`,
+        `Names on parent and child records must be different on table "${relation.from}".`,
         `relations[${relationIndex}].toAccessor`,
       );
     }

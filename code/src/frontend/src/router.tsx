@@ -58,10 +58,10 @@ const shellRoutes: RouteObject[] = [
     path: "model",
     element: <ModelPage />,
     handle: {
-      title: "Model",
-      subtitle: "Inspect and stage Model JSON drafts safely.",
+      title: "Schema",
+      subtitle: "Design tables, columns and relations.",
       hidePageHeader: true,
-      navLabel: "Model",
+      navLabel: "Schema",
       navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
@@ -71,7 +71,7 @@ const shellRoutes: RouteObject[] = [
     handle: {
       title: "Dashboards",
       navLabel: "Dashboards",
-      navGroup: "Later Modules"
+      navGroup: "Coming soon"
     } satisfies AppRouteHandle
   },
   {
@@ -80,7 +80,7 @@ const shellRoutes: RouteObject[] = [
     handle: {
       title: "Forms",
       navLabel: "Forms",
-      navGroup: "Later Modules"
+      navGroup: "Coming soon"
     } satisfies AppRouteHandle
   },
   {
@@ -89,7 +89,7 @@ const shellRoutes: RouteObject[] = [
     handle: {
       title: "AI Assistant",
       navLabel: "AI",
-      navGroup: "Later Modules"
+      navGroup: "Coming soon"
     } satisfies AppRouteHandle
   },
   {

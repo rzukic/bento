@@ -6,21 +6,21 @@ type PlaceholderCardProps = {
   module: string;
   title: string;
   description: string;
-  /** Planned phase from the project plan, e.g. 3. */
-  phase: number;
+  /** Short mark drawn as the outlined glyph, e.g. "D". */
+  mark: string;
   bullets?: string[];
 };
 
 /**
  * The state shown on routes for modules that are planned but not built yet.
- * States what the module will do and when, without pretending to work.
+ * States what the module will do, without pretending to work.
  */
-export function PlaceholderCard({ module, title, description, phase, bullets = [] }: PlaceholderCardProps) {
+export function PlaceholderCard({ module, title, description, mark, bullets = [] }: PlaceholderCardProps) {
   return (
     <section className="later-module" aria-labelledby="later-module-title">
       <div className="later-module__text">
         <span className="section-label later-module__eyebrow">
-          {module} · planned for phase {phase}
+          {module} · coming soon
         </span>
         <h2 id="later-module-title" className="later-module__title display">
           {title}
@@ -34,7 +34,7 @@ export function PlaceholderCard({ module, title, description, phase, bullets = [
           </ul>
         ) : null}
       </div>
-      <OutlinedNumeral value={String(phase)} className="later-module__numeral" opacity={0.6} />
+      <OutlinedNumeral value={mark} className="later-module__numeral" opacity={0.6} />
     </section>
   );
 }

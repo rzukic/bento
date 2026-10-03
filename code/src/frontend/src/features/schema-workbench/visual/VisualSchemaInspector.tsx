@@ -119,7 +119,7 @@ function VisualTableColorField({ table, onChange }: VisualTableColorFieldProps) 
         ) : null}
       </div>
       <span className="schema-workbench__visual-color-hint">
-        Layout-only metadata. Saved with the schema but ignored by migrations.
+        Only changes how the table looks in the designer.
       </span>
     </div>
   );
@@ -150,7 +150,7 @@ export function VisualSchemaInspector({
       >
         <EmptyState
           title="Select a table, column, or relation"
-          description="Schema settings appear here and update the shared Model JSON draft immediately."
+          description="Click a table, column or relation on the canvas to edit it."
           icon="pencil"
         />
       </aside>
@@ -197,7 +197,7 @@ export function VisualSchemaInspector({
       >
         <EmptyState
           title="Selection no longer exists"
-          description="Choose another table or column from the ERD canvas."
+          description="Choose another table or column from the canvas."
           icon="schema"
         />
       </aside>
@@ -250,7 +250,7 @@ export function VisualSchemaInspector({
   function deleteSelectedTable() {
     const impact = getTableDeleteImpact(document, activeTable.name);
     const details = [
-      `Delete table "${activeTable.name}" from the visual draft?`,
+      `Delete table "${activeTable.name}"?`,
       impact.relationCount > 0
         ? `${countLabel(impact.relationCount, "relation")} will be removed.`
         : null,
@@ -330,7 +330,7 @@ export function VisualSchemaInspector({
 
   function deleteSelectedColumn(column: SchemaColumn) {
     const confirmed = window.confirm(
-      `Delete column "${activeTable.name}.${column.name}" from the visual draft?`,
+      `Delete column "${activeTable.name}.${column.name}"?`,
     );
     if (!confirmed) {
       return;
@@ -441,7 +441,8 @@ export function VisualSchemaInspector({
               }
             />
             <TextField
-              label="Table renamed from"
+              label="Previous name"
+              message="Set this when renaming so existing data is kept."
               value={activeTable.renamedFrom ?? ""}
               onChange={(event) =>
                 updateSelectedTable({
@@ -560,7 +561,9 @@ export function VisualSchemaInspector({
                         })
                       }
                     >
-                      <span>{`${relation.name} (${relation.type})`}</span>
+                      <span>{`${relation.name} (${
+                        relation.type === "N:M" ? "many-to-many" : "one-to-many"
+                      })`}</span>
                     </button>
                   </li>
                 ))}
@@ -720,7 +723,8 @@ function VisualColumnInspector({
         }
       />
       <TextField
-        label="Renamed from"
+        label="Previous name"
+        message="Set this when renaming so existing data is kept."
         value={column.renamedFrom ?? ""}
         onChange={(event) =>
           onChange({

@@ -4,10 +4,10 @@ export function FormsPage() {
   return (
     <PlaceholderCard
       module="Forms"
-      phase={4}
-      title="Forms are planned."
-      description="Collect records through forms generated from your schema or built by hand, with submissions landing straight in your tables."
-      bullets={["Auto-generated forms per table", "Form builder and submission history"]}
+      mark="F"
+      title="Collect data with forms."
+      description="Collect records through forms made from your tables or built by hand. Every submission lands straight in your data."
+      bullets={["A ready-made form for every table", "Build your own and see every submission"]}
     />
   );
 }

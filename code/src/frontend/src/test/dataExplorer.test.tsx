@@ -249,7 +249,32 @@ describe("Data Explorer landing (/data)", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByText("No tables yet")).toBeInTheDocument();
-    expect(screen.getByText(/create a model json schema/i)).toBeInTheDocument();
+    expect(
+      screen.getByText(/create your first table in the schema designer/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /open schema designer/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("tells non-admins who can create the first table", () => {
+    seedAuthenticated();
+    useAuthStore.setState({
+      user: { id: 2, username: "viewer", role: "viewer" },
+    });
+    seedSchema({ version: 0, tables: [], relations: [] });
+
+    const router = createTestRouter(["/data"]);
+    render(<RouterProvider router={router} />);
+
+    expect(
+      screen.getByText(
+        "An administrator can create the first table in the schema designer.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /open schema designer/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("displays the live table list derived from the schema snapshot", () => {
@@ -268,7 +293,7 @@ describe("Data Explorer landing (/data)", () => {
     expect(screen.getByText(/3 tables/)).toBeInTheDocument();
     expect(screen.getByText(/11 columns/)).toBeInTheDocument();
     expect(screen.getByText(/1 relation/)).toBeInTheDocument();
-    expect(screen.getByText("v3")).toBeInTheDocument();
+    expect(screen.queryByText("v3")).not.toBeInTheDocument();
   });
 
   it("shows table cards with column counts and reference info", () => {
@@ -1150,13 +1175,9 @@ describe("Table detail (/data/:tableId)", () => {
 
     expect(await screen.findByText(/related records/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/orders related to customers row 7/i),
+      screen.getByText("Orders related to Customers #7"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /using the normal filter flow on customer_id via customer_orders/i,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/filter flow|accessor/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/focused record/i)).not.toBeInTheDocument();
   });
 
@@ -1233,10 +1254,13 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      await screen.findByText(
-        /using the normal filter flow on customer_id via vip_orders/i,
-      ),
+      await screen.findByText("Orders related to Customers #7"),
     ).toBeInTheDocument();
+    expect(useExplorerStore.getState().views.orders?.context).toMatchObject({
+      kind: "related",
+      accessor: "vip_orders",
+      via: "filter",
+    });
     expect(screen.queryByText(/focused record/i)).not.toBeInTheDocument();
   });
 
@@ -1324,13 +1348,13 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      await screen.findByText(/tags related to products row 1/i),
+      await screen.findByText("Tags related to Products #1"),
     ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /using relation accessor tags through the backend relation endpoint/i,
-      ),
-    ).toBeInTheDocument();
+    expect(useExplorerStore.getState().views.tags?.context).toMatchObject({
+      kind: "related",
+      accessor: "tags",
+      via: "endpoint",
+    });
   });
 
   it("uses a normal one-of filter when opening related records from multiple selected rows", async () => {
@@ -1410,14 +1434,9 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      await screen.findByText(/orders related to customers rows 1, 2/i),
+      await screen.findByText("Orders related to Customers #1, #2"),
     ).toBeInTheDocument();
-    expect(screen.getByText("customer_id one of 1, 2")).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /using the normal filter flow on customer_id via customer_orders/i,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("customer_id is one of 1, 2")).toBeInTheDocument();
   });
 
   it("clears the related-record banner when the query changes", async () => {
@@ -1816,7 +1835,7 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      await screen.findByText(/successfully deleted 2\/2 rows\./i),
+      await screen.findByText("Deleted 2 rows."),
     ).toBeInTheDocument();
     expect(screen.queryByText("Customer 1")).not.toBeInTheDocument();
     expect(screen.queryByText("Customer 2")).not.toBeInTheDocument();
@@ -1870,7 +1889,10 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      await screen.findByText(/successfully deleted 1\/2 rows\. 1 could not be deleted\./i),
+      await screen.findByText("Deleted 1 of 2 rows."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Some rows couldn't be deleted"),
     ).toBeInTheDocument();
     expect(screen.queryByText("Customer 1")).not.toBeInTheDocument();
     expect(screen.getByText("Customer 2")).toBeInTheDocument();
@@ -2244,7 +2266,7 @@ describe("Table detail (/data/:tableId)", () => {
     expect(within(table).getAllByText(/2026/)).toHaveLength(3);
   });
 
-  it("renders boolean columns as true and false even when values arrive as 1 and 0", () => {
+  it("renders boolean columns as Yes and No even when values arrive as 1 and 0", () => {
     seedAuthenticated();
     seedSchema({
       version: 1,
@@ -2268,8 +2290,8 @@ describe("Table detail (/data/:tableId)", () => {
     render(<RouterProvider router={router} />);
 
     const table = screen.getByRole("table");
-    expect(within(table).getByText("true")).toBeInTheDocument();
-    expect(within(table).getByText("false")).toBeInTheDocument();
+    expect(within(table).getByText("Yes")).toBeInTheDocument();
+    expect(within(table).getByText("No")).toBeInTheDocument();
     expect(within(table).queryByText(/^0$/)).not.toBeInTheDocument();
   });
 
@@ -2391,7 +2413,7 @@ describe("Table detail (/data/:tableId)", () => {
       const requestUrl = String(lastCall[0]);
       expect(requestUrl).toContain("filter%5Btotal%5D%5Bgte%5D=100");
     });
-    expect(screen.getByText("total >= 100")).toBeInTheDocument();
+    expect(screen.getByText("total is at least 100")).toBeInTheDocument();
   });
 
   it("adapts filter controls to enum and datetime columns", async () => {
@@ -2431,11 +2453,11 @@ describe("Table detail (/data/:tableId)", () => {
       .getAllByRole("option")
       .map((option) => option.textContent);
     expect(operatorLabels).toEqual([
-      "Equals (=)",
-      "Does not equal (!=)",
-      "One of (in)",
-      "Is empty (null)",
-      "Is not empty (!null)",
+      "Equals",
+      "Does not equal",
+      "Is one of",
+      "Is empty",
+      "Is not empty",
     ]);
 
     await user.selectOptions(operatorSelect, "in");
@@ -2477,14 +2499,14 @@ describe("Table detail (/data/:tableId)", () => {
       .getAllByRole("option")
       .map((option) => option.textContent);
     expect(datetimeOperatorLabels).toEqual([
-      "On date/time (=)",
-      "Not on date/time (!=)",
-      "After date/time (>)",
-      "On or after date/time (>=)",
-      "Before date/time (<)",
-      "On or before date/time (<=)",
-      "Is empty (null)",
-      "Is not empty (!null)",
+      "On date/time",
+      "Not on date/time",
+      "After date/time",
+      "On or after date/time",
+      "Before date/time",
+      "On or before date/time",
+      "Is empty",
+      "Is not empty",
     ]);
   });
 
@@ -2516,7 +2538,7 @@ describe("Table detail (/data/:tableId)", () => {
     )
       .getAllByRole("option")
       .map((option) => option.textContent);
-    expect(relationOperatorLabels).toContain("One of (in)");
+    expect(relationOperatorLabels).toContain("Is one of");
 
     await user.selectOptions(
       screen.getByRole("combobox", { name: /filter column/i }),
@@ -2527,7 +2549,7 @@ describe("Table detail (/data/:tableId)", () => {
     )
       .getAllByRole("option")
       .map((option) => option.textContent);
-    expect(primaryKeyOperatorLabels).toContain("One of (in)");
+    expect(primaryKeyOperatorLabels).toContain("Is one of");
   });
 
   it("shows an info hint for comma-separated key one-of filters", async () => {
@@ -2629,7 +2651,7 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(
-      screen.getByText("status one of pending, shipped"),
+      screen.getByText("status is one of pending, shipped"),
     ).toBeInTheDocument();
   });
 
@@ -2677,12 +2699,12 @@ describe("Table detail (/data/:tableId)", () => {
     await user.click(screen.getByRole("option", { name: "pending" }));
     await user.click(screen.getByRole("button", { name: /add filter/i }));
 
-    const chipLabel = screen.getByText("status = pending");
+    const chipLabel = screen.getByText("status is pending");
     const chip = chipLabel.closest(".data-controls__chip");
     expect(chip).not.toBeNull();
 
     const chipEditButton = within(chip as HTMLElement).getByRole("button", {
-      name: /edit filter status = pending/i,
+      name: /edit filter status is pending/i,
     });
 
     chipEditButton.focus();
@@ -2717,8 +2739,8 @@ describe("Table detail (/data/:tableId)", () => {
       expect(String(lastCall[0])).toContain("filter%5Bstatus%5D=shipped");
     });
 
-    expect(screen.getByText("status = shipped")).toBeInTheDocument();
-    expect(screen.queryByText("status = pending")).not.toBeInTheDocument();
+    expect(screen.getByText("status is shipped")).toBeInTheDocument();
+    expect(screen.queryByText("status is pending")).not.toBeInTheDocument();
   });
 
   it("lets search and sort chips be edited and cleared from the active chips", async () => {
@@ -2788,12 +2810,12 @@ describe("Table detail (/data/:tableId)", () => {
     );
     expect(screen.getByLabelText(/search rows/i)).toHaveValue("Customer");
 
-    const sortChipLabel = screen.getByText(/sort: status desc/i);
+    const sortChipLabel = screen.getByText("Sort: status (Z → A)");
     const sortChip = sortChipLabel.closest(".data-controls__chip");
     expect(sortChip).not.toBeNull();
 
     const editSortButton = within(sortChip as HTMLElement).getByRole("button", {
-      name: /edit sort: status desc/i,
+      name: /edit sort: status \(z → a\)/i,
     });
 
     editSortButton.focus();
@@ -2830,7 +2852,7 @@ describe("Table detail (/data/:tableId)", () => {
 
     await user.hover(sortChip as Element);
     await user.click(
-      screen.getByRole("button", { name: /remove sort: status desc/i }),
+      screen.getByRole("button", { name: /remove sort: status \(z → a\)/i }),
     );
     await waitFor(() => {
       const lastCall = fetchMock.mock.calls.at(-1) as unknown[] | undefined;
@@ -2841,7 +2863,7 @@ describe("Table detail (/data/:tableId)", () => {
     });
 
     expect(screen.queryByText(/search: Customer/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/sort: status desc/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sort: status/i)).not.toBeInTheDocument();
   });
 
   it("closes an open foldout when clicking outside the controls", async () => {
@@ -3000,14 +3022,14 @@ describe("Table detail (/data/:tableId)", () => {
       .map((option) => option.textContent);
 
     expect(operatorLabels).toEqual([
-      "Equals (=)",
-      "Does not equal (!=)",
-      "Greater than (>)",
-      "Greater or equal (>=)",
-      "Less than (<)",
-      "Less or equal (<=)",
-      "Is empty (null)",
-      "Is not empty (!null)",
+      "Equals",
+      "Does not equal",
+      "Greater than",
+      "Greater or equal",
+      "Less than",
+      "Less or equal",
+      "Is empty",
+      "Is not empty",
     ]);
   });
 
@@ -3192,9 +3214,11 @@ describe("Table detail (/data/:tableId)", () => {
 
     expect(screen.getByText(/search: Customer/i)).toBeInTheDocument();
     expect(
-      screen.getByText(/sort: status desc, created_at desc/i),
+      screen.getByText(
+        "Sort: status (Z → A), created_at (Latest time first)",
+      ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/status = pending/i)).toBeInTheDocument();
+    expect(screen.getByText(/status is pending/i)).toBeInTheDocument();
   });
 
   it("exports the current view to CSV across all matching pages with visible columns only", async () => {

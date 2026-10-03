@@ -4,7 +4,6 @@ import { Glyph, Sky } from "../components/common/Atmosphere";
 import { Icon } from "../components/common/Icon";
 import { ThemeSwitch } from "../components/common/ThemeSwitch";
 import { TextField } from "../components/ui/TextField";
-import { useSetupStore } from "../features/setup/setupStore";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuthStore } from "../stores/authStore";
 import "./LoginPage.css";
@@ -22,7 +21,6 @@ export function LoginPage() {
   const login = useAuthStore((state) => state.login);
   const clearError = useAuthStore((state) => state.clearError);
   const bootstrap = useAuthStore((state) => state.bootstrap);
-  const setupInfo = useSetupStore((state) => state.info);
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -71,11 +69,6 @@ export function LoginPage() {
             <span className="login__brand-name">Repere</span>
           </div>
           <div className="login__header-right">
-            {setupInfo ? (
-              <span className="login__hint login__hint--env">
-                {setupInfo.database_provider} · {setupInfo.auth_mode} · v{setupInfo.version}
-              </span>
-            ) : null}
             <ThemeSwitch />
           </div>
         </header>
@@ -94,7 +87,7 @@ export function LoginPage() {
             <p className="login__lede">
               {status === "bootstrapping"
                 ? "Resuming your session…"
-                : "Your session resumes on its own while the refresh cookie is valid. Otherwise, sign in to continue to the workspace."}
+                : "Sign in to continue to your workspace."}
             </p>
           </section>
 
@@ -110,7 +103,6 @@ export function LoginPage() {
               type="text"
               name="username"
               autoComplete="username"
-              placeholder="admin"
               value={username}
               onChange={(event) => {
                 setUsername(event.target.value);
@@ -150,7 +142,6 @@ export function LoginPage() {
         <footer className="login__footer">
           <div className="login__rule" aria-hidden="true" />
           <div className="login__footer-row">
-            <span className="login__hint">Stable public route: /login</span>
             <span className="login__hint">© Repere</span>
           </div>
         </footer>

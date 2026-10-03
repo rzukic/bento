@@ -142,8 +142,8 @@ export function KanbanConfigPanel({
           </label>
           {enumColumns.length === 0 ? (
             <p className="kanban-config__hint">
-              This table has no enum columns. Kanban grouping requires at least
-              one enum-typed column in the schema.
+              This table has no choice columns to group by. Add one in the
+              schema designer.
             </p>
           ) : (
             <select
@@ -156,7 +156,7 @@ export function KanbanConfigPanel({
                 setDraftHiddenLanes([]);
               }}
             >
-              <option value="">-- Select a column --</option>
+              <option value="">Select a column</option>
               {enumColumns.map((column) => (
                 <option key={column.name} value={column.name}>
                   {column.displayName ?? column.name}

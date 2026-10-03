@@ -82,15 +82,14 @@ export function SetupPage() {
 
   if (status === "error" && !info) {
     return (
-      <SetupFrame hue={0} numeral="!" tone="warn" info={null}>
+      <SetupFrame hue={0} numeral="!" tone="warn">
         <section className="setup__content">
           <span className="setup__eyebrow rise">Setup</span>
           <h1 id="setup-title" className="setup__title setup__title--md">
             <Line>Setup unavailable.</Line>
           </h1>
           <p className="setup__lede rise d2">
-            The backend could not report the installation state. Make sure the API is running and try
-            again.
+            We couldn't check this installation. Make sure Repere is running, then try again.
           </p>
           <p className="setup__error rise d3" role="alert">
             {statusError ?? "Unknown error."}
@@ -131,12 +130,11 @@ type FrameProps = {
   hue: number;
   numeral: string;
   tone: NumeralTone;
-  info: SetupStatus | null;
   steps?: StepId[];
   current?: StepId;
 };
 
-function SetupFrame({ children, hue, numeral, tone, info, steps, current }: FrameProps) {
+function SetupFrame({ children, hue, numeral, tone, steps, current }: FrameProps) {
   const currentIndex = steps && current ? steps.indexOf(current) : -1;
   const progress = steps && currentIndex >= 0 ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
   return (
@@ -152,11 +150,6 @@ function SetupFrame({ children, hue, numeral, tone, info, steps, current }: Fram
             <span className="setup__brand-name">Repere</span>
           </div>
           <div className="setup__header-right">
-            {info ? (
-              <span className="setup__hint setup__hint--env">
-                {info.database_provider} · {info.auth_mode} · v{info.version}
-              </span>
-            ) : null}
             <ThemeSwitch />
           </div>
         </header>
@@ -194,7 +187,6 @@ function SetupFrame({ children, hue, numeral, tone, info, steps, current }: Fram
           <footer className="setup__footer">
             <div className="setup__track" aria-hidden="true" />
             <div className="setup__footer-row">
-              <span className="setup__hint">Stable public route: /setup</span>
               <span className="setup__hint">© Repere</span>
             </div>
           </footer>
@@ -232,7 +224,6 @@ function SetupWizard({ info }: { info: SetupStatus }) {
       hue={STEP_HUES[Math.min(index, STEP_HUES.length - 1)]}
       numeral={pad(index)}
       tone={current === "done" ? "ok" : "default"}
-      info={info}
       steps={steps}
       current={current}
     >
@@ -265,8 +256,8 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
           <Line delay={0.2}>to shape it.</Line>
         </h1>
         <p className="setup__lede rise d2">
-          This installation has not been set up yet. Five short steps: the deployment, your
-          administrator, an optional demo workspace.
+          This installation has not been set up yet. A few quick steps: check your setup, create an
+          administrator account and, if you like, load a demo workspace.
         </p>
       </section>
       <aside className="setup__actions rise d3">
@@ -280,20 +271,32 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   );
 }
 
+function formatDatabase(provider: string): string {
+  const key = provider.toLowerCase();
+  if (key === "sqlite") return "SQLite";
+  if (key === "postgres" || key === "postgresql") return "PostgreSQL";
+  return provider;
+}
+
+function formatSignIn(authMode: string): string {
+  if (authMode === "standard") return "Accounts required";
+  if (authMode === "open") return "Open access";
+  return authMode;
+}
+
 function EnvironmentStep({ info, onNext, onBack }: { info: SetupStatus; onNext: () => void; onBack: () => void }) {
   const facts: Array<[string, string]> = [
-    ["Database", info.database_provider],
-    ["Auth mode", info.auth_mode],
-    ["Backend", info.version],
-    ["Schema", info.schema_version === 0 ? "version 0 · empty" : `version ${info.schema_version}`]
+    ["Database", formatDatabase(info.database_provider)],
+    ["Sign-in", formatSignIn(info.auth_mode)],
+    ["Version", info.version]
   ];
   return (
     <>
       <section className="setup__content">
         <span className="setup__eyebrow rise">Environment</span>
         <h1 id="setup-title" className="setup__title setup__title--md">
-          <Line>Read from</Line>
-          <Line delay={0.1}>your deployment.</Line>
+          <Line>Your</Line>
+          <Line delay={0.1}>installation.</Line>
         </h1>
         <dl className="setup__readout rise d2">
           {facts.map(([label, value], i) => (
@@ -368,7 +371,7 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
       setError(
         closed
           ? "An administrator account already exists for this installation. Sign in with it instead."
-          : describeError(cause, "Unable to reach the backend to create the account.")
+          : describeError(cause, "Couldn't create the account. Check your connection and try again.")
       );
       if (closed) void reloadStatus({ force: true });
       setSubmitting(false);
@@ -399,8 +402,7 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           <Line delay={0.1}>runs the place.</Line>
         </h1>
         <p className="setup__lede rise d2">
-          It becomes the administrator and signs you in right away. Further users can be added later
-          through the API.
+          It becomes the administrator and signs you in right away.
         </p>
       </section>
       <aside className="setup__actions rise d2">
@@ -480,7 +482,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
     try {
       setResult(await postSampleData());
     } catch (cause) {
-      setError(describeError(cause, "Unable to reach the backend to load the sample data."));
+      setError(describeError(cause, "Couldn't load the demo. Check your connection and try again."));
     } finally {
       setLoading(false);
     }
@@ -526,8 +528,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
               </span>
               <span>
                 <strong>Demo workspace loaded.</strong>{" "}
-                {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows,
-                schema version {result.schema_version}.
+                {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows.
               </span>
             </div>
             <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
@@ -548,7 +549,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
                 {loading ? (
                   <>
                     <span className="setup__spin" aria-hidden="true" />
-                    Applying schema and rows…
+                    Loading the demo…
                   </>
                 ) : (
                   <>
