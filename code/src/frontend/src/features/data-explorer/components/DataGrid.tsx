@@ -786,6 +786,11 @@ export function DataGrid({
                                       column={column}
                                       autoFocus
                                       error={cellError ?? null}
+                                      displayLabel={
+                                        isReference
+                                          ? lookupReferenceLabel(referenceLabels, column, rawValue)
+                                          : null
+                                      }
                                       onCommit={(next) => {
                                         const intent = commitIntentRef.current ?? "stay";
                                         commitIntentRef.current = null;

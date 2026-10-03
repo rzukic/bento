@@ -1134,6 +1134,7 @@ function RecordFieldList({
                   column={column}
                   value={value}
                   error={error}
+                  displayLabel={referenceLabel}
                   onCommit={(next) => onCommitField(column, next)}
                   onCancel={onCancelEdit}
                 />
@@ -1217,6 +1218,7 @@ type RecordFieldEditorProps = {
   column: ModelColumn;
   value: unknown;
   error: string | null;
+  displayLabel?: string | null;
   onCommit: (next: unknown) => void;
   onCancel: () => void;
 };
@@ -1225,6 +1227,7 @@ function RecordFieldEditor({
   column,
   value,
   error,
+  displayLabel,
   onCommit,
   onCancel,
 }: RecordFieldEditorProps) {
@@ -1236,6 +1239,7 @@ function RecordFieldEditor({
         column={column}
         autoFocus
         error={error}
+        displayLabel={displayLabel}
         onCommit={(next: unknown) => onCommit(next)}
         onCancel={onCancel}
       />

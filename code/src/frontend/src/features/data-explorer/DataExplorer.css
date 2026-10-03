@@ -5315,3 +5315,90 @@
 .floating-panel > .cell-temporal-editor__panel--time {
     width: 6.25rem;
 }
+
+/* Date + time read like the static value ("08. Sept. 2026, 14:40"): both
+   inputs are sized to their text by script and the locale separator sits
+   between them in the same face. */
+.cell-temporal-editor--datetime .cell-temporal-editor__input--date,
+.cell-temporal-editor--datetime .cell-temporal-editor__input--time {
+    flex: 0 0 auto;
+}
+
+.data-grid__cell-editor .cell-temporal-editor--datetime .cell-temporal-editor__input--date {
+    padding-right: 0;
+}
+
+.data-grid__cell-editor .cell-temporal-editor--datetime .cell-temporal-editor__input--time {
+    padding-left: 0;
+}
+
+.cell-temporal-editor__separator {
+    flex: 0 0 auto;
+    white-space: pre;
+    color: var(--text);
+}
+
+.data-grid__cell-editor .cell-temporal-editor__separator {
+    padding-top: var(--data-grid-cell-pad-y, 0.44rem);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: var(--cell-line);
+}
+
+.record-editor__field-editor .cell-temporal-editor--datetime {
+    align-items: center;
+}
+
+.record-editor__field-editor .cell-temporal-editor__separator {
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
+.record-editor__field-editor .cell-temporal-editor__input--time {
+    padding-left: 0;
+}
+
+/* Choice editors: the current value's chip sits over the empty search
+   field exactly where the static cell drew it, and goes once the user
+   types. */
+.cell-combobox__trigger {
+    position: relative;
+}
+
+.cell-combobox__value {
+    position: absolute;
+    inset: 0;
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.data-grid__cell-editor .cell-combobox__value {
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
+    font-size: 0.83rem;
+    line-height: var(--cell-line);
+}
+
+.record-editor__field-editor .cell-combobox__value {
+    display: flex;
+    align-items: center;
+    padding: 0;
+}
+
+.cell-combobox__option .chip,
+.cell-combobox__option .data-grid__reference {
+    pointer-events: none;
+}
+
+/* The chip sits in a line of the field's own text metrics, as in the
+   static field display, so it lands on the same baseline. */
+.record-editor__field-editor .cell-combobox__value-line {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.3;
+}

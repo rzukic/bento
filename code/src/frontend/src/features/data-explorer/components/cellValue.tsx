@@ -1,3 +1,4 @@
+import { getCurrentLocale } from "./editors/temporalEditing";
 import type { ModelColumn } from "../../../types/api";
 
 function normalizeCalendarPart(value: string): number | null {
@@ -74,7 +75,7 @@ export function formatTemporalValue(value: string, type: ModelColumn["type"]): s
   if (!parsed) return value;
 
   if (type === "date") {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(getCurrentLocale(), {
       year: "numeric",
       month: "short",
       day: "2-digit",
@@ -82,7 +83,7 @@ export function formatTemporalValue(value: string, type: ModelColumn["type"]): s
     }).format(parsed.date);
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getCurrentLocale(), {
     year: "numeric",
     month: "short",
     day: "2-digit",

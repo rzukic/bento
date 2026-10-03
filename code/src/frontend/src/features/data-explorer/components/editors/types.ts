@@ -23,4 +23,9 @@ export type CellEditorProps<T> = {
   onCommit: (next: T | null) => void;
   onCancel: () => void;
   error?: string | null;
+  /**
+   * The label the static cell already shows for this value (a reference's
+   * record name), so the editor can show it at once instead of re-fetching.
+   */
+  displayLabel?: string | null;
 };

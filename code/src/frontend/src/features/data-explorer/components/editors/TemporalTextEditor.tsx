@@ -19,6 +19,7 @@ import {
   formatDateDraft,
   formatTimeDraft,
   getCurrentLocale,
+  getDateTimeSeparator,
   getMonthButtonLabel,
   getMonthKey,
   getMonthName,
@@ -30,6 +31,7 @@ import {
   shiftMonth,
 } from "./temporalEditing";
 import type { CellEditorProps } from "./types";
+import { useAutoWidth } from "./useAutoWidth";
 
 type TemporalTextEditorProps = CellEditorProps<string> & {
   mode: "date" | "datetime";
@@ -51,13 +53,20 @@ export function TemporalTextEditor({
   const timeInputRef = useRef<HTMLInputElement | null>(null);
 
   const [dateDraft, setDateDraft] = useState(formatDateDraft(value, locale));
-  const [timeDraft, setTimeDraft] = useState(formatTimeDraft(value));
+  const [timeDraft, setTimeDraft] = useState(formatTimeDraft(value, locale));
   const [openPanel, setOpenPanel] = useState<"date" | "time" | null>(null);
   const [datePanelMode, setDatePanelMode] = useState<"days" | "months" | "years">("days");
   const [visibleMonth, setVisibleMonth] = useState(
     getMonthKey(parseDateDraft(formatDateDraft(value, locale), locale) ?? value),
   );
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const separator = useMemo(() => getDateTimeSeparator(locale), [locale]);
+  // Date and time are as wide as their text, so "08. Sept. 2026, 14:40"
+  // reads exactly as it did before the field was entered.
+  // The date input is exactly its text wide so the separator and time land
+  // where they were; only the last input keeps a little room for the caret.
+  useAutoWidth(dateInputRef, dateDraft, isDateTime, 0);
+  useAutoWidth(timeInputRef, timeDraft, isDateTime);
 
   const selectedDate = parseDateDraft(dateDraft, locale);
   const selectedTime = parseTimeDraft(timeDraft);
@@ -164,7 +173,7 @@ export function TemporalTextEditor({
   }
 
   function handleTimePick(timeValue: string) {
-    setTimeDraft(timeValue);
+    setTimeDraft(formatTimeDraft(timeValue, locale));
     setOpenPanel(null);
     setDatePanelMode("days");
     timeInputRef.current?.focus();
@@ -226,7 +235,7 @@ export function TemporalTextEditor({
         {isDateTime ? (
           <>
             <span className="cell-temporal-editor__separator" aria-hidden="true">
-              {" "}
+              {separator}
             </span>
             <input
               ref={timeInputRef}

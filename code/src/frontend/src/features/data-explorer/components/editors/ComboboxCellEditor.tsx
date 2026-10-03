@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import { Icon } from "../../../../components/common/Icon";
 import { EditorShell } from "./editorShell";
@@ -45,6 +46,14 @@ type Props = {
   autoFocus?: boolean;
   onCommit: (next: string | null) => void;
   onCancel: () => void;
+  /**
+   * How the static cell shows the current value (a chip). Rendered over the
+   * empty search field at the static value's position, so the value stays
+   * visible until the user types.
+   */
+  renderValue?: (value: string, label: string) => ReactNode;
+  /** How an option looks in the list (the same chip as in the cell). */
+  renderOption?: (option: ComboboxOption) => ReactNode;
 };
 
 const DEBOUNCE_MS = 200;
@@ -62,6 +71,8 @@ export function ComboboxCellEditor({
   autoFocus,
   onCommit,
   onCancel,
+  renderValue,
+  renderOption,
 }: Props) {
   const [open, setOpen] = useState(Boolean(autoFocus));
   const [query, setQuery] = useState("");
@@ -172,6 +183,8 @@ export function ComboboxCellEditor({
   }, [value, displayLabel, triggerPlaceholder]);
 
   const inputValue = open ? query : "";
+  const hasValue = value !== null && value !== undefined && value !== "";
+  const showValue = Boolean(renderValue) && hasValue && query === "";
 
   return (
     <EditorShell kind="choice" error={error}>
@@ -193,7 +206,9 @@ export function ComboboxCellEditor({
             aria-label={ariaLabel}
             aria-invalid={Boolean(error) || undefined}
             className="cell-combobox__input"
-            placeholder={open ? (searchPlaceholder ?? "Search…") : triggerLabel}
+            placeholder={
+              showValue ? "" : open ? (searchPlaceholder ?? "Search…") : triggerLabel
+            }
             value={inputValue}
             onFocus={() => setOpen(true)}
             onChange={(event) => {
@@ -202,6 +217,11 @@ export function ComboboxCellEditor({
             }}
             onKeyDown={onKeyDown}
           />
+          {showValue && renderValue && value !== null ? (
+            <span className="cell-combobox__value" aria-hidden="true">
+              <span className="cell-combobox__value-line">{renderValue(value, triggerLabel)}</span>
+            </span>
+          ) : null}
           {!open ? (
             <span className="cell-combobox__chevron" aria-hidden="true">
               <Icon name="chevron-down" size={14} />
@@ -249,7 +269,9 @@ export function ComboboxCellEditor({
                     <span className="cell-combobox__check" aria-hidden="true">
                       {selected ? <Icon name="check" size={12} /> : null}
                     </span>
-                    <span className="cell-combobox__label">{option.label}</span>
+                    <span className="cell-combobox__label">
+                      {renderOption ? renderOption(option) : option.label}
+                    </span>
                   </li>
                 );
               })

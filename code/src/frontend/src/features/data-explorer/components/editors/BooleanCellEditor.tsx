@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { renderCellValue } from "../cellValue";
 import { ComboboxCellEditor, type ComboboxOption } from "./ComboboxCellEditor";
 import type { CellEditorProps } from "./types";
 
@@ -47,6 +48,8 @@ export function BooleanCellEditor({
         onCommit(next === "true");
       }}
       onCancel={onCancel}
+      renderValue={(current) => renderCellValue(column, current === "true")}
+      renderOption={(option) => renderCellValue(column, option.value === "true")}
     />
   );
 }
