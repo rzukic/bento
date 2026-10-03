@@ -110,6 +110,13 @@ function buildDraftJunctionRow(
   return row;
 }
 
+/** Now as local wall time, the format the date editors write ("2026-10-03T15:29:43"). */
+function localNowWallTime(): string {
+  const now = new Date();
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+}
+
 function buildJunctionPayload(
   table: ModelTable,
   row: Record<string, unknown>,
@@ -963,7 +970,17 @@ function ManyToManyRelationSection({
       return;
     }
     try {
-      const created = ensureRowId(junction, await createRow(junction.name, buildJunctionPayload(junction, next)));
+      const payload = buildJunctionPayload(junction, next);
+      // Datetimes in the app are local wall time (what people type). The
+      // database default for created_at would be UTC, so the link is stamped
+      // here, the same way a typed value would be.
+      const createdAtColumn = junction.columns.find(
+        (candidate) => candidate.name === "created_at" && candidate.type === "datetime",
+      );
+      if (createdAtColumn && payload.created_at === undefined) {
+        payload.created_at = localNowWallTime();
+      }
+      const created = ensureRowId(junction, await createRow(junction.name, payload));
       setDraft(null);
       setState((current) => ({
         ...current,

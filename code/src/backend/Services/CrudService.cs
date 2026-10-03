@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dapper;
 using Repere.Api.Db;
 using Repere.Api.Db.Schema;
@@ -68,7 +69,7 @@ public sealed class CrudService
         // Apply pagination
         baseQuery = baseQuery.ForPage(parameters.Page, parameters.PerPage);
 
-        var rows = (await baseQuery.GetAsync()).Select(ToDictionary).ToList();
+        var rows = (await baseQuery.GetAsync()).Select(row => ToResponseRow(table, (object)row)).ToList();
         var totalPages = parameters.PerPage > 0
             ? (int)Math.Ceiling((double)total / parameters.PerPage)
             : 0;
@@ -126,7 +127,7 @@ public sealed class CrudService
                 });
         }
 
-        return ToDictionary(row);
+        return ToResponseRow(table, row);
     }
 
     public async Task<IDictionary<string, object?>> CreateAsync(TableDef table, JsonElement body)
@@ -168,7 +169,7 @@ public sealed class CrudService
             row = await query.FirstOrDefaultAsync();
         }
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
     public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, string id, JsonElement body)
@@ -196,7 +197,7 @@ public sealed class CrudService
         var row = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues)
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
     public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, string id, JsonElement body)
@@ -219,7 +220,7 @@ public sealed class CrudService
         var row = await ApplyKeyFilter(readScope.Db.Query(table.Name), keyValues)
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
     public async Task DeleteAsync(TableDef table, string id)
@@ -832,6 +833,35 @@ public sealed class CrudService
                 => CoerceTemporalForProvider(value, column.Type, provider.Value),
             _ => value
         };
+    }
+
+    /// <summary>
+    /// SQLite's CURRENT_TIMESTAMP (the default of a junction's created_at)
+    /// stores UTC as "yyyy-MM-dd HH:mm:ss" without a zone, which clients read
+    /// as local time. Values the app writes use a "T" and are left alone.
+    /// </summary>
+    private static readonly Regex SqliteCurrentTimestamp =
+        new(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$", RegexOptions.Compiled);
+
+    private IDictionary<string, object?> ToResponseRow(TableDef table, object row)
+    {
+        var dict = ToDictionary(row);
+        if (_dbConfig.Provider != DatabaseProvider.Sqlite)
+            return dict;
+
+        foreach (var column in table.Columns)
+        {
+            if (column.Type != ColumnType.DateTime)
+                continue;
+            if (dict.TryGetValue(column.Name, out var value) &&
+                value is string text &&
+                SqliteCurrentTimestamp.IsMatch(text))
+            {
+                dict[column.Name] = text.Replace(' ', 'T') + "Z";
+            }
+        }
+
+        return dict;
     }
 
     private static IDictionary<string, object?> ToDictionary(object row)

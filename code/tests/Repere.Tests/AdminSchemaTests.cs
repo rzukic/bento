@@ -604,6 +604,12 @@ public sealed class AdminSchemaTests
         Assert.Equal(
             1L,
             await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM \"_jt_products_tags\" WHERE \"created_at\" IS NOT NULL;"));
+
+        // The database default is UTC; it is returned as UTC, not as a
+        // zone-less value clients would read as local time.
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var createdAt = created.GetProperty("data").GetProperty("created_at").GetString();
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", createdAt);
     }
 
     [Fact]
