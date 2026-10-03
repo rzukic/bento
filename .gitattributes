@@ -1,0 +1,3 @@
+
+# Import fixtures stay byte-for-byte like real exports (CRLF, Windows-1252).
+code/scripts/fixtures/import/*.csv -text
