@@ -162,8 +162,9 @@ export function getIncomingRelationSections(
               filterColumn,
             {
               relationType: "N:M",
+              // Name the records on the other side, as 1:N sections do;
+              // accessors are API names and often generated.
               label:
-                getResolvedFromAccessor(relation) ??
                 targetTable?.displayName ??
                 targetTable?.name ??
                 toTable,
@@ -194,7 +195,6 @@ export function getIncomingRelationSections(
             {
               relationType: "N:M",
               label:
-                getResolvedToAccessor(relation) ??
                 targetTable?.displayName ??
                 targetTable?.name ??
                 fromTable,

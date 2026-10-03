@@ -74,13 +74,18 @@ function isColumnEditable(column: ModelColumn): boolean {
   return !column.primaryKey;
 }
 
+/**
+ * The record's own id column: drawn as the pinned id column with selection.
+ * Key columns that point at other tables (a junction table's composite key)
+ * are reference columns and look like every other FK.
+ */
 function isPrimarySelectionColumn(column: ModelColumn): boolean {
   return Boolean(column.primaryKey) && !column.references && column.type !== "relation";
 }
 
 
 function getColumnTypeIconName(column: ModelColumn) {
-  if (column.primaryKey) return "number" as const;
+  if (isPrimarySelectionColumn(column)) return "number" as const;
   if (column.references || column.type === "relation") return "link" as const;
 
   switch (column.type) {
@@ -490,7 +495,7 @@ export function DataGrid({
                   scope="col"
                   className={[
                     "data-grid__column",
-                    column.primaryKey ? "data-grid__column--primary" : "",
+                    isPrimarySelectionColumn(column) ? "data-grid__column--primary" : "",
                     typeof column.references !== "undefined" || column.type === "relation"
                       ? "data-grid__column--reference"
                       : ""
@@ -500,13 +505,13 @@ export function DataGrid({
                 >
                   <div
                     className={
-                      column.primaryKey
+                      isPrimarySelectionColumn(column)
                         ? "data-grid__header-cell data-grid__header-cell--primary"
                         : "data-grid__header-cell"
                     }
                     ref={menuColumn === column.name ? menuRef : undefined}
                   >
-                    {column.primaryKey ? (
+                    {isPrimarySelectionColumn(column) ? (
                       <span className="data-grid__header-selection-actions">
                         <button
                           type="button"
@@ -548,7 +553,7 @@ export function DataGrid({
                         </button>
                       </span>
                     ) : null}
-                    {column.primaryKey ? (
+                    {isPrimarySelectionColumn(column) ? (
                       <span className="data-grid__header-content data-grid__header-content--primary">
                         <span className="data-grid__header-name-row">
                           <span className="data-grid__header-name">
@@ -592,7 +597,7 @@ export function DataGrid({
                       </button>
                     )}
 
-                    {!column.primaryKey && menuColumn === column.name ? (
+                    {!isPrimarySelectionColumn(column) && menuColumn === column.name ? (
                       <div className="data-grid__header-menu" role="menu">
                         <button
                           type="button"
@@ -688,7 +693,7 @@ export function DataGrid({
                           key={`${table.name}-${rowIdString || index}-${column.name}`}
                           className={[
                             "data-grid__column",
-                            column.primaryKey ? "data-grid__column--primary" : "",
+                            isPrimarySelectionColumn(column) ? "data-grid__column--primary" : "",
                             typeof column.references !== "undefined" || column.type === "relation"
                               ? "data-grid__column--reference"
                               : "",

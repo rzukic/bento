@@ -5476,3 +5476,29 @@
 .data-grid__header-pk-label {
     background: color-mix(in srgb, var(--text) 6%, var(--surface));
 }
+
+/* N:M records inside the record editor: the grid sits flush under its
+   title, scrolls inside its own card and fills the column. The explorer
+   page gutter and the old "overflow: visible" (from before editor
+   popovers were portalled) do not apply here. */
+.record-editor__relation-section--grid .data-grid {
+    padding: 0;
+}
+
+.record-editor__relation-section--grid .data-grid__scroll {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.record-editor__relation-section--grid .data-grid__scroll > table {
+    min-width: 100%;
+}
+
+/* While a cell of the row is being edited the open-record button would sit
+   on top of the editor (it floats over the row's right end). */
+.data-grid__row:has(.data-grid__cell--editing) .data-grid__row-expand {
+    opacity: 0;
+    pointer-events: none;
+}

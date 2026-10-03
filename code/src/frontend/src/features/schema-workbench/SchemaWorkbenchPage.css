@@ -2580,6 +2580,8 @@
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
+  /* The old pill rule set min-width: 3.75rem; the label hugs its text. */
+  min-width: 0;
   height: auto;
   min-height: 0;
   padding: 0.0625rem 0.3125rem;
