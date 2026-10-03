@@ -1055,8 +1055,9 @@ describe("KanbanView", () => {
     await waitFor(() => {
       expect(within(shippedLane).queryAllByRole("article")).toHaveLength(2);
     });
-
-    void container;
+    // ...and does not keep the faded dragging look (its dragend never comes:
+    // the card remounted in the new lane).
+    expect(container.querySelector(".kanban-card--dragging")).toBeNull();
   });
 
   it("snaps the card back on PATCH failure and shows an error banner", async () => {

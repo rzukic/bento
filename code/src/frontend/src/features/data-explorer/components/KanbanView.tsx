@@ -139,6 +139,9 @@ export function KanbanView({
   async function handleDrop(e: React.DragEvent<HTMLDivElement>, targetLaneId: string) {
     e.preventDefault();
     setDragOverLane(null);
+    // The card remounts in its new lane, so the dragend of the old element
+    // never arrives; clear the dragging look here or the card stays faded.
+    setDraggingRowId(null);
     const drag = dragRef.current;
     dragRef.current = null;
     if (!drag || drag.sourceLane === targetLaneId || targetLaneId === UNASSIGNED_LANE_ID) return;
