@@ -11,6 +11,7 @@ import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
 import "./SetupPage.css";
+import { SushiMascot } from "../../components/brand";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
 
@@ -145,7 +146,7 @@ function SetupFrame({ children, hue, numeral, tone, steps, current }: FrameProps
         <header className="setup__header">
           <div className="setup__brand">
             <span className="setup__brand-mark" aria-hidden="true">
-              <Icon name="layers" size={15} />
+              <SushiMascot width={32} />
             </span>
             <span className="setup__brand-name">Bento</span>
           </div>

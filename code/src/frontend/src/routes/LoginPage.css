@@ -195,3 +195,9 @@
     transform: none;
   }
 }
+
+/* The sushi mascot stands on its own: no tile behind it. */
+.login__brand-mark {
+  width: 34px;
+  background: transparent;
+}

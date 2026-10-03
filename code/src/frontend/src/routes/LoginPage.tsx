@@ -7,6 +7,7 @@ import { TextField } from "../components/ui/TextField";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
 import { useAuthStore } from "../stores/authStore";
 import "./LoginPage.css";
+import { SushiMascot } from "../components/brand";
 
 type LocationState = { from?: { pathname?: string } } | null;
 
@@ -59,12 +60,12 @@ export function LoginPage() {
   return (
     <main className="login" aria-labelledby="login-title">
       <Sky />
-      <Glyph value="Re" />
+      <Glyph value="Be" />
       <div className="login__frame">
         <header className="login__header">
           <div className="login__brand">
             <span className="login__brand-mark" aria-hidden="true">
-              <Icon name="layers" size={15} />
+              <SushiMascot width={32} />
             </span>
             <span className="login__brand-name">Bento</span>
           </div>

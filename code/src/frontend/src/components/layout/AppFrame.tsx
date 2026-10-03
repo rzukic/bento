@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../ui/Dialog";
 import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
+import { SushiMascot } from "../brand";
 
 const sidebarShortcutLabel =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
@@ -163,7 +164,7 @@ export function AppFrame({ children }: AppFrameProps) {
             title={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
           >
             <span className="shell__brand-logo">
-              <Icon name="layers" size={16} strokeWidth={2} />
+              <SushiMascot width={32} />
             </span>
             <span className="shell__brand-expand">
               <Icon name="panel-left" size={16} />
