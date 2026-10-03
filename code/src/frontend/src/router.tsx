@@ -2,7 +2,7 @@ import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react
 import { App } from "./App";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { ShellLayout } from "./components/layout/ShellLayout";
-import { DataExplorerPage, ImportPage, TableDetailPage } from "./features/data-explorer";
+import { DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
 import { AiPage } from "./routes/AiPage";
 import { DashboardsPage } from "./routes/DashboardsPage";
@@ -50,6 +50,15 @@ const shellRoutes: RouteObject[] = [
     element: <TableDetailPage />,
     handle: {
       title: ({ tableId }) => tableId ?? "Table",
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Data Explorer", to: "/data" }
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "data/new/csv",
+    element: <NewTableFromCsvPage />,
+    handle: {
+      title: "New table from CSV",
       hidePageHeader: true,
       breadcrumbParent: { label: "Data Explorer", to: "/data" }
     } satisfies AppRouteHandle

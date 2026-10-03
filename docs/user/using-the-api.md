@@ -317,6 +317,8 @@ curl -fsS "$API_ROOT/import/transactions" -H "Authorization: Bearer $TOKEN" -H "
 - `settings` fields left out are detected (`encoding`, `delimiter`, `headerLine` as a 0-based record index, `decimalSeparator`, `dateFormat`)
 - reference columns take the referenced record's label (e.g. a category name) or its id
 - rows whose key columns match a row in the table are skipped (counted per key, so real repeats in one file still import)
+- `"distinctKeys": true` also skips repeats within the file and compares keys without case — for filling a lookup table with one row per value
+- `analyze` returns per column `blank` (empty cells), `distinctCount` and up to 100 `distinct` values
 - the response has `total`, `new`, `duplicates`, `invalid`, `inserted` and, per row, `line`, `status` (`new`, `duplicate`, `invalid`), `display` and `errors`
 - new rows are inserted in one transaction
 

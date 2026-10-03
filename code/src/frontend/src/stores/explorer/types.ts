@@ -117,6 +117,12 @@ export type QuerySlice = {
   /** Fetch rows for the active table using its current query state. */
   fetchRows: () => Promise<void>;
 
+  /**
+   * Rows of `table` changed elsewhere (e.g. a file import): the next visit
+   * loads them again instead of showing the cached page.
+   */
+  markTableStale: (table: string) => void;
+
   /** Replace the full query and refetch. Page resets to 1. */
   setQuery: (patch: Partial<ExplorerQuery>) => void;
 

@@ -1,6 +1,17 @@
 # Importing Data From CSV
 
-Bento imports CSV files into an existing table, for example bank and broker exports into a `transactions` table. Importing the same or an overlapping export again adds nothing twice.
+Bento imports CSV files into a table, for example bank and broker exports into a `transactions` table, and can create that table from the file. Importing the same or an overlapping export again adds nothing twice.
+
+## Create A Table From A File
+
+On the Data Explorer overview, choose **New table from CSV** (admins only) and drop the file. Bento proposes a table:
+
+- one column per file column, named after the header (`Betrag (EUR)` becomes `betrag_eur`; the header stays the display name)
+- the detected type: date, number, amount (for headers like Betrag, EUR, amount), yes/no or text
+- **required** where no cell of the file is empty; empty columns are left out
+- for a category column, a **new table of values**: a `kategorie` table with one row per category, linked from each transaction. Any text column with repeated values can be stored that way, or linked to a table you already have
+
+Change names, types and what is stored how, then choose **Create table and continue**. Bento creates the tables through the usual schema checks, fills the category table, and opens the import with everything already mapped — the rows are checked right away, so the next step is **Import**.
 
 ## Import A File
 
@@ -43,7 +54,7 @@ Importing needs the `editor` or `admin` role (or an `api` client). Viewers do no
 ## Limits
 
 - CSV only for now; JSON and Excel files, importing from a URL and scheduled imports come later
-- The table must exist; create it in the schema designer first
+- Creating a table from a file needs the admin role; importing into an existing table needs `editor`
 - Files up to about 7 MB (the request size limit is 10 MB)
 
 For scripts and other clients, see [Import API](using-the-api.md#import-csv-files).

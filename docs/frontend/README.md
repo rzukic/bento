@@ -67,6 +67,7 @@ const appRoutes = [
           { index: true, element: <HomePage /> },
           { path: "data", element: <DataExplorerPage /> },
           { path: "data/:tableId", element: <TableDetailPage /> },
+          { path: "data/new/csv", element: <NewTableFromCsvPage /> },
           { path: "data/:tableId/import", element: <ImportPage /> },
           { path: "model", element: <ModelPage /> },
           { path: "dashboards", element: <DashboardsPage /> },

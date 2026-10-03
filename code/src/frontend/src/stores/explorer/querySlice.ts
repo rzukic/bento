@@ -59,6 +59,14 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
     });
   },
 
+  markTableStale: (table) => {
+    set((state) => {
+      const view = state.views[table];
+      if (!view || view.status === "idle") return state;
+      return { views: { ...state.views, [table]: { ...view, status: "idle" } } };
+    });
+  },
+
   fetchRows: async () => {
     const { activeTable, views } = get();
     if (!activeTable) return;

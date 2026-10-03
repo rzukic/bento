@@ -92,6 +92,47 @@ public sealed class ImportApiTests
     }
 
     [Fact]
+    public async Task Analyze_ReportsBlankCellsAndDistinctValuesPerColumn()
+    {
+        await using var host = await CreateHostAsync();
+        var file = StatementSeptember + "\n\"05.09.2026\";\"Kiosk\";\"\";\"-2,00\";\"lebensmittel\";\n";
+
+        var result = await PostDataAsync(host, "/api/v1/import/analyze", new { content = Encode(file) });
+
+        var columns = result.GetProperty("columns").EnumerateArray().ToList();
+        var purpose = columns.Single(c => c.GetProperty("name").GetString() == "Verwendungszweck");
+        Assert.Equal(1, purpose.GetProperty("blank").GetInt32());
+        var category = columns.Single(c => c.GetProperty("name").GetString() == "Kategorie");
+        Assert.Equal(0, category.GetProperty("blank").GetInt32());
+        // "lebensmittel" and "Lebensmittel" are one value.
+        Assert.Equal(2, category.GetProperty("distinctCount").GetInt32());
+        Assert.Equal(["Lebensmittel", "Gehalt"], category.GetProperty("distinct").EnumerateArray().Select(v => v.GetString()));
+    }
+
+    [Fact]
+    public async Task Import_WithDistinctKeys_FillsALookupTableOncePerValue()
+    {
+        await using var host = await CreateHostAsync();
+        var file = StatementSeptember + "\n\"05.09.2026\";\"Kiosk\";\"Zeitung\";\"-2,00\";\"lebensmittel\";\n";
+        object Body() => new
+        {
+            content = Encode(file),
+            mapping = new[] { new { source = "Kategorie", target = "name" } },
+            keyColumns = new[] { "name" },
+            distinctKeys = true
+        };
+
+        var first = await PostDataAsync(host, "/api/v1/import/categories", Body());
+        Assert.Equal(2, first.GetProperty("inserted").GetInt32());
+        Assert.Equal(3, first.GetProperty("duplicates").GetInt32());
+        Assert.Equal(0, first.GetProperty("invalid").GetInt32());
+
+        var again = await PostDataAsync(host, "/api/v1/import/categories", Body());
+        Assert.Equal(0, again.GetProperty("inserted").GetInt32());
+        Assert.Equal(5, again.GetProperty("duplicates").GetInt32());
+    }
+
+    [Fact]
     public async Task Import_ThenReimport_AddsRowsOnceAndKeepsRealRepeats()
     {
         await using var host = await CreateHostAsync();

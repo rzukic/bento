@@ -17,6 +17,11 @@ export type ImportAnalyzedColumn = {
   name: string;
   samples: string[];
   inferredType: string;
+  /** Empty cells in the column. */
+  blank: number;
+  /** Distinct values (case-insensitive) and up to 100 of them. */
+  distinctCount: number;
+  distinct: string[];
 };
 
 export type ImportAnalysis = {
@@ -41,6 +46,8 @@ export type ImportRunPayload = {
   settings: ImportFileSettings;
   mapping: ImportColumnMapping[];
   keyColumns: string[];
+  /** Also skip repeats within the file (filling a lookup table once per value). */
+  distinctKeys?: boolean;
 };
 
 export type ImportRowStatus = "new" | "duplicate" | "invalid";

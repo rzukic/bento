@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-03 — Create Tables From CSV Files
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.1b — New Table From CSV](working-steps/3.1b-table-from-csv.md)
+
+Drop the first bank export and get the table for it: Bento proposes columns, types and a category table, creates them through the schema checks and continues into the import.
+
+**Highlights:**
+- Clean column names from headers (display names keep the original), detected types, amounts as currency, required where nothing is empty
+- Category-like columns as a new table of values or a link to an existing table; filled with the distinct values before the import
+- Hand-off into the import page with mapping and key columns set and the rows already checked
+
 ### 2026-10-03 — Import Bank Exports From CSV
 
 > **Phase**: Phase 3 — Visualization
