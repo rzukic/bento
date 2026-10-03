@@ -8,6 +8,7 @@ import {
   type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
+import { ApiClientError } from "../../api/client";
 import { buildQueryString, createRow, deleteRow, fetchTableRows, patchRow } from "../../api/data";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
@@ -837,7 +838,6 @@ type ManyToManyRelationSectionProps = {
  */
 function ManyToManyRelationSection({
   currentRowId,
-  currentRow,
   relatedTable,
   section,
   state,
@@ -882,13 +882,13 @@ function ManyToManyRelationSection({
     () => ({ ...junction, columns: extraColumns }),
     [extraColumns, junction],
   );
-  const hiddenValue = useMemo(() => {
-    const pkColumn = junction.columns.find(
-      (column) => column.primaryKey && column.name === hiddenColumnName,
-    );
-    const raw = pkColumn ? currentRow[pkColumn.name] : currentRowId;
-    return coerceColumnValue(hiddenColumn ?? null, raw ?? currentRowId);
-  }, [currentRow, currentRowId, hiddenColumn, hiddenColumnName, junction.columns]);
+  // The current record's own id: the junction column points at it (reading
+  // a same-named column of the record would link the wrong row).
+  const hiddenValue = useMemo(
+    () => coerceColumnValue(hiddenColumn ?? null, currentRowId),
+    [currentRowId, hiddenColumn],
+  );
+  const [pendingRemoval, setPendingRemoval] = useState<Record<string, unknown> | null>(null);
 
   const [draft, setDraft] = useState<Record<string, unknown> | null>(null);
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
@@ -1013,7 +1013,11 @@ function ManyToManyRelationSection({
       setRowError(
         draftRowId,
         column.name,
-        error instanceof Error ? error.message : "Could not add the link.",
+        error instanceof ApiClientError && error.status === 409
+          ? "Already linked."
+          : error instanceof Error
+            ? error.message
+            : "Could not add the link.",
       );
       setState((current) => ({
         ...current,
@@ -1055,6 +1059,7 @@ function ManyToManyRelationSection({
       if (expandedRowId === rowId) setExpandedRowId(null);
       setState((current) => ({
         ...current,
+        error: null,
         rows: current.rows.filter((candidate) => String(candidate.id ?? "") !== rowId),
         total: Math.max(0, (current.total ?? current.rows.length) - 1),
       }));
@@ -1164,7 +1169,16 @@ function ManyToManyRelationSection({
                         className="record-editor__link-action record-editor__link-action--remove"
                         aria-label={`Remove link to ${label}`}
                         title="Remove link"
-                        onClick={() => void removeLink(row)}
+                        onClick={() => {
+                          // A link with its own values (amount, note, …) asks
+                          // first: removing it deletes them too.
+                          const holdsValues = draftExtraColumns.some((column) => {
+                            const value = row[column.name];
+                            return value !== null && value !== undefined && value !== "";
+                          });
+                          if (holdsValues) setPendingRemoval(row);
+                          else void removeLink(row);
+                        }}
                       >
                         <Icon name="x" size={13} />
                       </button>
@@ -1255,6 +1269,20 @@ function ManyToManyRelationSection({
           ) : null}
         </>
       )}
+      <ConfirmDialog
+        open={pendingRemoval !== null}
+        title={`Remove link to ${pendingRemoval ? linkLabel(pendingRemoval) : ""}?`}
+        description="The link's own values are deleted with it. The linked record stays."
+        confirmLabel="Remove link"
+        cancelLabel="Keep"
+        confirmVariant="danger"
+        onConfirm={() => {
+          const row = pendingRemoval;
+          setPendingRemoval(null);
+          if (row) void removeLink(row);
+        }}
+        onCancel={() => setPendingRemoval(null)}
+      />
     </section>
   );
 }
@@ -1418,7 +1446,8 @@ function RecordFieldList({
                 {renderCellValue(column, value)}
               </div>
             )}
-            {error ? (
+            {/* While editing, the editor itself shows the error. */}
+            {error && !isEditing ? (
               <span className="record-editor__field-error" role="alert">
                 {error}
               </span>

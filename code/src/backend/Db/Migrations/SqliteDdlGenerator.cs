@@ -45,19 +45,20 @@ internal sealed class SqliteDdlGenerator
 
         foreach (var conversion in reverseRelationConversions.Values)
         {
-            Append(
-                sqlUp,
-                sqlDown,
-                new[]
-                {
-                    $"""
-                    CREATE TEMP TABLE {Quote(conversion.TempTableName)} AS
-                    SELECT {Quote(conversion.Mapping.ParentJunctionColumn)} AS "parent_id", {Quote(conversion.Mapping.ChildJunctionColumn)} AS "child_id"
-                    FROM {Quote(conversion.Mapping.JunctionTableName)};
-                    """,
-                    $"DROP TABLE {Quote(conversion.Mapping.JunctionTableName)};"
-                },
-                "");
+            var statements = new List<string>
+            {
+                $"""
+                CREATE TEMP TABLE {Quote(conversion.TempTableName)} AS
+                SELECT {Quote(conversion.Mapping.ParentJunctionColumn)} AS "parent_id", {Quote(conversion.Mapping.ChildJunctionColumn)} AS "child_id"
+                FROM {Quote(conversion.Mapping.JunctionTableName)};
+                """
+            };
+            // A junction the new model still lists stays a table (as on
+            // Postgres); only a junction that leaves the model is dropped.
+            if (!newModel.Tables.Any(t => string.Equals(t.Name, conversion.Mapping.JunctionTableName, StringComparison.OrdinalIgnoreCase)))
+                statements.Add($"DROP TABLE {Quote(conversion.Mapping.JunctionTableName)};");
+
+            Append(sqlUp, sqlDown, statements, "");
         }
 
         foreach (var change in changes.Where(c => c.ChangeType == SchemaChangeType.RenameTable))

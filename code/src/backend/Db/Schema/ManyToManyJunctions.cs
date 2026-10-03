@@ -67,8 +67,10 @@ public static class ManyToManyJunctions
 
     private static bool KeyColumnsMatch(TableDef existing, TableDef built)
     {
+        // Only the key columns: a junction may carry more reference columns
+        // of its own (e.g. added_by → users).
         var existingKeys = existing.Columns
-            .Where(c => !string.IsNullOrWhiteSpace(c.References))
+            .Where(c => c.PrimaryKey && !string.IsNullOrWhiteSpace(c.References))
             .Select(c => $"{c.Name.ToLowerInvariant()}>{c.References!.ToLowerInvariant()}")
             .ToHashSet();
         var builtKeys = built.Columns

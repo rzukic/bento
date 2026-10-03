@@ -693,6 +693,24 @@ describe("RecordEditor — N:M links", () => {
     );
   });
 
+  it("asks before removing a link that holds its own values", async () => {
+    const fetchMock = makeManyToManyFetchMock({
+      junctionRows: [{ order_id: 1, user_id: 7, note: "gift" }],
+    });
+    const links = await openOrder(fetchMock, manyToManySnapshotWithNote);
+
+    await userEvent.click(await within(links).findByRole("button", { name: "Remove link to Alice" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove link to Alice?" });
+    expect(callsTo(fetchMock, "DELETE", "/api/v1/data/_jt_order_tags/")).toHaveLength(0);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove link" }));
+    await waitFor(() =>
+      expect(
+        callsTo(fetchMock, "DELETE", "/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
+      ).toHaveLength(1),
+    );
+  });
+
   it("removes a link via the composite id route", async () => {
     const fetchMock = makeManyToManyFetchMock();
     const links = await openOrder(fetchMock);

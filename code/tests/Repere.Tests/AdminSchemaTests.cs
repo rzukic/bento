@@ -562,6 +562,41 @@ public sealed class AdminSchemaTests
     }
 
     [Fact]
+    public async Task JunctionRows_ChangeKeysAndRejectDuplicatesAsConflicts()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "products" ("name") VALUES ('Widget');
+            INSERT INTO "tags" ("label") VALUES ('Seasonal'), ('Sale'), ('New');
+            INSERT INTO "_jt_products_tags" ("product_id", "tag_id") VALUES (1, 1), (1, 3);
+            """);
+
+        // Linking the same pair again is a conflict, not a server error.
+        using var duplicate = await host.Client.PostAsync(
+            "/api/v1/data/_jt_products_tags",
+            new StringContent("""{ "product_id": 1, "tag_id": 1 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+
+        // Pointing a link at another record answers with the row under its new key.
+        using var moved = await host.Client.PatchAsync(
+            "/api/v1/data/_jt_products_tags/" + Uri.EscapeDataString("product_id:1|tag_id:1"),
+            new StringContent("""{ "tag_id": 2 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        var movedJson = await moved.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, movedJson.GetProperty("data").GetProperty("tag_id").GetInt32());
+
+        // Pointing it at a record it is already linked to is a conflict.
+        using var clash = await host.Client.PatchAsync(
+            "/api/v1/data/_jt_products_tags/" + Uri.EscapeDataString("product_id:1|tag_id:2"),
+            new StringContent("""{ "tag_id": 3 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
+        Assert.Equal(
+            2L,
+            await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM \"_jt_products_tags\";"));
+    }
+
+    [Fact]
     public async Task PutSchema_RecordLabel_IsDesignerMetadataThatRoundTrips()
     {
         await using var host = await CreateHostAsync();

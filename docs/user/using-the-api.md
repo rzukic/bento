@@ -269,7 +269,7 @@ curl -fsS "$API_ROOT/data/customers?search=acme" \
 
 This performs a case-insensitive text search across text columns. Several words must all match (AND).
 
-Reference columns are searched by the record they point to: `orders?search=globex` finds the orders whose customer's text or choice columns contain "globex", even though `orders` only stores `customer_id`.
+Reference columns are searched by the record they point to: `orders?search=globex` finds the orders whose customer's name contains "globex", even though `orders` only stores `customer_id`. "Name" is what the app shows for a record: the table's record label (and its secondary column) or, without one, its first text column.
 
 ### Dates and times
 

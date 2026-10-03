@@ -270,6 +270,11 @@ public sealed class CrudIntegrationTests
         // Terms still combine with AND across own and referenced columns.
         var combined = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=globex pending");
         Assert.Equal(1, combined.GetProperty("data").GetArrayLength());
+
+        // Only the referenced record's name counts, not its other text
+        // (email): "acme.example" is in an email, not in a customer name.
+        var byEmail = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=acme.example");
+        Assert.Equal(0, byEmail.GetProperty("data").GetArrayLength());
     }
 
     // ── Validation errors ──
