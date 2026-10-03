@@ -230,6 +230,10 @@ export function TableDetailPage() {
   const schemaLoading = schemaStatus === "loading" || schemaStatus === "idle";
   const schemaReady = schemaStatus === "ready" && snapshot !== null;
   const [kanbanConfigOpen, setKanbanConfigOpen] = useState(false);
+  function openKanbanConfig() {
+    setExportMenuOpen(false);
+    setKanbanConfigOpen(true);
+  }
   const kanbanAutoOpenedFor = useRef<string | null>(null);
   const [filterShortcut, setFilterShortcut] = useState<{
     columnName: string;
@@ -950,9 +954,14 @@ export function TableDetailPage() {
             table={resolvedTable}
             query={query}
             disabled={dataStatus === "loading" && view.rows.length === 0}
-            externalPopoverOpen={exportMenuOpen}
+            externalPopoverOpen={exportMenuOpen || kanbanConfigOpen}
             onActivePanelChange={(panel) => {
-              if (panel !== null) setExportMenuOpen(false);
+              // One popover at a time: a toolbar panel closes the export
+              // menu and the kanban configuration.
+              if (panel !== null) {
+                setExportMenuOpen(false);
+                setKanbanConfigOpen(false);
+              }
             }}
             toolbarActions={
               <>
@@ -968,7 +977,10 @@ export function TableDetailPage() {
                     aria-label="Export"
                     aria-haspopup="menu"
                     aria-expanded={exportMenuOpen}
-                    onClick={() => setExportMenuOpen((open) => !open)}
+                    onClick={() => {
+                      setKanbanConfigOpen(false);
+                      setExportMenuOpen((open) => !open);
+                    }}
                     disabled={isExporting}
                   >
                     <span className="data-controls__menu-button-content">
@@ -1152,7 +1164,7 @@ export function TableDetailPage() {
             onColumnOrderChange={(columnNames) => setColumnOrder(resolvedTable.name, columnNames)}
             onResetView={handleResetView}
             viewType={view.config.type}
-            onConfigureKanban={() => setKanbanConfigOpen(true)}
+            onConfigureKanban={openKanbanConfig}
           />
 
           {view.config.type === "kanban" ? (
@@ -1213,7 +1225,7 @@ export function TableDetailPage() {
                 type={view.config.type}
                 viewConfig={view.config}
                 loading={dataStatus === "loading"}
-                onConfigureView={() => setKanbanConfigOpen(true)}
+                onConfigureView={openKanbanConfig}
                 table={visibleTable ?? resolvedTable}
                 rows={view.rows}
                 page={query.page}
