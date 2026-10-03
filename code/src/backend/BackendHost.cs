@@ -113,6 +113,7 @@ public static class BackendHost
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
+        services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();

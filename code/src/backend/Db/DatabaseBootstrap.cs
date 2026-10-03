@@ -205,6 +205,24 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
             ON _system.import_profiles(table_name);
             """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.saved_queries (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                source_table    VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                owner_user_id   INTEGER,
+                is_shared       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
+            ON _system.saved_queries(source_table);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -375,6 +393,24 @@ public class DatabaseBootstrap : IHostedService
         await conn.ExecuteAsync("""
             CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
             ON import_profiles(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                source_table    TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                owner_user_id   INTEGER,
+                is_shared       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
+            ON saved_queries(source_table);
             """);
     }
 }

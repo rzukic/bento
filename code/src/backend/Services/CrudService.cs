@@ -1014,6 +1014,13 @@ public sealed class CrudService
             ColumnType.Uuid when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var guid) => guid,
             ColumnType.Reference when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var refGuid) => refGuid,
             ColumnType.Integer or ColumnType.Reference when long.TryParse(value, out var n) => n,
+            // Postgres compares NUMERIC / DOUBLE PRECISION / BOOLEAN columns only
+            // with typed parameters ("operator does not exist: numeric < text").
+            ColumnType.Float or ColumnType.Currency
+                when decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+                => provider == DatabaseProvider.Postgres ? number : (double)number,
+            ColumnType.Boolean when value.Trim().ToLowerInvariant() is "true" or "1" => true,
+            ColumnType.Boolean when value.Trim().ToLowerInvariant() is "false" or "0" => false,
             ColumnType.Date or ColumnType.DateTime when provider is not null
                 => CoerceTemporalForProvider(value, column.Type, provider.Value),
             _ => value
