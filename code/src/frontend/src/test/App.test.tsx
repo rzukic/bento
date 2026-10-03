@@ -78,7 +78,8 @@ describe("App scaffold", () => {
     expect(screen.getByRole("navigation", { name: "Tables" })).toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /orders/i })).not.toBeInTheDocument();
+    // The table page draws its own title; the shell adds no second one.
+    expect(screen.getAllByRole("heading", { level: 1, name: /^orders$/i })).toHaveLength(1);
   });
 
   it("keeps the login route outside the main shell navigation", () => {

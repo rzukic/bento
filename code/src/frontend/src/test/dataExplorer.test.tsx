@@ -397,7 +397,7 @@ describe("Table detail (/data/:tableId)", () => {
     const { container } = render(<RouterProvider router={router} />);
 
     expect(container.querySelector(".column-list")).toBeNull();
-    expect(screen.getByText("Orders")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Orders" })).toBeInTheDocument();
     expect(screen.getByText("Customers")).toBeInTheDocument();
   });
 
@@ -416,16 +416,17 @@ describe("Table detail (/data/:tableId)", () => {
     expect(screen.queryByText(/5 columns/i)).not.toBeInTheDocument();
   });
 
-  it("hides the large shell page header on per-table views", () => {
+  it("replaces the shell page header with the table's own title on per-table views", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
 
     const router = createTestRouter(["/data/orders"]);
-    render(<RouterProvider router={router} />);
+    const { container } = render(<RouterProvider router={router} />);
 
+    expect(container.querySelector(".shell__page-header")).toBeNull();
     expect(
-      screen.queryByRole("heading", { name: "Orders" }),
-    ).not.toBeInTheDocument();
+      screen.getAllByRole("heading", { level: 1, name: "Orders" }),
+    ).toHaveLength(1);
     expect(
       screen.queryByRole("button", { name: /view logs/i }),
     ).not.toBeInTheDocument();
@@ -3534,7 +3535,7 @@ describe("Table detail (/data/:tableId)", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.getByTestId("explorer-loading")).toBeInTheDocument();
-    await screen.findByText("Orders");
+    await screen.findByRole("heading", { level: 1, name: "Orders" });
     await screen.findByRole("table");
 
     expect(fetchMock).toHaveBeenCalled();
