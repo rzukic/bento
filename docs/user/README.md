@@ -7,7 +7,7 @@
 
 ## Start Here
 
-If you want to get Repere running and try the current product without reading the technical internals first, use these guides:
+If you want to get Bento running and try the current product without reading the technical internals first, use these guides:
 
 - [Getting Started](getting-started.md) — start the packaged stack with Docker, finish the setup wizard in the browser (admin account, optional sample data), or run the API-only shape
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
@@ -15,15 +15,15 @@ If you want to get Repere running and try the current product without reading th
 
 ---
 
-## What Repere Is Right Now
+## What Bento Is Right Now
 
-Repere is a packaged browser product (MVP 2 "Spreadsheet+"): one `docker compose up`, open `http://localhost`, and a setup wizard creates your admin account and can load a demo workspace.
+Bento is a packaged browser product (MVP 2 "Spreadsheet+"): one `docker compose up`, open `http://localhost`, and a setup wizard creates your admin account and can load a demo workspace.
 
 That means:
 - you can use the web UI to browse and edit data, save views and kanban boards, and design schemas
 - you can still use the system through HTTP API calls
 - you can define your data model visually or as JSON, preview the migration, and apply it
-- Repere creates the API routes for your tables automatically
+- Bento creates the API routes for your tables automatically
 
 If you are comfortable with `curl`, Postman, Insomnia, Bruno, or another API client, the API remains fully usable alongside the browser app.
 

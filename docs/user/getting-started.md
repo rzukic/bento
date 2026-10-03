@@ -1,6 +1,6 @@
 # Getting Started
 
-> Start Repere with Docker, finish the setup wizard in the browser, and (optionally) make your first authenticated API call.
+> Start Bento with Docker, finish the setup wizard in the browser, and (optionally) make your first authenticated API call.
 
 ---
 
@@ -15,7 +15,7 @@ You do not need to build the .NET project manually for normal packaged usage.
 
 ---
 
-## Two Ways To Run Repere
+## Two Ways To Run Bento
 
 - **Browser-first (recommended)** — `code/docker-compose.yml` starts a reverse proxy, the web app and the backend. You open `http://localhost`, and a setup wizard takes you from an empty installation to a signed-in admin, optionally with a small demo workspace. Only the proxy publishes ports.
 - **API only** — `code/docker-compose.backend-only.yml` starts just the backend on port `5000`. Use it when you only want the HTTP API; the rest of this guide's `curl` sections use this shape.

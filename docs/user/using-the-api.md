@@ -1,19 +1,19 @@
 # Using The API
 
-> A practical walkthrough for using Repere through HTTP.
+> A practical walkthrough for using Bento through HTTP.
 
 ---
 
 ## The Basic Idea
 
-Repere works like this:
+Bento works like this:
 
 1. You define your data model as JSON
 2. You upload that schema
-3. Repere creates API endpoints for each table
+3. Bento creates API endpoints for each table
 4. You use those endpoints to create, edit, list, and delete rows
 
-You do not write backend code for your tables. Repere derives the data API from the current Model JSON.
+You do not write backend code for your tables. Bento derives the data API from the current Model JSON.
 
 ---
 

@@ -13,7 +13,7 @@ type LocationState = { from?: { pathname?: string } } | null;
 export function LoginPage() {
   // The shell sets titles for app routes; /login lives outside the shell, so
   // without this the tab keeps showing the title of the page the user left.
-  useDocumentTitle("Sign in · Repere");
+  useDocumentTitle("Sign in · Bento");
 
   const status = useAuthStore((state) => state.status);
   const loginInFlight = useAuthStore((state) => state.loginInFlight);
@@ -66,7 +66,7 @@ export function LoginPage() {
             <span className="login__brand-mark" aria-hidden="true">
               <Icon name="layers" size={15} />
             </span>
-            <span className="login__brand-name">Repere</span>
+            <span className="login__brand-name">Bento</span>
           </div>
           <div className="login__header-right">
             <ThemeSwitch />
@@ -142,7 +142,7 @@ export function LoginPage() {
         <footer className="login__footer">
           <div className="login__rule" aria-hidden="true" />
           <div className="login__footer-row">
-            <span className="login__hint">© Repere</span>
+            <span className="login__hint">© Bento</span>
           </div>
         </footer>
       </div>
