@@ -4036,9 +4036,51 @@
     padding: 0.875rem 0.875rem 0.875rem 0.625rem;
 }
 
+/* Quiet hover: a slightly brighter surface and border, no lift or heavy
+   shadow; the grip only appears when the card is hovered or focused. */
+.kanban-card,
+.kanban-card:hover {
+    transform: none;
+}
+
+.kanban-card {
+    transition:
+        background var(--dur) var(--ease),
+        border-color var(--dur) var(--ease);
+}
+
 .kanban-card:hover {
     border-color: var(--line-2);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.25);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface-raised));
+    box-shadow: none;
+}
+
+.kanban-card__drag-handle {
+    width: 1rem;
+    height: 1.5rem;
+    border-radius: var(--r-sm);
+    background: transparent;
+    color: var(--text-4);
+    opacity: 0;
+    transition: opacity var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.kanban-card:hover .kanban-card__drag-handle,
+.kanban-card:focus-visible .kanban-card__drag-handle,
+.kanban-card__drag-handle:focus-visible {
+    opacity: 1;
+    background: transparent;
+    color: var(--text-3);
+}
+
+.kanban-card__drag-handle:hover {
+    color: var(--text);
+}
+
+@media (hover: none) {
+    .kanban-card__drag-handle {
+        opacity: 1;
+    }
 }
 
 .kanban-card__field--primary .kanban-card__field-value {
@@ -4234,12 +4276,14 @@
     background: var(--hover);
 }
 
-.data-grid__row--selected td,
+/* Same specificity as the even-row reset above so every selected or
+   draft row is tinted, not just the odd ones. */
+.data-grid tbody tr.data-grid__row--selected td,
 .data-grid tbody tr.data-grid__row--selected:hover td {
     background: var(--accent-soft);
 }
 
-.data-grid__row--pending-new td {
+.data-grid tbody tr.data-grid__row--pending-new td {
     background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 

@@ -306,7 +306,7 @@ export function KanbanView({
                       onDragStart={(e) => handleDragStart(e, rowId, lane.id)}
                       onDragEnd={handleDragEnd}
                     >
-                      <Icon name="more-horizontal" size={14} />
+                      <Icon name="grip-vertical" size={14} />
                     </span>
                     <div className="kanban-card__body">
                       {allFields.length > 0 ? (
