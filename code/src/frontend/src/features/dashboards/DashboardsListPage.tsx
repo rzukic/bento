@@ -7,7 +7,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
-import { cashFlowDashboard, dataTables, isFinanceTable } from "./starter";
+import { cashFlowDashboard, dataTables, describeCashFlow, isFinanceTable } from "./starter";
 import "./Dashboards.css";
 
 export function DashboardsListPage() {
@@ -30,6 +30,8 @@ export function DashboardsListPage() {
   }, [loadSchema]);
 
   const financeTables = useMemo(() => dataTables(snapshot?.tables ?? []).filter(isFinanceTable), [snapshot]);
+  const [starterTable, setStarterTable] = useState("");
+  const starter = financeTables.find((t) => t.name === starterTable) ?? financeTables[0];
 
   const create = async (
     dashboardName: string,
@@ -79,22 +81,35 @@ export function DashboardsListPage() {
 
       <section className="dashboards-new" aria-labelledby="dashboards-new-heading">
         <h2 id="dashboards-new-heading" className="dashboards-new__title">New dashboard</h2>
-        {financeTables.length > 0 ? (
-          <div className="dashboards-new__starters">
-            {financeTables.map((table) => (
-              <button
-                key={table.name}
-                type="button"
-                className="dashboards-new__starter"
-                disabled={creating}
-                onClick={() => void create(`Cash flow · ${table.displayName ?? table.name}`, cashFlowDashboard(table))}
+        {starter ? (
+          <div className="dashboards-new__starter">
+            <div className="dashboards-new__starter-text">
+              <span className="dashboards-new__starter-title">Monthly cash flow</span>
+              <span className="dashboards-new__starter-description">{describeCashFlow(starter)}</span>
+            </div>
+            <div className="dashboards-new__starter-actions">
+              <select
+                className="field__control field__control--compact"
+                aria-label="Table for the cash-flow dashboard"
+                value={starter.name}
+                disabled={financeTables.length === 1}
+                onChange={(event) => setStarterTable(event.target.value)}
               >
-                <span className="dashboards-new__starter-title">Monthly cash flow</span>
-                <span className="dashboards-new__starter-text">
-                  Balance, net per month, spending by category and top payees from {table.displayName ?? table.name}
-                </span>
-              </button>
-            ))}
+                {financeTables.map((table) => (
+                  <option key={table.name} value={table.name}>
+                    {table.displayName ?? table.name}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="primary"
+                disabled={creating}
+                onClick={() => void create(`Cash flow · ${starter.displayName ?? starter.name}`, cashFlowDashboard(starter))}
+              >
+                Create
+              </Button>
+            </div>
           </div>
         ) : null}
         <form

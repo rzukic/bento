@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { QueryResult } from "../api/query";
 import { rangeFromSearch, rangeToSearch, resolveRange } from "../features/dashboards/dateRange";
 import { addItem, collides, compact, moveItem, removeItem, resizeItem, type LayoutItem } from "../features/dashboards/layout";
+import { cashFlowColumns, describeCashFlow } from "../features/dashboards/starter";
+import type { ModelTable } from "../types/api";
 import {
   bucketSequence,
   bucketStart,
@@ -170,5 +172,38 @@ describe("widget data", () => {
       format: "integer",
       label: undefined,
     });
+  });
+});
+
+describe("cash-flow starter", () => {
+  const orders = {
+    name: "orders",
+    columns: [
+      { name: "id", type: "integer", primaryKey: true },
+      { name: "placed_at", type: "datetime" },
+      { name: "quantity", type: "integer" },
+      { name: "status", type: "enum", values: ["new"] },
+    ],
+  } as unknown as ModelTable;
+  const bank = {
+    name: "bank",
+    columns: [
+      { name: "id", type: "integer", primaryKey: true },
+      { name: "booked", displayName: "Booked", type: "date" },
+      { name: "amount", displayName: "Amount", type: "currency" },
+      { name: "note", type: "text" },
+    ],
+  } as unknown as ModelTable;
+
+  it("needs a currency column; plain numbers are not amounts", () => {
+    expect(cashFlowColumns(orders)).toBeNull();
+    expect(cashFlowColumns(bank)).toMatchObject({ date: { name: "booked" }, amount: { name: "amount" }, payee: { name: "note" } });
+  });
+
+  it("describes only what the table can show", () => {
+    expect(describeCashFlow(bank)).toBe("Balance and net per month from Amount by Booked and top note.");
+    expect(describeCashFlow({ ...bank, columns: bank.columns.filter((c) => c.name !== "note") } as ModelTable)).toBe(
+      "Balance and net per month from Amount by Booked.",
+    );
   });
 });

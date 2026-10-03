@@ -116,7 +116,13 @@ describe("Dashboards", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards"])} />);
 
-    await user.click(await screen.findByRole("button", { name: /Monthly cash flow.*Girokonto/ }));
+    const starter = (await screen.findByText("Monthly cash flow")).closest(".dashboards-new__starter") as HTMLElement;
+    expect(within(starter).getByText(
+      "Balance and net per month from Betrag (EUR) by Buchungstag, spending by Kategorie and top Auftraggeber / Begünstigter.",
+    )).toBeInTheDocument();
+    // One table qualifies, so there is nothing to choose.
+    expect(within(starter).getByLabelText("Table for the cash-flow dashboard")).toBeDisabled();
+    await user.click(within(starter).getByRole("button", { name: "Create" }));
 
     const [name, document] = dashboardsApi.createDashboard.mock.calls[0] as [string, DashboardDocument];
     expect(name).toBe("Cash flow · Girokonto");

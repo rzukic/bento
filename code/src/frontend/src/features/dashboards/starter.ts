@@ -47,10 +47,40 @@ export function pickColumns(table: ModelTable) {
   };
 }
 
-/** A table with a date and an amount — what a cash-flow dashboard needs. */
+export type CashFlowColumns = {
+  date: ModelColumn;
+  amount: ModelColumn;
+  category?: ModelColumn;
+  payee?: ModelColumn;
+};
+
+/**
+ * What a cash-flow dashboard is built from: a date and a real amount (a
+ * currency column — plain numbers are counts or quantities as often as
+ * money), plus a category and a payee column when the table has them.
+ */
+export function cashFlowColumns(table: ModelTable): CashFlowColumns | null {
+  const { date, category, text } = pickColumns(table);
+  const amount = table.columns.filter(usable).find((c) => c.type === "currency");
+  if (!date || !amount) return null;
+  return { date, amount, category, payee: text };
+}
+
+/** A table a cash-flow dashboard can be made from. */
 export function isFinanceTable(table: ModelTable): boolean {
-  const { date, amount } = pickColumns(table);
-  return Boolean(date && amount);
+  return cashFlowColumns(table) !== null;
+}
+
+const label = (column: ModelColumn) => column.displayName ?? column.name;
+
+/** What the cash-flow dashboard of this table will show, in its own column names. */
+export function describeCashFlow(table: ModelTable): string {
+  const columns = cashFlowColumns(table);
+  if (!columns) return "";
+  const parts = [`Balance and net per month from ${label(columns.amount)} by ${label(columns.date)}`];
+  if (columns.category) parts.push(`spending by ${label(columns.category)}`);
+  if (columns.payee) parts.push(`top ${label(columns.payee)}`);
+  return parts.length === 1 ? `${parts[0]}.` : `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}.`;
 }
 
 let counter = 0;
@@ -107,8 +137,9 @@ export function newWidget(type: WidgetType, table: ModelTable | undefined, layou
  * counterparties.
  */
 export function cashFlowDashboard(table: ModelTable): DashboardDocument {
-  const { date, amount, category, text } = pickColumns(table);
-  if (!date || !amount) return { dateRange: { preset: "last-12-months" }, widgets: [] };
+  const columns = cashFlowColumns(table);
+  if (!columns) return { dateRange: { preset: "last-12-months" }, widgets: [] };
+  const { date, amount, category, payee: text } = columns;
   const month = { column: date.name, bucket: "month" as const, as: "month" };
   const sum = (name: string) => ({ name, fn: "sum" as const, column: amount.name });
   const widgets: DashboardWidget[] = [
