@@ -1,13 +1,13 @@
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Authorization;
-using Repere.Api.Configuration;
-using Repere.Api.Db;
-using Repere.Api.Db.Schema;
-using Repere.Api.Models;
-using Repere.Api.Services;
+using Bento.Api.Authorization;
+using Bento.Api.Configuration;
+using Bento.Api.Db;
+using Bento.Api.Db.Schema;
+using Bento.Api.Models;
+using Bento.Api.Services;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 /// <summary>
 /// First-run setup surface consumed by the <c>/setup</c> wizard in the SPA.

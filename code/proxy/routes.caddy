@@ -3,7 +3,7 @@
 # Caddy's reverse_proxy sets X-Forwarded-For, X-Forwarded-Proto and X-Forwarded-Host
 # by default; the backend honours them when TRUSTED_PROXIES covers this container's
 # network (TASK-146; docker-compose.yml sets both to the same subnet).
-(repere) {
+(bento) {
 	log {
 		output stdout
 		format json

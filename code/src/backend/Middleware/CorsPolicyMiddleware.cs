@@ -1,7 +1,7 @@
-using Repere.Api.Configuration;
-using Repere.Api.Exceptions;
+using Bento.Api.Configuration;
+using Bento.Api.Exceptions;
 
-namespace Repere.Api.Middleware;
+namespace Bento.Api.Middleware;
 
 public sealed class CorsPolicyMiddleware
 {

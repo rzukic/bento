@@ -2,13 +2,13 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Authorization;
-using Repere.Api.Db.Migrations;
-using Repere.Api.Db.Schema;
-using Repere.Api.Models;
-using Repere.Api.Services;
+using Bento.Api.Authorization;
+using Bento.Api.Db.Migrations;
+using Bento.Api.Db.Schema;
+using Bento.Api.Models;
+using Bento.Api.Services;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Admin)]

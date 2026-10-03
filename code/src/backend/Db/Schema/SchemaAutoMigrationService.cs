@@ -1,4 +1,4 @@
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 public class SchemaAutoMigrationService : IHostedService
 {

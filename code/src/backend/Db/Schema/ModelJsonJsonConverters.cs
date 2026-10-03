@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 internal sealed class ColumnTypeJsonConverter : JsonConverter<ColumnType>
 {

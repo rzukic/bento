@@ -162,13 +162,13 @@ Runtime configuration contract:
 - `AUTH_REFRESH_COOKIE_SECURE` is an explicit override; when it is unset the refresh cookie follows the request scheme (`Secure` on HTTPS, plain on HTTP) in every environment. Until Step 2.7 the unset default was `Secure=true` in production, which broke session resume for packaged stacks reached over plain HTTP on anything but `localhost`
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
-- the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `REPERE_SYSTEM_PASSWORD`, and `REPERE_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added
+- the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `BENTO_SYSTEM_PASSWORD`, and `BENTO_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added
 - packaged deployments now persist generated runtime config at `DATA_DIR/config.json`; when `JWT_SECRET` is not supplied, the backend generates a signing secret there on first launch and reuses it on later starts
 - on POSIX hosts, first-run packaged bootstrap creates `DATA_DIR/config.json` with mode `0600` and tightens the owned `DATA_DIR` to `0700`; if an older `config.json` is still group- or world-readable, startup logs a one-time warning instead of aborting
 - the current manual packaged validation flow for SQLite and Postgres is documented in [packaged-mvp1-validation.md](packaged-mvp1-validation.md)
 - the reusable packaged startup/readiness harness lives at `code/scripts/compose-smoke.sh` and is intended to be shared by local verification and future GitHub Actions deployment jobs
 - the executable packaged MVP 1 product-flow suite lives at `code/scripts/packaged-mvp1-demo.sh` and validates the Phase 1 golden path against SQLite or Postgres deployments
-- the in-process Postgres-backed `.NET` integration slice is opt-in and uses `ApiIntegrationTestHost.StartPostgresAsync`; enable it locally by setting `REPERE_TEST_POSTGRES_ADMIN_CONNECTION`
+- the in-process Postgres-backed `.NET` integration slice is opt-in and uses `ApiIntegrationTestHost.StartPostgresAsync`; enable it locally by setting `BENTO_TEST_POSTGRES_ADMIN_CONNECTION`
 - GitHub Actions runs that provider-aware slice separately from the fast SQLite/default test job via `dotnet test --filter "Category=Postgres"`
 - the current Postgres-backed `.NET` scope is intentional: it covers a shared backend/integration slice (health, auth bootstrap/login, schema apply, CRUD, relation reads) without trying to mirror every SQLite-oriented test one-for-one yet
 

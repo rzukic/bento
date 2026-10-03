@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Repere.Api.Db.Schema;
-using Repere.Api.Exceptions;
+using Bento.Api.Db.Schema;
+using Bento.Api.Exceptions;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed record SampleDataLoadResult(
     int SchemaVersion,
@@ -17,8 +17,8 @@ public sealed record SampleDataLoadResult(
 /// </summary>
 public static class SampleDataLoader
 {
-    private const string SchemaResource = "Repere.Api.SampleData.schema.json";
-    private const string RowsResource = "Repere.Api.SampleData.rows.json";
+    private const string SchemaResource = "Bento.Api.SampleData.schema.json";
+    private const string RowsResource = "Bento.Api.SampleData.rows.json";
 
     /// <summary>True while the embedded demo workspace can still be loaded.</summary>
     public static bool IsAvailable(int currentSchemaVersion) => currentSchemaVersion == 0;

@@ -211,7 +211,7 @@ Feature stylesheets (`DataExplorer.css`, `SchemaWorkbenchPage.css`) end with a "
 
 ## Build Pipeline
 
-Vite builds to `dist/`. The `repere/frontend` Docker container serves this with nginx.
+Vite builds to `dist/`. The `bento/frontend` Docker container serves this with nginx.
 
 nginx is configured with `try_files $uri /index.html` so React Router handles all routes client-side.
 

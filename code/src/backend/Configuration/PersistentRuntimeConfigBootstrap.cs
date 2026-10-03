@@ -3,7 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 
-namespace Repere.Api.Configuration;
+namespace Bento.Api.Configuration;
 
 public static class PersistentRuntimeConfigBootstrap
 {

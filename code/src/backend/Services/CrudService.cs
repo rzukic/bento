@@ -2,13 +2,13 @@ using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Dapper;
-using Repere.Api.Db;
-using Repere.Api.Db.Schema;
-using Repere.Api.Exceptions;
+using Bento.Api.Db;
+using Bento.Api.Db.Schema;
+using Bento.Api.Exceptions;
 using SqlKata;
 using SqlKata.Execution;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed record ListResult
 {

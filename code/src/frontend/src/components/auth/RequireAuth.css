@@ -75,3 +75,14 @@
     opacity: 0.6;
   }
 }
+
+/* Loading: the sushi of this app load hops in place (no tile, no pulse). */
+.auth-splash__mark {
+  width: auto;
+  height: auto;
+  padding-top: 24px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  animation: none;
+}

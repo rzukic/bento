@@ -10,8 +10,16 @@ import "@fontsource/space-grotesk/500.css";
 import "@fontsource/space-grotesk/700.css";
 
 import { OverlayScrollbars } from "./components/common/OverlayScrollbars";
+import { SESSION_SUSHI, sushiSvg } from "./components/brand";
 import { router } from "./router";
 import "./styles.css";
+
+// The tab shows the same sushi as the app (a different one each load).
+const favicon = document.createElement("link");
+favicon.rel = "icon";
+favicon.type = "image/svg+xml";
+favicon.href = `data:image/svg+xml,${encodeURIComponent(sushiSvg(SESSION_SUSHI))}`;
+document.head.appendChild(favicon);
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

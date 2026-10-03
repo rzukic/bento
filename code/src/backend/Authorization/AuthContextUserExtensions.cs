@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Security.Claims;
 
-namespace Repere.Api.Authorization;
+namespace Bento.Api.Authorization;
 
 public static class AuthContextUserExtensions
 {

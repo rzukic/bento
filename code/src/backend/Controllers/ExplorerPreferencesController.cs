@@ -1,12 +1,12 @@
 using System.Globalization;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Authorization;
-using Repere.Api.Db;
-using Repere.Api.Exceptions;
-using Repere.Api.Models;
+using Bento.Api.Authorization;
+using Bento.Api.Db;
+using Bento.Api.Exceptions;
+using Bento.Api.Models;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.ExplorerPreferences)]

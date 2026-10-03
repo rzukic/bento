@@ -1,11 +1,11 @@
 using System.Text.Json;
 using Dapper;
-using Repere.Api.Db;
-using Repere.Api.Db.Schema;
-using Repere.Api.Exceptions;
+using Bento.Api.Db;
+using Bento.Api.Db.Schema;
+using Bento.Api.Exceptions;
 using SqlKata.Execution;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 /// <summary>
 /// A single per-field validation error.

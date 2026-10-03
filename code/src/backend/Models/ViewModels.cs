@@ -2,7 +2,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 /// <summary>
 /// View type determines the renderer used in the Data Explorer.

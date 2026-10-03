@@ -1,4 +1,4 @@
-namespace Repere.Api.Middleware;
+namespace Bento.Api.Middleware;
 
 public sealed class RequestIdMiddleware
 {

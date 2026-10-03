@@ -67,8 +67,8 @@ jobs:
           retention-days: 7
           path: |
             .artifacts/**
-            /tmp/repere-smoke-*
-            /tmp/repere-demo-*
+            /tmp/bento-smoke-*
+            /tmp/bento-demo-*
 
   deployment-postgres:
     name: Backend-only Postgres
@@ -87,8 +87,8 @@ jobs:
       - name: Run packaged Postgres validation
         env:
           POSTGRES_SUPERUSER_PASSWORD: gha-postgres-superuser-secret
-          REPERE_SYSTEM_PASSWORD: gha-postgres-system-secret
-          REPERE_DATA_PASSWORD: gha-postgres-data-secret
+          BENTO_SYSTEM_PASSWORD: gha-postgres-system-secret
+          BENTO_DATA_PASSWORD: gha-postgres-data-secret
         run: |
           mkdir -p .artifacts
           code/scripts/packaged-mvp1-demo.sh postgres \
@@ -105,8 +105,8 @@ jobs:
           retention-days: 7
           path: |
             .artifacts/**
-            /tmp/repere-smoke-*
-            /tmp/repere-demo-*
+            /tmp/bento-smoke-*
+            /tmp/bento-demo-*
 
   deployment-full-stack-sqlite:
     name: Full stack SQLite (proxy + frontend + backend)
@@ -157,8 +157,8 @@ jobs:
       - name: Run packaged MVP 2 smoke (Postgres)
         env:
           POSTGRES_SUPERUSER_PASSWORD: gha-postgres-superuser-secret
-          REPERE_SYSTEM_PASSWORD: gha-postgres-system-secret
-          REPERE_DATA_PASSWORD: gha-postgres-data-secret
+          BENTO_SYSTEM_PASSWORD: gha-postgres-system-secret
+          BENTO_DATA_PASSWORD: gha-postgres-data-secret
         run: |
           mkdir -p .artifacts
           code/scripts/packaged-mvp2-smoke.sh postgres \

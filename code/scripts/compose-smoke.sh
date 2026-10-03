@@ -224,9 +224,9 @@ is_insecure_postgres_secret() {
 
   [[ -z "$value" ]] \
     || [[ "$value" == "CHANGE_ME" ]] \
-    || [[ "$value" == "repere_dev" ]] \
-    || [[ "$value" == "repere_system_dev" ]] \
-    || [[ "$value" == "repere_data_dev" ]]
+    || [[ "$value" == "bento_dev" ]] \
+    || [[ "$value" == "bento_system_dev" ]] \
+    || [[ "$value" == "bento_data_dev" ]]
 }
 
 ensure_postgres_passwords() {
@@ -241,7 +241,7 @@ ensure_postgres_passwords() {
   fi
 
   local key
-  for key in POSTGRES_SUPERUSER_PASSWORD REPERE_SYSTEM_PASSWORD REPERE_DATA_PASSWORD; do
+  for key in POSTGRES_SUPERUSER_PASSWORD BENTO_SYSTEM_PASSWORD BENTO_DATA_PASSWORD; do
     local value="${!key:-}"
 
     if is_insecure_postgres_secret "$value"; then
@@ -271,7 +271,7 @@ BACKEND_PORT="$(resolve_env_var "BACKEND_PORT" "5000")"
 HOST_POSTGRES_PORT="$(resolve_env_var "HOST_POSTGRES_PORT" "")"
 
 if [[ -z "$PROJECT_NAME" ]]; then
-  PROJECT_NAME="repere-smoke-${VARIANT}"
+  PROJECT_NAME="bento-smoke-${VARIANT}"
 fi
 
 if [[ -z "$LOG_DIR" ]]; then

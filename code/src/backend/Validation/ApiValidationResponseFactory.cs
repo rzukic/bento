@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
-using Repere.Api.Models;
+using Bento.Api.Models;
 
-namespace Repere.Api.Validation;
+namespace Bento.Api.Validation;
 
 public static class ApiValidationResponseFactory
 {

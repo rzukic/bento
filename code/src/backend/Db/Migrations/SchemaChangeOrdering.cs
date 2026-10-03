@@ -1,6 +1,6 @@
-using Repere.Api.Db.Schema;
+using Bento.Api.Db.Schema;
 
-namespace Repere.Api.Db.Migrations;
+namespace Bento.Api.Db.Migrations;
 
 /// <summary>
 /// Orders schema changes into generation phases (renames, creates, column/index

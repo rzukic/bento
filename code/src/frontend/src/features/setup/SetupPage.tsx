@@ -11,6 +11,7 @@ import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
 import "./SetupPage.css";
+import { SushiMascot } from "../../components/brand";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
 
@@ -47,7 +48,7 @@ function pad(index: number): string {
 }
 
 export function SetupPage() {
-  useDocumentTitle("Setup · Repere");
+  useDocumentTitle("Setup · Bento");
 
   const status = useSetupStore((state) => state.status);
   const info = useSetupStore((state) => state.info);
@@ -89,7 +90,7 @@ export function SetupPage() {
             <Line>Setup unavailable.</Line>
           </h1>
           <p className="setup__lede rise d2">
-            We couldn't check this installation. Make sure Repere is running, then try again.
+            We couldn't check this installation. Make sure Bento is running, then try again.
           </p>
           <p className="setup__error rise d3" role="alert">
             {statusError ?? "Unknown error."}
@@ -145,9 +146,9 @@ function SetupFrame({ children, hue, numeral, tone, steps, current }: FrameProps
         <header className="setup__header">
           <div className="setup__brand">
             <span className="setup__brand-mark" aria-hidden="true">
-              <Icon name="layers" size={15} />
+              <SushiMascot width={32} />
             </span>
-            <span className="setup__brand-name">Repere</span>
+            <span className="setup__brand-name">Bento</span>
           </div>
           <div className="setup__header-right">
             <ThemeSwitch />
@@ -187,7 +188,7 @@ function SetupFrame({ children, hue, numeral, tone, steps, current }: FrameProps
           <footer className="setup__footer">
             <div className="setup__track" aria-hidden="true" />
             <div className="setup__footer-row">
-              <span className="setup__hint">© Repere</span>
+              <span className="setup__hint">© Bento</span>
             </div>
           </footer>
         )}

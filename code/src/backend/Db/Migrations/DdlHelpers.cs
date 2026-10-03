@@ -1,7 +1,7 @@
 using System.Text.Json;
-using Repere.Api.Db.Schema;
+using Bento.Api.Db.Schema;
 
-namespace Repere.Api.Db.Migrations;
+namespace Bento.Api.Db.Migrations;
 
 /// <summary>
 /// Provider-neutral DDL building blocks shared by <see cref="PostgresDdlGenerator"/>,

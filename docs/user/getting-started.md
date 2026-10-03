@@ -1,6 +1,6 @@
 # Getting Started
 
-> Start Repere with Docker, finish the setup wizard in the browser, and (optionally) make your first authenticated API call.
+> Start Bento with Docker, finish the setup wizard in the browser, and (optionally) make your first authenticated API call.
 
 ---
 
@@ -15,7 +15,7 @@ You do not need to build the .NET project manually for normal packaged usage.
 
 ---
 
-## Two Ways To Run Repere
+## Two Ways To Run Bento
 
 - **Browser-first (recommended)** — `code/docker-compose.yml` starts a reverse proxy, the web app and the backend. You open `http://localhost`, and a setup wizard takes you from an empty installation to a signed-in admin, optionally with a small demo workspace. Only the proxy publishes ports.
 - **API only** — `code/docker-compose.backend-only.yml` starts just the backend on port `5000`. Use it when you only want the HTTP API; the rest of this guide's `curl` sections use this shape.
@@ -215,6 +215,22 @@ docker compose -f code/docker-compose.backend-only.yml -f code/docker-compose.po
 ```
 
 If you also want to remove volumes, add `-v`.
+
+---
+
+## Upgrading From Before The Rename
+
+Bento was called "Repère" up to v0.2.0. The technical names moved with it: images `bento/*`, the data volume `bento-data`, the `Bento.Api` project. An install started before the rename keeps its data as follows:
+
+- **Data volume (SQLite)**: stop the stack (`down`, without `-v`), copy the old volume once, then start again with the current compose files:
+
+  ```bash
+  code/scripts/migrate-volume-from-repere.sh
+  ```
+
+  The script copies `code_repere-data` into `code_bento-data` and leaves the old volume untouched; pass the project name if the stack was started with `-p <name>`. Remove the old volume yourself once everything is there.
+- **Postgres**: the Postgres volume keeps its name. Keep the old database and role names in `code/.env`: `POSTGRES_DB=repere`, `POSTGRES_SUPERUSER=repere_admin`, `BENTO_SYSTEM_ROLE=repere_system`, `BENTO_DATA_ROLE=repere_data`. Rename `REPERE_SYSTEM_PASSWORD` / `REPERE_DATA_PASSWORD` to `BENTO_SYSTEM_PASSWORD` / `BENTO_DATA_PASSWORD`.
+- **Browser**: signed-in sessions carry over (the old refresh cookie is accepted once and replaced), and theme, sidebar and schema mode settings are moved to their new keys on the first load.
 
 ---
 

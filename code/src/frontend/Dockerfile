@@ -1,5 +1,5 @@
 # Build context: code/src/frontend (package.json, pnpm-lock.yaml and pnpm-workspace.yaml live here).
-#   docker build -t repere/frontend:local -f code/src/frontend/Dockerfile code/src/frontend
+#   docker build -t bento/frontend:local -f code/src/frontend/Dockerfile code/src/frontend
 
 FROM node:20-alpine AS build
 WORKDIR /app

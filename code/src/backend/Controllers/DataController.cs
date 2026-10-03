@@ -1,10 +1,10 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Authorization;
-using Repere.Api.Exceptions;
-using Repere.Api.Services;
+using Bento.Api.Authorization;
+using Bento.Api.Exceptions;
+using Bento.Api.Services;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 /// <summary>
 /// Auto-generated row CRUD. Reads are open to every authenticated role

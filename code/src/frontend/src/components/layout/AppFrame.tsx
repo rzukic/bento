@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../ui/Dialog";
 import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
+import { SushiMascot } from "../brand";
 
 const sidebarShortcutLabel =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
@@ -106,11 +107,11 @@ export function AppFrame({ children }: AppFrameProps) {
     useMemo(() => {
       const tableId = matches[matches.length - 1]?.params?.tableId;
       if (!tableId || !schemaSnapshot) {
-        return breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Repere";
+        return breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Bento";
       }
 
       const table = schemaSnapshot.tables.find((candidate) => candidate.name === tableId);
-      return table?.displayName ?? breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Repere";
+      return table?.displayName ?? breadcrumbItems[breadcrumbItems.length - 1]?.label ?? "Bento";
     }, [breadcrumbItems, matches, schemaSnapshot]);
 
   const currentSubtitle = useMemo(() => {
@@ -134,7 +135,7 @@ export function AppFrame({ children }: AppFrameProps) {
   const hidePageHeader = currentHandle?.hidePageHeader === true;
   const customPageHeader = currentHandle?.customPageHeader === true;
 
-  useDocumentTitle(`${currentTitle} · Repere`);
+  useDocumentTitle(`${currentTitle} · Bento`);
 
   return (
     <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"}`}>
@@ -163,14 +164,14 @@ export function AppFrame({ children }: AppFrameProps) {
             title={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
           >
             <span className="shell__brand-logo">
-              <Icon name="layers" size={16} strokeWidth={2} />
+              <SushiMascot width={32} />
             </span>
             <span className="shell__brand-expand">
               <Icon name="panel-left" size={16} />
             </span>
           </button>
           <div className="shell__brand-text">
-            <span className="shell__brand-name">Repere</span>
+            <span className="shell__brand-name">Bento</span>
           </div>
           <button
             type="button"

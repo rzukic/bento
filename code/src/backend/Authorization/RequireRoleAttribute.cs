@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Mvc.Filters;
-using Repere.Api.Exceptions;
+using Bento.Api.Exceptions;
 
-namespace Repere.Api.Authorization;
+namespace Bento.Api.Authorization;
 
 /// <summary>
 /// Requires the caller to satisfy at least one of the given roles.

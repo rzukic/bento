@@ -1,6 +1,6 @@
 using System.Reflection;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed record BackendRuntimeInfo(
     DateTimeOffset StartedAtUtc,

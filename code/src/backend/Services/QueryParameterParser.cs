@@ -1,8 +1,8 @@
 using System.Text.RegularExpressions;
-using Repere.Api.Db.Schema;
-using Repere.Api.Exceptions;
+using Bento.Api.Db.Schema;
+using Bento.Api.Exceptions;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed record ListQueryParameters
 {

@@ -1,6 +1,6 @@
 # Components
 
-> Shared UI components for the Repère frontend.
+> Shared UI components for the Bento frontend.
 > Component source lives in `src/frontend/src/components/`.
 
 ---
@@ -34,7 +34,7 @@ export function DataGrid({ tableId, editable = false, onRowClick }: DataGridProp
 | Component | Description | Status |
 |-----------|-------------|--------|
 | `DataGrid` | Tabular data view with sorting, filtering, inline edit | Planned — Phase 2 |
-| `Chart` | ECharts wrapper with Repère chart config format | Planned — Phase 3 |
+| `Chart` | ECharts wrapper with Bento chart config format | Planned — Phase 3 |
 | `FormulaEditor` | Formula input with syntax highlighting and autocomplete | Planned — Phase 2 |
 | `SchemaDesigner` | Drag-and-drop column type editor | Planned — Phase 2 |
 | `DashboardGrid` | Drag-and-drop widget layout | Planned — Phase 3 |

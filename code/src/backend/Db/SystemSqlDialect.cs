@@ -1,4 +1,4 @@
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 /// <summary>
 /// Small provider-specific SQL fragments for the hand-written system-table
