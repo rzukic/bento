@@ -6125,3 +6125,13 @@
     justify-content: flex-end;
     margin-bottom: -1.25rem;
 }
+
+/* Amounts (currency columns) read as numbers: tabular, negatives tinted. */
+.data-grid__amount {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.data-grid__amount--negative {
+    color: var(--danger);
+}
