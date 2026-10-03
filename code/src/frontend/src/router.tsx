@@ -10,6 +10,7 @@ import { Spinner } from "./components/ui/Spinner";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
 const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
+const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
 const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
@@ -117,6 +118,20 @@ const shellRoutes: RouteObject[] = [
       title: "Dashboard",
       hidePageHeader: true,
       breadcrumbParent: { label: "Dashboards", to: "/dashboards" }
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "connections",
+    element: (
+      <Lazy>
+        <ConnectionsPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Connections",
+      hidePageHeader: true,
+      navLabel: "Connections",
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {

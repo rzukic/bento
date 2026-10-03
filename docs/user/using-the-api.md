@@ -32,6 +32,8 @@ Every protected request needs:
 Authorization: Bearer <token>
 ```
 
+`TOKEN` can be a session token from `POST $API_ROOT/auth/login` (short-lived) or, for scripts, an **API key** (`bento_…`) created under **Connections → API keys**; a key also works as `X-API-Key: <key>`. Read keys read and run queries; read-write keys also change data; no key reaches schema, user or key management. The **Connections → API** page lists every endpoint of your installation with fields and examples, lets you try them, and offers the OpenAPI description (`GET $API_ROOT/openapi.json`). See [Connections](connections.md).
+
 ---
 
 ## Step 1: Create A Schema JSON
