@@ -19,6 +19,8 @@ src/backend/
 │   ├── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
 │   ├── QueryController.cs ← Aggregation queries (`/api/v1/query`) and saved queries (`/api/v1/queries`)
 │   ├── DashboardsController.cs ← Dashboard JSON (`/api/v1/dashboards`), private or shared
+│   ├── ApiKeysController.cs ← API key management (`/api/v1/admin/api-keys`), admins only
+│   ├── OpenApiController.cs ← `GET /api/v1/openapi.json`, generated from the schema
 │   └── ImportController.cs ← CSV import and mapping profiles (`/api/v1/import/*`)
 ├── Exceptions/
 │   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses
@@ -32,6 +34,8 @@ src/backend/
 │   ├── BackendRuntimeInfo.cs ← Captured startup time + version for operational endpoints
 │   ├── AdminHealthService.cs ← Backend readiness check used by admin health route
 │   ├── AggregationQueryService.cs ← Group/measure/bucket SQL per provider, running totals, carry-in
+│   ├── ApiKeyService.cs ← Key creation (shown once, SHA-256), lookup, scopes, last use, revocation
+│   ├── OpenApiDocumentBuilder.cs ← OpenAPI 3.0 from the schema plus the fixed routes
 │   └── Import/           ← CSV import (Step 3.1)
 │       ├── CsvDocument.cs ← Decoding, separator and header detection, RFC 4180 split with file lines
 │       ├── ImportValueParser.cs ← Locale-aware numbers/dates/booleans, type and locale inference

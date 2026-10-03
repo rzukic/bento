@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Connections: API Explorer And API Keys
+
+> **Phase**: Phase 3 — Visualization (API keys pulled forward from Phase 5)
+> **Working step**: [Step 3.3b — Connections](working-steps/3.3b-connections.md)
+
+A workspace section for using Bento from scripts and tools: the installation's API, generated from its schema and testable in place, and API keys.
+
+**Highlights:**
+- `GET /api/v1/openapi.json`: OpenAPI 3.0 with CRUD per table (fields, required, examples), query, saved queries, dashboards, import, schema, auth; which key scope may call what
+- Swagger-style explorer: grouped endpoints, parameters and fields, "Send" as yourself or with a key, response and curl, OpenAPI download
+- API keys: read or read-write, optional expiry, shown once and stored as SHA-256, last use, revocation; never above their user, never on admin routes
+
 ### 2026-10-04 — Build Dashboards From Your Tables
 
 > **Phase**: Phase 3 — Visualization

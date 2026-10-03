@@ -72,6 +72,7 @@ const appRoutes = [
           { path: "model", element: <ModelPage /> },
           { path: "dashboards", element: <DashboardsListPage /> },
           { path: "dashboards/:dashboardId", element: <DashboardPage /> },
+          { path: "connections", element: <ConnectionsPage /> },
           { path: "forms", element: <FormsPage /> },
           { path: "ai", element: <AiPage /> },
           { path: "settings", element: <SettingsPage /> }
