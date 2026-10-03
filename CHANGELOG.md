@@ -12,7 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
-_None._
+### 2026-10-03 — Import Bank Exports From CSV
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.1 — CSV Import](working-steps/3.1-csv-import.md)
+
+The first step of the finance-driven Phase 3: CSV files, bank exports included, import into a table, and re-importing an overlapping export adds nothing twice.
+
+**Highlights:**
+- Detects encoding, separator, header below account lines, decimal comma and date format; suggests the mapping, also from German bank headers
+- Duplicate skip by key columns (counted per key), references by record name, per-row problems with file line, one transaction
+- Mapping profiles per table; Import page reachable from the table toolbar
+- Fixes Postgres `date` columns: creating such a row through the API returned 500
 
 ---
 

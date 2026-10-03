@@ -311,15 +311,18 @@ public class MigrationRunner
 
         foreach (var rename in tableRenames)
         {
-            await conn.ExecuteAsync(
-                $"UPDATE {GetPreferencesTableName()} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
-                new
-                {
-                    OldTableName = rename.Key,
-                    NewTableName = rename.Value,
-                    Now = UtcNowIso()
-                },
-                transaction);
+            foreach (var tableName in new[] { GetPreferencesTableName(), GetImportProfilesTableName() })
+            {
+                await conn.ExecuteAsync(
+                    $"UPDATE {tableName} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
+                    new
+                    {
+                        OldTableName = rename.Key,
+                        NewTableName = rename.Value,
+                        Now = UtcNowIso()
+                    },
+                    transaction);
+            }
         }
 
         var views = await conn.QueryAsync<SystemViewReferenceRow>(
@@ -501,6 +504,9 @@ public class MigrationRunner
         _systemPool.Provider == DatabaseProvider.Postgres
             ? "_system.user_table_explorer_preferences"
             : "user_table_explorer_preferences";
+
+    private string GetImportProfilesTableName() =>
+        _systemPool.Provider == DatabaseProvider.Postgres ? "_system.import_profiles" : "import_profiles";
 
     private static string UtcNowIso() =>
         DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);

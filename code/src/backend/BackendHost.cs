@@ -97,6 +97,7 @@ public static class BackendHost
                 serviceProvider.GetRequiredService<ILogger<DataPool>>()));
 
         services.AddSingleton<QueryService>();
+        DapperTypeHandlers.Register();
         services.AddSingleton<AuthService>();
         services.AddSingleton<AuthRateLimiter>();
         services.AddSingleton<ModelJsonStore>();
@@ -111,6 +112,7 @@ public static class BackendHost
         services.AddSingleton<RequestBodyValidator>();
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
+        services.AddSingleton<Bento.Api.Services.Import.ImportService>();
         services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();

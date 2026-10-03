@@ -16,6 +16,11 @@ public class QueryService
     private readonly IDataPool _dataPool;
     private readonly Compiler _compiler;
 
+    static QueryService()
+    {
+        DapperTypeHandlers.Register();
+    }
+
     public QueryService(ISystemPool systemPool, IDataPool dataPool, DatabaseConfig config)
     {
         _systemPool = systemPool;

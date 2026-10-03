@@ -16,7 +16,8 @@ src/backend/
 │   ├── BackendRuntimeOptions.cs ← Typed runtime options available via DI
 │   └── BackendRuntimeConfiguration.cs ← Env-var adapter, validation, and DB override helpers
 ├── Controllers/          ← API route handlers (one per resource area)
-│   └── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+│   ├── AdminController.cs ← Admin routes (`/api/v1/admin/*`)
+│   └── ImportController.cs ← CSV import and mapping profiles (`/api/v1/import/*`)
 ├── Exceptions/
 │   └── ApiException.cs   ← Shared typed API exceptions for mapped 4xx responses
 ├── Middleware/           ← Cross-cutting HTTP pipeline behavior
@@ -27,7 +28,11 @@ src/backend/
 │   └── BodySizeLimitMiddleware.cs ← Configurable JSON request-size enforcement
 ├── Services/             ← Business logic, injected into controllers
 │   ├── BackendRuntimeInfo.cs ← Captured startup time + version for operational endpoints
-│   └── AdminHealthService.cs ← Backend readiness check used by admin health route
+│   ├── AdminHealthService.cs ← Backend readiness check used by admin health route
+│   └── Import/           ← CSV import (Step 3.1)
+│       ├── CsvDocument.cs ← Decoding, separator and header detection, RFC 4180 split with file lines
+│       ├── ImportValueParser.cs ← Locale-aware numbers/dates/booleans, type and locale inference
+│       └── ImportService.cs ← Mapping, reference lookup by record label, duplicate skip, validation, one-transaction insert
 ├── Db/
 │   ├── IDbPool.cs        ← Pool interfaces (ISystemPool, IDataPool)
 │   ├── DatabaseConfig.cs ← Configuration model (provider, connections, pool sizing)
@@ -35,6 +40,7 @@ src/backend/
 │   ├── DataPool.cs       ← Restricted connection pool (public schema)
 │   ├── DatabaseBootstrap.cs ← Creates system tables on first run (IHostedService)
 │   ├── QueryService.cs   ← Scoped QueryFactory provider (SqlKata + Dapper)
+│   ├── DapperTypeHandlers.cs ← Parameter types Dapper lacks (DateOnly for Postgres DATE)
 │   ├── ColumnType.cs     ← Column type enum, DDL mappings, coercion matrix, validation
 │   ├── Schema/
 │   │   ├── ModelJson.cs  ← Model JSON type hierarchy (tables, columns, relations, indexes)
@@ -76,6 +82,7 @@ src/backend/
 | API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | [`../../wiki/parts/02-backend-api/README.md`](../../wiki/parts/02-backend-api/README.md) |
 | Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
 | Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
+| CSV import | `Controllers/ImportController.cs`, `Services/Import/ImportService.cs` | [Importing Data](../user/importing-data.md), [Part 11 R11.5](../../wiki/parts/11-integration-engine/README.md) |
 | Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
 | JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |
 | Background workers | `Workers/` | [background-workers.md](background-workers.md) |
