@@ -29,8 +29,6 @@ type Props = {
   nullable: boolean;
   /** Accessible label for the trigger + listbox. */
   ariaLabel: string;
-  /** Placeholder for the search input when open. */
-  searchPlaceholder?: string;
   /** Optional placeholder shown on the trigger when no value is set. */
   triggerPlaceholder?: string;
   /** Provide options for a given query string. May return a Promise. */
@@ -63,7 +61,6 @@ export function ComboboxCellEditor({
   displayLabel,
   nullable,
   ariaLabel,
-  searchPlaceholder,
   triggerPlaceholder,
   loadOptions,
   asyncSearch = false,
@@ -207,8 +204,8 @@ export function ComboboxCellEditor({
             aria-invalid={Boolean(error) || undefined}
             className="cell-combobox__input"
             placeholder={
-              // An empty value reads "—" as in the static cell; the search
-              // hint sits at the top of the list instead.
+              // An empty value reads "—" as in the static cell; typing
+              // filters the list below.
               showValue ? "" : open ? (hasValue ? "" : "—") : triggerLabel
             }
             value={inputValue}
@@ -237,11 +234,6 @@ export function ComboboxCellEditor({
             aria-label={ariaLabel}
             className="cell-combobox__listbox"
           >
-            {query === "" ? (
-              <li className="cell-combobox__hint" role="presentation">
-                {searchPlaceholder ?? "Type to search"}
-              </li>
-            ) : null}
             {options.length === 0 ? (
               <li
                 className="cell-combobox__empty"
