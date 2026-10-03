@@ -4971,15 +4971,12 @@
    Grid edge cases
    ------------------------------------------------------------------------- */
 
-/* The open-record button always sits inside the table's right edge. It used
-   to hang 32 px past the table unless the grid overflowed sideways; with the
-   table filling the card that overhang itself caused the overflow, which
-   moved the button inside, which removed the overflow, every frame. */
-.data-grid__column--actions {
-    position: sticky;
-    right: 0;
-}
-
+/* The open-record button always sits inside the table's right edge (it
+   used to hang 32 px past it). That overhang made a table that fills the
+   card overflow sideways, which switched the button inside, which removed
+   the overflow, every frame. Anchored from the right it has the same
+   geometry with and without overflow; only a real overflow makes the
+   column sticky (rule above). */
 .data-grid__cell--actions {
     left: auto;
     right: 0;
