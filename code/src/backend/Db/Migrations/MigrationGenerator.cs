@@ -49,7 +49,10 @@ public class MigrationGenerator
         var sqlUp = new List<string>();
         var sqlDown = new List<string>();
 
-        var orderedChanges = SchemaChangeOrdering.OrderChangesForGeneration(_relationResolver, oldModel, newModel, changes);
+        // Computed columns have no database column: adding, dropping or editing
+        // one changes only the Model JSON, so it needs no DDL.
+        var physicalChanges = changes.Where(change => !IsComputedColumnChange(change, oldModel, newModel)).ToList();
+        var orderedChanges = SchemaChangeOrdering.OrderChangesForGeneration(_relationResolver, oldModel, newModel, physicalChanges);
 
         if (_provider == DatabaseProvider.Postgres)
             _postgres.Generate(oldModel, newModel, orderedChanges, sqlUp, sqlDown);
@@ -62,6 +65,30 @@ public class MigrationGenerator
             SqlDown = sqlDown,
             IsDestructive = changes.Any(c => c.IsDestructive),
             Changes = changes
+        };
+    }
+
+    private static bool IsComputedColumnChange(SchemaChange change, ModelJson oldModel, ModelJson newModel)
+    {
+        if (change.ColumnName is null)
+            return false;
+
+        static ColumnType? TypeOf(ModelJson model, string? table, string? column) =>
+            table is null || column is null
+                ? null
+                : model.Tables.FirstOrDefault(t => string.Equals(t.Name, table, StringComparison.OrdinalIgnoreCase))?
+                    .Columns.FirstOrDefault(c => string.Equals(c.Name, column, StringComparison.OrdinalIgnoreCase))?.Type;
+
+        var oldType = TypeOf(oldModel, change.PreviousTableName ?? change.TableName, change.PreviousColumnName ?? change.ColumnName);
+        var newType = TypeOf(newModel, change.TableName, change.ColumnName);
+        return change.ChangeType switch
+        {
+            SchemaChangeType.AddColumn => newType == ColumnType.Computed,
+            SchemaChangeType.DropColumn => oldType == ColumnType.Computed,
+            SchemaChangeType.RenameColumn or SchemaChangeType.AlterColumnNullability or
+                SchemaChangeType.AlterColumnDefault or SchemaChangeType.AlterColumnUnique =>
+                newType == ColumnType.Computed && oldType == ColumnType.Computed,
+            _ => false
         };
     }
 }

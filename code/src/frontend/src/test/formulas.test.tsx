@@ -1,10 +1,12 @@
 import { CompletionContext } from "@codemirror/autocomplete";
+import { ensureSyntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { FormulaFunction } from "../api/formulas";
 import { FormulaField } from "../features/formulas/FormulaField";
-import { formulaCompletions } from "../features/formulas/formulaLanguage";
+import { FormulaEditor } from "../features/formulas/FormulaEditor";
+import { formulaCompletions, formulaLanguage } from "../features/formulas/formulaLanguage";
 import type { SchemaColumn } from "../types/api";
 
 const api = vi.hoisted(() => ({
@@ -49,6 +51,31 @@ describe("formula autocomplete", () => {
 
   it("stays quiet inside text", () => {
     expect(complete('= IF(amount < 0, "exp')).toBeNull();
+  });
+});
+
+describe("formula highlighting", () => {
+  // Typing a quote used to throw inside the tokenizer and drop the keystroke.
+  it.each([
+    'IF(amount < 0, "expense", "income")',
+    "'it''s' & \"say \"\"hi\"\"\"",
+    '"unclosed',
+    "[Booked on] > \"2026-01-01\"",
+  ])("tokenizes %s", (doc) => {
+    const state = EditorState.create({ doc, extensions: [formulaLanguage] });
+    expect(() => ensureSyntaxTree(state, state.doc.length, 5000)).not.toThrow();
+  });
+
+  it("shows a formula with text in quotes", () => {
+    render(
+      <FormulaEditor
+        value={'IF(amount < 0, "expense", "income")'}
+        onChange={() => undefined}
+        columns={columns}
+        functions={functions}
+      />,
+    );
+    expect(screen.getByTestId("formula-editor").textContent).toBe('IF(amount < 0, "expense", "income")');
   });
 });
 
