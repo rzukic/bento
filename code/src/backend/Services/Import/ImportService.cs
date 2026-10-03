@@ -286,7 +286,7 @@ public sealed class ImportService
                 }
             }
 
-            lookups[column.References!] = new ReferenceLookup(target.Name, labelColumn, byLabel, byId);
+            lookups[column.References!] = new ReferenceLookup(target.DisplayName ?? target.Name, labelColumn, byLabel, byId);
         }
         return lookups;
     }
@@ -448,7 +448,7 @@ public sealed class ImportService
                     {
                         if (ids.Count > 1)
                         {
-                            error = $"More than one {lookup.TableName} record is named '{raw}'.";
+                            error = $"'{raw}' matches more than one record in {lookup.TableName}.";
                             return false;
                         }
                         value = ids[0];
@@ -461,7 +461,7 @@ public sealed class ImportService
                         display = byId.Label;
                         return true;
                     }
-                    error = $"No {lookup.TableName} record named '{raw}'.";
+                    error = $"'{raw}' is not in {lookup.TableName}.";
                     return false;
                 }
                 value = raw;

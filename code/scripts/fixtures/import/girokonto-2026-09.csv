@@ -1,0 +1,16 @@
+"Kontonummer:";"DE00 1234 5678 9000 0000 00";
+"Von:";"01.09.2026";
+"Bis:";"30.09.2026";
+"Kontostand vom 30.09.2026:";"2.481,37 EUR";
+
+"Buchungstag";"Wertstellung";"Buchungstext";"Auftraggeber / Begünstigter";"Verwendungszweck";"Betrag (EUR)";"Kategorie";
+"01.09.2026";"01.09.2026";"Dauerauftrag";"Hausverwaltung Schäfer";"Miete September";"-1.150,00";"Miete";
+"01.09.2026";"01.09.2026";"Lastschrift";"REWE Markt";"Einkauf";"-45,90";"Lebensmittel";
+"02.09.2026";"02.09.2026";"Gutschrift";"Beispiel GmbH";"Gehalt September";"3.250,00";"Gehalt";
+"03.09.2026";"03.09.2026";"Kartenzahlung";"Bäckerei Müller";"Kaffee";"-3,20";"Lebensmittel";
+"03.09.2026";"03.09.2026";"Kartenzahlung";"Bäckerei Müller";"Kaffee";"-3,20";"Lebensmittel";
+"06.09.2026";"06.09.2026";"Kartenzahlung";"Kino am Markt";"Film, 2 Karten";"-24,00";"Freizeit";
+"09.09.2026";"09.09.2026";"Lastschrift";"EDEKA";"Wocheneinkauf";"-67,45";"Lebensmittel";
+"15.09.2026";"15.09.2026";"Lastschrift";"Versicherung AG";"Haftpflicht 2026/27";"-58,20";"Versicherung";
+"20.09.2026";"20.09.2026";"Kartenzahlung";"Biergarten";"Abendessen";"-31,50";"Freizeit";
+"28.09.2026";"28.09.2026";"Lastschrift";"REWE Markt";"Einkauf";"-52,10";"Lebensmittel";

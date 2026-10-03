@@ -286,6 +286,44 @@ curl -fsS "$API_ROOT/data/_jt_orders_products?filter[order_id]=1" \
 
 ---
 
+## Import CSV Files
+
+The browser import ([Importing Data](importing-data.md)) uses these routes; scripts can call them directly. Files travel base64-encoded so the encoding can be detected. Every route needs `editor`, `admin` or `api`.
+
+```bash
+CONTENT=$(base64 < girokonto.csv | tr -d '\n')
+
+# What Bento detects: encoding, separator, header row, number/date format, columns with samples
+curl -fsS "$API_ROOT/import/analyze" -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" -d "{\"content\": \"$CONTENT\"}"
+
+# Dry run, then the real import (same body)
+cat > import.json <<JSON
+{
+  "content": "$CONTENT",
+  "settings": { "decimalSeparator": ",", "dateFormat": "dd.MM.yyyy" },
+  "mapping": [
+    { "source": "Buchungstag", "target": "booked_on" },
+    { "source": "Betrag (EUR)", "target": "amount" },
+    { "source": "Kategorie", "target": "category_id" }
+  ],
+  "keyColumns": ["booked_on", "amount"]
+}
+JSON
+curl -fsS "$API_ROOT/import/transactions/preview" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @import.json
+curl -fsS "$API_ROOT/import/transactions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @import.json
+```
+
+- `settings` fields left out are detected (`encoding`, `delimiter`, `headerLine` as a 0-based record index, `decimalSeparator`, `dateFormat`)
+- reference columns take the referenced record's label (e.g. a category name) or its id
+- rows whose key columns match a row in the table are skipped (counted per key, so real repeats in one file still import)
+- the response has `total`, `new`, `duplicates`, `invalid`, `inserted` and, per row, `line`, `status` (`new`, `duplicate`, `invalid`), `display` and `errors`
+- new rows are inserted in one transaction
+
+Saved mappings: `GET/POST $API_ROOT/import/<table>/profiles`, `PUT/DELETE $API_ROOT/import/<table>/profiles/<id>` with `{ "name": "...", "config": { "settings": {...}, "mapping": [...], "keyColumns": [...] } }`.
+
+---
+
 ## Check The Current Schema
 
 If you want to inspect the active schema:

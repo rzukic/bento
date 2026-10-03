@@ -10,6 +10,7 @@ export type IconName =
   | "settings"
   | "search"
   | "download"
+  | "upload"
   | "list"
   | "user"
   | "chevron-right"
@@ -117,6 +118,13 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <path d="M12 4v11" />
       <path d="m7 10 5 5 5-5" />
+      <path d="M5 19h14" />
+    </>
+  ),
+  upload: (
+    <>
+      <path d="M12 15V4" />
+      <path d="m7 9 5-5 5 5" />
       <path d="M5 19h14" />
     </>
   ),

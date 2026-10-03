@@ -11,6 +11,7 @@ If you want to get Bento running and try the current product without reading the
 
 - [Getting Started](getting-started.md) — start the packaged stack with Docker, finish the setup wizard in the browser (admin account, optional sample data), or run the API-only shape
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
+- [Importing Data](importing-data.md) — import CSV files such as bank exports, skip rows that are already there, save the mapping as a profile
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 
 ---
