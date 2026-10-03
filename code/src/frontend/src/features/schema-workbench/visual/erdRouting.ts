@@ -48,6 +48,8 @@ const erdSnapSize = erdGridSize / 4;
 const erdAutoColumnGap = 344;
 const erdAutoRowGap = 292;
 const erdCanvasPadding = 56;
+/** Free space kept on each side of an auto-placed junction table. */
+const junctionClearance = 72;
 
 function getErdTableHeight(table: SchemaTable): number {
   return Math.max(
@@ -59,7 +61,7 @@ function getErdTableHeight(table: SchemaTable): number {
 }
 
 export function buildErdTableNodes(document: SchemaModelDocument): ErdTableNode[] {
-  return document.tables.map((table, index) => {
+  const nodes = document.tables.map((table, index) => {
     const layout = getTableLayout(table);
     const fallbackColumn = index % 3;
     const fallbackRow = Math.floor(index / 3);
@@ -70,6 +72,48 @@ export function buildErdTableNodes(document: SchemaModelDocument): ErdTableNode[
       height: getErdTableHeight(table),
       x: layout?.x ?? erdCanvasPadding + fallbackColumn * erdAutoColumnGap,
       y: layout?.y ?? erdCanvasPadding + fallbackRow * erdAutoRowGap,
+    };
+  });
+  return placeUnlaidJunctions(document, nodes);
+}
+
+/**
+ * A junction table without a saved position (e.g. one the server just made
+ * visible) sits between the two tables it links instead of in the fallback
+ * grid, where it would land on top of other tables.
+ */
+function placeUnlaidJunctions(
+  document: SchemaModelDocument,
+  nodes: ErdTableNode[],
+): ErdTableNode[] {
+  const nodeByName = new Map(nodes.map((node) => [node.table.name, node]));
+  return nodes.map((node) => {
+    if (getTableLayout(node.table)) return node;
+    const relation = document.relations.find(
+      (candidate) =>
+        candidate.type === "N:M" &&
+        getRelationJunctionTableName(candidate) === node.table.name,
+    );
+    if (!relation) return node;
+    const from = nodeByName.get(getRelationEndpoint(relation, "from"));
+    const to = nodeByName.get(getRelationEndpoint(relation, "to"));
+    if (!from || !to || !getTableLayout(from.table) || !getTableLayout(to.table)) {
+      return node;
+    }
+    // Lines leave tables sideways, so the junction needs clear horizontal
+    // room on both sides: in the gap between the two tables if it fits,
+    // otherwise beside the right-hand one.
+    const [left, right] = from.x <= to.x ? [from, to] : [to, from];
+    const gap = right.x - (left.x + left.width);
+    const centerY = (from.y + from.height / 2 + to.y + to.height / 2) / 2;
+    const x =
+      gap >= node.width + junctionClearance * 2
+        ? left.x + left.width + (gap - node.width) / 2
+        : Math.max(left.x + left.width, right.x + right.width) + junctionClearance;
+    return {
+      ...node,
+      x: snapToErdGrid(x),
+      y: snapToErdGrid(centerY - node.height / 2),
     };
   });
 }

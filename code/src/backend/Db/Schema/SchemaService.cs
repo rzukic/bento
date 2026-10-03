@@ -89,7 +89,9 @@ public class SchemaService
 
     public async Task<SchemaPreviewResult> PreviewSchemaAsync(ModelJson requestedModel)
     {
-        var currentModel = await _modelJsonStore.GetCurrentAsync() ?? new ModelJson { Version = 0 };
+        var storedModel = await _modelJsonStore.GetCurrentAsync() ?? new ModelJson { Version = 0 };
+        var (currentModel, adoptedRequest) = ManyToManyJunctions.ForDiff(storedModel, requestedModel);
+        requestedModel = adoptedRequest;
         var requestedModelWithRenameReferences = CascadeTableRenameReferences(currentModel, requestedModel);
         var validation = _validator.Validate(requestedModelWithRenameReferences);
 

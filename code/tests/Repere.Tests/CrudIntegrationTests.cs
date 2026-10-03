@@ -85,9 +85,10 @@ public sealed class CrudIntegrationTests
         Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync("/api/v1/data/orders")).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync("/api/v1/data/products")).StatusCode);
 
-        // Junction table is NOT exposed via CRUD (alphabetical naming: orders, products)
+        // The N:M junction table is part of the model and has its own CRUD
+        // route (alphabetical naming: orders, products)
         var jtResp = await host.Client.GetAsync("/api/v1/data/_jt_orders_products");
-        Assert.Equal(HttpStatusCode.NotFound, jtResp.StatusCode);
+        Assert.Equal(HttpStatusCode.OK, jtResp.StatusCode);
     }
 
     // ── Full CRUD lifecycle ──
