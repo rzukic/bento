@@ -11,16 +11,16 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: repere
-      POSTGRES_USER: repere_admin
-      POSTGRES_PASSWORD: repere_dev
+      POSTGRES_DB: bento
+      POSTGRES_USER: bento_admin
+      POSTGRES_PASSWORD: bento_dev
     ports:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./init-db:/docker-entrypoint-initdb.d
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U repere_admin -d repere"]
+      test: ["CMD-SHELL", "pg_isready -U bento_admin -d bento"]
       interval: 5s
       timeout: 3s
       retries: 5

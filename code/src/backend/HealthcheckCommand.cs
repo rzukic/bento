@@ -1,4 +1,4 @@
-namespace Repere.Api;
+namespace Bento.Api;
 
 internal static class HealthcheckCommand
 {

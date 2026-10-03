@@ -1,7 +1,7 @@
 using System.Text.Json.Serialization;
-using Repere.Api.Db.Schema;
+using Bento.Api.Db.Schema;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 public sealed record AdminSchemaIssueResponse(string Code, string Message, string Path);
 

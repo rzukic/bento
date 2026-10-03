@@ -1,4 +1,4 @@
-namespace Repere.Api;
+namespace Bento.Api;
 
 public sealed record ReservedRouteArea(
     string RoutePrefix,

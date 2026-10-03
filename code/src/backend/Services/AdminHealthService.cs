@@ -1,9 +1,9 @@
-using Repere.Api.Db;
-using Repere.Api.Models;
+using Bento.Api.Db;
+using Bento.Api.Models;
 using System.Data;
-using Repere.Api.Configuration;
+using Bento.Api.Configuration;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed class AdminHealthService
 {

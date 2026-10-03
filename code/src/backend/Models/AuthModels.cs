@@ -1,7 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 public sealed record AuthRuntimeContractResponse(
     [property: JsonPropertyName("mode")] string Mode,

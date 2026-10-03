@@ -1,4 +1,4 @@
-using Repere.Api;
+using Bento.Api;
 
 if (HealthcheckCommand.IsRequested(args))
 {

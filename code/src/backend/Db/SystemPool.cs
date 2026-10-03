@@ -3,7 +3,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Npgsql;
 
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 public class SystemPool : ISystemPool, IDisposable
 {

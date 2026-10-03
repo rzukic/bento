@@ -1,6 +1,6 @@
-using Repere.Api.Models;
+using Bento.Api.Models;
 
-namespace Repere.Api.Exceptions;
+namespace Bento.Api.Exceptions;
 
 public abstract class ApiException : Exception
 {

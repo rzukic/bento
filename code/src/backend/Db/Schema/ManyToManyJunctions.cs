@@ -1,4 +1,4 @@
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 /// <summary>
 /// Keeps every N:M junction table visible in the model.

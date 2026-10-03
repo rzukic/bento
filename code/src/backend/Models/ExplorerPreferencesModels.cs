@@ -1,7 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 /// <summary>
 /// Represents an optional integer JSON property that must distinguish between:

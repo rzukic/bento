@@ -1,4 +1,4 @@
-namespace Repere.Api.Models;
+namespace Bento.Api.Models;
 
 public enum ApiErrorCode
 {

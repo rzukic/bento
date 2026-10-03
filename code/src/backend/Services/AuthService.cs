@@ -7,12 +7,12 @@ using System.Text.Json;
 using Dapper;
 using Microsoft.Data.Sqlite;
 using Npgsql;
-using Repere.Api.Configuration;
-using Repere.Api.Db;
-using Repere.Api.Exceptions;
-using Repere.Api.Models;
+using Bento.Api.Configuration;
+using Bento.Api.Db;
+using Bento.Api.Exceptions;
+using Bento.Api.Models;
 
-namespace Repere.Api.Services;
+namespace Bento.Api.Services;
 
 public sealed class AuthService
 {

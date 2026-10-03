@@ -15,9 +15,37 @@ type AppStoreState = {
   toggleSidebar: () => void;
 };
 
-const THEME_MODE_STORAGE_KEY = "repere.app.themeMode";
-const SIDEBAR_OPEN_STORAGE_KEY = "repere.app.sidebarOpen";
-const SCHEMA_MODE_STORAGE_KEY = "repere.schema.mode";
+const THEME_MODE_STORAGE_KEY = "bento.app.themeMode";
+const SIDEBAR_OPEN_STORAGE_KEY = "bento.app.sidebarOpen";
+const SCHEMA_MODE_STORAGE_KEY = "bento.schema.mode";
+
+/** Keys from before the rename to Bento, mapped to their current names. */
+const LEGACY_STORAGE_KEYS: ReadonlyArray<readonly [string, string]> = [
+  ["repere.app.themeMode", THEME_MODE_STORAGE_KEY],
+  ["repere.app.sidebarOpen", SIDEBAR_OPEN_STORAGE_KEY],
+  ["repere.schema.mode", SCHEMA_MODE_STORAGE_KEY],
+];
+
+/**
+ * Carries settings saved under the old names over once: the value moves to
+ * the current key (unless that one is already set) and the old key is removed.
+ */
+export function migrateLegacyStorageKeys(): void {
+  if (typeof window === "undefined") return;
+  try {
+    const storage = window.localStorage;
+    for (const [legacyKey, key] of LEGACY_STORAGE_KEYS) {
+      const value = storage.getItem(legacyKey);
+      if (value === null) continue;
+      if (storage.getItem(key) === null) storage.setItem(key, value);
+      storage.removeItem(legacyKey);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+migrateLegacyStorageKeys();
 
 function loadPersistedSchemaMode(): SchemaWorkbenchMode {
   if (typeof window === "undefined") return "visual";

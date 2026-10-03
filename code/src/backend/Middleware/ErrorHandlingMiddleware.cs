@@ -1,7 +1,7 @@
-using Repere.Api.Exceptions;
-using Repere.Api.Models;
+using Bento.Api.Exceptions;
+using Bento.Api.Models;
 
-namespace Repere.Api.Middleware;
+namespace Bento.Api.Middleware;
 
 public sealed class ErrorHandlingMiddleware
 {

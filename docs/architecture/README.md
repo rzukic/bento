@@ -1,6 +1,6 @@
 # Architecture
 
-> System topology, service boundaries, and data flow for the Repère platform.
+> System topology, service boundaries, and data flow for the Bento platform.
 > For design decisions and rationale, see [`wiki/plan/tech-decisions.md`](../../wiki/plan/tech-decisions.md).
 
 ---
@@ -12,25 +12,25 @@ Browser / Client
       │
       ▼
 ┌─────────────┐
-│    Caddy    │  :80 / :443  (repere/proxy)
+│    Caddy    │  :80 / :443  (bento/proxy)
 │  (proxy)   │
 └──────┬──────┘
        │
        ├─ /api/v1/* ──► ┌──────────────┐
-       ├─ /ws ──────────►  ASP.NET Core │  :5000  (repere/backend)
+       ├─ /ws ──────────►  ASP.NET Core │  :5000  (bento/backend)
        │                └──────┬───────┘
        │                       │
        │               ┌───────┴────────┐
        │               │                │
        │          System Pool      Data Pool
-       │         (repere_system)  (repere_data)
+       │         (bento_system)  (bento_data)
        │               │                │
        │          ┌────▼────────────────▼────┐
        │          │   Postgres / SQLite DB    │
        │          └───────────────────────────┘
        │
        └─ /* ──────────► ┌──────────────┐
-                         │    nginx     │  :80  (repere/frontend)
+                         │    nginx     │  :80  (bento/frontend)
                          │ (static SPA) │
                          └──────────────┘
 ```
@@ -39,9 +39,9 @@ Browser / Client
 
 | Container | Image | Role |
 |-----------|-------|------|
-| `proxy` | `repere/proxy` | Caddy — TLS termination, routing |
-| `backend` | `repere/backend` | ASP.NET Core API server (WebSocket planned later) |
-| `frontend` | `repere/frontend` | nginx serving Vite/React static build |
+| `proxy` | `bento/proxy` | Caddy — TLS termination, routing |
+| `backend` | `bento/backend` | ASP.NET Core API server (WebSocket planned later) |
+| `frontend` | `bento/frontend` | nginx serving Vite/React static build |
 
 The frontend container only serves static files. All API calls from the browser go to `/api/v1/*` — Caddy routes these to the backend. The frontend never needs to know the backend's address.
 
@@ -54,8 +54,8 @@ The frontend container only serves static files. All API calls from the browser 
 ### Postgres
 
 ```
-repere (database)
-├── _system (schema)     ← privileged, repere_system role only
+bento (database)
+├── _system (schema)     ← privileged, bento_system role only
 │   ├── schema_versions  ← Model JSON + version history
 │   ├── migrations       ← migration log
 │   ├── users            ← platform user accounts
@@ -65,7 +65,7 @@ repere (database)
 │   ├── jobs             ← scheduled job definitions
 │   ├── functions        ← (Phase 3 — custom JS function definitions)
 │   └── forms            ← (Phase 4 — form definitions)
-└── public (schema)      ← user data, repere_data role
+└── public (schema)      ← user data, bento_data role
     ├── [user tables]
     └── [user tables]
 ```
@@ -83,8 +83,8 @@ data.db       ← equivalent of public schema
 
 | Pool | Role | Schema access | Used for |
 |------|------|--------------|---------|
-| `SystemPool` | `repere_system` | `_system.*` only | Platform operations — auth, migrations, config |
-| `DataPool` | `repere_data` | `public.*` only | All user-generated queries |
+| `SystemPool` | `bento_system` | `_system.*` only | Platform operations — auth, migrations, config |
+| `DataPool` | `bento_data` | `public.*` only | All user-generated queries |
 
 The `DataPool` will also run user SQL through the **DDL blocklist** before execution once custom SQL/data-query endpoints exist.
 
@@ -103,7 +103,7 @@ Browser → Caddy → Backend (SystemPool or DataPool) → DB → response
 ### User SQL Query
 
 ```
-Browser → Caddy → Backend → DDL Blocklist → DataPool (repere_data) → public schema only
+Browser → Caddy → Backend → DDL Blocklist → DataPool (bento_data) → public schema only
 ```
 
 > **Future flow** — this path describes the intended custom SQL/query pipeline once those endpoints and the DDL blocklist are implemented.

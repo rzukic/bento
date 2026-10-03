@@ -7,7 +7,7 @@
 # The API-only shape from MVP 1 lives in docker-compose.backend-only.yml.
 services:
   proxy:
-    image: repere/proxy:local
+    image: bento/proxy:local
     build: ./proxy
     restart: unless-stopped
     ports:
@@ -27,14 +27,14 @@ services:
         condition: service_healthy
 
   frontend:
-    image: repere/frontend:local
+    image: bento/frontend:local
     build:
       context: ./src/frontend
     restart: unless-stopped
     # No ports: reachable only through the proxy. Health check comes from the image.
 
   backend:
-    image: repere/backend:local
+    image: bento/backend:local
     build:
       context: .
       dockerfile: src/backend/Dockerfile
@@ -52,15 +52,15 @@ services:
       # without pinning a subnet that could collide with other networks.
       TRUSTED_PROXIES: "${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8}"
     volumes:
-      - repere-data:/data
+      - bento-data:/data
     healthcheck:
-      test: ["CMD", "dotnet", "Repere.Api.dll", "--healthcheck"]
+      test: ["CMD", "dotnet", "Bento.Api.dll", "--healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 20s
       retries: 5
 
 volumes:
-  repere-data:
+  bento-data:
   caddy-data:
   caddy-config:

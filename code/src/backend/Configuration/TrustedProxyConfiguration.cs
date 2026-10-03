@@ -3,7 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using Microsoft.AspNetCore.HttpOverrides;
 
-namespace Repere.Api.Configuration;
+namespace Bento.Api.Configuration;
 
 /// <summary>
 /// One parsed <c>TRUSTED_PROXIES</c> entry: either a single address or a CIDR network.

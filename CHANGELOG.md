@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-03 — Rename the Product to Bento
+
+> **Phase**: Phase 2 — Data Management
+
+The working name "Repère" is replaced by Bento, visibly and in every technical identifier.
+
+**Highlights:**
+- UI, page title and docs say Bento; a pixel sushi mascot (a different kind on every load) is the logo and favicon
+- `Bento.Api` / `Bento.Tests` projects and namespaces, `Bento.sln`, images `bento/frontend|backend|proxy`, data volume `bento-data`
+- Postgres defaults `bento` / `bento_admin` / `bento_system` / `bento_data`; role names configurable via `BENTO_SYSTEM_ROLE` / `BENTO_DATA_ROLE`; env vars `BENTO_SYSTEM_PASSWORD` / `BENTO_DATA_PASSWORD` (formerly `REPERE_*`)
+- JWT issuer/audience `bento-api` / `bento-clients`, refresh cookie `bento_refresh`
+- Upgrade path: `code/scripts/migrate-volume-from-repere.sh` copies the old data volume; the old refresh cookie is accepted once and replaced; browser settings move from `repere.*` to `bento.*` keys on first load
+
 ### 2026-10-03 — Finish Step 2.8: Explorer, Record Editor and Schema Designer Follow-ups
 
 > **Phase**: Phase 2 — Data Management

@@ -1,12 +1,12 @@
-using Repere.Api.Configuration;
-using Repere.Api.Db;
-using Repere.Api.Db.Migrations;
-using Repere.Api.Db.Schema;
-using Repere.Api.Middleware;
-using Repere.Api.Services;
-using Repere.Api.Validation;
+using Bento.Api.Configuration;
+using Bento.Api.Db;
+using Bento.Api.Db.Migrations;
+using Bento.Api.Db.Schema;
+using Bento.Api.Middleware;
+using Bento.Api.Services;
+using Bento.Api.Validation;
 
-namespace Repere.Api;
+namespace Bento.Api;
 
 public static class BackendHost
 {
@@ -49,7 +49,7 @@ public static class BackendHost
                     options.TimestampFormat = "O";
                 });
             });
-            var bootstrapLogger = bootstrapLoggerFactory.CreateLogger("Repere.Api.Configuration.PersistentRuntimeConfigBootstrap");
+            var bootstrapLogger = bootstrapLoggerFactory.CreateLogger("Bento.Api.Configuration.PersistentRuntimeConfigBootstrap");
             var persistentOverrides = PersistentRuntimeConfigBootstrap.BuildOverrides(configurationManager, bootstrapLogger);
             if (persistentOverrides.Count > 0)
             {

@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Repere.Api.Db.Schema;
+namespace Bento.Api.Db.Schema;
 
 public enum SchemaChangeType
 {

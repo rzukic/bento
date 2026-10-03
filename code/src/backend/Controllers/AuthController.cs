@@ -1,9 +1,9 @@
 using Microsoft.AspNetCore.Mvc;
-using Repere.Api.Configuration;
-using Repere.Api.Models;
-using Repere.Api.Services;
+using Bento.Api.Configuration;
+using Bento.Api.Models;
+using Bento.Api.Services;
 
-namespace Repere.Api.Controllers;
+namespace Bento.Api.Controllers;
 
 [ApiController]
 [Route(ApiRoutes.Auth)]
@@ -16,6 +16,13 @@ public sealed class AuthController : ControllerBase
         "CSP headers until the browser-facing frontend exists",
         "vault mode"
     ];
+
+    /// <summary>
+    /// The refresh cookie's name before the rename to Bento. A browser that
+    /// still holds it is signed in once more through it; the next response
+    /// moves the session to the current cookie and clears the old one.
+    /// </summary>
+    private const string LegacyRefreshCookieName = "repere_refresh";
 
     private readonly BackendRuntimeOptions _runtimeOptions;
     private readonly AuthService _authService;
@@ -79,7 +86,7 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType<AuthTokenResponse>(StatusCodes.Status200OK)]
     public async Task<ActionResult<AuthTokenResponse>> Refresh(CancellationToken cancellationToken)
     {
-        Request.Cookies.TryGetValue(_runtimeOptions.AuthCookie.RefreshCookieName, out var refreshToken);
+        var refreshToken = ReadRefreshCookie();
         var session = await _authService.RefreshAsync(refreshToken, cancellationToken);
         WriteRefreshCookie(session);
         return Ok(session.Response);
@@ -94,9 +101,10 @@ public sealed class AuthController : ControllerBase
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public async Task<IActionResult> Logout(CancellationToken cancellationToken)
     {
-        Request.Cookies.TryGetValue(_runtimeOptions.AuthCookie.RefreshCookieName, out var refreshToken);
+        var refreshToken = ReadRefreshCookie();
         await _authService.LogoutAsync(refreshToken, cancellationToken);
         Response.Cookies.Delete(_runtimeOptions.AuthCookie.RefreshCookieName, BuildRefreshCookieOptions(expires: null));
+        ClearLegacyRefreshCookie();
         return NoContent();
     }
 
@@ -106,6 +114,22 @@ public sealed class AuthController : ControllerBase
             _runtimeOptions.AuthCookie.RefreshCookieName,
             session.RefreshToken,
             BuildRefreshCookieOptions(session.RefreshExpiresAt.UtcDateTime));
+        ClearLegacyRefreshCookie();
+    }
+
+    private string? ReadRefreshCookie()
+    {
+        if (Request.Cookies.TryGetValue(_runtimeOptions.AuthCookie.RefreshCookieName, out var refreshToken))
+            return refreshToken;
+        Request.Cookies.TryGetValue(LegacyRefreshCookieName, out var legacyToken);
+        return legacyToken;
+    }
+
+    private void ClearLegacyRefreshCookie()
+    {
+        if (Request.Cookies.ContainsKey(LegacyRefreshCookieName) &&
+            !string.Equals(LegacyRefreshCookieName, _runtimeOptions.AuthCookie.RefreshCookieName, StringComparison.Ordinal))
+            Response.Cookies.Delete(LegacyRefreshCookieName, BuildRefreshCookieOptions(expires: null));
     }
 
     private CookieOptions BuildRefreshCookieOptions(DateTime? expires)

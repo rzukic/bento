@@ -4,7 +4,7 @@ using SqlKata;
 using SqlKata.Compilers;
 using SqlKata.Execution;
 
-namespace Repere.Api.Db;
+namespace Bento.Api.Db;
 
 /// <summary>
 /// Provides scoped QueryFactory instances backed by the correct pool and dialect.

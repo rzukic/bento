@@ -1,4 +1,4 @@
-# Repère reverse proxy — local / no-domain mode (Part 13 R13.3).
+# Bento reverse proxy — local / no-domain mode (Part 13 R13.3).
 #
 # Selected by docker-entrypoint.sh when DOMAIN is unset, "localhost" or an IP.
 # Plain HTTP on :80 for every Host header (localhost, 127.0.0.1, a LAN address),
@@ -27,5 +27,5 @@
 import routes.caddy
 
 :80 {
-	import repere
+	import bento
 }
