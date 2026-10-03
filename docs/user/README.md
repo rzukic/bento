@@ -13,6 +13,7 @@ If you want to get Bento running and try the current product without reading the
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
 - [Connections](connections.md) — the API of your installation with try-it, OpenAPI download, and API keys for scripts
 - [Dashboards](dashboards.md) — key figures and charts for any date range; a ready "Monthly cash flow" from a bank table
+- [Formulas](formulas.md) — spreadsheet-style formulas for computed columns, checked and previewed as you type
 - [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 
@@ -45,7 +46,7 @@ If you are comfortable with `curl`, Postman, Insomnia, Bruno, or another API cli
 
 - No dashboard builder yet
 - Visual schema designer advanced relation properties are still limited
-- Computed column formula editing is not yet a rich visual flow
+- Computed columns: the formula editor checks and previews formulas; their values in the Data Explorer follow in step 3.5
 - JWT login with a refresh cookie is the current auth path; signing out revokes the session
 - API key auth, user management in the UI and vault mode are not finished yet
 - The database provider and auth mode are chosen in the deployment configuration, not in the wizard

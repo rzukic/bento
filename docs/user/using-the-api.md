@@ -322,6 +322,38 @@ Save a query to run it again (also from dashboards later): `POST $API_ROOT/queri
 
 ---
 
+## Check Formulas
+
+`POST $API_ROOT/formulas/validate` checks a [formula](formulas.md) against a table: its result type, the columns it uses, and errors with character positions. It always answers 200. `POST $API_ROOT/formulas/preview` computes it on the first rows (`limit`, 1–100, default 20). Both only read, so read-only API keys may call them.
+
+```bash
+curl -fsS "$API_ROOT/formulas/preview" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{
+  "table": "transactions",
+  "formula": "= IF(amount < 0, \"expense\", \"income\")",
+  "limit": 2
+}'
+```
+
+```json
+{
+  "data": {
+    "type": "text",
+    "columns": [ "amount" ],
+    "rows": [
+      { "id": 1, "value": "income", "inputs": { "amount": 3000 } },
+      { "id": 2, "value": "expense", "inputs": { "amount": -1000 } }
+    ]
+  }
+}
+```
+
+- an invalid formula returns `"valid": false` from validate with `errors: [{ "message", "start", "end" }]`, and 400 from preview
+- `resultType` (`text`, `integer`, `float`, `currency`, `boolean`, `date`, `datetime`) checks that the formula can produce it
+- validate also takes `columns` — the table's columns as Model JSON — to check a drafted table that is not applied yet
+- `GET $API_ROOT/formulas/functions` lists every function with signature, description and example
+
+---
+
 ## Import CSV Files
 
 The browser import ([Importing Data](importing-data.md)) uses these routes; scripts can call them directly. Files travel base64-encoded so the encoding can be detected. Every route needs `editor`, `admin` or `api`.

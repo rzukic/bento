@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Formulas: Checked As You Type, Same On SQLite And Postgres
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.4 — Formula Engine (Core)](working-steps/3.4-formula-engine.md)
+
+Spreadsheet-style formulas such as `= IF(amount < 0, "expense", "income")`, parsed and type-checked on the server and compiled to SQL for both databases.
+
+**Highlights:**
+- 34 functions (logic, math, text, dates) with Excel and programmer operators; clear errors with positions and "did you mean"
+- A conformance suite of 66 formulas gives identical values on SQLite and Postgres (float noise, umlauts, month ends, UTC date-times)
+- `POST /api/v1/formulas/validate` and `/preview`, `GET /api/v1/formulas/functions`
+- Formula editor for computed columns in the schema designer: suggestions, underlined errors, result type and a preview of the values
+
 ### 2026-10-04 — Connections: API Explorer And API Keys
 
 > **Phase**: Phase 3 — Visualization (API keys pulled forward from Phase 5)

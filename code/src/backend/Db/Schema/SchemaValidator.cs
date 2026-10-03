@@ -75,6 +75,16 @@ public class SchemaValidator
 
                 if (column.Type == ColumnType.Computed && column.Formula is null)
                     errors.Add(new("computed_formula_required", $"Computed column '{table.Name}.{column.Name}' must define a 'formula' field.", $"{columnPath}.formula"));
+                else if (column.Type == ColumnType.Computed)
+                {
+                    // A warning until computed columns are evaluated (step 3.5): older
+                    // formulas the engine does not support yet must not block applying.
+                    var check = Formula.FormulaCompiler.Compile(column.Formula!, table,
+                        name => model.Tables.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)),
+                        DatabaseProvider.Sqlite);
+                    if (check.Errors.Count > 0)
+                        warnings.Add(new("computed_formula_invalid", $"Formula of '{table.Name}.{column.Name}': {check.Errors[0].Message}", $"{columnPath}.formula"));
+                }
 
                 if (column.PrimaryKey)
                     primaryKeyColumns.Add((column, columnIndex));

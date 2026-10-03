@@ -374,7 +374,7 @@ public sealed class AggregationQueryService
         {
             var key = PartitionKey(partitions, row);
             foreach (var measure in measures)
-                result[measure.Output][key] = ToDecimal(row[measure.Output]) ?? 0m;
+                result[measure.Output][key] = ResultValues.ToDecimal(row[measure.Output]) ?? 0m;
         }
         return result;
     }
@@ -391,7 +391,7 @@ public sealed class AggregationQueryService
         {
             shaped[group.Output] = group.Bucket is not null
                 ? Convert.ToString(row[group.Output], CultureInfo.InvariantCulture)
-                : ShapeValue(row[group.Output], group.Column.Type);
+                : ResultValues.Shape(row[group.Output], group.Column.Type);
             if (group.LabelOutput is not null)
                 shaped[group.LabelOutput] = row[group.LabelOutput] is null ? null : Convert.ToString(row[group.LabelOutput], CultureInfo.InvariantCulture);
         }
@@ -402,7 +402,7 @@ public sealed class AggregationQueryService
             var value = row[measure.Output];
             if (measure.CarryIn && offsets is not null &&
                 offsets[measure.Output].TryGetValue(PartitionKey(partitions, row), out var offset))
-                value = (ToDecimal(value) ?? 0m) + offset;
+                value = (ResultValues.ToDecimal(value) ?? 0m) + offset;
             shaped[measure.Output] = ShapeMeasure(value, measure);
         }
         return shaped;
@@ -415,53 +415,16 @@ public sealed class AggregationQueryService
         if (measure.Fn is "count" or "count_distinct")
             return Convert.ToInt64(value, CultureInfo.InvariantCulture);
         if (measure.Fn is "min" or "max")
-            return ShapeValue(value, measure.Column!.Type);
+            return ResultValues.Shape(value, measure.Column!.Type);
 
         var type = measure.Column!.Type;
         if (measure.Fn == "sum" && type == ColumnType.Integer)
             return Convert.ToInt64(value, CultureInfo.InvariantCulture);
-        var number = ToDecimal(value)!.Value;
+        var number = ResultValues.ToDecimal(value)!.Value;
         // Currency is NUMERIC(19,4) on Postgres and REAL on SQLite: rounding
         // sums to 4 places removes the float noise and gives both the same value.
-        return Normalize(Math.Round(number, measure.Fn == "sum" && type == ColumnType.Currency ? 4 : 10, MidpointRounding.AwayFromZero));
+        return ResultValues.Normalize(Math.Round(number, measure.Fn == "sum" && type == ColumnType.Currency ? 4 : 10, MidpointRounding.AwayFromZero));
     }
-
-    private static object? ShapeValue(object? value, ColumnType type)
-    {
-        if (value is null or DBNull)
-            return null;
-        return type switch
-        {
-            ColumnType.Integer or ColumnType.Reference => value is string ? value : Convert.ToInt64(value, CultureInfo.InvariantCulture),
-            ColumnType.Float or ColumnType.Currency => Normalize(Math.Round(ToDecimal(value)!.Value, type == ColumnType.Currency ? 4 : 10, MidpointRounding.AwayFromZero)),
-            ColumnType.Boolean => value is bool flag ? flag : Convert.ToInt64(value, CultureInfo.InvariantCulture) != 0,
-            ColumnType.Date => value switch
-            {
-                DateOnly date => date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                DateTime dateTime => dateTime.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
-                _ => Convert.ToString(value, CultureInfo.InvariantCulture)
-            },
-            ColumnType.DateTime => value switch
-            {
-                DateTime dateTime => dateTime.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture) + (dateTime.Kind == DateTimeKind.Utc ? "Z" : ""),
-                DateTimeOffset offset => offset.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture),
-                _ => Convert.ToString(value, CultureInfo.InvariantCulture)
-            },
-            _ => Convert.ToString(value, CultureInfo.InvariantCulture)
-        };
-    }
-
-    private static decimal? ToDecimal(object? value) => value switch
-    {
-        null or DBNull => null,
-        decimal d => d,
-        double d => (decimal)d,
-        float f => (decimal)f,
-        _ => decimal.Parse(Convert.ToString(value, CultureInfo.InvariantCulture)!, NumberStyles.Float, CultureInfo.InvariantCulture)
-    };
-
-    /// <summary>-49.1000 → -49.1 (no trailing zeros in the JSON).</summary>
-    private static decimal Normalize(decimal value) => value / 1.0000000000000000000000000000m;
 
     private static List<QueryResultColumn> Columns(Plan plan)
     {
