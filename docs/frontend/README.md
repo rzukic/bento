@@ -152,15 +152,15 @@ Current shipped behavior:
 - reference navigation into linked records
 - selection-driven related-record drilldowns that open the backend relation endpoint for exactly one selected parent row using resolved relation metadata from the admin schema snapshot
 
-Current non-goals for this slice:
-- inline editing
-- row creation/deletion
-- bulk operations
-- export
-- virtual scrolling
-- advanced column management beyond hide/show
+Since Steps 2.3–2.8 (v0.2.0):
+- inline editing with one typography contract for grid cells and record fields (`components/editors/`, popovers portalled via `FloatingPanel`), row create/duplicate/delete, bulk selection, CSV/JSON export, saved views and kanban boards
+- `/data` lists tables as one card with a row per table (canvas colour, name, row and column counts); N:M junction tables follow under "Link tables"
+- the Columns menu shows and hides columns and rearranges them (drag the grip, or arrow keys on it); the order is the view's `columnOrder`
+- one toolbar popover at a time (Search, Sort, Filter, Columns, Export and the kanban configuration close each other and on outside clicks); an active search is a dot on its button plus the "Search: …" chip
+- the record editor shows 1:N relations as lists and N:M relations as link lists built for its side column: name (record label) with the link's own fields, open and remove actions, "Link" with a search picker, rows that open to edit the link's fields
+- record labels: `getDisplayColumnForTable` / `getSecondaryColumnForTable` (`components/editors/referenceMetadata.ts`) read a table's `recordLabel` and fall back to the first text column; `useReferenceLabels` resolves labels per FK column (one failed lookup does not drop the others) and carries secondary values (`lookupReferenceSecondary`)
 
-Those move into Step 2.3 and later Part 8 work.
+Not in scope yet: virtual scrolling.
 
 ---
 
@@ -180,6 +180,9 @@ Design and dependency notes:
 - Backend preview/apply remains the safety boundary. Frontend previews should not guess migration impact independently.
 - Table `layout` metadata is allowed in Model JSON and is inert for migrations. Layout-only apply should not imply a schema version bump.
 - Visual relation editing currently exposes guided `1:N`, self-referential `1:N`, visible `N:M`, relation selection, and relation renaming. Explicit N:M junction tables may use custom names as long as the relation's `junctionTable` points at the visible table and its reference columns match the relation endpoints. Advanced relation properties are still deferred.
+- Layout since Step 2.8: a header (title, Visual/JSON switch, draft status, Import/Export/Refresh, Preview, Apply), the canvas as the stage (`visual/VisualSchemaMode.tsx`: fit on open, wheel pan, pinch/⌘ zoom around the pointer, dot grid that moves with the canvas, drops onto another table move to the nearest free spot), and a side panel that opens only for a selection (inspector) or on request (Preview). The mode lives in `appStore.schemaMode`; the canvas view survives remounts.
+- Safety: `useBlocker` + `beforeunload` guard an unapplied draft; a destructive preview turns Apply red; table/column deletes confirm in the app dialog.
+- `recordLabel` is table metadata like `layout`; `visualSchemaDraft.updateColumn` / `removeColumn` keep it pointing at existing columns.
 
 ---
 

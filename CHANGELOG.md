@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-03 — Finish Step 2.8: Explorer, Record Editor and Schema Designer Follow-ups
+
+> **Phase**: Phase 2 — Data Management
+> **Working step**: [Step 2.8 — UI Language Rollout](working-steps/2.8-ui-language-rollout.md#follow-up-passes-2026-10-02--2026-10-03)
+
+A browser review pass over every surface after the restyle.
+
+**Highlights:**
+- Data Explorer: no developer copy, consistent editing without layout shift, portal popovers, floating scrollbars, one list of tables on `/data`, rearrangeable columns, search across referenced records
+- Record editor: N:M links as a list for the side column (link, open, remove, edit the link's fields); record labels name records everywhere
+- Kanban: full-height drop zones, no faded card after a move, configuration panel in the menu style
+- Schema designer: canvas as the stage, inspector on selection, Preview on request, leave guard, red Apply for data loss, toasts
+- Backend: every N:M junction table is part of the model and has CRUD routes; search matches referenced records; SQLite default timestamps come back as UTC
+
 ### 2026-10-02 — Roll the UI Language Out to the Whole App
 
 > **Phase**: Phase 2 — Data Management
