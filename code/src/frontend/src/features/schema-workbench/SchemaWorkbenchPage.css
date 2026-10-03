@@ -3030,3 +3030,27 @@
 .schema-workbench__side-body .schema-workbench__diagnostic-list {
   padding-bottom: 0.75rem;
 }
+
+/* One hairline between column rows (the list item and its button each drew
+   one, which read as a fat line at most zoom levels), and the last row
+   follows the card's rounded corners so a selected last column stays
+   inside the card. The card itself cannot clip: the relation handles sit
+   on its edge. */
+.schema-workbench .schema-workbench__erd-column-list > li {
+    border-top: 1px solid var(--line);
+}
+
+.schema-workbench .schema-workbench__erd-column-list > li > .schema-workbench__erd-column,
+.schema-workbench .schema-workbench__erd-column-list > li + li .schema-workbench__erd-column {
+    border-top: 0;
+    border-bottom: 0;
+}
+
+.schema-workbench .schema-workbench__erd-column-list > li:last-child > .schema-workbench__erd-column {
+    border-radius: 0 0 11px 11px;
+}
+
+/* The header already draws the line above the first column. */
+.schema-workbench .schema-workbench__erd-column-list > li:first-child {
+    border-top: 0;
+}
