@@ -3,7 +3,7 @@ import type {
   CompletionContext,
   CompletionResult,
 } from "@codemirror/autocomplete";
-import { HighlightStyle, StreamLanguage } from "@codemirror/language";
+import { HighlightStyle, StreamLanguage, type StringStream } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
 import type { FormulaFunction } from "../../api/formulas";
 
@@ -22,51 +22,57 @@ export type FormulaColumn = {
 const keywords = new Set(["AND", "OR", "NOT"]);
 const atoms = new Set(["TRUE", "FALSE", "NULL"]);
 
-export const formulaLanguage = StreamLanguage.define<{ inString: string | null }>({
+type FormulaTokenState = { inString: string | null };
+
+/** One token; a free function because CodeMirror calls it without `this`. */
+function readFormulaToken(stream: StringStream, state: FormulaTokenState): string | null {
+  if (state.inString) {
+    while (!stream.eol()) {
+      const char = stream.next();
+      if (char === state.inString) {
+        if (stream.peek() === state.inString) {
+          stream.next();
+          continue;
+        }
+        state.inString = null;
+        break;
+      }
+    }
+    return "string";
+  }
+
+  if (stream.eatSpace()) return null;
+
+  const char = stream.peek();
+  if (char === '"' || char === "'") {
+    stream.next();
+    state.inString = char;
+    return readFormulaToken(stream, state);
+  }
+  if (char === "[") {
+    if (stream.skipTo("]")) stream.next();
+    else stream.skipToEnd();
+    return "variableName.special";
+  }
+  if (stream.match(/^\d+(\.\d+)?/) || stream.match(/^\.\d+/)) return "number";
+  if (stream.match(/^[A-Za-z_][A-Za-z0-9_]*/)) {
+    const word = stream.current().toUpperCase();
+    if (stream.match(/^\s*\(/, false)) return "function";
+    if (keywords.has(word)) return "keyword";
+    if (atoms.has(word)) return "atom";
+    return "variableName";
+  }
+  if (stream.match(/^(==|!=|<>|<=|>=|&&|\|\||[=<>&+\-*/%^!])/)) return "operator";
+  if (stream.match(/^[(),;.]/)) return "punctuation";
+  stream.next();
+  return null;
+}
+
+export const formulaLanguage = StreamLanguage.define<FormulaTokenState>({
   name: "bento-formula",
   startState: () => ({ inString: null }),
-  token(stream, state) {
-    if (state.inString) {
-      while (!stream.eol()) {
-        const char = stream.next();
-        if (char === state.inString) {
-          if (stream.peek() === state.inString) {
-            stream.next();
-            continue;
-          }
-          state.inString = null;
-          break;
-        }
-      }
-      return "string";
-    }
-
-    if (stream.eatSpace()) return null;
-
-    const char = stream.peek();
-    if (char === '"' || char === "'") {
-      stream.next();
-      state.inString = char;
-      return this.token!(stream, state);
-    }
-    if (char === "[") {
-      if (stream.skipTo("]")) stream.next();
-      else stream.skipToEnd();
-      return "variableName.special";
-    }
-    if (stream.match(/^\d+(\.\d+)?/) || stream.match(/^\.\d+/)) return "number";
-    if (stream.match(/^[A-Za-z_][A-Za-z0-9_]*/)) {
-      const word = stream.current().toUpperCase();
-      if (stream.match(/^\s*\(/, false)) return "function";
-      if (keywords.has(word)) return "keyword";
-      if (atoms.has(word)) return "atom";
-      return "variableName";
-    }
-    if (stream.match(/^(==|!=|<>|<=|>=|&&|\|\||[=<>&+\-*/%^!])/)) return "operator";
-    if (stream.match(/^[(),;.]/)) return "punctuation";
-    stream.next();
-    return null;
-  },
+  copyState: (state) => ({ ...state }),
+  token: readFormulaToken,
   tokenTable: {
     function: tags.function(tags.variableName),
     "variableName.special": tags.special(tags.variableName),
