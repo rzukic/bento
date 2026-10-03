@@ -3962,6 +3962,19 @@
     box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
 }
 
+/* Same gap below the button as the Search/Sort/Filter cards. */
+.data-controls__export-menu {
+    top: calc(100% + 0.5rem);
+    left: 0;
+    animation: data-controls-pop 140ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .data-controls__export-menu {
+        animation: none;
+    }
+}
+
 /* Grid card and pagination */
 .data-grid__scroll {
     border-color: var(--line);
