@@ -85,6 +85,7 @@ public sealed class OpenApiDocumentBuilder
         {
             ("Query", "Aggregate a table without SQL: groups, date buckets, sums, running totals."),
             ("Saved queries", "Named aggregation queries, private or shared."),
+            ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
             ("Schema", "The data model (Model JSON)."),
@@ -296,6 +297,38 @@ public sealed class OpenApiDocumentBuilder
                 parameters: new JsonArray(idParam.DeepClone()),
                 body: Obj(new JsonObject { ["filter"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true, ["example"] = new JsonObject() } }),
                 responses: Responses(200, "Rows and column metadata.", Ref("QueryResult")))
+        };
+        var formulaBody = Obj(new JsonObject
+        {
+            ["table"] = (tableParam["schema"] as JsonObject)!.DeepClone(),
+            ["formula"] = Str(example: "= IF(amount < 0, \"expense\", \"income\")"),
+            ["resultType"] = Str(["text", "integer", "float", "currency", "boolean", "date", "datetime"]),
+            ["limit"] = Int(20),
+            ["columns"] = new JsonObject
+            {
+                ["type"] = "array",
+                ["description"] = "Validate only: draft column definitions (Model JSON) to check against instead of the applied table.",
+                ["items"] = anyObject.DeepClone()
+            }
+        });
+        paths["/formulas/validate"] = new JsonObject
+        {
+            ["post"] = Operation("Formulas", "Validate a formula", "read",
+                "Always 200: `valid`, the result `type`, `errors` with character positions, and the `columns` it uses. `limit` is ignored.",
+                body: formulaBody.DeepClone(),
+                responses: Responses(200, "The check result.", anyObject.DeepClone()))
+        };
+        paths["/formulas/preview"] = new JsonObject
+        {
+            ["post"] = Operation("Formulas", "Preview a formula's values", "read",
+                "Computes the formula on the first `limit` rows (1–100) and returns each value with the column values it used.",
+                body: formulaBody.DeepClone(),
+                responses: Responses(200, "Sample values.", anyObject.DeepClone()))
+        };
+        paths["/formulas/functions"] = new JsonObject
+        {
+            ["get"] = Operation("Formulas", "List formula functions", "read", "Name, signature, description and example of each function.",
+                responses: Responses(200, "The function catalog.", anyObject.DeepClone()))
         };
         paths["/dashboards"] = new JsonObject
         {

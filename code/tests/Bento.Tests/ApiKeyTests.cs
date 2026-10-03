@@ -68,6 +68,10 @@ public sealed class ApiKeyTests
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(host, HttpMethod.Get, "/api/v1/data/customers", key)).StatusCode);
         Assert.Equal(HttpStatusCode.OK, (await SendAsync(host, HttpMethod.Post, "/api/v1/query", key,
             new { source = "customers", measures = new[] { new { name = "n", fn = "count" } } })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(host, HttpMethod.Post, "/api/v1/formulas/validate", key,
+            new { table = "customers", formula = "UPPER(name)" })).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(host, HttpMethod.Post, "/api/v1/formulas/preview", key,
+            new { table = "customers", formula = "UPPER(name)" })).StatusCode);
 
         using var write = await SendAsync(host, HttpMethod.Post, "/api/v1/data/customers", key, new { name = "Acme" });
         Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);

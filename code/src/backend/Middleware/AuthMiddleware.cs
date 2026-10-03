@@ -84,8 +84,8 @@ public sealed class AuthMiddleware
     }
 
     /// <summary>
-    /// Read keys read: GET requests, plus running queries (POST, but no
-    /// change). Write keys may do what their role allows; admin routes stay
+    /// Read keys read: GET requests, plus running queries and checking
+    /// formulas (POST, but no change). Write keys may do what their role allows; admin routes stay
     /// closed to every key because keys never carry the admin role.
     /// </summary>
     private static void EnsureScopeAllows(string scope, HttpRequest request)
@@ -97,7 +97,9 @@ public sealed class AuthMiddleware
         var path = request.Path.Value ?? "";
         var runsQuery = HttpMethods.IsPost(request.Method) &&
             (path.Equals("/" + ApiRoutes.Query, StringComparison.OrdinalIgnoreCase) ||
-             (path.StartsWith("/" + ApiRoutes.SavedQueries + "/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/run", StringComparison.OrdinalIgnoreCase)));
+             (path.StartsWith("/" + ApiRoutes.SavedQueries + "/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/run", StringComparison.OrdinalIgnoreCase)) ||
+             path.Equals("/" + ApiRoutes.Formulas + "/validate", StringComparison.OrdinalIgnoreCase) ||
+             path.Equals("/" + ApiRoutes.Formulas + "/preview", StringComparison.OrdinalIgnoreCase));
         if (!runsQuery)
             throw new ApiForbiddenException("This API key can only read.", new Dictionary<string, object?> { ["scope"] = scope });
     }

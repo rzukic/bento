@@ -27,6 +27,7 @@ From the inspector you can:
 - set display name and description
 - add, rename, reorder, and delete columns
 - set column type, required/nullable behavior, uniqueness, defaults, enum values, and reference targets
+- write the formula of a **computed** column with suggestions, live checks and a preview of its values (see [Formulas](formulas.md))
 - duplicate or delete the selected table (deleting asks for confirmation and lists the relations and reference columns that go with it)
 - choose its **Record label**: the column that names a record everywhere in the app (FK chips, pickers, linked records, the record editor title), plus an optional column **shown with it**, e.g. products named by `name` with `sku` beside it. "Automatic" uses the first text column
 

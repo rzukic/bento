@@ -114,6 +114,7 @@ public static class BackendHost
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
         services.AddSingleton<AggregationQueryService>();
+        services.AddSingleton<FormulaService>();
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();

@@ -113,6 +113,35 @@ public class SchemaValidatorTests
     }
 
     [Fact]
+    public void Validate_WarnsAboutComputedFormulasThatDoNotCheck()
+    {
+        var model = ModelJsonSerializer.Parse("""
+            {
+              "version": 1,
+              "tables": [
+                {
+                  "name": "orders",
+                  "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true },
+                    { "name": "net", "type": "currency" },
+                    { "name": "gross", "type": "computed", "formula": "= net * 1.19" },
+                    { "name": "broken", "type": "computed", "formula": "= nett * 1.19" }
+                  ],
+                  "indexes": []
+                }
+              ]
+            }
+            """);
+
+        var result = _validator.Validate(model);
+
+        Assert.True(result.IsValid);
+        var warning = Assert.Single(result.Warnings, w => w.Code == "computed_formula_invalid");
+        Assert.Equal("Formula of 'orders.broken': Column 'nett' not found in orders — did you mean 'net'?", warning.Message);
+        Assert.Equal("tables[0].columns[3].formula", warning.Path);
+    }
+
+    [Fact]
     public void Validate_RejectsRelationColumnMismatch_AndDuplicateManyToManyPairs()
     {
         var model = ModelJsonSerializer.Parse("""
