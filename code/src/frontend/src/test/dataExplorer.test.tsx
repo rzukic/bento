@@ -289,27 +289,60 @@ describe("Data Explorer landing (/data)", () => {
     expect(screen.getByText("Customers")).toBeInTheDocument();
     expect(screen.getByText("products")).toBeInTheDocument();
 
-    // Summary chips
-    expect(screen.getByText(/3 tables/)).toBeInTheDocument();
-    expect(screen.getByText(/11 columns/)).toBeInTheDocument();
-    expect(screen.getByText(/1 relation/)).toBeInTheDocument();
+    // No developer stats above the list
+    expect(screen.queryByText(/3 tables/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1 relation/)).not.toBeInTheDocument();
     expect(screen.queryByText("v3")).not.toBeInTheDocument();
   });
 
-  it("shows table cards with column counts and reference info", () => {
+  it("lists tables as rows with their column counts, without key details", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
 
     const router = createTestRouter(["/data"]);
     render(<RouterProvider router={router} />);
 
-    // Orders has 5 columns and 1 FK reference
-    expect(screen.getByText("5 cols")).toBeInTheDocument();
-    expect(screen.getByText("1 ref")).toBeInTheDocument();
+    // Orders has 5 columns; customers and products 3 each
+    expect(screen.getByText("5 columns")).toBeInTheDocument();
+    expect(screen.getAllByText("3 columns")).toHaveLength(2);
+    expect(screen.queryByText(/PK:/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\bref\b/)).not.toBeInTheDocument();
+  });
 
-    // Customers and products both have 3 columns
-    const threeColChips = screen.getAllByText("3 cols");
-    expect(threeColChips.length).toBe(2);
+  it("lists N:M junction tables apart, by the tables they link", () => {
+    seedAuthenticated();
+    seedSchema({
+      ...sampleSnapshot,
+      tables: [
+        ...sampleSnapshot.tables,
+        {
+          name: "_jt_orders_products",
+          columns: [
+            { name: "order_id", type: "integer", primaryKey: true, references: "orders" },
+            { name: "product_id", type: "integer", primaryKey: true, references: "products" },
+          ],
+        },
+      ],
+      relations: [
+        ...(sampleSnapshot.relations ?? []),
+        {
+          name: "product_orders",
+          type: "N:M",
+          from: "products",
+          to: "orders",
+          junctionTable: "_jt_orders_products",
+        },
+      ],
+    });
+
+    const router = createTestRouter(["/data"]);
+    render(<RouterProvider router={router} />);
+
+    const linkTables = screen.getByRole("region", { name: "Link tables" });
+    expect(within(linkTables).getByText("_jt_orders_products")).toBeInTheDocument();
+    expect(within(linkTables).getByText("products ↔ Orders")).toBeInTheDocument();
+    const tables = screen.getByRole("region", { name: "Tables" });
+    expect(within(tables).queryByText("_jt_orders_products")).not.toBeInTheDocument();
   });
 
   it("renders table links that navigate to /data/:tableId", () => {

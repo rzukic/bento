@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -6,9 +6,10 @@ import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
+import { useRowCounts } from "../../hooks/useRowCounts";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
-import { TableCard } from "./components/TableCard";
+import { TableRow } from "./components/TableCard";
 import "./DataExplorer.css";
 
 export function DataExplorerPage() {
@@ -28,7 +29,33 @@ export function DataExplorerPage() {
   const loading = status === "loading" || status === "idle";
   const ready = status === "ready" && snapshot !== null;
   const tables = ready ? snapshot.tables : [];
-  const relationCount = ready ? snapshot.relations?.length ?? 0 : 0;
+  // N:M junction tables are plumbing: listed apart, by what they connect.
+  const { dataTables, linkTables } = useMemo(() => {
+    const links = new Map<string, [string, string]>();
+    for (const relation of snapshot?.relations ?? []) {
+      if (relation.type !== "N:M") continue;
+      const junction =
+        (typeof relation.junctionTable === "string" && relation.junctionTable) ||
+        (typeof relation.resolvedJunctionTableName === "string" && relation.resolvedJunctionTableName) ||
+        null;
+      if (junction && relation.from && relation.to) links.set(junction, [relation.from, relation.to]);
+    }
+    const label = (name: string) => {
+      const table = tables.find((candidate) => candidate.name === name);
+      return table?.displayName ?? name;
+    };
+    return {
+      dataTables: tables.filter((table) => !links.has(table.name)),
+      linkTables: tables
+        .filter((table) => links.has(table.name))
+        .map((table) => {
+          const [from, to] = links.get(table.name)!;
+          return { table, links: [label(from), label(to)] as [string, string] };
+        }),
+    };
+  }, [snapshot?.relations, tables]);
+  const tableNames = useMemo(() => tables.map((table) => table.name), [tables]);
+  const rowCounts = useRowCounts(tableNames);
 
   // Loading state
   if (loading) {
@@ -95,30 +122,44 @@ export function DataExplorerPage() {
 
   return (
     <div className="explorer-landing">
-      <div className="explorer-summary">
-        <span className="explorer-summary__chip">
-          <Icon name="table" size={13} />
-          {tables.length} table{tables.length !== 1 ? "s" : ""}
-        </span>
-        <span className="explorer-summary__chip">
-          <Icon name="columns" size={13} />
-          {tables.reduce((acc, t) => acc + t.columns.length, 0)} columns
-        </span>
-        {relationCount > 0 ? (
-          <span className="explorer-summary__chip">
-            <Icon name="link" size={13} />
-            {relationCount} relation{relationCount !== 1 ? "s" : ""}
-          </span>
-        ) : null}
-      </div>
+      <section className="table-list-section" aria-label="Tables">
+        <ul className="table-list" role="list">
+          {dataTables.map((table) => (
+            <li key={table.name}>
+              <TableRow
+                table={table}
+                index={tables.indexOf(table)}
+                rowCount={rowCounts[table.name]}
+              />
+            </li>
+          ))}
+        </ul>
+      </section>
 
-      <ul className="table-list" role="list">
-        {tables.map((table) => (
-          <li key={table.name}>
-            <TableCard table={table} />
-          </li>
-        ))}
-      </ul>
+      {linkTables.length > 0 ? (
+        <section className="table-list-section" aria-labelledby="explorer-link-tables">
+          <header className="table-list-section__header">
+            <h2 id="explorer-link-tables" className="table-list-section__title">
+              Link tables
+            </h2>
+            <p className="table-list-section__hint">
+              Connect records of two tables. Usually edited from the records they link.
+            </p>
+          </header>
+          <ul className="table-list table-list--quiet" role="list">
+            {linkTables.map(({ table, links }) => (
+              <li key={table.name}>
+                <TableRow
+                  table={table}
+                  index={tables.indexOf(table)}
+                  rowCount={rowCounts[table.name]}
+                  links={links}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }

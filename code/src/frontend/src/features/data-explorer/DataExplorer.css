@@ -5667,3 +5667,152 @@
     font-size: 0.75rem;
     white-space: nowrap;
 }
+
+/* ── Data overview: tables as one list (as in the design fragment) ──
+   A row per table: its canvas colour, name with description or technical
+   name under it, rows and columns on the right. N:M link tables follow in
+   their own quieter list. */
+.explorer-landing {
+    gap: 2rem;
+    max-width: 64rem;
+}
+
+.table-list-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.table-list-section__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.table-list-section__title {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.table-list-section__hint {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 0.8125rem;
+}
+
+.table-list {
+    display: block;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    background: var(--surface);
+    list-style: none;
+}
+
+.table-list > li + li {
+    border-top: 1px solid var(--line);
+}
+
+.table-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3.5rem;
+    padding: 0.625rem 1.25rem;
+    color: inherit;
+    text-decoration: none;
+    transition: background var(--dur) var(--ease);
+}
+
+.table-row:hover,
+.table-row:focus-visible {
+    background: var(--hover);
+}
+
+.table-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.table-row__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.table-row__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.table-row__name {
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-row__subline {
+    overflow: hidden;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-row__count,
+.table-row__columns {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.table-row__count {
+    min-width: 5.5rem;
+    color: var(--text-2);
+    text-align: right;
+}
+
+.table-row__columns {
+    min-width: 6rem;
+    color: var(--text-4);
+    text-align: right;
+}
+
+.table-row__arrow {
+    display: grid;
+    place-items: center;
+    color: var(--text-4);
+}
+
+.table-list--quiet .table-row__name {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-2);
+}
+
+@media (max-width: 640px) {
+    .table-row {
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        padding-inline: 1rem;
+    }
+
+    .table-row__columns {
+        display: none;
+    }
+}
