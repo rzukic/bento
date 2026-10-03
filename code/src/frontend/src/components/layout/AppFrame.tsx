@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAppStore } from "../../stores/appStore";
@@ -11,6 +11,9 @@ import { ConfirmDialog } from "../ui/Dialog";
 import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
+
+const sidebarShortcutLabel =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
 
 type AppFrameProps = {
   children: React.ReactNode;
@@ -58,6 +61,18 @@ export function AppFrame({ children }: AppFrameProps) {
   const navigate = useNavigate();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
+
+  // ⌘\ (Ctrl+\ elsewhere) toggles the sidebar from anywhere.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "\\" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleSidebar]);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const schemaSnapshot = useSchemaStore((state) => state.snapshot);
@@ -136,12 +151,36 @@ export function AppFrame({ children }: AppFrameProps) {
       </div>
       <aside className="shell__sidebar" aria-label="Primary sidebar">
         <div className="shell__brand">
-          <div className="shell__brand-mark" aria-hidden="true">
-            <Icon name="layers" size={16} strokeWidth={2} />
-          </div>
+          {/* Collapsed, the mark doubles as the expand control: it turns
+              into the sidebar icon on hover. */}
+          <button
+            type="button"
+            className="shell__brand-mark"
+            onClick={sidebarOpen ? undefined : toggleSidebar}
+            tabIndex={sidebarOpen ? -1 : 0}
+            aria-hidden={sidebarOpen ? true : undefined}
+            aria-label={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+            title={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+          >
+            <span className="shell__brand-logo">
+              <Icon name="layers" size={16} strokeWidth={2} />
+            </span>
+            <span className="shell__brand-expand">
+              <Icon name="panel-left" size={16} />
+            </span>
+          </button>
           <div className="shell__brand-text">
             <span className="shell__brand-name">Repere</span>
           </div>
+          <button
+            type="button"
+            className="shell__sidebar-toggle"
+            onClick={toggleSidebar}
+            aria-label={`Collapse sidebar (${sidebarShortcutLabel})`}
+            title={`Collapse sidebar (${sidebarShortcutLabel})`}
+          >
+            <Icon name="panel-left" size={16} />
+          </button>
         </div>
 
         <nav className="shell__nav" aria-label="Main navigation">
@@ -202,20 +241,6 @@ export function AppFrame({ children }: AppFrameProps) {
 
       <main className="shell__main">
         <header className="shell__topbar" aria-label="Toolbar">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shell__collapse"
-            onClick={toggleSidebar}
-            aria-pressed={sidebarOpen}
-            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <Icon
-              name={sidebarOpen ? "chevron-left" : "chevron-right"}
-              size={14}
-            />
-          </Button>
-
           <Breadcrumbs items={breadcrumbItems} />
 
           <div className="shell__topbar-spacer" />

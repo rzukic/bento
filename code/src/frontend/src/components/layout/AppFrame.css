@@ -326,13 +326,6 @@
   padding: 0 1.5rem 0 0.75rem;
 }
 
-.shell__collapse {
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  justify-content: center;
-  border: 0;
-}
 
 .shell__topbar-spacer {
   flex: 1;
@@ -479,5 +472,105 @@
 @media (prefers-reduced-motion: reduce) {
   .shell__page {
     animation: none;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   Sidebar collapse: the control lives in the sidebar. Open, a sidebar icon
+   sits at the end of the brand row; collapsed, the brand mark turns into
+   that icon on hover and expands the sidebar. ⌘\ / Ctrl+\ toggles too.
+   ------------------------------------------------------------------------- */
+.shell {
+  transition: grid-template-columns 200ms var(--ease);
+}
+
+.shell__brand {
+  position: relative;
+}
+
+.shell__brand-mark {
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  font: inherit;
+  cursor: default;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.shell__brand-logo,
+.shell__brand-expand {
+  grid-area: 1 / 1;
+  display: grid;
+  place-items: center;
+}
+
+.shell__brand-expand {
+  visibility: hidden;
+}
+
+.shell__sidebar-toggle {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-4);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.shell__sidebar:hover .shell__sidebar-toggle {
+  color: var(--text-3);
+}
+
+.shell__sidebar-toggle:hover,
+.shell__sidebar-toggle:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.shell--collapsed .shell__sidebar-toggle {
+  display: none;
+}
+
+.shell--collapsed .shell__brand-mark {
+  cursor: pointer;
+}
+
+.shell--collapsed .shell__brand-mark:hover,
+.shell--collapsed .shell__brand-mark:focus-visible {
+  background: var(--hover);
+  color: var(--text);
+  outline: none;
+}
+
+.shell--collapsed .shell__brand-mark:hover .shell__brand-logo,
+.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-logo {
+  visibility: hidden;
+}
+
+.shell--collapsed .shell__brand-mark:hover .shell__brand-expand,
+.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-expand {
+  visibility: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .shell {
+    transition: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .shell__sidebar-toggle {
+    display: none;
+  }
+
+  .shell__brand-mark {
+    pointer-events: none;
   }
 }

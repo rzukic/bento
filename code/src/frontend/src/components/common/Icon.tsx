@@ -44,7 +44,8 @@ export type IconName =
   | "share"
   | "star"
   | "copy"
-  | "trash";
+  | "trash"
+  | "panel-left";
 
 type IconProps = SVGProps<SVGSVGElement> & {
   name: IconName;
@@ -203,6 +204,12 @@ const paths: Record<IconName, React.ReactNode> = {
       <path d="M12 4v16" />
       <path d="M8 8l4-4 4 4" />
       <path d="M16 16l-4 4-4-4" />
+    </>
+  ),
+  "panel-left": (
+    <>
+      <rect x="3" y="4" width="18" height="16" rx="2.5" />
+      <path d="M9.5 4v16" />
     </>
   ),
   "more-horizontal": (

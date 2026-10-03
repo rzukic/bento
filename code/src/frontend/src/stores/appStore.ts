@@ -11,6 +11,25 @@ type AppStoreState = {
 };
 
 const THEME_MODE_STORAGE_KEY = "repere.app.themeMode";
+const SIDEBAR_OPEN_STORAGE_KEY = "repere.app.sidebarOpen";
+
+function loadPersistedSidebarOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return window.localStorage.getItem(SIDEBAR_OPEN_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+function persistSidebarOpen(open: boolean): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(SIDEBAR_OPEN_STORAGE_KEY, String(open));
+  } catch {
+    /* ignore */
+  }
+}
 
 function loadPersistedThemeMode(): ThemeMode {
   if (typeof window === "undefined") return "system";
@@ -34,7 +53,7 @@ function persistThemeMode(mode: ThemeMode): void {
 
 const initialAppStoreState = {
   themeMode: loadPersistedThemeMode(),
-  sidebarOpen: true
+  sidebarOpen: loadPersistedSidebarOpen()
 };
 
 export const useAppStore = create<AppStoreState>((set, get) => ({
@@ -43,8 +62,15 @@ export const useAppStore = create<AppStoreState>((set, get) => ({
     persistThemeMode(themeMode);
     set({ themeMode });
   },
-  setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
-  toggleSidebar: () => set({ sidebarOpen: !get().sidebarOpen })
+  setSidebarOpen: (sidebarOpen) => {
+    persistSidebarOpen(sidebarOpen);
+    set({ sidebarOpen });
+  },
+  toggleSidebar: () => {
+    const sidebarOpen = !get().sidebarOpen;
+    persistSidebarOpen(sidebarOpen);
+    set({ sidebarOpen });
+  }
 }));
 
 /**
