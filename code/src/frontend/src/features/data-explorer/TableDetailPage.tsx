@@ -862,6 +862,8 @@ export function TableDetailPage() {
 
   return (
     <div className="table-detail">
+      <header className="table-detail__header">
+      <h1 className="table-detail__title">{displayName}</h1>
       <nav className="table-tabs" aria-label="Tables">
         {tableTabs.map((tab) => (
           <NavLink
@@ -879,6 +881,7 @@ export function TableDetailPage() {
           </NavLink>
         ))}
       </nav>
+      </header>
 
       {/* Data panel */}
       {view && dataStatus !== "idle" ? (

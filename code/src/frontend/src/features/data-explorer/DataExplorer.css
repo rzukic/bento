@@ -4868,3 +4868,101 @@
 .kanban-card__field--primary.kanban-card__field--reference .kanban-card__field-value {
     font-size: var(--fs-sm);
 }
+
+/* -------------------------------------------------------------------------
+   Explorer page layout as in the design fragment: 40 px gutters, the table
+   name as a display title over the tabs, the grid in a rounded card that
+   fills the remaining height (the table stretches to the card's width; the
+   id column keeps its own width), and pagination as a quiet line below.
+   The kanban board uses the same gutters and fills the width.
+   ------------------------------------------------------------------------- */
+.table-detail {
+    --page-gutter: 2.5rem;
+}
+
+.table-detail__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 1.625rem var(--page-gutter) 0;
+}
+
+.table-detail__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 2.75rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.045em;
+    overflow-wrap: anywhere;
+}
+
+.table-detail__header .table-tabs {
+    margin: 0;
+}
+
+.explorer-context {
+    margin-left: var(--page-gutter);
+    margin-right: var(--page-gutter);
+}
+
+.data-controls__bar {
+    padding: 0.875rem var(--page-gutter);
+}
+
+.data-grid {
+    padding: 0 var(--page-gutter);
+}
+
+.data-grid__scroll {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.data-grid table {
+    min-width: 100%;
+    border-right: 0;
+}
+
+/* A specified width keeps the id column out of the extra space the
+   stretched table hands to the other columns. */
+.data-grid th.data-grid__column--primary {
+    width: 1px;
+}
+
+.data-pagination--bottom {
+    border-top: 0;
+    padding: 0.875rem var(--page-gutter) 1.375rem;
+}
+
+.kanban-board {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.25rem var(--page-gutter) 1.5rem;
+}
+
+/* The trailing-padding pseudo-element would be a grid column of its own. */
+.kanban-board::after {
+    display: none;
+}
+
+.kanban-lane {
+    max-height: none;
+}
+
+@media (max-width: 760px) {
+    .table-detail {
+        --page-gutter: 1rem;
+    }
+
+    .table-detail__header {
+        padding-top: 1rem;
+        gap: 0.5rem;
+    }
+
+    .table-detail__title {
+        font-size: 2rem;
+    }
+}
