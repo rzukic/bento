@@ -275,6 +275,9 @@ export type ViewSlice = {
   /** Replace the hidden columns for a table. */
   setHiddenColumns: (table: string, columnNames: string[]) => void;
 
+  /** Replace the column order for a table (non-key columns, left to right). */
+  setColumnOrder: (table: string, columnNames: string[]) => void;
+
   /** Load saved views from the backend for a table. Called on mount. */
   loadSavedViews: (tableId: string) => Promise<void>;
 

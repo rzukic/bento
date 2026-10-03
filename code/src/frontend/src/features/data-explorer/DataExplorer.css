@@ -5816,3 +5816,62 @@
         display: none;
     }
 }
+
+/* Columns menu: a grip in front of each column to drag it into place
+   (arrow keys on the grip move it one step). Key columns stay on top. */
+.data-controls__column-row {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    border-radius: var(--r-md);
+}
+
+.data-controls__column-row > .data-controls__column-toggle {
+    flex: 1;
+    min-width: 0;
+}
+
+.data-controls__column-grip {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 20px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-4);
+    cursor: grab;
+    touch-action: none;
+}
+
+.data-controls__column-grip svg {
+    fill: currentColor;
+}
+
+.data-controls__column-grip:hover,
+.data-controls__column-grip:focus-visible {
+    background: var(--hover);
+    color: var(--text-2);
+}
+
+.data-controls__column-grip:active {
+    cursor: grabbing;
+}
+
+.data-controls__column-grip--locked {
+    cursor: default;
+}
+
+.data-controls__column-row--dragging {
+    position: relative;
+    z-index: 1;
+    background: var(--popover);
+    box-shadow: 0 0 0 1px var(--line-2), 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+.data-controls__column-row--dragging .data-controls__column-grip {
+    color: var(--accent);
+    cursor: grabbing;
+}

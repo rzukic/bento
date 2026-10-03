@@ -84,6 +84,7 @@ export function TableDetailPage() {
   );
   const setSelectedRows = useExplorerStore((state) => state.setSelectedRows);
   const setHiddenColumns = useExplorerStore((state) => state.setHiddenColumns);
+  const setColumnOrder = useExplorerStore((state) => state.setColumnOrder);
   const clearSelection = useExplorerStore((state) => state.clearSelection);
   const openRelatedContext = useExplorerStore(
     (state) => state.openRelatedContext,
@@ -1147,6 +1148,8 @@ export function TableDetailPage() {
             onPageChange={handlePageChange}
             onFiltersChange={handleFiltersChange}
             onHiddenColumnsChange={handleHiddenColumnsChange}
+            columnOrder={view.config.columnOrder}
+            onColumnOrderChange={(columnNames) => setColumnOrder(resolvedTable.name, columnNames)}
             onResetView={handleResetView}
             viewType={view.config.type}
             onConfigureKanban={() => setKanbanConfigOpen(true)}

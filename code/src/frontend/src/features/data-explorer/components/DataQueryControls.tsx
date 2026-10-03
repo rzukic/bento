@@ -23,6 +23,8 @@ import type {
   SortDir,
 } from "../../../types/explorer";
 import { DEFAULT_EXPLORER_VIEW_CONFIG } from "../../../types/explorer";
+
+const EMPTY_COLUMN_ORDER: string[] = [];
 import type { SavedView } from "../../../types/views";
 
 type DataQueryControlsProps = {
@@ -87,6 +89,10 @@ type DataQueryControlsProps = {
   onPageChange: (page: number) => void;
   onFiltersChange: (filters: FilterClause[]) => void;
   onHiddenColumnsChange: (columnNames: string[]) => void;
+  /** Non-key column order of the view (left to right). */
+  columnOrder?: string[];
+  /** Columns were rearranged in the Columns menu. */
+  onColumnOrderChange?: (columnNames: string[]) => void;
   onResetView: () => void;
   /** The current active view type — used to show the configure button for kanban. */
   viewType?: ExplorerViewType;
@@ -674,6 +680,8 @@ export function DataQueryControls({
   onSortChange,
   onFiltersChange,
   onHiddenColumnsChange,
+  columnOrder = EMPTY_COLUMN_ORDER,
+  onColumnOrderChange,
   onResetView,
   viewType = "table",
   onConfigureKanban,
@@ -972,6 +980,83 @@ export function DataQueryControls({
     () => new Set(hiddenColumnNames),
     [hiddenColumnNames],
   );
+
+  // Columns menu order: key columns stay first, the rest follow the view's
+  // column order (columns it does not list keep their schema position).
+  const keyColumns = useMemo(
+    () => table.columns.filter((column) => column.primaryKey),
+    [table.columns],
+  );
+  const orderedColumns = useMemo(() => {
+    const movable = table.columns.filter((column) => !column.primaryKey);
+    const byName = new Map(movable.map((column) => [column.name, column]));
+    const listed = columnOrder
+      .map((name) => byName.get(name))
+      .filter((column): column is ModelColumn => column !== undefined);
+    const listedNames = new Set(listed.map((column) => column.name));
+    return [...listed, ...movable.filter((column) => !listedNames.has(column.name))];
+  }, [columnOrder, table.columns]);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const columnRowRefs = useRef(new Map<string, HTMLElement>());
+  const shownColumnNames = dragOrder ?? orderedColumns.map((column) => column.name);
+  const columnByName = useMemo(
+    () => new Map(table.columns.map((column) => [column.name, column])),
+    [table.columns],
+  );
+
+  function moveColumn(columnName: string, delta: number) {
+    const order = orderedColumns.map((column) => column.name);
+    const from = order.indexOf(columnName);
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= order.length) return;
+    order.splice(from, 1);
+    order.splice(to, 0, columnName);
+    onColumnOrderChange?.(order);
+  }
+
+  /** Drag a column by its grip; the list reorders live, the order is kept on release. */
+  function startColumnDrag(event: React.PointerEvent<HTMLButtonElement>, columnName: string) {
+    if (event.button !== 0 || !onColumnOrderChange) return;
+    event.preventDefault();
+    const grip = event.currentTarget;
+    grip.setPointerCapture(event.pointerId);
+    const startOrder = orderedColumns.map((column) => column.name);
+    let order = startOrder;
+    setDragOrder(order);
+    setDraggingColumn(columnName);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const others = order.filter((name) => name !== columnName);
+      let index = others.length;
+      for (let i = 0; i < others.length; i += 1) {
+        const row = columnRowRefs.current.get(others[i]!);
+        if (!row) continue;
+        const rect = row.getBoundingClientRect();
+        if (moveEvent.clientY < rect.top + rect.height / 2) {
+          index = i;
+          break;
+        }
+      }
+      const next = [...others];
+      next.splice(index, 0, columnName);
+      if (next.join("\u0000") !== order.join("\u0000")) {
+        order = next;
+        setDragOrder(next);
+      }
+    };
+    const onUp = () => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      grip.removeEventListener("pointercancel", onUp);
+      setDragOrder(null);
+      setDraggingColumn(null);
+      if (order.join("\u0000") !== startOrder.join("\u0000")) onColumnOrderChange(order);
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+    grip.addEventListener("pointercancel", onUp);
+  }
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2019,32 +2104,81 @@ export function DataQueryControls({
                 role="group"
                 aria-label="Visible columns"
               >
-                {table.columns.map((column) => {
+                {[
+                  ...keyColumns,
+                  ...shownColumnNames
+                    .map((name) => columnByName.get(name))
+                    .filter((column): column is ModelColumn => column !== undefined),
+                ].map((column) => {
                   const checked =
                     column.primaryKey || !hiddenColumnSet.has(column.name);
+                  const label = column.displayName ?? column.name;
+                  const movable = !column.primaryKey && Boolean(onColumnOrderChange);
                   return (
-                    <label
+                    <div
                       key={column.name}
-                      className={
-                        column.primaryKey
-                          ? "data-controls__column-toggle data-controls__column-toggle--locked"
-                          : "data-controls__column-toggle"
-                      }
+                      ref={(element) => {
+                        if (element) columnRowRefs.current.set(column.name, element);
+                        else columnRowRefs.current.delete(column.name);
+                      }}
+                      className={[
+                        "data-controls__column-row",
+                        draggingColumn === column.name
+                          ? "data-controls__column-row--dragging"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={column.primaryKey || disabled}
-                        onChange={() =>
-                          handleToggleColumnVisibility(column.name)
+                      {movable ? (
+                        <button
+                          type="button"
+                          className="data-controls__column-grip"
+                          aria-label={`Move ${label}`}
+                          title="Drag to reorder (or use the arrow keys)"
+                          disabled={disabled}
+                          onPointerDown={(event) => startColumnDrag(event, column.name)}
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                              event.preventDefault();
+                              moveColumn(column.name, event.key === "ArrowUp" ? -1 : 1);
+                            }
+                          }}
+                        >
+                          <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true">
+                            <circle cx="2.5" cy="2.5" r="1.25" />
+                            <circle cx="7.5" cy="2.5" r="1.25" />
+                            <circle cx="2.5" cy="7" r="1.25" />
+                            <circle cx="7.5" cy="7" r="1.25" />
+                            <circle cx="2.5" cy="11.5" r="1.25" />
+                            <circle cx="7.5" cy="11.5" r="1.25" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <span className="data-controls__column-grip data-controls__column-grip--locked" aria-hidden="true" />
+                      )}
+                      <label
+                        className={
+                          column.primaryKey
+                            ? "data-controls__column-toggle data-controls__column-toggle--locked"
+                            : "data-controls__column-toggle"
                         }
-                      />
-                      <span className="data-controls__column-toggle-copy">
-                        <span className="data-controls__column-toggle-name">
-                          {column.displayName ?? column.name}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={column.primaryKey || disabled}
+                          onChange={() =>
+                            handleToggleColumnVisibility(column.name)
+                          }
+                        />
+                        <span className="data-controls__column-toggle-copy">
+                          <span className="data-controls__column-toggle-name">
+                            {label}
+                          </span>
                         </span>
-                      </span>
-                    </label>
+                      </label>
+                    </div>
                   );
                 })}
               </div>

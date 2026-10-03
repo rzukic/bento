@@ -434,6 +434,33 @@ describe("Table detail (/data/:tableId)", () => {
     expect(screen.getByText("Customers")).toBeInTheDocument();
   });
 
+  it("rearranges columns from the Columns menu and keeps the order in the view", async () => {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+
+    const router = createTestRouter(["/data/orders"]);
+    render(<RouterProvider router={router} />);
+
+    await userEvent.click(screen.getByRole("button", { name: "Columns" }));
+    const list = screen.getByRole("group", { name: "Visible columns" });
+    // The key column has no grip; the others can be moved.
+    expect(within(list).queryByRole("button", { name: "Move id" })).toBeNull();
+
+    within(list).getByRole("button", { name: "Move status" }).focus();
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}");
+
+    expect(useExplorerStore.getState().views.orders?.config.columnOrder).toEqual([
+      "status",
+      "customer_id",
+      "total",
+      "created_at",
+    ]);
+    const names = within(list)
+      .getAllByRole("checkbox")
+      .map((box) => box.closest("label")?.textContent?.trim());
+    expect(names).toEqual(["id", "status", "customer_id", "total", "created_at"]);
+  });
+
   it("renders schema-driven table tabs instead of the old back link and summary strip", () => {
     seedAuthenticated();
     seedSchema(sampleSnapshot);
