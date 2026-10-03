@@ -2357,7 +2357,6 @@
     gap: 0.125rem;
     max-height: 12.5rem;
     overflow-y: auto;
-    scrollbar-width: thin;
 }
 
 /* Pending validation error on a cell that is *not* currently being edited:
