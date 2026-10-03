@@ -12,9 +12,16 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+_None._
+
+---
+
+## Phase 2 — Data Management
+
 ### 2026-10-03 — Rename the Product to Bento
 
 > **Phase**: Phase 2 — Data Management
+> **Release**: [v0.2.1](releases/v0.2.1.md)
 
 The working name "Repère" is replaced by Bento, visibly and in every technical identifier.
 
@@ -140,8 +147,6 @@ Closed TASK-135. Visual schema table positions and colors now persist through th
 - Layout colors remain editable from Visual mode, visible on the ERD card border, and preserved through JSON formatting/import/export
 - Layout-only previews render a clear no-migration state, while backend apply stores metadata-only changes in place
 - Restored the Visual column inspector's reference-target selector so reference columns can be completed from the same editing surface
-
-## Phase 2 — Data Management
 
 ### 2026-04-21 — Complete the JSON Schema Workbench
 
@@ -533,6 +538,31 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-03 — Ship v0.2.1: Bento
+
+> **Version**: [v0.2.1 — Bento](releases/v0.2.1.md)
+> **Phase**: Phase 2 — Data Management
+
+A patch release that renames the product from the placeholder "Repère" to Bento, in the UI and in every technical identifier, with an upgrade path for installs from v0.2.0 and earlier.
+
+**Highlights:**
+- Bento name, page title and pixel sushi mascot (logo and favicon)
+- `bento/*` images, `bento-data` volume, `BENTO_*` env vars, `bento_refresh` cookie, `bento.*` browser keys
+- `code/scripts/migrate-volume-from-repere.sh` moves the data volume; sessions and browser settings carry over
+
+### 2026-10-03 — Ship v0.2.0 MVP 2: Spreadsheet+
+
+> **Version**: [v0.2.0 — MVP 2: Spreadsheet+](releases/v0.2.0.md)
+> **Phase**: Phase 2 — Data Management
+
+The browser product: one `docker compose up` starts a proxy, the web app and the backend, with a setup wizard, the Data Explorer, saved views and kanban boards, and the schema designer.
+
+**Highlights:**
+- Packaged full stack (Caddy proxy, static frontend, backend) with a first-run setup wizard
+- Spreadsheet-like Data Explorer with inline editing, record editor, saved views, kanban, export
+- Schema designer with visual ERD, JSON workbench and migration preview
+- One visual language across the app (Step 2.8)
 
 ### 2026-04-11 — Ship v0.1.0 MVP 1: Data API
 
