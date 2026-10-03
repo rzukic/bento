@@ -13,6 +13,7 @@ import {
   useExplorerStore,
 } from "../../stores/explorerStore";
 import { getDraftFocusColumn } from "../../stores/explorer/helpers";
+import { useRowCountStore } from "../../stores/rowCountStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import {
@@ -247,6 +248,25 @@ export function TableDetailPage() {
   } | null>(null);
   const [undoToastVisible, setUndoToastVisible] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  // The header hosts the view selector next to the table tabs.
+  const [viewSlot, setViewSlot] = useState<HTMLDivElement | null>(null);
+  // Row counts for the tabs come from what is already known (Home's
+  // counts, unfiltered views); this page fetches none of its own.
+  const tabCounts = useRowCountStore((state) => state.counts);
+  const setRowCount = useRowCountStore((state) => state.setCount);
+  const unfilteredTotal =
+    view &&
+    view.status === "ready" &&
+    view.context === null &&
+    view.source.kind === "table" &&
+    view.config.filters.length === 0 &&
+    !view.config.search &&
+    view.meta
+      ? view.meta.total - view.pendingNewRowIds.length
+      : null;
+  useEffect(() => {
+    if (tableId && unfilteredTotal !== null) setRowCount(tableId, unfilteredTotal);
+  }, [tableId, unfilteredTotal, setRowCount]);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   const table = useMemo(() => {
@@ -489,6 +509,8 @@ export function TableDetailPage() {
 
   const resolvedTable = table;
   const tableTabs = snapshot?.tables ?? [];
+  // Counts show only when every tab has one; a lone number reads as broken.
+  const allTabCountsKnown = tableTabs.every((tab) => typeof tabCounts[tab.name] === "number");
 
   // Table found — render detail
   const displayName = resolvedTable.displayName ?? resolvedTable.name;
@@ -863,6 +885,7 @@ export function TableDetailPage() {
   return (
     <div className="table-detail">
       <header className="table-detail__header">
+      <div className="table-detail__heading">
       <h1 className="table-detail__title">{displayName}</h1>
       <nav className="table-tabs" aria-label="Tables">
         {tableTabs.map((tab) => (
@@ -878,9 +901,16 @@ export function TableDetailPage() {
             <span className="table-tabs__tab-label">
               {tab.displayName ?? tab.name}
             </span>
+            {allTabCountsKnown ? (
+              <span className="table-tabs__tab-count" aria-hidden="true">
+                {tabCounts[tab.name]}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
+      </div>
+      <div className="table-detail__views" ref={setViewSlot} />
       </header>
 
       {/* Data panel */}
@@ -915,6 +945,7 @@ export function TableDetailPage() {
           ) : null}
 
           <DataQueryControls
+            viewSlot={viewSlot}
             table={resolvedTable}
             query={query}
             disabled={dataStatus === "loading" && view.rows.length === 0}

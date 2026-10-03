@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { fetchTableRows } from "../api/data";
 import { Icon, type IconName } from "../components/common/Icon";
 import { OutlinedNumeral } from "../components/common/OutlinedNumeral";
 import { Alert } from "../components/ui/Alert";
@@ -8,6 +7,7 @@ import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
 import { postSampleData } from "../features/setup/api";
 import { useSetupStore } from "../features/setup/setupStore";
+import { useRowCounts } from "../hooks/useRowCounts";
 import { useAuthStore } from "../stores/authStore";
 import { useSchemaStore } from "../stores/schemaStore";
 import { ApiClientError } from "../api/client";
@@ -38,35 +38,6 @@ function greeting(now = new Date()): string {
   return "Good evening";
 }
 
-/** Row counts per table, fetched one lightweight page at a time. */
-function useRowCounts(tableNames: string[]): Record<string, number | null> {
-  const [counts, setCounts] = useState<Record<string, number | null>>({});
-  const key = tableNames.join("\u0000");
-
-  useEffect(() => {
-    if (tableNames.length === 0) {
-      setCounts({});
-      return;
-    }
-    let cancelled = false;
-    setCounts(Object.fromEntries(tableNames.map((name) => [name, null])));
-    for (const name of tableNames) {
-      fetchTableRows(name, { page: 1, perPage: 1, sort: [], search: "", filters: [] })
-        .then((response) => {
-          if (!cancelled) setCounts((prev) => ({ ...prev, [name]: response.meta.total }));
-        })
-        .catch(() => {
-          // Counts are decorative; a failed count simply stays unknown.
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key]);
-
-  return counts;
-}
 
 export function HomePage() {
   const status = useSchemaStore((state) => state.status);

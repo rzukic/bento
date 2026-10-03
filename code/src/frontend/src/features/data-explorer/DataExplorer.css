@@ -4966,3 +4966,230 @@
         font-size: 2rem;
     }
 }
+
+/* -------------------------------------------------------------------------
+   Grid edge cases
+   ------------------------------------------------------------------------- */
+
+/* The open-record button always sits inside the table's right edge. It used
+   to hang 32 px past the table unless the grid overflowed sideways; with the
+   table filling the card that overhang itself caused the overflow, which
+   moved the button inside, which removed the overflow, every frame. */
+.data-grid__column--actions {
+    position: sticky;
+    right: 0;
+}
+
+.data-grid__cell--actions {
+    left: auto;
+    right: 0;
+    border: 0;
+    border-left: 1px solid var(--line);
+    background: var(--surface-raised);
+}
+
+/* Add row: the whole row lights up on hover, nothing per cell. */
+.data-grid__add-row td,
+.data-grid tbody tr.data-grid__add-row td.data-grid__column--primary {
+    background: var(--surface);
+}
+
+.data-grid__add-row td.data-grid__column--primary {
+    border-right-color: var(--line-2);
+}
+
+.data-grid tbody tr.data-grid__add-row:hover td,
+.data-grid tbody tr.data-grid__add-row:focus-within td {
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
+}
+
+.data-grid__add-row-trigger,
+.data-grid__add-row-copy,
+.data-grid__add-row-trigger:hover,
+.data-grid__add-row-trigger:focus-visible,
+.data-grid__add-row-copy:hover,
+.data-grid__add-row-copy:focus-visible {
+    background: transparent;
+}
+
+.data-grid__add-row:hover .data-grid__add-row-trigger,
+.data-grid__add-row:hover .data-grid__add-row-copy {
+    color: var(--text);
+}
+
+/* -------------------------------------------------------------------------
+   Page header: title and tabs on the left, the view selector on the right
+   ------------------------------------------------------------------------- */
+.table-detail__header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.table-detail__heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.table-detail__views {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-bottom: 0.5rem;
+}
+
+.table-detail__views:empty {
+    display: none;
+}
+
+.table-tabs__tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.table-tabs__tab-count {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    color: var(--text-4);
+}
+
+.table-detail__views .data-controls__view-selector {
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+}
+
+.table-detail__views .data-controls__view-selector .btn {
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+}
+
+.table-detail__views .data-controls__view-selector .btn:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+/* -------------------------------------------------------------------------
+   Toolbar: one row, active search/sort/filter chips on the left
+   ------------------------------------------------------------------------- */
+.data-controls__bar {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.5rem;
+}
+
+.data-controls__bar-start {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.data-controls__menu {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.data-controls__bar-start .data-controls__active {
+    padding: 0;
+    background: transparent;
+    min-width: 0;
+}
+
+.data-controls__bar-start .data-controls__chips {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+
+.data-controls__chip {
+    min-height: 1.75rem;
+    padding: 0 0.25rem 0 0.75rem;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    font-family: var(--font-ui);
+    font-size: var(--fs-xs);
+    letter-spacing: 0;
+    color: var(--text-2);
+}
+
+.data-controls__chip--filter {
+    background: transparent;
+}
+
+.data-controls__chip--editable {
+    overflow: visible;
+}
+
+/* Edit and remove sit after the label instead of blurring over it. */
+.data-controls__chip-actions {
+    position: static;
+    inset: auto;
+    padding: 0;
+    gap: 0;
+    opacity: 0.55;
+    pointer-events: auto;
+    transform: none;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.data-controls__chip--editable:hover .data-controls__chip-actions,
+.data-controls__chip--editable:focus-within .data-controls__chip-actions {
+    opacity: 1;
+    transform: none;
+}
+
+.data-controls__chip-action {
+    width: 1.375rem;
+    height: 1.375rem;
+}
+
+.data-controls__chip-action:hover,
+.data-controls__chip-action:focus-visible {
+    background: var(--hover);
+}
+
+.data-controls__active .data-controls__chips > .btn {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    border: 0;
+    background: transparent;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.data-controls__active .data-controls__chips > .btn:hover {
+    color: var(--text);
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+    .table-detail__header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .table-detail__views {
+        padding-bottom: 0;
+    }
+
+    .data-controls__menu {
+        flex-wrap: wrap;
+    }
+}
