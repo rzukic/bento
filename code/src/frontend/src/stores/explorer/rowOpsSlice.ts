@@ -4,7 +4,8 @@ import {
   adjustMetaTotal,
   buildDuplicatePayload,
   buildLocalBlankRow,
-  dropPendingNewRows,
+  getDraftFocusColumn,
+  getDraftRows,
   freshTableView,
   getTableModel,
   getWritableColumns,
@@ -117,12 +118,29 @@ export const createRowOpsSlice: StateCreator<ExplorerStoreState, [], [], RowOpsS
     const firstWritableColumn = getWritableColumns(tableModel)[0];
     if (!firstWritableColumn) return;
 
+    // One draft at a time: "Add row" with a draft open resumes that draft.
+    const viewBefore = get().views[table] ?? freshTableView();
+    const existingDraft = getDraftRows(viewBefore)[0];
+    if (existingDraft) {
+      const draftId = String(existingDraft.id ?? "");
+      const columnName = getDraftFocusColumn(tableModel, existingDraft, viewBefore.cellErrors[draftId]);
+      if (!columnName) return;
+      set((state) => {
+        const view = state.views[table];
+        if (!view) return state;
+        return {
+          activeTable: table,
+          views: { ...state.views, [table]: { ...view, editingCell: { rowId: draftId, columnName } } },
+        };
+      });
+      return;
+    }
+
     const localRowId = `__new__:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
     const blankRow = buildLocalBlankRow(tableModel, localRowId);
 
     set((state) => {
-      const currentView = state.views[table] ?? freshTableView();
-      const view = dropPendingNewRows(currentView);
+      const view = state.views[table] ?? freshTableView();
       return {
         activeTable: table,
         views: {

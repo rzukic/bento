@@ -10,6 +10,7 @@ import {
 import { createRowOpsSlice, initialRowOpsState } from "./explorer/rowOpsSlice";
 import { createViewSlice, initialViewState } from "./explorer/viewSlice";
 import type { ExplorerStoreState } from "./explorer/types";
+import { getDraftRows, getTableModel, isDraftRowEmpty } from "./explorer/helpers";
 
 // ── Public surface ────────────────────────────────────────────────────
 // The store is composed from slices under `./explorer/`; everything that
@@ -65,4 +66,20 @@ registerLogoutHook(() => {
 export function resetExplorerStoreForTest(): void {
   cancelAutoSave();
   useExplorerStore.setState({ ...initialState });
+}
+
+// Closing or reloading the tab is the one way a typed-into draft row could
+// still be lost, so the browser asks first while one exists.
+if (typeof window !== "undefined") {
+  window.addEventListener("beforeunload", (event) => {
+    const { views } = useExplorerStore.getState();
+    const hasDraft = Object.entries(views).some(([table, view]) => {
+      const model = getTableModel(table);
+      return model !== null && getDraftRows(view).some((row) => !isDraftRowEmpty(model, row));
+    });
+    if (hasDraft) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
 }

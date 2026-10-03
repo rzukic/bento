@@ -4355,3 +4355,71 @@
     outline-offset: -2px;
     border-radius: 4px;
 }
+
+/* Draft (unsaved new) rows */
+.data-grid__required-hint {
+    font-size: var(--fs-xs);
+    font-style: italic;
+    color: var(--text-4);
+}
+
+.data-grid__column--has-error .data-grid__required-hint {
+    color: var(--danger);
+}
+
+.data-grid__draft-bar-row td {
+    padding: 0;
+    border-right: 0;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.data-grid__draft-bar {
+    position: sticky;
+    left: 0;
+    /* Zero intrinsic width so a long message wraps inside the row instead
+       of widening the columns it spans (the id column above all). */
+    width: 0;
+    min-width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    padding: 0.375rem 0.72rem 0.5rem;
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+}
+
+.data-grid__draft-bar-text {
+    margin-right: 0.25rem;
+}
+
+.data-grid__draft-bar-action {
+    padding: 0.125rem 0.625rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+.data-grid__draft-bar-action:hover {
+    background: var(--hover);
+}
+
+.data-grid__draft-bar-action--quiet {
+    border-color: transparent;
+    color: var(--text-3);
+}
+
+.data-grid__draft-bar-action--quiet:hover {
+    color: var(--danger);
+}
+
+/* Drafts have no selection toggle, so their marker stays visible on hover. */
+.data-grid__row--pending-new:hover .data-grid__primary-value {
+    opacity: 1;
+}

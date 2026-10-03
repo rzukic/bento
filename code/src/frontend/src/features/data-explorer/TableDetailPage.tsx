@@ -12,6 +12,7 @@ import {
   getExplorerQueryForView,
   useExplorerStore,
 } from "../../stores/explorerStore";
+import { getDraftFocusColumn } from "../../stores/explorer/helpers";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import {
@@ -1222,7 +1223,7 @@ export function TableDetailPage() {
                   if (!resolvedTable) return;
                   cancelCellEdit(resolvedTable.name);
                 }}
-                onCommitEdit={(row, column, nextValue) => {
+                onCommitEdit={(row, column, nextValue, intent) => {
                   if (!resolvedTable) return;
                   const rowId = String(row.id ?? "");
                   if (!rowId) return;
@@ -1231,7 +1232,19 @@ export function TableDetailPage() {
                     rowId,
                     column.name,
                     nextValue,
+                    intent,
                   );
+                }}
+                onResumeDraft={(row) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  const columnName = getDraftFocusColumn(resolvedTable, row, cellErrors[rowId]);
+                  if (rowId && columnName) startCellEdit(resolvedTable.name, rowId, columnName);
+                }}
+                onDiscardDraft={(row) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  if (rowId) void deleteRow(resolvedTable.name, rowId);
                 }}
                 selectionMenuItems={
                   selectedRowIds.length > 0

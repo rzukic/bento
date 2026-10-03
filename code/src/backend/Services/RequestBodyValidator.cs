@@ -351,7 +351,7 @@ public sealed class RequestBodyValidator
             if (exists is not null)
             {
                 throw new ApiConflictException(
-                    $"Unique constraint violation on column '{col.Name}' with value '{coerced}'.",
+                    $"Another row already has {col.Name} '{coerced}'.",
                     new Dictionary<string, object?>(StringComparer.Ordinal)
                     {
                         ["column"] = col.Name,

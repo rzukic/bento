@@ -10,6 +10,8 @@ import {
 import { createPortal } from "react-dom";
 import { Icon } from "../../../components/common/Icon";
 import type { ModelColumn, ModelTable } from "../../../types/api";
+import { getMissingRequiredColumns, isRequiredForCreate } from "../../../stores/explorer/helpers";
+import type { CellCommitIntent } from "../../../stores/explorer/types";
 import { renderCellValue } from "./cellValue";
 import {
   BooleanCellEditor,
@@ -63,9 +65,18 @@ type DataGridProps = {
   onCommitEdit?: (
     row: Record<string, unknown>,
     column: ModelColumn,
-    nextValue: unknown
+    nextValue: unknown,
+    intent?: CellCommitIntent
   ) => void;
+  /** Continue filling an unsaved new row (focuses its first missing field). */
+  onResumeDraft?: (row: Record<string, unknown>) => void;
+  /** Throw away an unsaved new row. */
+  onDiscardDraft?: (row: Record<string, unknown>) => void;
 };
+
+function isEmptyCellValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
 
 function isColumnEditable(column: ModelColumn): boolean {
   if (column.type === "computed") return false;
@@ -195,9 +206,29 @@ export function DataGrid({
   onStartEdit,
   onCancelEdit,
   onCommitEdit,
+  onResumeDraft,
+  onDiscardDraft,
 }: DataGridProps) {
   const referenceLabels = useReferenceLabels(table, rows);
   const pendingNewRowIdSet = new Set(pendingNewRowIds);
+
+  // Why the open editor is about to commit; decides what happens to a draft
+  // row (see CellCommitIntent). Set by Enter/Tab in the editor and by where
+  // the pointer goes down while a draft cell is being edited.
+  const commitIntentRef = useRef<CellCommitIntent | null>(null);
+  const editingDraftRowId =
+    editingCell && pendingNewRowIdSet.has(editingCell.rowId) ? editingCell.rowId : null;
+  useEffect(() => {
+    if (!editingDraftRowId || typeof document === "undefined") return;
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      const draftRow = target?.closest("[data-draft-row-id]");
+      commitIntentRef.current =
+        draftRow?.getAttribute("data-draft-row-id") === editingDraftRowId ? "stay" : "leave";
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => document.removeEventListener("pointerdown", handlePointerDown, true);
+  }, [editingDraftRowId]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [xOverflow, setXOverflow] = useState(false);
 
@@ -253,12 +284,36 @@ export function DataGrid({
     }
   }
 
+  function handleEditorWrapperKeyDownCapture(
+    event: ReactKeyboardEvent<HTMLDivElement>,
+    rowIndex: number,
+  ) {
+    // Capture phase: editors commit from their own keydown handlers, so the
+    // intent has to be known before they run.
+    if (!pendingNewRowIdSet.has(String(rows[rowIndex]?.id ?? ""))) return;
+    const inTextarea = event.target instanceof HTMLTextAreaElement;
+    if (event.key === "Enter" && (!inTextarea || event.metaKey || event.ctrlKey)) {
+      commitIntentRef.current = "advance";
+    } else if (event.key === "Tab") {
+      commitIntentRef.current = event.shiftKey ? "stay" : "advance";
+    }
+  }
+
   function handleEditorWrapperKeyDown(
     event: ReactKeyboardEvent<HTMLDivElement>,
     rowIndex: number,
     columnIndex: number,
   ) {
     if (event.key !== "Tab" || !onStartEdit) return;
+    // In a draft, Tab goes to the next missing required field (the store
+    // picks it from the "advance" intent) rather than the adjacent cell.
+    if (!event.shiftKey && pendingNewRowIdSet.has(String(rows[rowIndex]?.id ?? ""))) {
+      event.preventDefault();
+      if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+      return;
+    }
     const direction: 1 | -1 = event.shiftKey ? -1 : 1;
     const next = findNextEditableCell(rowIndex, columnIndex, direction);
     if (!next) return;
@@ -634,6 +689,7 @@ export function DataGrid({
                     ]
                       .filter(Boolean)
                       .join(" ")}
+                    data-draft-row-id={pendingNew ? rowIdString : undefined}
                     onContextMenu={(event) => {
                       if (pendingNew) {
                         return;
@@ -752,6 +808,9 @@ export function DataGrid({
                                   </span>
                                   <div
                                     className="data-grid__cell-editor"
+                                    onKeyDownCapture={(event) =>
+                                      handleEditorWrapperKeyDownCapture(event, index)
+                                    }
                                     onKeyDown={(event) =>
                                       handleEditorWrapperKeyDown(event, index, columnIndex)
                                     }
@@ -761,9 +820,11 @@ export function DataGrid({
                                       column={column}
                                       autoFocus
                                       error={cellError ?? null}
-                                      onCommit={(next) =>
-                                        onCommitEdit?.(row, column, next)
-                                      }
+                                      onCommit={(next) => {
+                                        const intent = commitIntentRef.current ?? "stay";
+                                        commitIntentRef.current = null;
+                                        onCommitEdit?.(row, column, next, intent);
+                                      }}
                                       onCancel={() => onCancelEdit?.()}
                                     />
                                   </div>
@@ -773,7 +834,7 @@ export function DataGrid({
                               <span className="data-grid__primary-cell">
                                 <span className="data-grid__primary-value">
                                   {pendingNew ? (
-                                    <span className="data-grid__new-row-pill">new</span>
+                                    <span className="data-grid__new-row-pill" title="Not saved yet">new</span>
                                   ) : (
                                     renderCellValue(column, row[column.name])
                                   )}
@@ -834,6 +895,10 @@ export function DataGrid({
                                   </button>
                                 );
                               })()
+                            ) : pendingNew &&
+                              isRequiredForCreate(column) &&
+                              isEmptyCellValue(row[column.name]) ? (
+                              <span className="data-grid__required-hint">Required</span>
                             ) : (
                               renderCellValue(column, row[column.name])
                             )}
@@ -874,6 +939,17 @@ export function DataGrid({
                         <div className="data-grid__row-error-banner">{rowError}</div>
                       </td>
                     </tr>
+                  ) : null}
+                  {pendingNew && editingCell?.rowId !== rowIdString ? (
+                    <DraftBar
+                      key={`${table.name}-draft-bar-${rowIdString}`}
+                      table={table}
+                      row={row}
+                      errorMessage={Object.values(cellErrors[rowIdString] ?? {})[0] ?? null}
+                      colSpan={table.columns.length + (onOpenRecord ? 1 : 0)}
+                      onResume={onResumeDraft ? () => onResumeDraft(row) : undefined}
+                      onDiscard={onDiscardDraft ? () => onDiscardDraft(row) : undefined}
+                    />
                   ) : null}
                 </Fragment>
               );
@@ -939,4 +1015,64 @@ export function DataGrid({
         : null}
     </div>
   );
+}
+
+/**
+ * Shown under an unsaved new row while nobody is editing it: what is still
+ * missing (or that saving failed), with ways to continue or throw it away.
+ */
+function DraftBar({
+  table,
+  row,
+  errorMessage,
+  colSpan,
+  onResume,
+  onDiscard,
+}: {
+  table: ModelTable;
+  row: Record<string, unknown>;
+  errorMessage: string | null;
+  colSpan: number;
+  onResume?: () => void;
+  onDiscard?: () => void;
+}) {
+  const missing = getMissingRequiredColumns(table, row).map(
+    (column) => column.displayName ?? humanizeColumnName(column.name),
+  );
+  const message =
+    missing.length > 0
+      ? `Not saved yet. Still needed: ${missing.join(", ")}.`
+      : errorMessage
+        ? `Not saved: ${errorMessage} Fix it, then press Enter.`
+        : "Saving…";
+  const settled = missing.length > 0 || errorMessage !== null;
+
+  return (
+    <tr className="data-grid__draft-bar-row">
+      <td colSpan={colSpan}>
+        <div className="data-grid__draft-bar" role="status">
+          <span className="data-grid__draft-bar-text">{message}</span>
+          {settled && onResume ? (
+            <button type="button" className="data-grid__draft-bar-action" onClick={onResume}>
+              Continue
+            </button>
+          ) : null}
+          {settled && onDiscard ? (
+            <button
+              type="button"
+              className="data-grid__draft-bar-action data-grid__draft-bar-action--quiet"
+              onClick={onDiscard}
+            >
+              Discard
+            </button>
+          ) : null}
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+function humanizeColumnName(name: string): string {
+  const spaced = name.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
