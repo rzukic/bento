@@ -158,7 +158,7 @@ export function HomePage() {
               </Link>
             ) : null}
             <Link to="/data" className="btn btn--primary">
-              Browse data <Icon name="expand" size={14} />
+              Browse data <Icon name="arrow-right" size={14} />
             </Link>
           </div>
         ) : null}
@@ -292,7 +292,7 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
         {isAdmin ? (
           <div>
             <Link to="/model" className="btn btn--primary">
-              Open schema designer <Icon name="expand" size={14} />
+              Open schema designer <Icon name="arrow-right" size={14} />
             </Link>
           </div>
         ) : null}

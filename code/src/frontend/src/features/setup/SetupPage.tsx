@@ -271,7 +271,6 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       </section>
       <aside className="setup__actions rise d3">
         <div className="setup__row setup__row--end">
-          <span className="setup__hint">Enter ↵</span>
           <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
             Get started <ArrowIcon />
           </button>

@@ -136,13 +136,12 @@ export function LoginPage() {
               required
             />
             <div className="login__row">
-              <span className="login__hint">Enter ↵</span>
               <button
                 type="submit"
                 className="btn btn--primary btn--lg"
                 disabled={busy || username.length === 0 || password.length === 0}
               >
-                {loginInFlight ? "Signing in…" : "Sign in"} <Icon name="expand" size={14} />
+                {loginInFlight ? "Signing in…" : "Sign in"} <Icon name="arrow-right" size={14} />
               </button>
             </div>
           </form>
