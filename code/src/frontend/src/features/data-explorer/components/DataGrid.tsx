@@ -13,17 +13,7 @@ import type { ModelColumn, ModelTable } from "../../../types/api";
 import { getMissingRequiredColumns, isRequiredForCreate } from "../../../stores/explorer/helpers";
 import type { CellCommitIntent } from "../../../stores/explorer/types";
 import { renderCellValue } from "./cellValue";
-import {
-  BooleanCellEditor,
-  DateCellEditor,
-  DateTimeCellEditor,
-  EnumCellEditor,
-  FloatCellEditor,
-  IntegerCellEditor,
-  JsonCellEditor,
-  ReferenceCellEditor,
-  TextCellEditor,
-} from "./editors";
+import { pickEditorForColumn } from "./editors";
 import { lookupReferenceLabel, useReferenceLabels } from "./useReferenceLabels";
 
 type EditingCell = { rowId: string; columnName: string };
@@ -88,30 +78,6 @@ function isPrimarySelectionColumn(column: ModelColumn): boolean {
   return Boolean(column.primaryKey) && !column.references && column.type !== "relation";
 }
 
-function pickEditorForColumn(column: ModelColumn) {
-  if (column.references || column.type === "relation") return ReferenceCellEditor;
-  switch (column.type) {
-    case "boolean":
-      return BooleanCellEditor;
-    case "date":
-      return DateCellEditor;
-    case "datetime":
-      return DateTimeCellEditor;
-    case "enum":
-      return EnumCellEditor;
-    case "json":
-      return JsonCellEditor;
-    case "double":
-    case "float":
-      return FloatCellEditor;
-    case "int64":
-    case "integer":
-    case "number":
-      return IntegerCellEditor;
-    default:
-      return TextCellEditor;
-  }
-}
 
 function getColumnTypeIconName(column: ModelColumn) {
   if (column.primaryKey) return "number" as const;

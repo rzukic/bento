@@ -195,7 +195,7 @@ export function TemporalTextEditor({
   }
 
   return (
-    <EditorShell error={error}>
+    <EditorShell kind="mono" error={error}>
       <div
         ref={rootRef}
         className={[

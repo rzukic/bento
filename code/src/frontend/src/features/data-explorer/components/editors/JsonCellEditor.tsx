@@ -56,7 +56,7 @@ export function JsonCellEditor({
   }
 
   return (
-    <EditorShell error={error ?? parseError}>
+    <EditorShell kind="mono" error={error ?? parseError}>
       <textarea
         ref={inputRef}
         rows={4}

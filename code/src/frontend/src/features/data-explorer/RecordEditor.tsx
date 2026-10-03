@@ -20,17 +20,7 @@ import {
 import { useSchemaStore } from "../../stores/schemaStore";
 import { DEFAULT_QUERY } from "../../types/explorer";
 import type { ModelColumn, ModelTable } from "../../types/api";
-import {
-  BooleanCellEditor,
-  DateCellEditor,
-  DateTimeCellEditor,
-  EnumCellEditor,
-  FloatCellEditor,
-  IntegerCellEditor,
-  JsonCellEditor,
-  ReferenceCellEditor,
-  TextCellEditor,
-} from "./components/editors";
+import { pickEditorForColumn } from "./components/editors";
 import { renderCellValue } from "./components/cellValue";
 import { DataGrid } from "./components/DataGrid";
 import {
@@ -47,30 +37,6 @@ const EMPTY_CELL_ERRORS: Record<string, string> = Object.freeze({}) as Record<st
 const EMPTY_PENDING_SAVES: string[] = Object.freeze([]) as unknown as string[];
 const EMPTY_RELATION_SECTIONS = Object.freeze([]) as ReadonlyArray<IncomingRelationSection>;
 
-function pickEditorForColumn(column: ModelColumn) {
-  if (column.references || column.type === "relation") return ReferenceCellEditor;
-  switch (column.type) {
-    case "boolean":
-      return BooleanCellEditor;
-    case "date":
-      return DateCellEditor;
-    case "datetime":
-      return DateTimeCellEditor;
-    case "enum":
-      return EnumCellEditor;
-    case "json":
-      return JsonCellEditor;
-    case "double":
-    case "float":
-      return FloatCellEditor;
-    case "int64":
-    case "integer":
-    case "number":
-      return IntegerCellEditor;
-    default:
-      return TextCellEditor;
-  }
-}
 
 function getRecordTitle(table: ModelTable, row: Record<string, unknown> | null): string {
   if (!row) return table.displayName ?? table.name;

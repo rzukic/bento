@@ -66,7 +66,7 @@ export function CurrencyCellEditor({
       : draft;
 
   return (
-    <EditorShell error={error}>
+    <EditorShell kind="mono" error={error}>
       <input
         ref={inputRef}
         type="text"

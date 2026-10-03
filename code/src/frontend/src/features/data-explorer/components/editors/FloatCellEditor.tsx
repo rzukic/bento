@@ -50,7 +50,7 @@ export function FloatCellEditor({
   }
 
   return (
-    <EditorShell error={error}>
+    <EditorShell kind="mono" error={error}>
       <input
         ref={inputRef}
         type="text"

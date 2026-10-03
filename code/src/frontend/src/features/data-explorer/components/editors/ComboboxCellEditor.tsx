@@ -183,7 +183,7 @@ export function ComboboxCellEditor({
   const inputValue = open ? query : "";
 
   return (
-    <EditorShell error={error}>
+    <EditorShell kind="choice" error={error}>
       <div
         ref={rootRef}
         className="cell-combobox"
