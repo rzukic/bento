@@ -51,7 +51,7 @@ public sealed class CrudService
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
         ApplyFiltersStatic(baseQuery, parameters.Filters, table, _dbConfig.Provider);
-        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider);
+        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider, _schemaCache.GetTable);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
@@ -624,21 +624,34 @@ public sealed class CrudService
         SqlKata.Query query,
         string? search,
         TableDef table,
-        DatabaseProvider provider)
+        DatabaseProvider provider,
+        Func<string, TableDef?>? findTable = null)
     {
         if (string.IsNullOrWhiteSpace(search)) return;
 
+        // Own columns are searched only when the table has text-like ones (a
+        // purely numeric table ignores search, as before).
         var hasTextLikeColumns = table.Columns.Any(c =>
             c.Type is ColumnType.Text or ColumnType.Enum or ColumnType.File or ColumnType.Date or ColumnType.DateTime or ColumnType.Uuid);
+        var searchableColumns = !hasTextLikeColumns
+            ? []
+            : table.Columns
+                .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
+                .Select(c => c.Name)
+                .ToList();
 
-        if (!hasTextLikeColumns) return;
+        // A reference column is searched by the record it points to: an order
+        // is found by its customer's name ("Globex"), not only by the id.
+        var referenceSearches = findTable is null
+            ? []
+            : table.Columns
+                .Where(c => c.Type == ColumnType.Reference && !string.IsNullOrWhiteSpace(c.References))
+                .Select(c => BuildReferenceSearch(c, findTable(c.References!), provider))
+                .Where(r => r is not null)
+                .Cast<(string Sql, int Bindings)>()
+                .ToList();
 
-        var searchableColumns = table.Columns
-            .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
-            .Select(c => c.Name)
-            .ToList();
-
-        if (searchableColumns.Count == 0) return;
+        if (searchableColumns.Count == 0 && referenceSearches.Count == 0) return;
 
         var terms = ExtractSearchTerms(search);
 
@@ -649,14 +662,47 @@ public sealed class CrudService
             var pattern = $"%{term}%";
             query.Where(q =>
             {
-                q = q.WhereRaw(BuildSearchClause(searchableColumns[0], provider), pattern);
-                for (int i = 1; i < searchableColumns.Count; i++)
+                var first = true;
+                foreach (var column in searchableColumns)
                 {
-                    q = q.OrWhereRaw(BuildSearchClause(searchableColumns[i], provider), pattern);
+                    q = first
+                        ? q.WhereRaw(BuildSearchClause(column, provider), pattern)
+                        : q.OrWhereRaw(BuildSearchClause(column, provider), pattern);
+                    first = false;
+                }
+                foreach (var (sql, bindings) in referenceSearches)
+                {
+                    var values = Enumerable.Repeat<object>(pattern, bindings).ToArray();
+                    q = first ? q.WhereRaw(sql, values) : q.OrWhereRaw(sql, values);
+                    first = false;
                 }
                 return q;
             });
         }
+    }
+
+    /// <summary>
+    /// "fk IN (SELECT pk FROM target WHERE text_col LIKE ? OR ...)" over the
+    /// target table's text and choice columns; null when it has none.
+    /// </summary>
+    private static (string Sql, int Bindings)? BuildReferenceSearch(
+        ColumnDef column,
+        TableDef? target,
+        DatabaseProvider provider)
+    {
+        if (target is null) return null;
+        var primaryKey = target.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (primaryKey is null) return null;
+        var textColumns = target.Columns
+            .Where(c => c.Type is ColumnType.Text or ColumnType.Enum && !c.PrimaryKey)
+            .Select(c => BuildSearchClause(c.Name, provider))
+            .ToList();
+        if (textColumns.Count == 0) return null;
+
+        var sql =
+            $"{QuoteIdentifier(column.Name)} IN (SELECT {QuoteIdentifier(primaryKey.Name)} " +
+            $"FROM {QuoteIdentifier(target.Name)} WHERE {string.Join(" OR ", textColumns)})";
+        return (sql, textColumns.Count);
     }
 
     private static string BuildSearchClause(string columnName, DatabaseProvider provider)

@@ -251,6 +251,27 @@ public sealed class CrudIntegrationTests
         Assert.Equal(2, combinedJson.GetProperty("data").GetArrayLength());
     }
 
+    [Fact]
+    public async Task Demo_Search_FindsRecordsByTheRecordTheyReference()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(DemoSchema);
+
+        var globex = await CreateAsync(host, "customers", new { name = "Globex GmbH", email = "hi@globex.example", tier = "gold" });
+        var acme = await CreateAsync(host, "customers", new { name = "Acme Corp", email = "hi@acme.example", tier = "silver" });
+        await CreateAsync(host, "orders", new { customer_id = globex, total = 99.0, status = "paid" });
+        await CreateAsync(host, "orders", new { customer_id = globex, total = 12.0, status = "pending" });
+        await CreateAsync(host, "orders", new { customer_id = acme, total = 50.0, status = "paid" });
+
+        // "Globex" is not in orders; it is the name of the customer the order points to.
+        var byCustomer = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=globex");
+        Assert.Equal(2, byCustomer.GetProperty("data").GetArrayLength());
+
+        // Terms still combine with AND across own and referenced columns.
+        var combined = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?search=globex pending");
+        Assert.Equal(1, combined.GetProperty("data").GetArrayLength());
+    }
+
     // ── Validation errors ──
 
     [Fact]
