@@ -1833,17 +1833,11 @@
     background: var(--surface);
 }
 
-.data-grid tbody tr:nth-child(even) .data-grid__column--primary {
-    background: color-mix(in srgb, var(--surface-raised) 34%, var(--surface));
-}
-
-.data-grid tbody tr:hover .data-grid__column--primary {
-    background: color-mix(in srgb, var(--surface-raised) 82%, var(--surface));
-}
-
+/* The id cells take the row's background (no stripes); the header id cell
+   matches the other header cells. Colours only, no geometry. */
 .data-grid thead .data-grid__column--primary {
     z-index: 3;
-    background: var(--surface-raised);
+    background: var(--surface);
 }
 
 /* Subtle shadow on frozen PK column edge when scrolled */
@@ -1930,18 +1924,100 @@
     position: relative;
 }
 
+/* -------------------------------------------------------------------------
+   Cell editors (grid cells and record-editor fields)
+
+   One typography contract: an editor's control uses exactly the face, size,
+   line height and padding of the static value it replaces, so entering a
+   field moves nothing. EditorShell marks the kind (.cell-editor--text,
+   --mono for numbers/dates/JSON, --choice for enum/boolean/reference).
+   Two variants by context:
+   - grid: the control fills the cell box; the accent ring comes from
+     .data-grid__cell--editing;
+   - field (record editor): a 44 px underline field in the display face,
+     the same box as the static field display.
+   ------------------------------------------------------------------------- */
+.cell-editor {
+    position: relative;
+    display: block;
+    width: 100%;
+}
+
+/* Grid variant: same box as the static cell (padding + one 1.24 line of the
+   0.83rem cell text), text top-aligned like the static value. */
+.data-grid__cell-editor {
+    --cell-line: calc(0.83rem * 1.24);
+}
+
+.data-grid__cell-editor input,
+.data-grid__cell-editor select,
+.data-grid__cell-editor textarea {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    height: calc(2 * var(--data-grid-cell-pad-y, 0.44rem) + var(--cell-line));
+    min-height: 0;
+    margin: 0;
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 0.83rem;
+    font-weight: 400;
+    line-height: var(--cell-line);
+    outline: none;
+    appearance: none;
+}
+
+/* Numbers, dates and JSON keep the mono face of their static value. */
+.data-grid__cell-editor .cell-editor--mono input,
+.data-grid__cell-editor .cell-editor--mono textarea {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.data-grid__cell-editor textarea {
+    height: auto;
+    min-height: calc(2 * var(--data-grid-cell-pad-y, 0.44rem) + var(--cell-line));
+    resize: vertical;
+}
+
+.data-grid__cell-editor .cell-editor--error input,
+.data-grid__cell-editor .cell-editor--error select,
+.data-grid__cell-editor .cell-editor--error textarea {
+    box-shadow: inset 0 -2px 0 var(--danger);
+}
+
+.data-grid__cell-editor .cell-editor__error {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 100%;
+    margin-top: 0.25rem;
+    padding: 0.375rem 0.625rem;
+    border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+    border-radius: 10px;
+    background: var(--surface-raised);
+    font-size: var(--fs-xs);
+    color: var(--danger);
+    white-space: normal;
+    z-index: 5;
+}
+
+/* Date / date-time: date and time inputs side by side in one cell. */
 .cell-temporal-editor {
     position: relative;
     display: block;
     width: 100%;
     min-width: 0;
-    height: 100%;
 }
 
 .cell-temporal-editor--datetime {
     display: flex;
-    align-items: center;
-    gap: 0;
+    align-items: flex-start;
 }
 
 .cell-temporal-editor--open {
@@ -1953,362 +2029,52 @@
     width: 100%;
     min-width: 0;
     max-width: 100%;
-    font-size: 0.78rem;
-    line-height: 1.15;
 }
 
 .cell-temporal-editor__input--date {
     flex: 1 1 auto;
-    padding-right: 0.36rem !important;
+}
+
+.data-grid__cell-editor .cell-temporal-editor__input--date {
+    padding-right: 0.25rem;
 }
 
 .cell-temporal-editor__input--time {
     flex: 0 0 4.35rem;
     text-align: left;
-    padding-left: 0.36rem !important;
+}
+
+.data-grid__cell-editor .cell-temporal-editor__input--time {
+    padding-left: 0.25rem;
 }
 
 .cell-temporal-editor__separator {
-    flex: 0 0 0.09rem;
+    flex: 0 0 0;
 }
 
-.cell-temporal-editor__panel {
-    position: absolute;
-    top: calc(100% + 0.42rem);
-    left: 0;
-    border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
-    border-radius: 14px;
-    background: linear-gradient(
-        180deg,
-        color-mix(in srgb, var(--surface-raised) 96%, white) 0%,
-        var(--surface) 100%
-    );
-    box-shadow:
-        0 16px 36px rgba(15, 23, 42, 0.16),
-        0 2px 10px rgba(15, 23, 42, 0.08);
-    padding: 0.72rem;
-    z-index: 20;
-}
-
-.cell-temporal-editor__panel--up {
-    top: auto;
-    bottom: calc(100% + 0.42rem);
-}
-
-.cell-temporal-editor__panel--date {
-    width: 18rem;
-}
-
-.cell-temporal-editor__panel--time {
-    left: auto;
-    right: 0;
-    width: 6.2rem;
-    padding: 0.42rem;
-}
-
-.cell-temporal-editor__panel-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 0.35rem;
-    margin-bottom: 0.55rem;
-}
-
-.cell-temporal-editor__title-group {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 0.18rem;
-    flex: 1;
-    min-width: 0;
-}
-
-.cell-temporal-editor__nav {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.7rem;
-    height: 1.7rem;
-    padding: 0;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    background: color-mix(in srgb, var(--surface) 88%, transparent);
-    color: var(--text-2);
-    cursor: pointer;
-    transition:
-        background var(--dur, 120ms) var(--ease, ease),
-        border-color var(--dur, 120ms) var(--ease, ease),
-        color var(--dur, 120ms) var(--ease, ease);
-}
-
-.cell-temporal-editor__nav:hover,
-.cell-temporal-editor__nav:focus-visible {
-    background: color-mix(in srgb, var(--accent-soft) 36%, var(--surface));
-    border-color: var(--accent);
-    color: var(--text);
-    outline: none;
-}
-
-.cell-temporal-editor__title-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.7rem;
-    padding: 0 0.48rem;
-    border: 1px solid transparent;
-    border-radius: 999px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.82rem;
-    font-weight: 700;
-    letter-spacing: -0.01em;
-    cursor: pointer;
-    transition:
-        background var(--dur, 120ms) var(--ease, ease),
-        border-color var(--dur, 120ms) var(--ease, ease),
-        color var(--dur, 120ms) var(--ease, ease);
-}
-
-.cell-temporal-editor__title-button:hover,
-.cell-temporal-editor__title-button:focus-visible,
-.cell-temporal-editor__title-button--active {
-    background: color-mix(in srgb, var(--accent-soft) 32%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 36%, transparent);
-    outline: none;
-}
-
-.cell-temporal-editor__weekday-row {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 0.18rem;
-    margin-bottom: 0.22rem;
-}
-
-.cell-temporal-editor__weekday {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.45rem;
-    font-size: 0.62rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: var(--text-4);
-}
-
-.cell-temporal-editor__calendar-grid {
-    display: grid;
-    grid-template-columns: repeat(7, 1fr);
-    gap: 0.18rem;
-}
-
-.cell-temporal-editor__choice-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 0.32rem;
-}
-
-.cell-temporal-editor__choice-grid--years {
-    grid-template-columns: repeat(4, 1fr);
-}
-
-.cell-temporal-editor__day {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 2rem;
-    padding: 0;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.76rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-        background var(--dur, 120ms) var(--ease, ease),
-        border-color var(--dur, 120ms) var(--ease, ease),
-        color var(--dur, 120ms) var(--ease, ease),
-        transform var(--dur, 120ms) var(--ease, ease);
-}
-
-.cell-temporal-editor__day:hover,
-.cell-temporal-editor__day:focus-visible {
-    background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
-    outline: none;
-    transform: translateY(-1px);
-}
-
-.cell-temporal-editor__day--outside {
-    color: var(--text-4);
-}
-
-.cell-temporal-editor__day--today {
-    border-color: color-mix(in srgb, var(--accent) 34%, transparent);
-}
-
-.cell-temporal-editor__day--selected {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--accent-ink);
-    box-shadow: 0 8px 18px color-mix(in srgb, var(--accent) 24%, transparent);
-}
-
-.cell-temporal-editor__choice {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 2.1rem;
-    padding: 0 0.35rem;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.75rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-        background var(--dur, 120ms) var(--ease, ease),
-        border-color var(--dur, 120ms) var(--ease, ease),
-        color var(--dur, 120ms) var(--ease, ease),
-        transform var(--dur, 120ms) var(--ease, ease);
-}
-
-.cell-temporal-editor__choice:hover,
-.cell-temporal-editor__choice:focus-visible {
-    background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
-    outline: none;
-    transform: translateY(-1px);
-}
-
-.cell-temporal-editor__choice--selected {
-    background: color-mix(in srgb, var(--accent-soft) 52%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 44%, transparent);
-    color: var(--text);
-}
-
-.cell-temporal-editor__time-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.14rem;
-    max-height: 12.5rem;
-    overflow-y: auto;
-    padding-right: 0.05rem;
-    scrollbar-width: thin;
-}
-
-.cell-temporal-editor__time-option {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    min-height: 1.9rem;
-    padding: 0 0.45rem;
-    border: 1px solid transparent;
-    border-radius: 10px;
-    background: transparent;
-    color: var(--text);
-    font-size: 0.74rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition:
-        background var(--dur, 120ms) var(--ease, ease),
-        border-color var(--dur, 120ms) var(--ease, ease),
-        color var(--dur, 120ms) var(--ease, ease);
-}
-
-.cell-temporal-editor__time-option:hover,
-.cell-temporal-editor__time-option:focus-visible {
-    background: color-mix(in srgb, var(--accent-soft) 42%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 42%, transparent);
-    outline: none;
-}
-
-.cell-temporal-editor__time-option--selected {
-    background: color-mix(in srgb, var(--accent-soft) 52%, var(--surface));
-    border-color: color-mix(in srgb, var(--accent) 44%, transparent);
-    color: var(--text);
-}
-
-/* Make every editor's primary control (input / select / textarea / button
- * combobox) feel like part of the cell — no extra border, no extra
- * background, inherits cell typography. */
-.data-grid__cell-editor input,
-.data-grid__cell-editor select,
-.data-grid__cell-editor textarea {
-    box-sizing: border-box;
-    width: 100%;
-    /* Same minimum height as .data-grid__cell so the editor box does not
-       shrink below the row it replaces. */
-    min-height: 2.1rem;
-    margin: 0;
-    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
-    border: 0;
-    background: transparent;
-    color: var(--text);
-    font: inherit;
-    font-size: 0.83rem;
-    line-height: 1.24;
-    outline: none;
-    appearance: none;
-}
-
-.data-grid__cell-editor textarea {
-    min-height: 2.1rem;
-    resize: vertical;
-}
-
-.data-grid__cell-editor .cell-editor--error input,
-.data-grid__cell-editor .cell-editor--error select,
-.data-grid__cell-editor .cell-editor--error textarea {
-    box-shadow: inset 0 -2px 0 var(--danger, #d04545);
-}
-
-.data-grid__cell-editor .cell-editor__error {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 100%;
-    margin-top: 2px;
-    padding: 0.2rem 0.5rem;
-    font-size: 0.72rem;
-    color: var(--danger, #d04545);
-    background: var(--surface-raised);
-    border-radius: 3px;
-    z-index: 5;
-    white-space: normal;
-}
-
-/* Combobox cell editor (enum / boolean / FK) — visually mirrors the enum
- * filter dropdown: a single input that opens a listbox below. The input
- * shows the current label when closed and acts as a search field when open. */
-.data-grid__cell-editor .cell-combobox {
+/* Combobox (enum / boolean / reference) */
+.cell-combobox {
     position: relative;
     width: 100%;
-    height: 100%;
 }
 
-.data-grid__cell-editor .cell-combobox__trigger {
+.cell-combobox__trigger {
     display: flex;
     align-items: center;
     width: 100%;
-    height: 100%;
 }
 
-.data-grid__cell-editor .cell-combobox__input {
+.cell-combobox__input {
     flex: 1 1 auto;
     min-width: 0;
 }
 
-.data-grid__cell-editor .cell-combobox__input::placeholder {
+.cell-combobox__input::placeholder {
     color: var(--text);
     opacity: 1;
 }
 
-.data-grid__cell-editor
-    .cell-combobox[data-open]
-    .cell-combobox__input::placeholder {
+.cell-combobox[data-open] .cell-combobox__input::placeholder {
     color: var(--text-4);
 }
 
@@ -2316,60 +2082,67 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    padding-right: 0.55rem;
+    padding-right: 0.625rem;
     color: var(--text-3);
     pointer-events: none;
+}
+
+/* Popovers: listbox and calendar share the card language of the toolbar
+   foldouts. */
+.cell-combobox__listbox,
+.cell-temporal-editor__panel {
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-xl);
+    background: var(--surface-raised);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
 }
 
 .cell-combobox__listbox {
     position: absolute;
     z-index: 40;
-    top: calc(100% + 0.3rem);
+    top: calc(100% + 0.375rem);
     left: 0;
     width: 100%;
     min-width: 14rem;
     max-height: 16rem;
     margin: 0;
-    padding: 0.35rem;
+    padding: 0.375rem;
     list-style: none;
-    border: 1px solid var(--border);
-    border-radius: var(--r-lg);
-    background: var(--surface);
-    box-shadow: var(--shadow-lg);
     overflow: auto;
 }
 
 .cell-combobox__listbox--up {
     top: auto;
-    bottom: calc(100% + 0.3rem);
+    bottom: calc(100% + 0.375rem);
 }
 
 .cell-combobox__option {
     display: flex;
     align-items: center;
-    gap: 0.55rem;
-    padding: 0.45rem 0.55rem;
+    gap: 0.5rem;
+    padding: 0.4375rem 0.625rem;
     border-radius: var(--r-md);
     color: var(--text);
+    font-size: var(--fs-sm);
     cursor: pointer;
     user-select: none;
 }
 
 .cell-combobox__option--active {
-    background: color-mix(in srgb, var(--surface-raised) 78%, var(--surface));
+    background: var(--hover);
 }
 
 .cell-combobox__option--selected {
-    background: color-mix(in srgb, var(--accent-soft) 52%, var(--surface));
+    background: var(--accent-soft);
 }
 
 .cell-combobox__check {
-    width: 0.9rem;
-    height: 0.9rem;
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    width: 0.875rem;
+    height: 0.875rem;
     color: var(--accent);
 }
 
@@ -2382,9 +2155,202 @@
 }
 
 .cell-combobox__empty {
-    padding: 0.55rem 0.6rem;
+    padding: 0.5rem 0.625rem;
     color: var(--text-3);
-    font-size: 0.78rem;
+    font-size: var(--fs-xs);
+}
+
+.cell-temporal-editor__panel {
+    position: absolute;
+    top: calc(100% + 0.375rem);
+    left: 0;
+    padding: 0.75rem;
+    z-index: 20;
+}
+
+.cell-temporal-editor__panel--up {
+    top: auto;
+    bottom: calc(100% + 0.375rem);
+}
+
+.cell-temporal-editor__panel--date {
+    width: 18rem;
+}
+
+.cell-temporal-editor__panel--time {
+    left: auto;
+    right: 0;
+    width: 6.25rem;
+    padding: 0.375rem;
+}
+
+.cell-temporal-editor__panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.375rem;
+    margin-bottom: 0.5rem;
+}
+
+.cell-temporal-editor__title-group {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.cell-temporal-editor__nav {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-2);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.cell-temporal-editor__nav:hover,
+.cell-temporal-editor__nav:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+    outline: none;
+}
+
+.cell-temporal-editor__title-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.75rem;
+    padding: 0 0.5rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+.cell-temporal-editor__title-button:hover,
+.cell-temporal-editor__title-button:focus-visible,
+.cell-temporal-editor__title-button--active {
+    background: var(--hover);
+    outline: none;
+}
+
+.cell-temporal-editor__weekday-row,
+.cell-temporal-editor__calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.125rem;
+}
+
+.cell-temporal-editor__weekday-row {
+    margin-bottom: 0.25rem;
+}
+
+.cell-temporal-editor__weekday {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 1.5rem;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.cell-temporal-editor__choice-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.25rem;
+}
+
+.cell-temporal-editor__choice-grid--years {
+    grid-template-columns: repeat(4, 1fr);
+}
+
+.cell-temporal-editor__day,
+.cell-temporal-editor__choice,
+.cell-temporal-editor__time-option {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid transparent;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.cell-temporal-editor__day {
+    min-height: 2rem;
+}
+
+.cell-temporal-editor__choice {
+    min-height: 2.125rem;
+    padding: 0 0.375rem;
+    font-family: var(--font-ui);
+}
+
+.cell-temporal-editor__time-option {
+    min-height: 1.875rem;
+    padding: 0 0.5rem;
+}
+
+.cell-temporal-editor__day:hover,
+.cell-temporal-editor__day:focus-visible,
+.cell-temporal-editor__choice:hover,
+.cell-temporal-editor__choice:focus-visible,
+.cell-temporal-editor__time-option:hover,
+.cell-temporal-editor__time-option:focus-visible {
+    background: var(--hover);
+    outline: none;
+}
+
+.cell-temporal-editor__day--outside {
+    color: var(--text-4);
+}
+
+.cell-temporal-editor__day--today {
+    border-color: var(--line-2);
+}
+
+.cell-temporal-editor__day--selected,
+.cell-temporal-editor__day--selected:hover {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+}
+
+.cell-temporal-editor__choice--selected,
+.cell-temporal-editor__time-option--selected {
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+.cell-temporal-editor__time-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    max-height: 12.5rem;
+    overflow-y: auto;
 }
 
 /* Pending validation error on a cell that is *not* currently being edited:
@@ -3710,4 +3676,2445 @@
     100% {
         background-position: -100% 0;
     }
+}
+
+/* =========================================================================
+   Step 2.8 — UI language rollout
+   Presentation-only overrides for the explorer chrome: tabs, context strip,
+   toolbar, pagination, landing cards, kanban and the record editor. Grid
+   internals and the id column are deliberately untouched; the toolbar
+   fold-out seam rules above keep working because only colours and radii of
+   the inactive state change here.
+   ========================================================================= */
+
+/* Landing */
+.table-card {
+    border-radius: var(--r-xl);
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+    border-color: var(--line);
+    padding: 1rem 1.125rem;
+}
+
+.table-card:hover,
+.table-card:focus-visible {
+    border-color: var(--line-2);
+    background: color-mix(in srgb, var(--surface-raised) 80%, transparent);
+}
+
+.table-card__icon {
+    border: 1px solid var(--line-2);
+    background: transparent;
+    color: var(--text-2);
+}
+
+.table-card:hover .table-card__icon {
+    background: transparent;
+    color: var(--text);
+    border-color: color-mix(in srgb, var(--text) 24%, transparent);
+}
+
+.table-card__name {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.table-card:hover .table-card__arrow {
+    color: var(--text);
+}
+
+.explorer-summary {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.explorer-summary__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    height: 1.625rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+}
+
+.explorer-summary__chip svg {
+    color: var(--text-4);
+}
+
+/* Table tabs: underline tabs in the display face */
+.table-tabs {
+    gap: 1.375rem;
+    margin: 0 1.5rem;
+    padding: 0.25rem 0 0;
+    border-bottom: 1px solid var(--line);
+}
+
+.table-tabs__tab {
+    min-width: 0;
+    padding: 0.5rem 0.125rem 0.625rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-4);
+    margin-bottom: -1px;
+}
+
+.table-tabs__tab + .table-tabs__tab {
+    margin-left: 0;
+}
+
+.table-tabs__tab:hover,
+.table-tabs__tab:focus-visible {
+    color: var(--text);
+    border-color: transparent;
+}
+
+.table-tabs__tab--active {
+    background: transparent;
+    color: var(--text);
+    border-bottom-color: var(--accent);
+}
+
+.table-tabs__tab--active::after {
+    display: none;
+}
+
+.table-tabs__tab-label {
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+/* Workspace: hairlines, no boxed frame */
+.table-detail__workspace {
+    border: 0;
+}
+
+.explorer-context__wrapper {
+    background: transparent;
+}
+
+.explorer-context {
+    margin: 1rem 1.5rem 0;
+    padding: 0.25rem 0 0.75rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    align-items: flex-end;
+}
+
+.explorer-context__title {
+    font-family: var(--font-display);
+    font-size: clamp(1.75rem, 2.6vw, 2.5rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    line-height: 1;
+}
+
+.explorer-context__eyebrow,
+.explorer-related__label {
+    color: var(--info);
+}
+
+.explorer-context__description {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-4);
+}
+
+/* Toolbar */
+.data-controls__bar {
+    background: transparent;
+    padding: 0.5rem 1.5rem;
+}
+
+.data-controls__menu-button {
+    border-color: var(--line-2);
+    color: var(--text-2);
+    height: 2rem;
+    min-height: 2rem;
+    padding: 0 0.75rem;
+}
+
+.data-controls__menu-button:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.data-controls__menu-button-label {
+    font-size: var(--fs-sm);
+}
+
+/* The open control is a filled pill and its panel a separate card below
+   it, instead of the old folder tab merged into the panel. */
+.data-controls__menu-button.data-controls__menu-button--active,
+.data-controls__menu-button.data-controls__menu-button--active:hover {
+    border-color: transparent;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+    color: var(--text);
+}
+
+.data-controls__menu-button--active::after {
+    content: none;
+}
+
+.data-controls__menu-count {
+    position: static;
+    min-width: 0;
+    height: auto;
+    padding: 0;
+    margin-left: 0.125rem;
+    background: transparent;
+    color: var(--info);
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+}
+
+.data-controls__panel {
+    border-color: var(--line-2);
+    background: var(--surface-raised);
+    border-radius: 0 0 var(--r-xl) var(--r-xl);
+}
+
+.data-controls__panel--floating {
+    top: calc(50% + 1.125rem + 0.5rem);
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+    animation: data-controls-pop 140ms var(--ease) both;
+}
+
+@keyframes data-controls-pop {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .data-controls__panel--floating {
+        animation: none;
+    }
+}
+
+.data-controls__view-current {
+    height: 2rem;
+    padding: 0 0.625rem 0 0.875rem;
+    border: 0;
+    background: var(--hover);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+}
+
+.data-controls__view-current:hover {
+    background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.data-controls__view-menu,
+.data-controls__export-menu {
+    border-color: var(--line-2);
+    border-radius: var(--r-xl);
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+}
+
+/* Same gap below the button as the Search/Sort/Filter cards. */
+.data-controls__export-menu {
+    top: calc(100% + 0.5rem);
+    left: 0;
+    animation: data-controls-pop 140ms var(--ease) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .data-controls__export-menu {
+        animation: none;
+    }
+}
+
+/* Grid card and pagination */
+.data-grid__scroll {
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
+.data-grid table {
+    border-right-color: var(--line);
+    border-bottom-color: var(--line);
+}
+
+.data-panel__status {
+    border-color: var(--line);
+}
+
+.data-pagination--bottom {
+    background: transparent;
+    border-top: 1px solid var(--line);
+    padding: 0.75rem 1.5rem 1rem;
+}
+
+/* Kanban: hairline lanes, display totals */
+.kanban-lane {
+    background: transparent;
+    border: 0;
+    border-radius: 0;
+}
+
+.kanban-lane__header {
+    padding: 0.25rem 0.25rem 0.75rem;
+    background: transparent;
+    border-bottom: 1px solid var(--line-2);
+}
+
+.kanban-lane__label {
+    color: var(--text);
+    font-size: var(--fs-sm);
+    letter-spacing: 0.06em;
+}
+
+.kanban-lane__count {
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+.kanban-lane__list {
+    padding: 0.75rem 0 0;
+}
+
+.kanban-card {
+    border-radius: 12px;
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+    box-shadow: none;
+    padding: 0.875rem 0.875rem 0.875rem 0.625rem;
+}
+
+/* Quiet hover: a slightly brighter surface and border, no lift or heavy
+   shadow. */
+.kanban-card,
+.kanban-card:hover {
+    transform: none;
+}
+
+.kanban-card {
+    transition:
+        background var(--dur) var(--ease),
+        border-color var(--dur) var(--ease);
+}
+
+.kanban-card:hover {
+    border-color: var(--line-2);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface-raised));
+    box-shadow: none;
+}
+
+
+.kanban-card__field--primary .kanban-card__field-value {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.kanban-lane--drag-over .kanban-lane__list {
+    background: var(--accent-soft);
+    outline-color: color-mix(in srgb, var(--accent) 50%, transparent);
+}
+
+/* Record editor: centred dialog instead of a side sheet */
+.record-editor {
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+
+.record-editor__backdrop {
+    background: var(--overlay);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+}
+
+.record-editor__panel {
+    width: min(960px, 100%);
+    height: min(760px, 100%);
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.55);
+}
+
+.record-editor__header {
+    padding: 1.5rem 2rem 1.25rem;
+    background: transparent;
+    border-bottom-color: var(--line);
+}
+
+.record-editor__eyebrow {
+    font-family: var(--font-mono);
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+.record-editor__title {
+    font-family: var(--font-display);
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+}
+
+.record-editor__body {
+    padding: 1.5rem 2rem 1.75rem;
+}
+
+.record-editor__fields {
+    gap: 1.25rem;
+}
+
+.record-editor__field-label {
+    font-family: var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.record-editor__field-display {
+    border-radius: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line-2);
+    background: transparent;
+    padding-left: 0;
+    padding-right: 0;
+}
+
+.record-editor__field-display:hover {
+    border-bottom-color: color-mix(in srgb, var(--text) 32%, transparent);
+    background: transparent;
+}
+
+.record-editor__field-value {
+    font-size: var(--fs-md);
+}
+
+.record-editor .field__control {
+    height: 2.75rem;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--line-2);
+    border-radius: 0;
+    background: transparent;
+    font-size: var(--fs-md);
+}
+
+.record-editor .field__control:focus {
+    box-shadow: 0 1px 0 var(--accent);
+    border-bottom-color: var(--accent);
+}
+
+.record-editor__footer {
+    background: transparent;
+    border-top-color: var(--line);
+    padding: 1.125rem 2rem 1.25rem;
+}
+
+.record-editor__relation-section {
+    border-color: var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+@media (max-width: 760px) {
+    .table-tabs,
+    .explorer-context {
+        margin-left: 1rem;
+        margin-right: 1rem;
+    }
+
+    .data-controls__bar,
+    .data-pagination--bottom {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    /* Pagination on a phone: range on its own line, then one compact row */
+    .data-pagination--bottom {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .data-pagination--bottom .data-pagination__controls {
+        width: 100%;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .data-pagination--bottom .data-pagination__controls .field {
+        min-width: 0;
+        width: 8.25rem;
+        flex-shrink: 0;
+    }
+
+    .data-pagination--bottom .data-pagination__switcher {
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        gap: 0.25rem;
+    }
+
+    .data-pagination--bottom .data-pagination__page {
+        width: auto;
+        min-width: 0;
+        white-space: nowrap;
+    }
+
+    .record-editor {
+        padding: 0;
+    }
+
+    .record-editor__panel {
+        width: 100%;
+        height: 100%;
+        border-radius: 0;
+        border: 0;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Step 2.8 follow-up — grid in the new language.
+   The id column (`.data-grid__column--primary`) keeps its width, padding,
+   content and sticky behaviour: none of the rules below change a dimension
+   of it. It only shares the row background (no more zebra stripes) and keeps
+   its right border as the one vertical separator in the grid.
+   ------------------------------------------------------------------------- */
+
+/* Plain rows with hairline dividers */
+.data-grid th,
+.data-grid td {
+    border-bottom-color: var(--line);
+}
+
+.data-grid tbody tr:nth-child(even) td {
+    background: transparent;
+}
+
+.data-grid tbody tr:hover td {
+    background: var(--hover);
+}
+
+/* Same specificity as the even-row reset above so every selected or
+   draft row is tinted, not just the odd ones. */
+.data-grid tbody tr.data-grid__row--selected td,
+.data-grid tbody tr.data-grid__row--selected:hover td {
+    background: var(--accent-soft);
+}
+
+.data-grid tbody tr.data-grid__row--pending-new td {
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+/* Vertical separators only after the id column */
+.data-grid th:not(:last-child),
+.data-grid td:not(:nth-last-child(-n + 2)) {
+    border-right: 0;
+}
+
+.data-grid th.data-grid__column--primary,
+.data-grid td.data-grid__column--primary {
+    border-right: 1px solid var(--line-2);
+}
+
+/* The sticky id cells need an opaque background so scrolled cells don't show
+   through; it matches the grid card instead of the old raised stripe. */
+.data-grid tbody td.data-grid__column--primary {
+    background: var(--surface);
+}
+
+.data-grid tbody tr:hover td.data-grid__column--primary {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+
+.data-grid tbody tr.data-grid__row--selected td.data-grid__column--primary {
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+}
+
+/* Header on the ground colour, mono uppercase labels, faint type */
+.data-grid thead th {
+    background: var(--surface);
+    box-shadow: inset 0 -1px 0 var(--line-2);
+}
+
+.data-grid__column:not(.data-grid__column--primary) .data-grid__header-name {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-3);
+}
+
+.data-grid__header-type-icon {
+    color: var(--text-4);
+}
+
+/* Cell text: primary ink, numbers and dates in mono — outside the id column */
+.data-grid td:not(.data-grid__column--primary) .data-grid__cell {
+    color: var(--text);
+}
+
+.data-grid td:not(.data-grid__column--primary) .data-grid__mono {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    color: var(--text);
+}
+
+/* Enum and reference chips */
+/* Chips keep the old reference height (1.28rem) so row height is unchanged */
+.chip.data-grid__enum {
+    height: 1.28rem;
+    font-size: 0.72rem;
+}
+
+.data-grid__reference {
+    min-height: 1.28rem;
+    padding: 0 0.5625rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: var(--hover);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: 0.8rem;
+    font-weight: 500;
+}
+
+.data-grid__reference--interactive:hover,
+.data-grid__reference--interactive:focus-visible {
+    background: color-mix(in srgb, var(--text) 12%, transparent);
+    color: var(--text);
+}
+
+/* Focused / editable cell: a 1.5 px accent ring */
+.data-grid__cell--editable:focus-visible,
+.data-grid__cell--editing {
+    outline: none;
+    box-shadow: inset 0 0 0 1.5px var(--accent);
+    border-radius: 4px;
+}
+
+/* Keyboard focus: every control the restyle touched gets a visible ring */
+.table-tabs__tab:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+.data-grid__reference--interactive:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+.data-grid__select-toggle:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+    border-radius: 4px;
+}
+
+.data-grid__add-row-trigger:focus-visible,
+.data-grid__add-row-copy:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+    border-radius: 4px;
+}
+
+/* Draft (unsaved new) rows */
+.data-grid__required-hint {
+    font-size: var(--fs-xs);
+    font-style: italic;
+    color: var(--text-4);
+}
+
+.data-grid__column--has-error .data-grid__required-hint {
+    color: var(--danger);
+}
+
+.data-grid__draft-bar-row td {
+    padding: 0;
+    border-right: 0;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.data-grid__draft-bar {
+    position: sticky;
+    left: 0;
+    /* Zero intrinsic width so a long message wraps inside the row instead
+       of widening the columns it spans (the id column above all). */
+    width: 0;
+    min-width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    padding: 0.375rem 0.72rem 0.5rem;
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+}
+
+.data-grid__draft-bar-text {
+    margin-right: 0.25rem;
+}
+
+.data-grid__draft-bar-action {
+    padding: 0.125rem 0.625rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+.data-grid__draft-bar-action:hover {
+    background: var(--hover);
+}
+
+.data-grid__draft-bar-action--quiet {
+    border-color: transparent;
+    color: var(--text-3);
+}
+
+.data-grid__draft-bar-action--quiet:hover {
+    color: var(--danger);
+}
+
+/* Drafts have no selection toggle, so their marker stays visible on hover. */
+.data-grid__row--pending-new:hover .data-grid__primary-value {
+    opacity: 1;
+}
+
+/* -------------------------------------------------------------------------
+   Record editor as in the design fragment: header with Prev/Next, fields
+   on the left as underline fields, related records on the right, an
+   action footer.
+   ------------------------------------------------------------------------- */
+.record-editor__panel {
+    height: min(760px, calc(100vh - 3rem));
+    background: var(--surface);
+}
+
+.record-editor__header {
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.record-editor__eyebrow {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+}
+
+.record-editor__title-id {
+    color: var(--text-4);
+}
+
+.record-editor__header-actions {
+    gap: 0.5rem;
+}
+
+.record-editor__tool,
+.record-editor__close {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-2);
+    font: 500 var(--fs-sm) var(--font-ui);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+
+.record-editor__close {
+    width: 2rem;
+    padding: 0;
+}
+
+.record-editor__tool:hover:not(:disabled),
+.record-editor__close:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.record-editor__tool:disabled {
+    opacity: 0.4;
+    cursor: default;
+}
+
+.record-editor__body {
+    flex: 1;
+    min-height: 0;
+    padding: 0;
+    overflow: auto;
+}
+
+.record-editor__main,
+.record-editor__side {
+    padding: 1.75rem 2rem;
+}
+
+.record-editor__body--split {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.record-editor__body--split .record-editor__main,
+.record-editor__body--split .record-editor__side {
+    min-height: 0;
+    overflow: auto;
+}
+
+.record-editor__body--split .record-editor__main {
+    border-right: 1px solid var(--line);
+}
+
+.record-editor__fields {
+    gap: 1.625rem;
+}
+
+.record-editor__field-label {
+    font-size: 0.6875rem;
+}
+
+.record-editor__field-display,
+.record-editor__field-readonly,
+.record-editor .field__control {
+    min-height: 2.75rem;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+}
+
+.record-editor__field-value {
+    font-size: inherit;
+}
+
+.record-editor__field-readonly {
+    display: flex;
+    align-items: center;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px dashed var(--line-2);
+    border-radius: 0;
+    background: transparent;
+    color: var(--text-3);
+}
+
+/* Related records: a titled list per relation, rows joined in one card */
+.record-editor__relations {
+    gap: 1.75rem;
+}
+
+.record-editor__relation-section {
+    gap: 0.75rem;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.record-editor__relation-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.record-editor__relation-count {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-weight: 500;
+}
+
+.record-editor__relation-list {
+    gap: 0;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.record-editor__relation-list > li + li .record-editor__relation-row {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-row {
+    padding: 0.625rem 0.875rem;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+}
+
+.record-editor__relation-row:hover,
+.record-editor__relation-row:focus-visible {
+    border-color: var(--line);
+    background: var(--hover);
+    transform: none;
+}
+
+.record-editor__relation-row-meta {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--text-3);
+}
+
+/* Action footer */
+.record-editor__actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.125rem 2rem;
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__actions-start,
+.record-editor__actions-end {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-width: 0;
+}
+
+.record-editor__actions-hint {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.record-editor__actions-error {
+    font-size: var(--fs-xs);
+    color: var(--danger);
+}
+
+.record-editor__pill {
+    height: 2.25rem;
+    padding: 0 1rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font: 500 var(--fs-sm) var(--font-ui);
+    cursor: pointer;
+    transition: background var(--dur) var(--ease);
+}
+
+.record-editor__pill:hover {
+    background: var(--hover);
+}
+
+.record-editor__pill--danger {
+    border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+    color: var(--danger);
+}
+
+.record-editor__pill--danger:hover {
+    background: color-mix(in srgb, var(--danger) 10%, transparent);
+}
+
+@media (max-width: 760px) {
+    .record-editor__body--split {
+        display: block;
+        overflow: auto;
+    }
+
+    .record-editor__body--split .record-editor__main {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .record-editor__main,
+    .record-editor__side {
+        padding: 1.25rem 1rem;
+    }
+
+    .record-editor__header,
+    .record-editor__actions {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .record-editor__header {
+        flex-wrap: wrap;
+    }
+
+    .record-editor__actions-hint {
+        display: none;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Kanban as in the design fragment: lanes share the full width (scrolling
+   only when there are many), a value chip and count per lane, cards that
+   show values without labels (first value large, the record id beside it)
+   and can be dragged anywhere.
+   ------------------------------------------------------------------------- */
+.kanban-board {
+    display: grid;
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(15rem, 1fr);
+    gap: 1.25rem;
+    align-items: start;
+    padding: 0.25rem 0 1.25rem;
+}
+
+.kanban-lane {
+    flex: none;
+    min-width: 0;
+    min-height: 0;
+    overflow: visible;
+}
+
+.kanban-lane__header {
+    padding: 0 0.25rem 0.625rem;
+    transition: border-color var(--dur) var(--ease);
+}
+
+.kanban-lane__label {
+    font-family: var(--font-ui);
+    text-transform: none;
+    letter-spacing: 0;
+    overflow: visible;
+}
+
+.kanban-lane__count {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+.kanban-lane__list {
+    gap: 0.625rem;
+    padding: 0.75rem 0 0;
+    border-radius: 14px;
+    transition: background var(--dur) var(--ease);
+}
+
+.kanban-lane__empty {
+    border-color: var(--line-2);
+    border-radius: 12px;
+    color: var(--text-4);
+}
+
+.kanban-lane--drag-over .kanban-lane__header {
+    border-bottom-color: var(--accent);
+}
+
+.kanban-lane--drag-over .kanban-lane__list {
+    outline: none;
+    background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.kanban-card {
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.875rem 1rem;
+    border-radius: 12px;
+    cursor: grab;
+}
+
+.kanban-card--interactive {
+    cursor: pointer;
+}
+
+.kanban-card--dragging {
+    opacity: 0.35;
+    border-style: dashed;
+}
+
+.kanban-card__fields {
+    gap: 0.5rem;
+}
+
+.kanban-card__field {
+    position: relative;
+    display: flex;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.kanban-card__field--primary {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.kanban-card__field-label {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+/* The headline value's label is for screen readers only. */
+.kanban-card__field--primary .kanban-card__field-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.kanban-card__field-value {
+    margin: 0;
+    min-width: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.kanban-card__field--primary .kanban-card__field-value {
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-card__id {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: 0.625rem;
+    letter-spacing: 0.12em;
+    color: var(--text-4);
+}
+
+/* The first value is the card's headline whatever its type (numbers and
+   dates otherwise render in the small mono face). */
+.kanban-card__field--primary:not(.kanban-card__field--reference) .kanban-card__field-value,
+.kanban-card__field--primary:not(.kanban-card__field--reference) .kanban-card__field-value * {
+    font-family: var(--font-display);
+    font-size: 1.375rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text);
+}
+
+/* A reference as the first value stays an ordinary chip. */
+.kanban-card__field--primary.kanban-card__field--reference .kanban-card__field-value {
+    font-size: var(--fs-sm);
+}
+
+/* -------------------------------------------------------------------------
+   Explorer page layout as in the design fragment: 40 px gutters, the table
+   name as a display title over the tabs, the grid in a rounded card that
+   fills the remaining height (the table stretches to the card's width; the
+   id column keeps its own width), and pagination as a quiet line below.
+   The kanban board uses the same gutters and fills the width.
+   ------------------------------------------------------------------------- */
+.table-detail {
+    --page-gutter: 2.5rem;
+}
+
+.table-detail__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    padding: 1.625rem var(--page-gutter) 0;
+}
+
+.table-detail__title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 2.75rem;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.045em;
+    overflow-wrap: anywhere;
+}
+
+.table-detail__header .table-tabs {
+    margin: 0;
+}
+
+.explorer-context {
+    margin-left: var(--page-gutter);
+    margin-right: var(--page-gutter);
+}
+
+.data-controls__bar {
+    padding: 0.875rem var(--page-gutter);
+}
+
+.data-grid {
+    padding: 0 var(--page-gutter);
+}
+
+.data-grid__scroll {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+}
+
+.data-grid table {
+    min-width: 100%;
+    border-right: 0;
+}
+
+/* A specified width keeps the id column out of the extra space the
+   stretched table hands to the other columns. */
+.data-grid th.data-grid__column--primary {
+    width: 1px;
+}
+
+.data-pagination--bottom {
+    border-top: 0;
+    padding: 0.875rem var(--page-gutter) 1.375rem;
+}
+
+.kanban-board {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0.25rem var(--page-gutter) 1.5rem;
+}
+
+/* The trailing-padding pseudo-element would be a grid column of its own. */
+.kanban-board::after {
+    display: none;
+}
+
+.kanban-lane {
+    max-height: none;
+}
+
+@media (max-width: 760px) {
+    .table-detail {
+        --page-gutter: 1rem;
+    }
+
+    .table-detail__header {
+        padding-top: 1rem;
+        gap: 0.5rem;
+    }
+
+    .table-detail__title {
+        font-size: 2rem;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Grid edge cases
+   ------------------------------------------------------------------------- */
+
+/* The open-record button always sits inside the table's right edge (it
+   used to hang 32 px past it). That overhang made a table that fills the
+   card overflow sideways, which switched the button inside, which removed
+   the overflow, every frame. Anchored from the right it has the same
+   geometry with and without overflow; only a real overflow makes the
+   column sticky (rule above). */
+.data-grid__cell--actions {
+    left: auto;
+    right: 0;
+    border: 0;
+    border-left: 1px solid var(--line);
+    background: var(--surface-raised);
+}
+
+/* Add row: the whole row lights up on hover, nothing per cell. */
+.data-grid__add-row td,
+.data-grid tbody tr.data-grid__add-row td.data-grid__column--primary {
+    background: var(--surface);
+}
+
+.data-grid__add-row td.data-grid__column--primary {
+    border-right-color: var(--line-2);
+}
+
+.data-grid tbody tr.data-grid__add-row:hover td,
+.data-grid tbody tr.data-grid__add-row:focus-within td {
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
+}
+
+.data-grid__add-row-trigger,
+.data-grid__add-row-copy,
+.data-grid__add-row-trigger:hover,
+.data-grid__add-row-trigger:focus-visible,
+.data-grid__add-row-copy:hover,
+.data-grid__add-row-copy:focus-visible {
+    background: transparent;
+}
+
+.data-grid__add-row:hover .data-grid__add-row-trigger,
+.data-grid__add-row:hover .data-grid__add-row-copy {
+    color: var(--text);
+}
+
+/* -------------------------------------------------------------------------
+   Page header: title and tabs on the left, the view selector on the right
+   ------------------------------------------------------------------------- */
+.table-detail__header {
+    flex-direction: row;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.table-detail__heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.875rem;
+    min-width: 0;
+    flex: 1;
+}
+
+.table-detail__views {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding-bottom: 0.5rem;
+}
+
+.table-detail__views:empty {
+    display: none;
+}
+
+.table-tabs__tab {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.5rem;
+}
+
+.table-tabs__tab-count {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 400;
+    color: var(--text-4);
+}
+
+.table-detail__views .data-controls__view-selector {
+    flex-wrap: nowrap;
+    gap: 0.375rem;
+}
+
+.table-detail__views .data-controls__view-selector .btn {
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+}
+
+.table-detail__views .data-controls__view-selector .btn:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+/* -------------------------------------------------------------------------
+   Toolbar: one row, active search/sort/filter chips on the left
+   ------------------------------------------------------------------------- */
+.data-controls__bar {
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 0.5rem;
+}
+
+.data-controls__bar-start {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.data-controls__menu {
+    flex-wrap: nowrap;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.data-controls__bar-start .data-controls__active {
+    padding: 0;
+    background: transparent;
+    min-width: 0;
+}
+
+.data-controls__bar-start .data-controls__chips {
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+
+.data-controls__chip {
+    min-height: 1.75rem;
+    padding: 0 0.25rem 0 0.75rem;
+    border: 1px solid var(--line-2);
+    background: transparent;
+    font-family: var(--font-ui);
+    font-size: var(--fs-xs);
+    letter-spacing: 0;
+    color: var(--text-2);
+}
+
+.data-controls__chip--filter {
+    background: transparent;
+}
+
+.data-controls__chip--editable {
+    overflow: visible;
+}
+
+/* Edit and remove sit after the label instead of blurring over it. */
+.data-controls__chip-actions {
+    position: static;
+    inset: auto;
+    padding: 0;
+    gap: 0;
+    opacity: 0.55;
+    pointer-events: auto;
+    transform: none;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+}
+
+.data-controls__chip--editable:hover .data-controls__chip-actions,
+.data-controls__chip--editable:focus-within .data-controls__chip-actions {
+    opacity: 1;
+    transform: none;
+}
+
+.data-controls__chip-action {
+    width: 1.375rem;
+    height: 1.375rem;
+}
+
+.data-controls__chip-action:hover,
+.data-controls__chip-action:focus-visible {
+    background: var(--hover);
+}
+
+.data-controls__active .data-controls__chips > .btn {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    border: 0;
+    background: transparent;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.data-controls__active .data-controls__chips > .btn:hover {
+    color: var(--text);
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+@media (max-width: 760px) {
+    .table-detail__header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .table-detail__views {
+        padding-bottom: 0;
+    }
+
+    .data-controls__menu {
+        flex-wrap: wrap;
+    }
+}
+
+/* -------------------------------------------------------------------------
+   Record editor fields: the static display and the editor share one 44 px
+   underline box in the display face, so entering a field moves nothing;
+   focus only turns the underline to the accent. Chips (enum, reference)
+   keep their chip style in both states.
+   ------------------------------------------------------------------------- */
+.record-editor__field-display,
+.record-editor__field-readonly {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0;
+}
+
+.record-editor__field-value,
+.record-editor__field-value .data-grid__mono,
+.record-editor__field-readonly,
+.record-editor__field-readonly .data-grid__mono {
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    color: var(--text);
+}
+
+.record-editor__field-readonly,
+.record-editor__field-readonly .data-grid__mono {
+    color: var(--text-3);
+}
+
+.record-editor__field-editor {
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.record-editor__field-editor .cell-editor input,
+.record-editor__field-editor .cell-editor textarea,
+.record-editor__field-editor .cell-editor select {
+    box-sizing: border-box;
+    display: block;
+    width: 100%;
+    height: 2.75rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid var(--accent);
+    border-radius: 0;
+    box-shadow: 0 1px 0 var(--accent);
+    background: transparent;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.3;
+    letter-spacing: -0.01em;
+    outline: none;
+    appearance: none;
+}
+
+.record-editor__field-editor .cell-editor textarea {
+    height: auto;
+    min-height: 2.75rem;
+    padding: 0.625rem 0;
+    resize: vertical;
+}
+
+/* Date and time sit in one underline, not two. */
+.record-editor__field-editor .cell-temporal-editor--datetime {
+    border-bottom: 1px solid var(--accent);
+    box-shadow: 0 1px 0 var(--accent);
+}
+
+.record-editor__field-editor .cell-temporal-editor--datetime input {
+    border-bottom: 0;
+    box-shadow: none;
+}
+
+.record-editor__field-editor .cell-temporal-editor__input--time {
+    padding-left: 0.75rem;
+}
+
+.record-editor__field-editor .cell-combobox__trigger {
+    border-bottom: 1px solid var(--accent);
+    box-shadow: 0 1px 0 var(--accent);
+}
+
+.record-editor__field-editor .cell-combobox__trigger input {
+    border-bottom: 0;
+    box-shadow: none;
+}
+
+.record-editor__field-editor .cell-combobox__chevron {
+    padding-right: 0;
+}
+
+.record-editor__field-editor .cell-editor--error input,
+.record-editor__field-editor .cell-editor--error textarea,
+.record-editor__field-editor .cell-editor--error .cell-combobox__trigger,
+.record-editor__field-editor .cell-editor--error .cell-temporal-editor--datetime {
+    border-bottom-color: var(--danger);
+    box-shadow: 0 1px 0 var(--danger);
+}
+
+.record-editor__field-editor .cell-editor__error {
+    display: block;
+    margin-top: 0.375rem;
+    font-size: var(--fs-xs);
+    color: var(--danger);
+}
+
+/* Where the underline sits on a wrapper (choices, date + time), the wrapper
+   is the 44 px box and the inputs fill it, so the field keeps its height. */
+.record-editor__field-editor .cell-combobox__trigger,
+.record-editor__field-editor .cell-temporal-editor--datetime {
+    box-sizing: border-box;
+    height: 2.75rem;
+}
+
+.record-editor__field-editor .cell-combobox__trigger input,
+.record-editor__field-editor .cell-temporal-editor--datetime input {
+    height: 100%;
+}
+
+/* Editor popovers rendered on document.body (FloatingPanel): the wrapper is
+   fixed-positioned by script; the card inside drops its own offsets. */
+.floating-panel {
+    position: fixed;
+    z-index: 200;
+}
+
+.floating-panel > .cell-combobox__listbox,
+.floating-panel > .cell-temporal-editor__panel {
+    position: static;
+    top: auto;
+    right: auto;
+    bottom: auto;
+    left: auto;
+    width: auto;
+}
+
+.floating-panel > .cell-temporal-editor__panel--date {
+    width: 18rem;
+}
+
+.floating-panel > .cell-temporal-editor__panel--time {
+    width: 6.25rem;
+}
+
+/* Date + time read like the static value ("08. Sept. 2026, 14:40"): both
+   inputs are sized to their text by script and the locale separator sits
+   between them in the same face. */
+.cell-temporal-editor--datetime .cell-temporal-editor__input--date,
+.cell-temporal-editor--datetime .cell-temporal-editor__input--time {
+    flex: 0 0 auto;
+}
+
+.data-grid__cell-editor .cell-temporal-editor--datetime .cell-temporal-editor__input--date {
+    padding-right: 0;
+}
+
+.data-grid__cell-editor .cell-temporal-editor--datetime .cell-temporal-editor__input--time {
+    padding-left: 0;
+}
+
+.cell-temporal-editor__separator {
+    flex: 0 0 auto;
+    white-space: pre;
+    color: var(--text);
+}
+
+.data-grid__cell-editor .cell-temporal-editor__separator {
+    padding-top: var(--data-grid-cell-pad-y, 0.44rem);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    line-height: var(--cell-line);
+}
+
+.record-editor__field-editor .cell-temporal-editor--datetime {
+    align-items: center;
+}
+
+.record-editor__field-editor .cell-temporal-editor__separator {
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+}
+
+.record-editor__field-editor .cell-temporal-editor__input--time {
+    padding-left: 0;
+}
+
+/* Choice editors: the current value's chip sits over the empty search
+   field exactly where the static cell drew it, and goes once the user
+   types. */
+.cell-combobox__trigger {
+    position: relative;
+}
+
+.cell-combobox__value {
+    position: absolute;
+    inset: 0;
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.data-grid__cell-editor .cell-combobox__value {
+    padding: var(--data-grid-cell-pad-y, 0.44rem) var(--data-grid-cell-pad-x, 0.72rem);
+    font-size: 0.83rem;
+    line-height: var(--cell-line);
+}
+
+.record-editor__field-editor .cell-combobox__value {
+    display: flex;
+    align-items: center;
+    padding: 0;
+}
+
+.cell-combobox__option .chip,
+.cell-combobox__option .data-grid__reference {
+    pointer-events: none;
+}
+
+/* The chip sits in a line of the field's own text metrics, as in the
+   static field display, so it lands on the same baseline. */
+.record-editor__field-editor .cell-combobox__value-line {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 1.125rem;
+    font-weight: 500;
+    line-height: 1.3;
+}
+
+/* Opaque id cells on every row (the sticky column must hide what scrolls
+   under it); hover and selection rules above are more specific. */
+.data-grid tbody tr td.data-grid__column--primary {
+    background: var(--surface);
+}
+
+/* The edit ring is drawn over the whole table cell, including its 1 px
+   bottom rule, instead of on the inner cell box (which is ~1 px shorter
+   than the row): otherwise the grey rule showed as a second line under
+   the ring. The cell's background fills the same area. */
+.data-grid td:has(> .data-grid__cell--editing) {
+    background: var(--surface);
+}
+
+.data-grid td:has(> .data-grid__cell--editing)::after {
+    content: "";
+    position: absolute;
+    inset: 0 0 -1px;
+    border-radius: 4px;
+    box-shadow: inset 0 0 0 1.5px var(--accent);
+    pointer-events: none;
+    z-index: 2;
+}
+
+.data-grid__cell--editing {
+    box-shadow: none;
+    background: transparent;
+}
+
+/* -------------------------------------------------------------------------
+   One surface for everything that floats: editor popovers, toolbar
+   foldouts, view/export menus, the row context menu and the kanban
+   settings. Neutral white with a soft shadow in the light theme (the warm
+   raised tone read yellow), unchanged in the dark theme.
+   ------------------------------------------------------------------------- */
+.cell-combobox__listbox,
+.cell-temporal-editor__panel,
+.data-controls__panel,
+.data-controls__panel--floating,
+.data-controls__view-menu,
+.data-controls__export-menu,
+.data-controls__enum-menu,
+.data-grid__selection-menu,
+.kanban-config {
+    background: var(--popover);
+    box-shadow: var(--popover-shadow);
+}
+
+/* Inputs inside those surfaces sit on the same white, outlined. */
+.data-controls__panel .field__control,
+.data-controls__panel input[type="text"],
+.data-controls__panel input[type="search"],
+.data-controls__panel select,
+.kanban-config select {
+    background: var(--popover);
+}
+
+/* Choice editors: an empty value's placeholder ("—") looks like the static
+   empty value. */
+.cell-combobox[data-open] .cell-combobox__input::placeholder {
+    color: var(--text-4);
+}
+
+/* The view selector sits at the right edge of the page header, so its menu
+   opens leftwards from the button's right edge and stays on screen. */
+.table-detail__views .data-controls__view-menu {
+    left: auto;
+    right: 0;
+}
+
+/* Neutral, not the warm raised tone: the open-record button's backing
+   matches the hovered row exactly; the PK badge is a plain grey (colour
+   only, the id column's geometry is untouched). */
+.data-grid__cell--actions {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+
+.data-grid__header-pk-label {
+    background: color-mix(in srgb, var(--text) 6%, var(--surface));
+}
+
+/* N:M records inside the record editor: the grid sits flush under its
+   title, scrolls inside its own card and fills the column. The explorer
+   page gutter and the old "overflow: visible" (from before editor
+   popovers were portalled) do not apply here. */
+.record-editor__relation-section--grid .data-grid {
+    padding: 0;
+}
+
+.record-editor__relation-section--grid .data-grid__scroll {
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.record-editor__relation-section--grid .data-grid__scroll > table {
+    min-width: 100%;
+}
+
+/* While a cell of the row is being edited the open-record button would sit
+   on top of the editor (it floats over the row's right end). */
+.data-grid__row:has(.data-grid__cell--editing) .data-grid__row-expand {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* A header without a column menu (embedded grids): same height as one
+   with the "…" button, nothing to click. */
+.data-grid__header-trigger--static {
+    min-height: 1.6rem;
+    cursor: default;
+}
+
+/* ── Many-to-many links in the record editor's side column ──
+   One card, one row per linked record: name + extra link fields, an open
+   arrow and a remove cross. A row opens to edit the link's own fields;
+   a new link is a small stacked form at the bottom. Everything fits the
+   narrow column, nothing scrolls sideways. */
+.record-editor__link-row {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    padding-right: 0.375rem;
+}
+
+.record-editor__relation-list > li + li .record-editor__link-row {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-list > li + li .record-editor__link-main {
+    border-top: 0;
+}
+
+.record-editor__link-main {
+    flex: 1;
+    min-width: 0;
+}
+
+.record-editor__link-main .record-editor__relation-row-title,
+.record-editor__link-main .record-editor__relation-row-meta {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.record-editor__link-action {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 7px;
+    background: none;
+    color: var(--text-4);
+    cursor: pointer;
+}
+
+.record-editor__link-action:hover,
+.record-editor__link-action:focus-visible {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.record-editor__link-action--remove:hover {
+    color: var(--danger);
+}
+
+.record-editor__link--open > .record-editor__link-row {
+    background: var(--hover);
+}
+
+.record-editor__link-fields {
+    padding: 0.75rem 0.875rem 0.875rem;
+}
+
+.record-editor__link--draft {
+    border-top: 1px solid var(--line);
+}
+
+.record-editor__relation-list > li:first-child.record-editor__link--draft {
+    border-top: 0;
+}
+
+.record-editor__link-draft-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 0.5rem 0.5rem;
+}
+
+/* Compact fields: the static value and its editor share one smaller box. */
+.record-editor__link-fields .record-editor__fields {
+    gap: 0.875rem;
+}
+
+.record-editor__link-fields .record-editor__field-display,
+.record-editor__link-fields .record-editor__field-readonly,
+.record-editor__link-fields .record-editor__field-editor .cell-editor input,
+.record-editor__link-fields .record-editor__field-editor .cell-editor select {
+    height: 2.25rem;
+    min-height: 2.25rem;
+    font-size: 0.9375rem;
+}
+
+.record-editor__relation-empty,
+.record-editor__relation-more {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 0.8125rem;
+}
+
+.record-editor__link-main .record-editor__relation-row-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 0.75rem;
+}
+
+.record-editor__link-meta-item {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.375rem;
+}
+
+/* Lanes run the full height of the board, so a card can be dropped
+   anywhere in a lane, not only on the strip its cards happen to cover.
+   The card list scrolls inside the lane and keeps a little room on every
+   side, so the last card's border, hover and focus ring are not clipped
+   by the scroll box. */
+.kanban-board {
+    align-items: stretch;
+}
+
+.kanban-lane {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+}
+
+.kanban-lane__list {
+    flex: 1;
+    min-height: 6rem;
+    padding: 0.75rem 3px 1rem;
+    margin-inline: -3px;
+}
+
+/* Hover marks the card with its border, not a grey fill: the grey FK chips
+   sat on a grey card and the card read as disabled. */
+.kanban-card:hover {
+    border-color: color-mix(in srgb, var(--text) 22%, transparent);
+    background: var(--surface-raised);
+}
+
+/* A lane taller than the window fades out at the bottom instead of cutting
+   its last card off; the fade is as tall as the list's bottom padding, so
+   a fully scrolled lane shows its last card whole. */
+.kanban-lane__list {
+    -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+    mask-image: linear-gradient(to bottom, #000 calc(100% - 1rem), transparent);
+}
+
+/* A record label's secondary value (e.g. a SKU) next to the name in pickers. */
+.cell-combobox__option-secondary {
+    margin-left: auto;
+    padding-left: 0.75rem;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+}
+
+/* ── Data overview: tables as one list (as in the design fragment) ──
+   A row per table: its canvas colour, name with description or technical
+   name under it, rows and columns on the right. N:M link tables follow in
+   their own quieter list. */
+.explorer-landing {
+    gap: 2rem;
+    max-width: 64rem;
+}
+
+.table-list-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.table-list-section__header {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.table-list-section__title {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.table-list-section__hint {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 0.8125rem;
+}
+
+.table-list {
+    display: block;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    background: var(--surface);
+    list-style: none;
+}
+
+.table-list > li + li {
+    border-top: 1px solid var(--line);
+}
+
+.table-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+    align-items: center;
+    gap: 1rem;
+    min-height: 3.5rem;
+    padding: 0.625rem 1.25rem;
+    color: inherit;
+    text-decoration: none;
+    transition: background var(--dur) var(--ease);
+}
+
+.table-row:hover,
+.table-row:focus-visible {
+    background: var(--hover);
+}
+
+.table-row:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.table-row__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
+.table-row__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.table-row__name {
+    overflow: hidden;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-row__subline {
+    overflow: hidden;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.table-row__count,
+.table-row__columns {
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+
+.table-row__count {
+    min-width: 5.5rem;
+    color: var(--text-2);
+    text-align: right;
+}
+
+.table-row__columns {
+    min-width: 6rem;
+    color: var(--text-4);
+    text-align: right;
+}
+
+.table-row__arrow {
+    display: grid;
+    place-items: center;
+    color: var(--text-4);
+}
+
+.table-list--quiet .table-row__name {
+    font-family: var(--font-mono);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--text-2);
+}
+
+@media (max-width: 640px) {
+    .table-row {
+        grid-template-columns: auto minmax(0, 1fr) auto auto;
+        padding-inline: 1rem;
+    }
+
+    .table-row__columns {
+        display: none;
+    }
+}
+
+/* Columns menu: a grip in front of each column to drag it into place
+   (arrow keys on the grip move it one step). Key columns stay on top. */
+.data-controls__column-row {
+    display: flex;
+    align-items: center;
+    gap: 0.125rem;
+    border-radius: var(--r-md);
+}
+
+.data-controls__column-row > .data-controls__column-toggle {
+    flex: 1;
+    min-width: 0;
+}
+
+.data-controls__column-grip {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 20px;
+    height: 28px;
+    padding: 0;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-4);
+    cursor: grab;
+    touch-action: none;
+}
+
+.data-controls__column-grip svg {
+    fill: currentColor;
+}
+
+.data-controls__column-grip:hover,
+.data-controls__column-grip:focus-visible {
+    background: var(--hover);
+    color: var(--text-2);
+}
+
+.data-controls__column-grip:active {
+    cursor: grabbing;
+}
+
+.data-controls__column-grip--locked {
+    cursor: default;
+}
+
+.data-controls__column-row--dragging {
+    position: relative;
+    z-index: 1;
+    background: var(--popover);
+    box-shadow: 0 0 0 1px var(--line-2), 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+.data-controls__column-row--dragging .data-controls__column-grip {
+    color: var(--accent);
+    cursor: grabbing;
+}
+
+/* ── Kanban configuration: same surface and lists as the toolbar menus ──
+   Popover card, mono section labels, hairline check rows (no blue boxes),
+   the order of card fields as a quiet number, pill buttons. */
+.kanban-config {
+    top: 9.5rem;
+    right: var(--page-gutter, 2.5rem);
+    width: 20rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-xl);
+    background: var(--popover);
+    box-shadow: var(--popover-shadow);
+}
+
+.kanban-config__header {
+    padding: 1rem 1rem 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.kanban-config__title {
+    margin: 0;
+    color: var(--text);
+    font-family: var(--font-display);
+    font-size: 0.9375rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}
+
+.kanban-config__close {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 50%;
+    background: none;
+    color: var(--text-3);
+}
+
+.kanban-config__close:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.kanban-config__body {
+    gap: 1.25rem;
+    padding: 1rem 0.75rem 1rem 1.25rem;
+}
+
+.kanban-config__field {
+    gap: 0.375rem;
+}
+
+.kanban-config__label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.kanban-config__label-hint {
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    letter-spacing: 0;
+    text-transform: none;
+}
+
+.kanban-config__required {
+    color: var(--text-4);
+}
+
+.kanban-config__hint {
+    margin: 0;
+    color: var(--text-3);
+    font-size: 0.75rem;
+    line-height: 1.4;
+}
+
+.kanban-config__select {
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    border: 1px solid var(--line-2);
+    border-radius: 10px;
+    background: var(--popover);
+    color: var(--text);
+    font-family: var(--font-ui);
+    font-size: var(--fs-sm);
+}
+
+.kanban-config__field-list {
+    gap: 0.0625rem;
+}
+
+.kanban-config__field-btn,
+.kanban-config__field-btn--on {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    min-height: 2rem;
+    padding: 0.375rem 0.5rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text);
+    font-size: var(--fs-sm);
+    text-align: left;
+    box-shadow: none;
+}
+
+.kanban-config__field-btn:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.kanban-config__field-btn:disabled {
+    color: var(--text-4);
+}
+
+.kanban-config__field-check {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 15px;
+    height: 15px;
+    border: 1.5px solid var(--line-2);
+    border-radius: 4px;
+    background: var(--popover);
+    color: #fff;
+}
+
+.kanban-config__field-btn--on .kanban-config__field-check {
+    border-color: var(--accent);
+    background: var(--accent);
+}
+
+.kanban-config__field-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.kanban-config__field-index {
+    min-width: 0;
+    width: auto;
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: none;
+    color: var(--text-4);
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+}
+
+.kanban-config__footer {
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    border-top: 1px solid var(--line);
+}
+
+.kanban-config__btn {
+    height: 2rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text);
+    font-size: var(--fs-sm);
+    font-weight: 500;
+}
+
+.kanban-config__btn:hover:not(:disabled) {
+    background: var(--hover);
+}
+
+.kanban-config__btn--primary {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+}
+
+.kanban-config__btn--primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent) 88%, #000);
+}
+
+/* Active-state dot on a toolbar button (search), drawn over its corner. */
+.data-controls__menu-button {
+    position: relative;
+}
+
+.data-controls__menu-dot {
+    position: absolute;
+    top: 0.3rem;
+    right: 0.35rem;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 2px var(--bg, var(--surface));
+    pointer-events: none;
+}
+
+/* Neutral like the toolbar menus: checked boxes and the primary button use
+   the text colour (dark in light mode, light in dark mode), not the blue
+   accent. Position comes from the panel itself (under the toolbar). */
+.kanban-config {
+    top: 13rem;
+}
+
+.kanban-config__field-btn--on .kanban-config__field-check {
+    border-color: var(--text);
+    background: var(--text);
+    color: var(--bg);
+}
+
+.kanban-config__btn--primary {
+    border-color: transparent;
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+.kanban-config__btn--primary:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--text) 86%, var(--bg));
+}
+
+.kanban-config__select:focus-visible {
+    outline: none;
+    border-color: var(--text-3);
+}
+
+/* The Columns menu's checkboxes follow the same neutral colour. */
+.data-controls__column-toggle input[type="checkbox"] {
+    accent-color: var(--text);
 }

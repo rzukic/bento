@@ -561,7 +561,7 @@ describe("RecordEditor — TASK-099 FK navigation stack", () => {
   });
 });
 
-describe("RecordEditor — N:M relation mini table", () => {
+describe("RecordEditor — N:M links", () => {
   function makeManyToManyFetchMock(options?: {
     junctionRows?: Record<string, unknown>[];
   }) {
@@ -604,129 +604,125 @@ describe("RecordEditor — N:M relation mini table", () => {
         });
       }
 
+      if (
+        init?.method === "DELETE" &&
+        url.includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7")
+      ) {
+        return new Response(null, { status: 204 });
+      }
+
       return jsonResponse(404, { error: { code: "NOT_FOUND", message: `Unhandled: ${url}` } });
     });
   }
 
-  it("renders an N:M relation section as a junction mini table without the current-record FK", async () => {
+  async function openOrder(fetchMock: ReturnType<typeof makeManyToManyFetchMock>, snapshot = manyToManySnapshot) {
     seedAuthenticated();
-    seedSchema(manyToManySnapshot);
+    seedSchema(snapshot);
     seedExplorerView("orders", [baseOrderRow]);
-
-    vi.stubGlobal("fetch", makeManyToManyFetchMock());
-
+    vi.stubGlobal("fetch", fetchMock);
     renderRecordEditor();
     await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
+    return screen.findByTestId("record-editor-relation-links-_jt_order_tags");
+  }
 
-    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
-    expect(within(relationGrid).getByRole("columnheader", { name: /user/i })).toBeInTheDocument();
-    expect(
-      within(relationGrid).queryByRole("columnheader", { name: /order/i }),
-    ).toBeNull();
-    expect(within(relationGrid).getByRole("button", { name: /add row/i })).toBeInTheDocument();
+  function callsTo(fetchMock: ReturnType<typeof makeManyToManyFetchMock>, method: string, path: string) {
+    return fetchMock.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes(path) && ((init as RequestInit | undefined)?.method ?? "GET") === method,
+    );
+  }
+
+  it("lists linked records by name, without a grid", async () => {
+    const links = await openOrder(makeManyToManyFetchMock());
+
+    expect(await within(links).findByText("Alice")).toBeInTheDocument();
+    expect(within(links).getByRole("button", { name: "Open Alice" })).toBeInTheDocument();
+    expect(within(links).getByRole("button", { name: "Remove link to Alice" })).toBeInTheDocument();
+    expect(within(links).getByRole("button", { name: /^link /i })).toBeInTheDocument();
+    expect(within(links).queryByRole("table")).toBeNull();
+    expect(within(links).queryByRole("columnheader")).toBeNull();
   });
 
-  it("prefills the hidden current-record FK when adding an N:M junction row", async () => {
-    seedAuthenticated();
-    seedSchema(manyToManySnapshot);
-    seedExplorerView("orders", [baseOrderRow]);
-
+  it("links a record through the picker with the current record's key filled in", async () => {
     const fetchMock = makeManyToManyFetchMock({ junctionRows: [] });
-    vi.stubGlobal("fetch", fetchMock);
+    const links = await openOrder(fetchMock);
 
-    renderRecordEditor();
-    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
-
-    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
-    await userEvent.click(within(relationGrid).getByRole("button", { name: /add row/i }));
-
-    await within(relationGrid).findByRole("combobox", { name: /user/i });
-    await waitFor(() => expect(within(relationGrid).getByText("Alice")).toBeInTheDocument());
-    await userEvent.click(within(relationGrid).getByText("Alice"));
+    await userEvent.click(within(links).getByRole("button", { name: /^link /i }));
+    await within(links).findByRole("combobox", { name: /user/i });
+    // The option list is a popover on document.body, outside the section.
+    await waitFor(() => expect(screen.getByRole("option", { name: "Alice" })).toBeInTheDocument());
+    await userEvent.click(screen.getByRole("option", { name: "Alice" }));
 
     await waitFor(() =>
-      expect(
-        fetchMock.mock.calls.some(([url, init]) => {
-          if (!String(url).includes("/api/v1/data/_jt_order_tags")) return false;
-          if ((init as RequestInit | undefined)?.method !== "POST") return false;
-          return JSON.stringify(JSON.parse(String((init as RequestInit).body))).includes(
-            '"order_id":1',
-          );
-        }),
-      ).toBe(true),
+      expect(callsTo(fetchMock, "POST", "/api/v1/data/_jt_order_tags")).toHaveLength(1),
     );
-
-    const postCall = fetchMock.mock.calls.find(
-      ([url, init]) =>
-        String(url).includes("/api/v1/data/_jt_order_tags") &&
-        (init as RequestInit | undefined)?.method === "POST",
-    );
-    expect(JSON.parse(String((postCall?.[1] as RequestInit).body))).toEqual({
-      order_id: 1,
-      user_id: 7,
-    });
+    const [, init] = callsTo(fetchMock, "POST", "/api/v1/data/_jt_order_tags")[0]!;
+    expect(JSON.parse(String((init as RequestInit).body))).toEqual({ order_id: 1, user_id: 7 });
+    expect(await within(links).findByText("Alice")).toBeInTheDocument();
   });
 
-  it("opens a junction row from the N:M footer without refetching by composite id", async () => {
-    seedAuthenticated();
-    seedSchema(manyToManySnapshot);
-    seedExplorerView("orders", [baseOrderRow]);
+  it("opens the linked record from its row", async () => {
+    const links = await openOrder(makeManyToManyFetchMock());
 
-    const fetchMock = makeManyToManyFetchMock({
-      junctionRows: [{ order_id: 1, user_id: 7 }],
-    });
-    vi.stubGlobal("fetch", fetchMock);
-
-    renderRecordEditor();
-    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
-
-    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
-    await userEvent.click(within(relationGrid).getByLabelText(/open record order_id:1\|user_id:7/i));
+    await userEvent.click(await within(links).findByRole("button", { name: "Open Alice" }));
 
     await waitFor(() => {
       expect(useExplorerStore.getState().recordEditor?.stack).toHaveLength(2);
-      expect(getTopEntry()?.table).toBe("_jt_order_tags");
-      expect(getTopEntry()?.status).toBe("ready");
+      expect(getTopEntry()?.table).toBe("users");
+      expect(getTopEntry()?.rowId).toBe("7");
     });
-
-    expect(
-      fetchMock.mock.calls.some(([url]) =>
-        String(url).includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
-      ),
-    ).toBe(false);
   });
 
-  it("patches an existing junction row from the N:M footer via the composite id route", async () => {
-    seedAuthenticated();
-    seedSchema(manyToManySnapshotWithNote);
-    seedExplorerView("orders", [baseOrderRow]);
-
+  it("edits a link's own field via the composite id route", async () => {
     const fetchMock = makeManyToManyFetchMock({
       junctionRows: [{ order_id: 1, user_id: 7, note: "old" }],
     });
-    vi.stubGlobal("fetch", fetchMock);
+    const links = await openOrder(fetchMock, manyToManySnapshotWithNote);
 
-    renderRecordEditor();
-    await useExplorerStore.getState().openRecordEditor({ table: "orders", rowId: 1 });
-
-    const relationGrid = await screen.findByTestId("record-editor-relation-grid-_jt_order_tags");
-    const noteCell = within(relationGrid).getByText("old");
-    await userEvent.click(noteCell);
-
-    const noteInput = await within(relationGrid).findByRole("textbox", { name: /note/i });
+    await userEvent.click(await within(links).findByText("Alice"));
+    await userEvent.click(within(links).getByRole("button", { name: "Note" }));
+    const noteInput = await within(links).findByRole("textbox", { name: /note/i });
     await userEvent.clear(noteInput);
     await userEvent.type(noteInput, "updated");
     noteInput.blur();
 
     await waitFor(() =>
       expect(
-        fetchMock.mock.calls.some(
-          ([url, init]) =>
-            String(url).includes("/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7") &&
-            (init as RequestInit | undefined)?.method === "PATCH",
-        ),
-      ).toBe(true),
+        callsTo(fetchMock, "PATCH", "/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
+      ).toHaveLength(1),
     );
+  });
+
+  it("asks before removing a link that holds its own values", async () => {
+    const fetchMock = makeManyToManyFetchMock({
+      junctionRows: [{ order_id: 1, user_id: 7, note: "gift" }],
+    });
+    const links = await openOrder(fetchMock, manyToManySnapshotWithNote);
+
+    await userEvent.click(await within(links).findByRole("button", { name: "Remove link to Alice" }));
+    const dialog = await screen.findByRole("dialog", { name: "Remove link to Alice?" });
+    expect(callsTo(fetchMock, "DELETE", "/api/v1/data/_jt_order_tags/")).toHaveLength(0);
+
+    await userEvent.click(within(dialog).getByRole("button", { name: "Remove link" }));
+    await waitFor(() =>
+      expect(
+        callsTo(fetchMock, "DELETE", "/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
+      ).toHaveLength(1),
+    );
+  });
+
+  it("removes a link via the composite id route", async () => {
+    const fetchMock = makeManyToManyFetchMock();
+    const links = await openOrder(fetchMock);
+
+    await userEvent.click(await within(links).findByRole("button", { name: "Remove link to Alice" }));
+
+    await waitFor(() =>
+      expect(
+        callsTo(fetchMock, "DELETE", "/api/v1/data/_jt_order_tags/order_id%3A1%7Cuser_id%3A7"),
+      ).toHaveLength(1),
+    );
+    await waitFor(() => expect(within(links).queryByText("Alice")).toBeNull());
   });
 });
 

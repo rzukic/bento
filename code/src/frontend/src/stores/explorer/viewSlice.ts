@@ -53,6 +53,26 @@ export const createViewSlice: StateCreator<ExplorerStoreState, [], [], ViewSlice
     if (get().activeTable === table) scheduleAutoSave(get);
   },
 
+  setColumnOrder: (table, columnNames) => {
+    set((state) => {
+      const view = state.views[table] ?? freshTableView();
+
+      return {
+        activeTable: table,
+        views: {
+          ...state.views,
+          [table]: {
+            ...view,
+            config: patchExplorerViewConfig(view.config, {
+              columnOrder: Array.from(new Set(columnNames.filter(Boolean)))
+            })
+          }
+        }
+      };
+    });
+    if (get().activeTable === table) scheduleAutoSave(get);
+  },
+
   // ── Saved-views actions ───────────────────────────────────────────────────
 
   loadSavedViews: async (tableId) => {

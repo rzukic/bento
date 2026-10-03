@@ -8,6 +8,8 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, "size"> & {
   error?: string | null;
   hideLabel?: boolean;
   compact?: boolean;
+  /** Editorial underline style (login, record editor, inspectors). */
+  underline?: boolean;
 };
 
 export function TextField({
@@ -18,6 +20,7 @@ export function TextField({
   error,
   hideLabel = false,
   compact = false,
+  underline = false,
   className = "",
   id,
   ...props
@@ -26,7 +29,7 @@ export function TextField({
   const messageText = error ?? message;
 
   return (
-    <label className={`field ${compact ? "field--inline" : ""}`}>
+    <label className={["field", compact ? "field--inline" : "", underline ? "field--underline" : ""].filter(Boolean).join(" ")}>
       <span className="field__label-row">
         <span className={hideLabel ? "field__label field__label--sr-only" : "field__label"}>
           {label}

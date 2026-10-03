@@ -12,6 +12,8 @@ import {
   getExplorerQueryForView,
   useExplorerStore,
 } from "../../stores/explorerStore";
+import { getDraftFocusColumn } from "../../stores/explorer/helpers";
+import { useRowCountStore } from "../../stores/rowCountStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import {
@@ -82,6 +84,7 @@ export function TableDetailPage() {
   );
   const setSelectedRows = useExplorerStore((state) => state.setSelectedRows);
   const setHiddenColumns = useExplorerStore((state) => state.setHiddenColumns);
+  const setColumnOrder = useExplorerStore((state) => state.setColumnOrder);
   const clearSelection = useExplorerStore((state) => state.clearSelection);
   const openRelatedContext = useExplorerStore(
     (state) => state.openRelatedContext,
@@ -227,6 +230,10 @@ export function TableDetailPage() {
   const schemaLoading = schemaStatus === "loading" || schemaStatus === "idle";
   const schemaReady = schemaStatus === "ready" && snapshot !== null;
   const [kanbanConfigOpen, setKanbanConfigOpen] = useState(false);
+  function openKanbanConfig() {
+    setExportMenuOpen(false);
+    setKanbanConfigOpen((open) => !open);
+  }
   const kanbanAutoOpenedFor = useRef<string | null>(null);
   const [filterShortcut, setFilterShortcut] = useState<{
     columnName: string;
@@ -246,6 +253,25 @@ export function TableDetailPage() {
   } | null>(null);
   const [undoToastVisible, setUndoToastVisible] = useState(false);
   const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  // The header hosts the view selector next to the table tabs.
+  const [viewSlot, setViewSlot] = useState<HTMLDivElement | null>(null);
+  // Row counts for the tabs come from what is already known (Home's
+  // counts, unfiltered views); this page fetches none of its own.
+  const tabCounts = useRowCountStore((state) => state.counts);
+  const setRowCount = useRowCountStore((state) => state.setCount);
+  const unfilteredTotal =
+    view &&
+    view.status === "ready" &&
+    view.context === null &&
+    view.source.kind === "table" &&
+    view.config.filters.length === 0 &&
+    !view.config.search &&
+    view.meta
+      ? view.meta.total - view.pendingNewRowIds.length
+      : null;
+  useEffect(() => {
+    if (tableId && unfilteredTotal !== null) setRowCount(tableId, unfilteredTotal);
+  }, [tableId, unfilteredTotal, setRowCount]);
   const exportMenuRef = useRef<HTMLDivElement | null>(null);
 
   const table = useMemo(() => {
@@ -379,10 +405,10 @@ export function TableDetailPage() {
     setOperationNotice({
       tone: result.successCount > 0 ? "warning" : "error",
       title:
-        result.successCount > 0 ? "Undo partially completed" : "Undo failed",
+        result.successCount > 0 ? "Some rows couldn't be restored" : "Undo failed",
       message:
         result.successCount > 0
-          ? `Restored ${result.successCount}/${result.total} rows. ${result.failureCount} could not be restored.`
+          ? `Restored ${result.successCount} of ${result.total} rows.`
           : `Could not restore ${result.total} ${restoredLabel}.`,
     });
   }
@@ -446,7 +472,8 @@ export function TableDetailPage() {
           message={
             <>
               <span>
-                {schemaError ?? "Unable to load the schema snapshot."}
+                {schemaError ??
+                  "Your tables could not be loaded. Try again in a moment."}
               </span>{" "}
               <Button
                 variant="ghost"
@@ -487,9 +514,16 @@ export function TableDetailPage() {
 
   const resolvedTable = table;
   const tableTabs = snapshot?.tables ?? [];
+  // Counts show only when every tab has one; a lone number reads as broken.
+  const allTabCountsKnown = tableTabs.every((tab) => typeof tabCounts[tab.name] === "number");
 
   // Table found — render detail
   const displayName = resolvedTable.displayName ?? resolvedTable.name;
+  const contextParentDisplayName =
+    context?.kind === "related"
+      ? (tableTabs.find((item) => item.name === context.parentTable)
+          ?.displayName ?? context.parentTable)
+      : null;
 
   function handleSortChange(sortClauses: SortClause[]) {
     if (context) {
@@ -717,7 +751,7 @@ export function TableDetailPage() {
           title: "Export canceled",
           message:
             result.exportedRows > 0
-              ? `Canceled ${format.toUpperCase()} export after fetching ${result.exportedRows} rows.`
+              ? `Export canceled after ${result.exportedRows} ${getRowLabel(result.exportedRows)}.`
               : `Canceled ${format.toUpperCase()} export before a file was created.`,
         });
         return;
@@ -801,11 +835,11 @@ export function TableDetailPage() {
           ? "Rows deleted"
           : successCount === 0
             ? "No rows deleted"
-            : "Bulk delete partially completed";
+            : "Some rows couldn't be deleted";
       const message =
         failureCount === 0
-          ? `Successfully deleted ${successCount}/${rowIds.length} rows.`
-          : `Successfully deleted ${successCount}/${rowIds.length} rows. ${failureCount} could not be deleted.`;
+          ? `Deleted ${successCount} ${getRowLabel(successCount)}.`
+          : `Deleted ${successCount} of ${rowIds.length} rows.`;
       setOperationNotice({ tone, title, message });
     }
   }
@@ -855,6 +889,9 @@ export function TableDetailPage() {
 
   return (
     <div className="table-detail">
+      <header className="table-detail__header">
+      <div className="table-detail__heading">
+      <h1 className="table-detail__title">{displayName}</h1>
       <nav className="table-tabs" aria-label="Tables">
         {tableTabs.map((tab) => (
           <NavLink
@@ -869,9 +906,17 @@ export function TableDetailPage() {
             <span className="table-tabs__tab-label">
               {tab.displayName ?? tab.name}
             </span>
+            {allTabCountsKnown ? (
+              <span className="table-tabs__tab-count" aria-hidden="true">
+                {tabCounts[tab.name]}
+              </span>
+            ) : null}
           </NavLink>
         ))}
       </nav>
+      </div>
+      <div className="table-detail__views" ref={setViewSlot} />
+      </header>
 
       {/* Data panel */}
       {view && dataStatus !== "idle" ? (
@@ -888,14 +933,8 @@ export function TableDetailPage() {
                     Related records
                   </span>
                   <span className="explorer-context__title">
-                    {displayName} related to {context.parentTable}{" "}
-                    {context.parentRowIds.length === 1 ? "row" : "rows"}{" "}
-                    {context.parentRowIds.join(", ")}
-                  </span>
-                  <span className="explorer-context__description">
-                    {context.via === "filter"
-                      ? `Using the normal filter flow on ${context.filterColumn ?? "the related field"} via ${context.accessor}.`
-                      : `Using relation accessor ${context.accessor} through the backend relation endpoint.`}
+                    {displayName} related to {contextParentDisplayName}{" "}
+                    {context.parentRowIds.map((rowId) => `#${rowId}`).join(", ")}
                   </span>
                 </div>
                 <Button
@@ -911,12 +950,18 @@ export function TableDetailPage() {
           ) : null}
 
           <DataQueryControls
+            viewSlot={viewSlot}
             table={resolvedTable}
             query={query}
             disabled={dataStatus === "loading" && view.rows.length === 0}
-            externalPopoverOpen={exportMenuOpen}
+            externalPopoverOpen={exportMenuOpen || kanbanConfigOpen}
             onActivePanelChange={(panel) => {
-              if (panel !== null) setExportMenuOpen(false);
+              // One popover at a time: a toolbar panel closes the export
+              // menu and the kanban configuration.
+              if (panel !== null) {
+                setExportMenuOpen(false);
+                setKanbanConfigOpen(false);
+              }
             }}
             toolbarActions={
               <>
@@ -932,7 +977,10 @@ export function TableDetailPage() {
                     aria-label="Export"
                     aria-haspopup="menu"
                     aria-expanded={exportMenuOpen}
-                    onClick={() => setExportMenuOpen((open) => !open)}
+                    onClick={() => {
+                      setKanbanConfigOpen(false);
+                      setExportMenuOpen((open) => !open);
+                    }}
                     disabled={isExporting}
                   >
                     <span className="data-controls__menu-button-content">
@@ -1026,12 +1074,12 @@ export function TableDetailPage() {
                     content: (
                       <div className="explorer-related">
                         <span className="explorer-related__label">
-                          Selection operations
+                          Selected rows
                         </span>
                         <span className="explorer-context__description">
                           {selectedRowIds.length === 1
                             ? "Duplicate, delete, or open related rows from the selected row."
-                            : "Delete the current selection or open related rows when that relation supports normal table filters."}
+                            : "Delete the selected rows or open their related records."}
                         </span>
                         <div className="explorer-related__actions">
                           <Button
@@ -1112,9 +1160,11 @@ export function TableDetailPage() {
             onPageChange={handlePageChange}
             onFiltersChange={handleFiltersChange}
             onHiddenColumnsChange={handleHiddenColumnsChange}
+            columnOrder={view.config.columnOrder}
+            onColumnOrderChange={(columnNames) => setColumnOrder(resolvedTable.name, columnNames)}
             onResetView={handleResetView}
             viewType={view.config.type}
-            onConfigureKanban={() => setKanbanConfigOpen(true)}
+            onConfigureKanban={openKanbanConfig}
           />
 
           {view.config.type === "kanban" ? (
@@ -1175,7 +1225,10 @@ export function TableDetailPage() {
                 type={view.config.type}
                 viewConfig={view.config}
                 loading={dataStatus === "loading"}
-                onConfigureView={() => setKanbanConfigOpen(true)}
+                onConfigureView={() => {
+                  setExportMenuOpen(false);
+                  setKanbanConfigOpen(true);
+                }}
                 table={visibleTable ?? resolvedTable}
                 rows={view.rows}
                 page={query.page}
@@ -1222,7 +1275,7 @@ export function TableDetailPage() {
                   if (!resolvedTable) return;
                   cancelCellEdit(resolvedTable.name);
                 }}
-                onCommitEdit={(row, column, nextValue) => {
+                onCommitEdit={(row, column, nextValue, intent) => {
                   if (!resolvedTable) return;
                   const rowId = String(row.id ?? "");
                   if (!rowId) return;
@@ -1231,7 +1284,19 @@ export function TableDetailPage() {
                     rowId,
                     column.name,
                     nextValue,
+                    intent,
                   );
+                }}
+                onResumeDraft={(row) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  const columnName = getDraftFocusColumn(resolvedTable, row, cellErrors[rowId]);
+                  if (rowId && columnName) startCellEdit(resolvedTable.name, rowId, columnName);
+                }}
+                onDiscardDraft={(row) => {
+                  if (!resolvedTable) return;
+                  const rowId = String(row.id ?? "");
+                  if (rowId) void deleteRow(resolvedTable.name, rowId);
                 }}
                 selectionMenuItems={
                   selectedRowIds.length > 0
@@ -1271,13 +1336,9 @@ export function TableDetailPage() {
         title={
           (deleteDialogRowIds?.length ?? 0) === 1
             ? "Delete this row?"
-            : `Delete these rows? (${deleteDialogRowIds?.length ?? 0} rows)`
+            : `Delete ${deleteDialogRowIds?.length ?? 0} rows?`
         }
-        description={
-          (deleteDialogRowIds?.length ?? 0) === 1
-            ? "This cannot be undone."
-            : "This cannot be undone."
-        }
+        description="You can undo this right after."
         confirmLabel={
           (deleteDialogRowIds?.length ?? 0) === 1 ? "Delete row" : "Delete rows"
         }
@@ -1298,7 +1359,7 @@ function getExportProgressLabel(
 ) {
   const formatLabel = format?.toUpperCase() ?? "Export";
   if (phase === "references") {
-    return `Resolving references for ${fetchedRows.toLocaleString()} ${getRowLabel(fetchedRows)} (${formatLabel})`;
+    return `Preparing ${formatLabel}…`;
   }
   if (phase === "download") {
     return `Preparing ${formatLabel} download`;

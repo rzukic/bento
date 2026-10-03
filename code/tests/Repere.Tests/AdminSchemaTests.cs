@@ -538,16 +538,19 @@ public sealed class AdminSchemaTests
         Assert.True(json.GetProperty("requiresConfirmation").GetBoolean());
         Assert.True(json.GetProperty("plan").GetProperty("isDestructive").GetBoolean());
         Assert.True(json.GetProperty("plan").GetProperty("requiresConfirmation").GetBoolean());
+        // The junction is a table in the model, so dropping the relation
+        // without keeping that table drops the table (with its links).
         Assert.Contains(
             json.GetProperty("changes").EnumerateArray(),
             change => change.GetProperty("changeType").GetString() == "DropRelation"
                 && change.TryGetProperty("relation", out var relation)
-                && relation.GetString() == "product_tags"
-                && change.GetProperty("isDestructive").GetBoolean());
+                && relation.GetString() == "product_tags");
         var dropChange = json.GetProperty("changes").EnumerateArray().Single(
-            change => change.GetProperty("changeType").GetString() == "DropRelation");
+            change => change.GetProperty("changeType").GetString() == "DropTable"
+                && change.GetProperty("table").GetString() == "_jt_products_tags");
+        Assert.True(dropChange.GetProperty("isDestructive").GetBoolean());
         var impact = dropChange.GetProperty("impact");
-        Assert.Equal("many_to_many_junction_drop", impact.GetProperty("kind").GetString());
+        Assert.Equal("table_drop", impact.GetProperty("kind").GetString());
         Assert.Equal("_jt_products_tags", impact.GetProperty("objectName").GetString());
         Assert.Equal(1L, impact.GetProperty("rowCount").GetInt64());
         Assert.Equal(1, impact.GetProperty("sampleRows").GetArrayLength());
@@ -556,6 +559,123 @@ public sealed class AdminSchemaTests
         Assert.Contains(
             json.GetProperty("plan").GetProperty("sqlUp").EnumerateArray().Select(statement => statement.GetString()),
             statement => statement is not null && statement.Contains("DROP TABLE \"_jt_products_tags\"", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task JunctionRows_ChangeKeysAndRejectDuplicatesAsConflicts()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "products" ("name") VALUES ('Widget');
+            INSERT INTO "tags" ("label") VALUES ('Seasonal'), ('Sale'), ('New');
+            INSERT INTO "_jt_products_tags" ("product_id", "tag_id") VALUES (1, 1), (1, 3);
+            """);
+
+        // Linking the same pair again is a conflict, not a server error.
+        using var duplicate = await host.Client.PostAsync(
+            "/api/v1/data/_jt_products_tags",
+            new StringContent("""{ "product_id": 1, "tag_id": 1 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+
+        // Pointing a link at another record answers with the row under its new key.
+        using var moved = await host.Client.PatchAsync(
+            "/api/v1/data/_jt_products_tags/" + Uri.EscapeDataString("product_id:1|tag_id:1"),
+            new StringContent("""{ "tag_id": 2 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, moved.StatusCode);
+        var movedJson = await moved.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, movedJson.GetProperty("data").GetProperty("tag_id").GetInt32());
+
+        // Pointing it at a record it is already linked to is a conflict.
+        using var clash = await host.Client.PatchAsync(
+            "/api/v1/data/_jt_products_tags/" + Uri.EscapeDataString("product_id:1|tag_id:2"),
+            new StringContent("""{ "tag_id": 3 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Conflict, clash.StatusCode);
+        Assert.Equal(
+            2L,
+            await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM \"_jt_products_tags\";"));
+    }
+
+    [Fact]
+    public async Task PutSchema_RecordLabel_IsDesignerMetadataThatRoundTrips()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var getResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var schema = System.Text.Json.Nodes.JsonNode.Parse(await getResponse.Content.ReadAsStringAsync())!;
+        var products = schema["tables"]!.AsArray().First(t => t!["name"]!.GetValue<string>() == "products")!;
+        products["recordLabel"] = new System.Text.Json.Nodes.JsonObject { ["column"] = "name" };
+        var withLabel = schema.ToJsonString();
+
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(withLabel, Encoding.UTF8, "application/json"));
+        var preview = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(preview.GetProperty("hasChanges").GetBoolean());
+        Assert.True(preview.GetProperty("metadataOnly").GetBoolean());
+
+        using var putResponse = await host.Client.PutAsync(
+            "/api/v1/admin/schema",
+            new StringContent(withLabel, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, putResponse.StatusCode);
+
+        using var afterResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        var after = await afterResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var savedProducts = after.GetProperty("tables").EnumerateArray()
+            .Single(t => t.GetProperty("name").GetString() == "products");
+        Assert.Equal("name", savedProducts.GetProperty("recordLabel").GetProperty("column").GetString());
+    }
+
+    [Fact]
+    public async Task GetSchema_ManyToManyWithoutJunctionTable_ListsTheJunctionTableAndRoundTripsWithoutChanges()
+    {
+        await using var host = await CreateHostAsync();
+        await host.ApplySchemaAsync(ManyToManySchema);
+
+        using var getResponse = await host.Client.GetAsync("/api/v1/admin/schema");
+        Assert.Equal(HttpStatusCode.OK, getResponse.StatusCode);
+        var schemaText = await getResponse.Content.ReadAsStringAsync();
+        var schema = JsonDocument.Parse(schemaText).RootElement;
+
+        var junction = schema.GetProperty("tables").EnumerateArray().Single(
+            table => table.GetProperty("name").GetString() == "_jt_products_tags");
+        Assert.Equal(
+            ["product_id", "tag_id", "created_at"],
+            junction.GetProperty("columns").EnumerateArray().Select(c => c.GetProperty("name").GetString()).ToArray());
+        var relation = schema.GetProperty("relations").EnumerateArray().Single(
+            r => r.GetProperty("name").GetString() == "product_tags");
+        Assert.Equal("_jt_products_tags", relation.GetProperty("junctionTable").GetString());
+        Assert.Equal("product_id", relation.GetProperty("fromColumn").GetString());
+        Assert.Equal("tag_id", relation.GetProperty("toColumn").GetString());
+
+        // Sending the model back (what the designer does) changes nothing.
+        using var previewResponse = await host.Client.PostAsync(
+            "/api/v1/admin/schema/preview",
+            new StringContent(schemaText, Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.OK, previewResponse.StatusCode);
+        var preview = await previewResponse.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.False(preview.GetProperty("hasChanges").GetBoolean());
+
+        // The junction rows are reachable like any table; created_at is filled
+        // by the database.
+        await host.ExecuteDataSqlAsync("""
+            INSERT INTO "products" ("name") VALUES ('Widget');
+            INSERT INTO "tags" ("label") VALUES ('Seasonal');
+            """);
+        using var createResponse = await host.Client.PostAsync(
+            "/api/v1/data/_jt_products_tags",
+            new StringContent("""{ "product_id": 1, "tag_id": 1 }""", Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
+        Assert.Equal(
+            1L,
+            await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM \"_jt_products_tags\" WHERE \"created_at\" IS NOT NULL;"));
+
+        // The database default is UTC; it is returned as UTC, not as a
+        // zone-less value clients would read as local time.
+        var created = await createResponse.Content.ReadFromJsonAsync<JsonElement>();
+        var createdAt = created.GetProperty("data").GetProperty("created_at").GetString();
+        Assert.Matches(@"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$", createdAt);
     }
 
     [Fact]
@@ -1125,6 +1245,22 @@ public sealed class AdminSchemaTests
     }
 
     [Fact]
+    public async Task PutSchema_WrongValueType_DescribesThePositionWithoutDotNetTypeNames()
+    {
+        await using var host = await CreateHostAsync();
+
+        const string columnAsNumber = """{"version":1,"tables":[{"name":"t","columns":[42]}],"relations":[]}""";
+        using var response = await host.Client.PutAsync("/api/v1/admin/schema",
+            new StringContent(columnAsNumber, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var error = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("error");
+        Assert.Equal("The schema could not be read: a value has the wrong format (table 1, column 1).",
+            error.GetProperty("message").GetString());
+        Assert.Equal("$.tables[0].columns[0]", error.GetProperty("details").GetProperty("path").GetString());
+    }
+
+    [Fact]
     public async Task PutSchema_DestructiveChange_Returns409WithoutConfirmation()
     {
         await using var host = await CreateHostAsync();
@@ -1211,7 +1347,11 @@ public sealed class AdminSchemaTests
         Assert.Contains(
             confirmedJson.GetProperty("changes").EnumerateArray(),
             change => change.GetProperty("changeType").GetString() == "DropRelation"
-                && change.GetProperty("table").GetString() == "tags"
+                && change.GetProperty("table").GetString() == "tags");
+        Assert.Contains(
+            confirmedJson.GetProperty("changes").EnumerateArray(),
+            change => change.GetProperty("changeType").GetString() == "DropTable"
+                && change.GetProperty("table").GetString() == "_jt_products_tags"
                 && change.GetProperty("isDestructive").GetBoolean());
         Assert.Equal(
             0L,

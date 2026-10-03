@@ -1,0 +1,62 @@
+.settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 48rem;
+}
+
+.settings__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.settings__label {
+  font-size: var(--fs-base);
+  color: var(--text-2);
+}
+
+.settings__facts {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
+  gap: 0.75rem;
+}
+
+.settings__fact {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.settings__fact dd {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: var(--text);
+}
+
+.settings__account {
+  display: flex;
+  align-items: center;
+  gap: 0.875rem;
+}
+
+.settings__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line-2);
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-md);
+}
+
+.settings__name {
+  font-weight: 600;
+  font-size: var(--fs-md);
+}

@@ -267,7 +267,22 @@ curl -fsS "$API_ROOT/data/customers?search=acme" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-This performs a case-insensitive text search across text columns.
+This performs a case-insensitive text search across text columns. Several words must all match (AND).
+
+Reference columns are searched by the record they point to: `orders?search=globex` finds the orders whose customer's name contains "globex", even though `orders` only stores `customer_id`. "Name" is what the app shows for a record: the table's record label (and its secondary column) or, without one, its first text column.
+
+### Dates and times
+
+`datetime` values are local wall time as written (`2026-10-03T15:29`), without a time zone. Values filled by the database itself (for example a link's `created_at`) are UTC and carry a `Z` (`2026-10-03T13:29:43Z`) on both SQLite and Postgres.
+
+### Many-to-many links
+
+An N:M relation stores its links in a junction table that is part of the schema (for the demo: `_jt_orders_products`). Read, create and delete links like any other rows; a link's id is its composite key (`order_id:1|product_id:2`, URL-encoded):
+
+```bash
+curl -fsS "$API_ROOT/data/_jt_orders_products?filter[order_id]=1" \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ---
 

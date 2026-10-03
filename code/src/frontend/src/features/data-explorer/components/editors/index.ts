@@ -8,4 +8,5 @@ export { IntegerCellEditor } from "./IntegerCellEditor";
 export { JsonCellEditor } from "./JsonCellEditor";
 export { ReferenceCellEditor } from "./ReferenceCellEditor";
 export { TextCellEditor } from "./TextCellEditor";
+export { pickEditorForColumn } from "./pickEditor";
 export type { CellEditorProps, ColumnSchema } from "./types";

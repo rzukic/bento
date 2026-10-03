@@ -1,8 +1,7 @@
 import { useEffect } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
-import { Spinner } from "../ui/Spinner";
-import "./RequireAuth.css";
+import { AuthSplash } from "./AuthSplash";
 
 /**
  * Gates the authenticated shell routes. While the auth store is still figuring
@@ -23,12 +22,7 @@ export function RequireAuth() {
   }, [status, bootstrap]);
 
   if (status === "idle" || status === "bootstrapping") {
-    return (
-      <div className="auth-splash" role="status" aria-live="polite">
-        <div className="auth-splash__mark" aria-hidden="true" />
-        <Spinner label="Resuming session" />
-      </div>
-    );
+    return <AuthSplash label="Resuming session" />;
   }
 
   if (status === "unauthenticated") {

@@ -1,5 +1,4 @@
 import type { SchemaModelDocument } from "../../../types/api";
-import { countLabel } from "../schemaWorkbenchHelpers";
 import type { VisualCanvasSelection, WorkbenchDiagnostic } from "../types";
 
 type VisualDiagnosticTarget = {
@@ -7,7 +6,7 @@ type VisualDiagnosticTarget = {
   selection: VisualCanvasSelection | null;
 };
 
-function getVisualDiagnosticTarget(
+export function getVisualDiagnosticTarget(
   document: SchemaModelDocument,
   path: string | null,
 ): VisualDiagnosticTarget {
@@ -80,9 +79,9 @@ export function VisualPreviewDiagnostics({
   return (
     <section
       className="schema-workbench__visual-diagnostics"
-      aria-label="Visual preview diagnostics"
+      aria-label="Issues found"
     >
-      <h3>Preview diagnostics</h3>
+      <h3>Issues found</h3>
       <div className="schema-workbench__diagnostic-list">
         {diagnostics.slice(0, 5).map((diagnostic) => {
           const target = getVisualDiagnosticTarget(document, diagnostic.path);
@@ -104,12 +103,17 @@ export function VisualPreviewDiagnostics({
               onClick={() => onSelect(diagnostic, target.selection)}
             >
               <div className="schema-workbench__diagnostic-meta">
-                <span className="schema-workbench__diagnostic-severity">
+                <span
+                  className={
+                    diagnostic.severity === "warning"
+                      ? "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                      : "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                  }
+                  aria-hidden="true"
+                />
+                <span className="schema-workbench__sr-only">
                   {diagnostic.severity === "warning" ? "Warning" : "Error"}
                 </span>
-                <code className="schema-workbench__diagnostic-code">
-                  {diagnostic.code}
-                </code>
                 <span className="schema-workbench__diagnostic-location">
                   {target.label}
                 </span>
@@ -117,20 +121,11 @@ export function VisualPreviewDiagnostics({
               <p className="schema-workbench__diagnostic-message">
                 {diagnostic.message}
               </p>
-              {diagnostic.path ? (
-                <code className="schema-workbench__diagnostic-path">
-                  {diagnostic.path}
-                </code>
-              ) : null}
             </button>
           );
         })}
       </div>
-      {diagnostics.length > 5 ? (
-        <p>
-          {countLabel(diagnostics.length - 5, "additional diagnostic")} hidden.
-        </p>
-      ) : null}
+      {diagnostics.length > 5 ? <p>+{diagnostics.length - 5} more</p> : null}
     </section>
   );
 }

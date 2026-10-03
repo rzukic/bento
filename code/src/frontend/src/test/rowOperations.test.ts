@@ -469,3 +469,110 @@ describe("row operations", () => {
     expect(useExplorerStore.getState().views.orders?.rows).toEqual([]);
   });
 });
+
+describe("draft (unsaved new) rows", () => {
+  const savedRow = { id: "order_id:2|tag_id:3", order_id: 2, tag_id: 3, note: null };
+
+  function startDraft() {
+    seedAuthenticated();
+    seedSchema(sampleSnapshot);
+    seedTableRows("_jt_order_tags", [savedRow]);
+    useExplorerStore.getState().addBlankRow("_jt_order_tags");
+    const view = useExplorerStore.getState().views._jt_order_tags!;
+    return String(view.rows.at(-1)!.id);
+  }
+
+  const view = () => useExplorerStore.getState().views._jt_order_tags!;
+
+  it("Escape keeps a draft that already has a value", async () => {
+    const draftId = startDraft();
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "stay");
+    useExplorerStore.getState().startCellEdit("_jt_order_tags", draftId, "tag_id");
+
+    useExplorerStore.getState().cancelCellEdit("_jt_order_tags");
+
+    expect(view().pendingNewRowIds).toEqual([draftId]);
+    expect(view().editingCell).toBeNull();
+    expect(view().rows.at(-1)).toMatchObject({ order_id: 1 });
+  });
+
+  it("Enter/Tab (advance) moves to the next missing required field", async () => {
+    const draftId = startDraft();
+
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "advance");
+
+    expect(view().editingCell).toEqual({ rowId: draftId, columnName: "tag_id" });
+  });
+
+  it("clicking away drops an empty draft but keeps one with a value", async () => {
+    const draftId = startDraft();
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", null, "leave");
+    expect(view().pendingNewRowIds).toEqual([]);
+    expect(view().rows).toEqual([savedRow]);
+
+    useExplorerStore.getState().addBlankRow("_jt_order_tags");
+    const secondId = String(view().rows.at(-1)!.id);
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", secondId, "order_id", 1, "leave");
+    expect(view().pendingNewRowIds).toEqual([secondId]);
+    expect(view().editingCell).toBeNull();
+  });
+
+  it("editing another row keeps a draft with a value", async () => {
+    const draftId = startDraft();
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "stay");
+
+    useExplorerStore.getState().startCellEdit("_jt_order_tags", savedRow.id, "note");
+
+    expect(view().pendingNewRowIds).toEqual([draftId]);
+    expect(view().editingCell).toEqual({ rowId: savedRow.id, columnName: "note" });
+  });
+
+  it("Add row with a draft open resumes it instead of adding a second one", async () => {
+    const draftId = startDraft();
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "leave");
+
+    useExplorerStore.getState().addBlankRow("_jt_order_tags");
+
+    expect(view().pendingNewRowIds).toEqual([draftId]);
+    expect(view().rows).toHaveLength(2);
+    expect(view().editingCell).toEqual({ rowId: draftId, columnName: "tag_id" });
+  });
+
+  it("a failed create keeps what was typed and the draft itself", async () => {
+    const draftId = startDraft();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(409, {
+          error: { code: "CONFLICT", message: "Another row already has tag_id '9'." },
+        }),
+      ),
+    );
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "advance");
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "tag_id", 9, "advance");
+
+    expect(view().pendingNewRowIds).toEqual([draftId]);
+    expect(view().rows.at(-1)).toMatchObject({ order_id: 1, tag_id: 9 });
+    expect(view().cellErrors[draftId]?.tag_id).toBe("Another row already has tag_id '9'.");
+  });
+
+  it("reloading rows keeps a draft with a value after the fetched rows", async () => {
+    const draftId = startDraft();
+    await useExplorerStore.getState().commitCellEdit("_jt_order_tags", draftId, "order_id", 1, "leave");
+    const fetched = { order_id: 5, tag_id: 6, note: "x" };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse(200, { data: [fetched], meta: { page: 1, per_page: 25, total: 1, total_pages: 1 } }),
+      ),
+    );
+
+    await useExplorerStore.getState().fetchRows();
+
+    expect(view().rows).toHaveLength(2);
+    expect(view().rows[0]).toMatchObject(fetched);
+    expect(view().rows[1]).toMatchObject({ id: draftId, order_id: 1 });
+    expect(view().pendingNewRowIds).toEqual([draftId]);
+    expect(view().meta?.total).toBe(2);
+  });
+});

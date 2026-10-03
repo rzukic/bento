@@ -1,4 +1,5 @@
 import type { ReactElement } from "react";
+import type { CellCommitIntent } from "../../../stores/explorer/types";
 import type { ModelColumn, ModelTable } from "../../../types/api";
 import type {
   ExplorerViewConfig,
@@ -72,7 +73,10 @@ export type CommonViewProps = {
     row: Record<string, unknown>,
     column: ModelColumn,
     nextValue: unknown,
+    intent?: CellCommitIntent,
   ) => void;
+  onResumeDraft?: (row: Record<string, unknown>) => void;
+  onDiscardDraft?: (row: Record<string, unknown>) => void;
 };
 
 type ViewRendererProps = CommonViewProps & {
@@ -94,10 +98,16 @@ export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>
     table,
     rows,
     loading,
+    pendingNewRowIds = [],
     onConfigureView,
     onNavigateReference,
     onOpenRecord,
   }) => {
+    // Unsaved new rows belong to the table view; they have no lane yet.
+    const savedRows =
+      pendingNewRowIds.length > 0
+        ? rows.filter((row) => !pendingNewRowIds.includes(String(row.id ?? "")))
+        : rows;
     const kanbanColumn =
       viewConfig && viewConfig.type === "kanban" ? viewConfig.kanbanColumn : null;
     const cardFieldNames =
@@ -107,7 +117,7 @@ export const VIEW_TYPE_REGISTRY: Partial<Record<ExplorerViewType, RendererEntry>
     return (
       <KanbanView
         table={table}
-        rows={rows}
+        rows={savedRows}
         loading={loading}
         kanbanColumn={kanbanColumn}
         cardFieldNames={cardFieldNames}

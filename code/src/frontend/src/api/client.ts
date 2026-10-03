@@ -40,8 +40,16 @@ export type ApiRequestInit = RequestInit & {
   json?: unknown;
 };
 
+/** Shown when the server answers without a readable error body. */
+function fallbackMessage(status: number): string {
+  if (status >= 500) return "The server is not responding right now. Try again in a moment.";
+  if (status === 404) return "This could not be found.";
+  if (status === 403) return "You do not have permission to do this.";
+  return "Something went wrong. Try again.";
+}
+
 async function parseErrorBody(response: Response): Promise<ApiClientError> {
-  let message = `Request failed: ${response.status}`;
+  let message = fallbackMessage(response.status);
   let code: string | undefined;
   let details: unknown;
   try {
@@ -50,7 +58,7 @@ async function parseErrorBody(response: Response): Promise<ApiClientError> {
     if (body?.error?.code) code = body.error.code;
     if (body?.error?.details !== undefined) details = body.error.details;
   } catch {
-    if (response.statusText) message = response.statusText;
+    // Not JSON (a proxy error page, an empty body): keep the fallback.
   }
   return new ApiClientError(message, response.status, code, details);
 }

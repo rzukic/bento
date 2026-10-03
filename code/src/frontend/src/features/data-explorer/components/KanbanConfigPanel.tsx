@@ -1,8 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { createPortal } from "react-dom";
 import { Icon } from "../../../components/common/Icon";
 import type { ModelTable } from "../../../types/api";
 
 const MAX_CARD_FIELDS = 3;
+
+/** Marks the toolbar button that opens the panel (it toggles, not closes-and-reopens). */
+export const KANBAN_CONFIG_TRIGGER = "data-kanban-config-trigger";
 
 type KanbanConfigPanelProps = {
   open: boolean;
@@ -62,9 +66,54 @@ export function KanbanConfigPanel({
     function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
     }
+    // Like the toolbar menus: a click anywhere else (the view selector, the
+    // board, another button) closes it. The Configure button toggles it.
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      if (panelRef.current?.contains(target)) return;
+      if (target.closest(`[${KANBAN_CONFIG_TRIGGER}]`)) return;
+      // Choice lists of the panel's own selects render outside it.
+      if (target.closest(".floating-panel")) return;
+      onClose();
+    }
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
   }, [open, onClose]);
+
+  // Sit where the toolbar menus sit: 8 px under the toolbar buttons, flush
+  // with the toolbar's right edge.
+  const panelRef = useRef<HTMLElement | null>(null);
+  const [position, setPosition] = useState<CSSProperties | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!open) return;
+    function place() {
+      const trigger = document.querySelector(`[${KANBAN_CONFIG_TRIGGER}]`);
+      const toolbar = trigger?.closest(".data-controls");
+      if (!trigger || !toolbar) {
+        setPosition(undefined);
+        return;
+      }
+      const triggerRect = trigger.getBoundingClientRect();
+      const toolbarRect = toolbar.getBoundingClientRect();
+      setPosition({
+        top: triggerRect.bottom + 8,
+        right: Math.max(8, window.innerWidth - toolbarRect.right),
+        maxHeight: `calc(100vh - ${Math.round(triggerRect.bottom + 8 + 16)}px)`,
+      });
+    }
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -110,9 +159,13 @@ export function KanbanConfigPanel({
   const canApply = draftColumn !== null;
   const fieldLimitReached = draftFields.length >= MAX_CARD_FIELDS;
 
-  return (
+  // On document.body: the page shell carries a transform (its entry
+  // animation), which would make it the box a fixed panel is placed in.
+  return createPortal(
     <aside
+      ref={panelRef}
       className="kanban-config"
+      style={position}
       role="dialog"
       aria-label="Configure kanban view"
     >
@@ -142,8 +195,8 @@ export function KanbanConfigPanel({
           </label>
           {enumColumns.length === 0 ? (
             <p className="kanban-config__hint">
-              This table has no enum columns. Kanban grouping requires at least
-              one enum-typed column in the schema.
+              This table has no choice columns to group by. Add one in the
+              schema designer.
             </p>
           ) : (
             <select
@@ -156,7 +209,7 @@ export function KanbanConfigPanel({
                 setDraftHiddenLanes([]);
               }}
             >
-              <option value="">-- Select a column --</option>
+              <option value="">Select a column</option>
               {enumColumns.map((column) => (
                 <option key={column.name} value={column.name}>
                   {column.displayName ?? column.name}
@@ -273,6 +326,7 @@ export function KanbanConfigPanel({
           Apply
         </button>
       </div>
-    </aside>
+    </aside>,
+    document.body,
   );
 }

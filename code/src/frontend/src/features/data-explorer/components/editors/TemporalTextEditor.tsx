@@ -9,6 +9,7 @@ import {
 } from "react";
 import { Icon } from "../../../../components/common/Icon";
 import { EditorShell } from "./editorShell";
+import { FloatingPanel } from "./FloatingPanel";
 import {
   buildMonthKey,
   buildYearOptions,
@@ -18,6 +19,7 @@ import {
   formatDateDraft,
   formatTimeDraft,
   getCurrentLocale,
+  getDateTimeSeparator,
   getMonthButtonLabel,
   getMonthKey,
   getMonthName,
@@ -29,6 +31,7 @@ import {
   shiftMonth,
 } from "./temporalEditing";
 import type { CellEditorProps } from "./types";
+import { useAutoWidth } from "./useAutoWidth";
 
 type TemporalTextEditorProps = CellEditorProps<string> & {
   mode: "date" | "datetime";
@@ -50,13 +53,46 @@ export function TemporalTextEditor({
   const timeInputRef = useRef<HTMLInputElement | null>(null);
 
   const [dateDraft, setDateDraft] = useState(formatDateDraft(value, locale));
-  const [timeDraft, setTimeDraft] = useState(formatTimeDraft(value));
+  const [timeDraft, setTimeDraft] = useState(formatTimeDraft(value, locale));
   const [openPanel, setOpenPanel] = useState<"date" | "time" | null>(null);
   const [datePanelMode, setDatePanelMode] = useState<"days" | "months" | "years">("days");
   const [visibleMonth, setVisibleMonth] = useState(
     getMonthKey(parseDateDraft(formatDateDraft(value, locale), locale) ?? value),
   );
-  const [placement, setPlacement] = useState<"down" | "up">("down");
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const separator = useMemo(() => getDateTimeSeparator(locale), [locale]);
+
+  // Open the time list at the current time (or the nearest step), not 00:00.
+  useEffect(() => {
+    if (openPanel !== "time") return;
+    const frame = requestAnimationFrame(() => {
+      const list = panelRef.current?.querySelector<HTMLElement>(".cell-temporal-editor__time-list");
+      const current = parseTimeDraft(timeDraft);
+      if (!list || !current) return;
+      const [hour, minute] = current.split(":").map(Number) as [number, number];
+      const minutes = hour * 60 + minute;
+      let best: HTMLElement | null = null;
+      let bestDistance = Infinity;
+      for (const option of list.querySelectorAll<HTMLElement>(".cell-temporal-editor__time-option")) {
+        const [h, m] = (option.textContent ?? "").split(":").map(Number) as [number, number];
+        const distance = Math.abs(h * 60 + m - minutes);
+        if (distance < bestDistance) {
+          bestDistance = distance;
+          best = option;
+        }
+      }
+      if (best) list.scrollTop = best.offsetTop - list.clientHeight / 2 + best.offsetHeight / 2;
+    });
+    return () => cancelAnimationFrame(frame);
+    // Only when the list opens; typing should not jump it around.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPanel]);
+  // Date and time are as wide as their text, so "08. Sept. 2026, 14:40"
+  // reads exactly as it did before the field was entered.
+  // The date input is exactly its text wide so the separator and time land
+  // where they were; only the last input keeps a little room for the caret.
+  useAutoWidth(dateInputRef, dateDraft, isDateTime, 0);
+  useAutoWidth(timeInputRef, timeDraft, isDateTime);
 
   const selectedDate = parseDateDraft(dateDraft, locale);
   const selectedTime = parseTimeDraft(timeDraft);
@@ -68,16 +104,6 @@ export function TemporalTextEditor({
   const weekdayLabels = useMemo(() => getWeekdayLabels(locale), [locale]);
   const timeOptions = useMemo(() => buildTimeOptions(), []);
   const yearOptions = useMemo(() => buildYearOptions(visibleYear), [visibleYear]);
-
-  useEffect(() => {
-    if (!openPanel || !rootRef.current) return;
-    const rect = rootRef.current.getBoundingClientRect();
-    // Date panel is ~22rem tall, time panel ~13rem
-    const maxPanelHeight = openPanel === "date" ? 22 * 16 : 13 * 16;
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    setPlacement(spaceBelow < maxPanelHeight && spaceAbove > spaceBelow ? "up" : "down");
-  }, [openPanel, datePanelMode]);
 
   useEffect(() => {
     if (!autoFocus) return;
@@ -152,6 +178,8 @@ export function TemporalTextEditor({
     window.setTimeout(() => {
       const active = document.activeElement;
       if (active instanceof Node && rootRef.current?.contains(active)) return;
+      // Panels live in a portal on document.body.
+      if (active instanceof Node && panelRef.current?.contains(active)) return;
       setOpenPanel(null);
       setDatePanelMode("days");
       commit();
@@ -171,7 +199,7 @@ export function TemporalTextEditor({
   }
 
   function handleTimePick(timeValue: string) {
-    setTimeDraft(timeValue);
+    setTimeDraft(formatTimeDraft(timeValue, locale));
     setOpenPanel(null);
     setDatePanelMode("days");
     timeInputRef.current?.focus();
@@ -195,7 +223,7 @@ export function TemporalTextEditor({
   }
 
   return (
-    <EditorShell error={error}>
+    <EditorShell kind="mono" error={error}>
       <div
         ref={rootRef}
         className={[
@@ -233,7 +261,7 @@ export function TemporalTextEditor({
         {isDateTime ? (
           <>
             <span className="cell-temporal-editor__separator" aria-hidden="true">
-              {" "}
+              {separator}
             </span>
             <input
               ref={timeInputRef}
@@ -258,12 +286,9 @@ export function TemporalTextEditor({
         ) : null}
 
         {openPanel === "date" ? (
+          <FloatingPanel anchorRef={dateInputRef} panelRef={panelRef}>
           <div
-            className={[
-              "cell-temporal-editor__panel",
-              "cell-temporal-editor__panel--date",
-              placement === "up" ? "cell-temporal-editor__panel--up" : "",
-            ].filter(Boolean).join(" ")}
+            className="cell-temporal-editor__panel cell-temporal-editor__panel--date"
             role="dialog"
             aria-label="Date picker"
             onMouseDown={swallowMouseDown}
@@ -424,15 +449,13 @@ export function TemporalTextEditor({
               </div>
             ) : null}
           </div>
+          </FloatingPanel>
         ) : null}
 
         {isDateTime && openPanel === "time" ? (
+          <FloatingPanel anchorRef={timeInputRef} panelRef={panelRef}>
           <div
-            className={[
-              "cell-temporal-editor__panel",
-              "cell-temporal-editor__panel--time",
-              placement === "up" ? "cell-temporal-editor__panel--up" : "",
-            ].filter(Boolean).join(" ")}
+            className="cell-temporal-editor__panel cell-temporal-editor__panel--time"
             role="dialog"
             aria-label="Time picker"
             onMouseDown={swallowMouseDown}
@@ -458,6 +481,7 @@ export function TemporalTextEditor({
               ))}
             </div>
           </div>
+          </FloatingPanel>
         ) : null}
       </div>
     </EditorShell>

@@ -1,3 +1,4 @@
+import { getCurrentLocale } from "./editors/temporalEditing";
 import type { ModelColumn } from "../../../types/api";
 
 function normalizeCalendarPart(value: string): number | null {
@@ -74,7 +75,7 @@ export function formatTemporalValue(value: string, type: ModelColumn["type"]): s
   if (!parsed) return value;
 
   if (type === "date") {
-    return new Intl.DateTimeFormat(undefined, {
+    return new Intl.DateTimeFormat(getCurrentLocale(), {
       year: "numeric",
       month: "short",
       day: "2-digit",
@@ -82,7 +83,7 @@ export function formatTemporalValue(value: string, type: ModelColumn["type"]): s
     }).format(parsed.date);
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(getCurrentLocale(), {
     year: "numeric",
     month: "short",
     day: "2-digit",
@@ -119,6 +120,28 @@ export function normalizeBooleanValue(value: unknown): boolean | null {
   return null;
 }
 
+/** Categorical dot colours for enum values, picked by position in the column's value list. */
+const ENUM_PALETTE = ["#60a5fa", "#2dd4bf", "#a78bfa", "#f472b6", "#fb923c", "#38bdf8", "#a3e635", "#e879f9"];
+
+/** Common state words get semantic colours so status columns read at a glance. */
+const ENUM_SEMANTIC: Array<[RegExp, string]> = [
+  [/^(done|paid|complete|completed|active|approved|success|won|published|resolved|closed)$/i, "var(--success)"],
+  [/^(cancel+ed|failed|error|rejected|lost|blocked|deleted|overdue)$/i, "var(--danger)"],
+  [/^(pending|draft|waiting|open|todo|new|review|in[ _-]?review|on[ _-]?hold)$/i, "var(--warning)"],
+  [/^(shipped|sent|in[ _-]?progress|processing|running|scheduled)$/i, "var(--info)"]
+];
+
+export function enumValueColor(column: ModelColumn, value: string): string {
+  for (const [pattern, color] of ENUM_SEMANTIC) {
+    if (pattern.test(value.trim())) return color;
+  }
+  const index = column.values?.indexOf(value) ?? -1;
+  if (index >= 0) return ENUM_PALETTE[index % ENUM_PALETTE.length];
+  let hash = 0;
+  for (const char of value) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return ENUM_PALETTE[hash % ENUM_PALETTE.length];
+}
+
 export function renderCellValue(column: ModelColumn, value: unknown) {
   if (value === null || value === undefined || value === "") {
     return <span className="data-grid__cell-empty">—</span>;
@@ -131,7 +154,7 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
         <span
           className={`data-grid__boolean data-grid__boolean--${booleanValue ? "true" : "false"}`}
         >
-          {booleanValue ? "true" : "false"}
+          {booleanValue ? "Yes" : "No"}
         </span>
       );
     }
@@ -142,7 +165,7 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
       <span
         className={`data-grid__boolean data-grid__boolean--${value ? "true" : "false"}`}
       >
-        {value ? "true" : "false"}
+        {value ? "Yes" : "No"}
       </span>
     );
   }
@@ -160,6 +183,15 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
       <code className="data-grid__code" title={getJsonPreview(value)}>
         {getJsonPreview(value)}
       </code>
+    );
+  }
+
+  if (column.type === "enum" && typeof value === "string") {
+    return (
+      <span className="chip data-grid__enum">
+        <span className="chip__dot" aria-hidden="true" style={{ background: enumValueColor(column, value) }} />
+        {value}
+      </span>
     );
   }
 

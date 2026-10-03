@@ -3,8 +3,9 @@ import { createRow, patchRow } from "../../api/data";
 import {
   buildCreatePayload,
   clearCellError,
-  dropPendingNewRows,
+  dropEmptyDraftRows,
   extractFieldErrors,
+  getNextDraftColumn,
   getTableModel,
   isCreateReady,
   normalizeRowId,
@@ -12,7 +13,25 @@ import {
   setCellErrorIn,
   upsertRecordCacheEntry
 } from "./helpers";
-import type { EditingSlice, ExplorerStoreState } from "./types";
+import type { CellCommitIntent, EditingSlice, ExplorerStoreState, TableViewState } from "./types";
+import type { ModelTable } from "../../types/api";
+
+/** Ends an edit on a draft row according to why the editor committed. */
+function settleDraftEdit(
+  view: TableViewState,
+  tableModel: ModelTable | null,
+  rowId: string,
+  columnName: string,
+  intent: CellCommitIntent,
+): TableViewState {
+  if (intent === "advance" && tableModel) {
+    const row = view.rows.find((candidate) => String(candidate.id ?? "") === rowId);
+    const next = row ? getNextDraftColumn(tableModel, row, columnName) : null;
+    return { ...view, editingCell: next ? { rowId, columnName: next } : null };
+  }
+  const ended = { ...view, editingCell: null };
+  return intent === "leave" ? dropEmptyDraftRows(ended, tableModel) : ended;
+}
 
 export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], EditingSlice> = (
   set,
@@ -22,9 +41,16 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
     set((state) => {
       const view = state.views[table];
       if (!view) return state;
+      // A draft is read-only for the moment it is being created on the server.
+      if (
+        view.pendingNewRowIds.includes(rowId) &&
+        view.pendingCellSaves.some((key) => key.startsWith(`${rowId}:`))
+      ) {
+        return state;
+      }
       const nextView =
         view.editingCell && view.editingCell.rowId !== rowId
-          ? dropPendingNewRows(view, { preserveRowIds: [rowId] })
+          ? dropEmptyDraftRows(view, getTableModel(table), { preserveRowIds: [rowId] })
           : view;
       return {
         views: {
@@ -41,8 +67,9 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
     set((state) => {
       const view = state.views[targetTable];
       if (!view || view.editingCell === null) return state;
+      // Escape only abandons the field; the draft goes too if it is still empty.
       const nextView = view.pendingNewRowIds.includes(view.editingCell.rowId)
-        ? dropPendingNewRows(view)
+        ? dropEmptyDraftRows(view, getTableModel(targetTable))
         : view;
       return {
         views: {
@@ -103,7 +130,7 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
     });
   },
 
-  commitCellEdit: async (table, rowId, columnName, nextValue) => {
+  commitCellEdit: async (table, rowId, columnName, nextValue, intent = "stay") => {
     const stateBefore = get();
     const view = stateBefore.views[table];
     if (!view) return;
@@ -122,7 +149,24 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
       ? isCreateReady(tableModel!, row, columnName, nextValue)
       : false;
 
-    if (Object.is(prevValue, nextValue)) {
+    // A complete draft whose last create failed retries even without a change.
+    const retryCreate =
+      isPendingNewRow && createReady && view.cellErrors[rowId] !== undefined;
+
+    if (Object.is(prevValue, nextValue) && !retryCreate) {
+      if (isPendingNewRow) {
+        set((s) => {
+          const v = s.views[table];
+          if (!v) return s;
+          return {
+            views: {
+              ...s.views,
+              [table]: settleDraftEdit(v, tableModel, rowId, columnName, intent),
+            },
+          };
+        });
+        return;
+      }
       // No-op: just exit edit mode without hitting the API.
       get().cellEditCommitted(table, rowId, columnName, nextValue);
       return;
@@ -146,12 +190,17 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
         return {
           views: {
             ...s.views,
-            [table]: {
-              ...v,
-              rows: nextRows,
-              editingCell: null,
-              cellErrors: clearCellError(v.cellErrors, rowId, columnName),
-            },
+            [table]: settleDraftEdit(
+              {
+                ...v,
+                rows: nextRows,
+                cellErrors: clearCellError(v.cellErrors, rowId, columnName),
+              },
+              tableModel,
+              rowId,
+              columnName,
+              intent,
+            ),
           },
           recordCacheByTable: nextCache,
         };
@@ -257,7 +306,10 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
       });
     } catch (err) {
       const fieldErrors = extractFieldErrors(err);
-      const fallback = err instanceof Error ? err.message : "Failed to save.";
+      const fallback = err instanceof Error ? err.message : "Couldn't save. Try again.";
+      // A draft keeps what the user typed so they can fix it and retry;
+      // an existing row goes back to its saved value.
+      const restoredValue = isPendingNewRow ? nextValue : prevValue;
 
       set((s) => {
         const v = s.views[table];
@@ -265,7 +317,7 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
         const idx = v.rows.findIndex((r) => String(r.id ?? "") === rowId);
         const nextRows = v.rows.slice();
         if (idx !== -1) {
-          nextRows[idx] = { ...nextRows[idx]!, [columnName]: prevValue };
+          nextRows[idx] = { ...nextRows[idx]!, [columnName]: restoredValue };
         }
         const currentCacheRow = s.recordCacheByTable[table]?.[rowId] ?? null;
         let nextRecordCache = s.recordCacheByTable;
@@ -274,7 +326,7 @@ export const createEditingSlice: StateCreator<ExplorerStoreState, [], [], Editin
             s.recordCacheByTable,
             table,
             rowId,
-            { ...currentCacheRow, [columnName]: prevValue },
+            { ...currentCacheRow, [columnName]: restoredValue },
           );
         }
         let nextErrors = v.cellErrors;

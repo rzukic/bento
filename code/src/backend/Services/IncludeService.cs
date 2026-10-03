@@ -236,7 +236,7 @@ public sealed class IncludeService
                 var children = (await scope.Db.Query(def.To)
                     .WhereIn(def.Column!, parentIds)
                     .GetAsync())
-                    .Select(ToDictionary)
+                    .Select(r => Shape(def.To, (object)r))
                     .ToList();
 
                 // Apply nested includes to children
@@ -268,7 +268,7 @@ public sealed class IncludeService
                 var parents = (await scope.Db.Query(def.From)
                     .WhereIn("id", fkValues)
                     .GetAsync())
-                    .Select(ToDictionary)
+                    .Select(r => Shape(def.From, (object)r))
                     .ToList();
 
                 // Apply nested includes to parents
@@ -317,7 +317,7 @@ public sealed class IncludeService
             var junctionRows = (await scope.Db.Query(junctionTable)
                 .WhereIn(localJunctionCol, parentIds)
                 .GetAsync())
-                .Select(ToDictionary)
+                .Select(r => Shape(junctionTable, (object)r))
                 .ToList();
 
             var remoteIds = junctionRows
@@ -330,7 +330,7 @@ public sealed class IncludeService
                 ? (await scope.Db.Query(remoteTable)
                     .WhereIn("id", remoteIds)
                     .GetAsync())
-                    .Select(ToDictionary)
+                    .Select(r => Shape(remoteTable, (object)r))
                     .ToList()
                 : [];
 
@@ -513,6 +513,8 @@ public sealed class IncludeService
         query = query.ForPage(parameters.Page, parameters.PerPage);
 
         var rows = (await query.GetAsync()).Select(ToDictionary).ToList();
+        foreach (var row in rows)
+            CrudService.NormalizeSqliteTimestamps(table, row, provider);
         var totalPages = parameters.PerPage > 0
             ? (int)Math.Ceiling((double)total / parameters.PerPage)
             : 0;
@@ -525,6 +527,14 @@ public sealed class IncludeService
             Total = total,
             TotalPages = totalPages
         };
+    }
+
+    /// <summary>A related row as the API returns it (SQLite timestamps as UTC).</summary>
+    private IDictionary<string, object?> Shape(string tableName, object row)
+    {
+        var dict = ToDictionary(row);
+        CrudService.NormalizeSqliteTimestamps(_schemaCache.GetTable(tableName), dict, _dbConfig.Provider);
+        return dict;
     }
 
     private static IDictionary<string, object?> ToDictionary(object row)

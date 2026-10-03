@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import React, {
   useEffect,
   useLayoutEffect,
@@ -22,6 +23,9 @@ import type {
   SortDir,
 } from "../../../types/explorer";
 import { DEFAULT_EXPLORER_VIEW_CONFIG } from "../../../types/explorer";
+import { KANBAN_CONFIG_TRIGGER } from "./KanbanConfigPanel";
+
+const EMPTY_COLUMN_ORDER: string[] = [];
 import type { SavedView } from "../../../types/views";
 
 type DataQueryControlsProps = {
@@ -42,6 +46,12 @@ type DataQueryControlsProps = {
   panelResetKey?: string;
   filterShortcut?: { columnName: string; nonce: number } | null;
   sortShortcut?: { columnName: string; nonce: number } | null;
+  /**
+   * Where to render the view selector (name, settings, save actions).
+   * Pages that show it in their own header pass that element; otherwise it
+   * sits at the start of the toolbar.
+   */
+  viewSlot?: HTMLElement | null;
   /** Saved views to show in the view selector. */
   savedViews?: SavedView[];
   /** The currently active saved view id, or null for "All Records". */
@@ -80,6 +90,10 @@ type DataQueryControlsProps = {
   onPageChange: (page: number) => void;
   onFiltersChange: (filters: FilterClause[]) => void;
   onHiddenColumnsChange: (columnNames: string[]) => void;
+  /** Non-key column order of the view (left to right). */
+  columnOrder?: string[];
+  /** Columns were rearranged in the Columns menu. */
+  onColumnOrderChange?: (columnNames: string[]) => void;
   onResetView: () => void;
   /** The current active view type — used to show the configure button for kanban. */
   viewType?: ExplorerViewType;
@@ -109,16 +123,16 @@ type SortDraftClause = { column: string; dir: SortDir };
 type FilterOperatorOption = { label: string; value: FilterOp };
 
 const defaultFilterOperatorOptions: FilterOperatorOption[] = [
-  { label: "Equals (=)", value: "eq" },
-  { label: "Does not equal (!=)", value: "neq" },
-  { label: "One of (in)", value: "in" },
-  { label: "Contains (~)", value: "like" },
-  { label: "Greater than (>)", value: "gt" },
-  { label: "Greater or equal (>=)", value: "gte" },
-  { label: "Less than (<)", value: "lt" },
-  { label: "Less or equal (<=)", value: "lte" },
-  { label: "Is empty (null)", value: "null" },
-  { label: "Is not empty (!null)", value: "notnull" },
+  { label: "Equals", value: "eq" },
+  { label: "Does not equal", value: "neq" },
+  { label: "Is one of", value: "in" },
+  { label: "Contains", value: "like" },
+  { label: "Greater than", value: "gt" },
+  { label: "Greater or equal", value: "gte" },
+  { label: "Less than", value: "lt" },
+  { label: "Less or equal", value: "lte" },
+  { label: "Is empty", value: "null" },
+  { label: "Is not empty", value: "notnull" },
 ];
 
 const nullaryFilterOps: FilterOp[] = ["null", "notnull"];
@@ -169,11 +183,11 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
 
   if (normalizedType === "enum") {
     return [
-      { label: "Equals (=)", value: "eq" },
-      { label: "Does not equal (!=)", value: "neq" },
-      { label: "One of (in)", value: "in" },
-      { label: "Is empty (null)", value: "null" },
-      { label: "Is not empty (!null)", value: "notnull" },
+      { label: "Equals", value: "eq" },
+      { label: "Does not equal", value: "neq" },
+      { label: "Is one of", value: "in" },
+      { label: "Is empty", value: "null" },
+      { label: "Is not empty", value: "notnull" },
     ];
   }
 
@@ -202,14 +216,14 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
   if (temporalColumnTypes.has(normalizedType)) {
     const temporalNoun = normalizedType === "datetime" ? "date/time" : "date";
     return [
-      { label: `On ${temporalNoun} (=)`, value: "eq" },
-      { label: `Not on ${temporalNoun} (!=)`, value: "neq" },
-      { label: `After ${temporalNoun} (>)`, value: "gt" },
-      { label: `On or after ${temporalNoun} (>=)`, value: "gte" },
-      { label: `Before ${temporalNoun} (<)`, value: "lt" },
-      { label: `On or before ${temporalNoun} (<=)`, value: "lte" },
-      { label: "Is empty (null)", value: "null" },
-      { label: "Is not empty (!null)", value: "notnull" },
+      { label: `On ${temporalNoun}`, value: "eq" },
+      { label: `Not on ${temporalNoun}`, value: "neq" },
+      { label: `After ${temporalNoun}`, value: "gt" },
+      { label: `On or after ${temporalNoun}`, value: "gte" },
+      { label: `Before ${temporalNoun}`, value: "lt" },
+      { label: `On or before ${temporalNoun}`, value: "lte" },
+      { label: "Is empty", value: "null" },
+      { label: "Is not empty", value: "notnull" },
     ];
   }
 
@@ -324,8 +338,8 @@ function getSortDirectionOptions(
 
   if (normalizedType === "boolean") {
     return [
-      { label: "False first", value: "asc" },
-      { label: "True first", value: "desc" },
+      { label: "No first", value: "asc" },
+      { label: "Yes first", value: "desc" },
     ];
   }
 
@@ -339,37 +353,67 @@ function createEmptySortDraft(): SortDraftClause {
   return { column: "", dir: "asc" };
 }
 
-function formatFilterChip(filter: FilterClause): string {
+function formatFilterChipValue(
+  column: ModelColumn | undefined,
+  value: string | null | undefined,
+): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "—";
+  if (normalizeColumnType(column?.type) === "boolean") {
+    if (trimmed.toLowerCase() === "true") return "Yes";
+    if (trimmed.toLowerCase() === "false") return "No";
+  }
+  return trimmed;
+}
+
+function formatFilterChip(
+  filter: FilterClause,
+  columns: ModelColumn[],
+): string {
+  const column = columns.find((item) => item.name === filter.column);
+  const name = column?.displayName ?? filter.column;
+  const value = formatFilterChipValue(column, filter.value);
+  const isTemporal = temporalColumnTypes.has(normalizeColumnType(column?.type));
+
   switch (filter.op) {
     case "eq":
-      return `${filter.column} = ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on" : "is"} ${value}`;
     case "neq":
-      return `${filter.column} != ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is not on" : "is not"} ${value}`;
     case "like":
-      return `${filter.column} contains ${filter.value ?? "—"}`;
+      return `${name} contains ${value}`;
     case "gt":
-      return `${filter.column} > ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is after" : "is greater than"} ${value}`;
     case "gte":
-      return `${filter.column} >= ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on or after" : "is at least"} ${value}`;
     case "lt":
-      return `${filter.column} < ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is before" : "is less than"} ${value}`;
     case "lte":
-      return `${filter.column} <= ${filter.value ?? "—"}`;
+      return `${name} ${isTemporal ? "is on or before" : "is at most"} ${value}`;
     case "null":
-      return `${filter.column} is empty`;
+      return `${name} is empty`;
     case "notnull":
-      return `${filter.column} is not empty`;
+      return `${name} is not empty`;
     case "in":
-      return `${filter.column} one of ${
-        (filter.value ?? "—")
+      return `${name} is one of ${
+        (filter.value ?? "")
           .split(",")
-          .map((value) => value.trim())
-          .filter(Boolean)
+          .map((item) => formatFilterChipValue(column, item))
+          .filter((item) => item !== "—")
           .join(", ") || "—"
       }`;
     default:
-      return `${filter.column} ${filter.op} ${filter.value ?? "—"}`;
+      return `${name} ${filter.op} ${value}`;
   }
+}
+
+function formatSortChip(sort: SortClause, columns: ModelColumn[]): string {
+  const column = columns.find((item) => item.name === sort.column);
+  const name = column?.displayName ?? sort.column;
+  const direction =
+    getSortDirectionOptions(column).find((option) => option.value === sort.dir)
+      ?.label ?? sort.dir;
+  return `${name} (${direction})`;
 }
 
 function getInitialPanel(query: ExplorerQuery): UtilityPanel {
@@ -616,6 +660,7 @@ export function DataQueryControls({
   panelResetKey,
   filterShortcut = null,
   sortShortcut = null,
+  viewSlot = null,
   savedViews = [],
   activeViewId = null,
   onSwitchView,
@@ -636,6 +681,8 @@ export function DataQueryControls({
   onSortChange,
   onFiltersChange,
   onHiddenColumnsChange,
+  columnOrder = EMPTY_COLUMN_ORDER,
+  onColumnOrderChange,
   onResetView,
   viewType = "table",
   onConfigureKanban,
@@ -898,7 +945,7 @@ export function DataQueryControls({
   const searchLabel = query.search ? `Search: ${query.search}` : null;
   const sortLabel =
     query.sort.length > 0
-      ? `Sort: ${query.sort.map((sort) => `${sort.column} ${sort.dir}`).join(", ")}`
+      ? `Sort: ${query.sort.map((sort) => formatSortChip(sort, table.columns)).join(", ")}`
       : null;
 
   const canAddFilter =
@@ -934,6 +981,83 @@ export function DataQueryControls({
     () => new Set(hiddenColumnNames),
     [hiddenColumnNames],
   );
+
+  // Columns menu order: key columns stay first, the rest follow the view's
+  // column order (columns it does not list keep their schema position).
+  const keyColumns = useMemo(
+    () => table.columns.filter((column) => column.primaryKey),
+    [table.columns],
+  );
+  const orderedColumns = useMemo(() => {
+    const movable = table.columns.filter((column) => !column.primaryKey);
+    const byName = new Map(movable.map((column) => [column.name, column]));
+    const listed = columnOrder
+      .map((name) => byName.get(name))
+      .filter((column): column is ModelColumn => column !== undefined);
+    const listedNames = new Set(listed.map((column) => column.name));
+    return [...listed, ...movable.filter((column) => !listedNames.has(column.name))];
+  }, [columnOrder, table.columns]);
+  const [dragOrder, setDragOrder] = useState<string[] | null>(null);
+  const [draggingColumn, setDraggingColumn] = useState<string | null>(null);
+  const columnRowRefs = useRef(new Map<string, HTMLElement>());
+  const shownColumnNames = dragOrder ?? orderedColumns.map((column) => column.name);
+  const columnByName = useMemo(
+    () => new Map(table.columns.map((column) => [column.name, column])),
+    [table.columns],
+  );
+
+  function moveColumn(columnName: string, delta: number) {
+    const order = orderedColumns.map((column) => column.name);
+    const from = order.indexOf(columnName);
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= order.length) return;
+    order.splice(from, 1);
+    order.splice(to, 0, columnName);
+    onColumnOrderChange?.(order);
+  }
+
+  /** Drag a column by its grip; the list reorders live, the order is kept on release. */
+  function startColumnDrag(event: React.PointerEvent<HTMLButtonElement>, columnName: string) {
+    if (event.button !== 0 || !onColumnOrderChange) return;
+    event.preventDefault();
+    const grip = event.currentTarget;
+    grip.setPointerCapture(event.pointerId);
+    const startOrder = orderedColumns.map((column) => column.name);
+    let order = startOrder;
+    setDragOrder(order);
+    setDraggingColumn(columnName);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const others = order.filter((name) => name !== columnName);
+      let index = others.length;
+      for (let i = 0; i < others.length; i += 1) {
+        const row = columnRowRefs.current.get(others[i]!);
+        if (!row) continue;
+        const rect = row.getBoundingClientRect();
+        if (moveEvent.clientY < rect.top + rect.height / 2) {
+          index = i;
+          break;
+        }
+      }
+      const next = [...others];
+      next.splice(index, 0, columnName);
+      if (next.join("\u0000") !== order.join("\u0000")) {
+        order = next;
+        setDragOrder(next);
+      }
+    };
+    const onUp = () => {
+      grip.removeEventListener("pointermove", onMove);
+      grip.removeEventListener("pointerup", onUp);
+      grip.removeEventListener("pointercancel", onUp);
+      setDragOrder(null);
+      setDraggingColumn(null);
+      if (order.join("\u0000") !== startOrder.join("\u0000")) onColumnOrderChange(order);
+    };
+    grip.addEventListener("pointermove", onMove);
+    grip.addEventListener("pointerup", onUp);
+    grip.addEventListener("pointercancel", onUp);
+  }
 
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1042,6 +1166,29 @@ export function DataQueryControls({
     setEditingFilterIndex(null);
     setActivePanel("search");
   }
+
+  // ⌘F / Ctrl+F opens the table search instead of the browser's find bar
+  // (unless a dialog such as the record editor is open).
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key.toLowerCase() !== "f" || !(event.metaKey || event.ctrlKey)) return;
+      if (event.shiftKey || event.altKey || disabled) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
+      event.preventDefault();
+      setEditingFilterIndex(null);
+      setActivePanel("search");
+      // Already open: focus and select the field again.
+      requestAnimationFrame(() => {
+        const field = document.querySelector<HTMLInputElement>(
+          '#data-controls-search-panel input[name="search"]',
+        );
+        field?.focus();
+        field?.select();
+      });
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [disabled]);
 
   function handleClearSearch() {
     setEditingFilterIndex(null);
@@ -1220,188 +1367,292 @@ export function DataQueryControls({
     }
   }
 
-  return (
-    <div className="data-controls" ref={rootRef}>
-      <div className="data-controls__overlay-anchor" ref={overlayAnchorRef}>
-        <div className="data-controls__bar">
-          {/* LEFT — view selector dropdown, settings, save actions */}
-          <div className="data-controls__view-selector">
-            {/* Dropdown */}
-            <div className="data-controls__view-dropdown" ref={viewDropdownRef}>
-              <button
-                type="button"
-                className="data-controls__view-current"
-                aria-haspopup="listbox"
-                aria-expanded={viewDropdownOpen}
-                aria-label={`Current view: ${currentViewName}`}
-                onClick={() => setViewDropdownOpen((open) => !open)}
-              >
-                <span className="data-controls__view-current-label">
-                  {currentViewName}
-                </span>
-                <Icon name="chevron-down" size={11} />
-              </button>
+  const viewSelectorNode = (
+  <div className="data-controls__view-selector">
+    {/* Dropdown */}
+    <div className="data-controls__view-dropdown" ref={viewDropdownRef}>
+      <button
+        type="button"
+        className="data-controls__view-current"
+        aria-haspopup="listbox"
+        aria-expanded={viewDropdownOpen}
+        aria-label={`Current view: ${currentViewName}`}
+        onClick={() => setViewDropdownOpen((open) => !open)}
+      >
+        <span className="data-controls__view-current-label">
+          {currentViewName}
+        </span>
+        <Icon name="chevron-down" size={11} />
+      </button>
 
-              {viewDropdownOpen ? (
-                <div
-                  className="data-controls__view-menu"
-                  role="listbox"
-                  aria-label="Available views"
-                >
-                  <button
-                    type="button"
-                    role="option"
-                    aria-selected={activeViewId === null}
-                    className={
-                      activeViewId === null
-                        ? "data-controls__view-option data-controls__view-option--active"
-                        : "data-controls__view-option"
-                    }
-                    onClick={() => {
-                      onSwitchView?.(null);
-                      setViewDropdownOpen(false);
-                    }}
-                  >
-                    <span className="data-controls__view-option-check">
-                      {activeViewId === null ? (
-                        <Icon name="check" size={12} />
-                      ) : null}
-                    </span>
-                    <span className="data-controls__view-option-label">
-                      All Records
-                    </span>
-                  </button>
-
-                  {sortedSavedViews.map((sv) => {
-                    const isOwn =
-                      currentUserId !== null &&
-                      sv.owner_user_id === currentUserId;
-                    const isShared = !isOwn;
-                    return (
-                      <button
-                        key={sv.id}
-                        type="button"
-                        role="option"
-                        aria-selected={activeViewId === sv.id}
-                        className={
-                          activeViewId === sv.id
-                            ? "data-controls__view-option data-controls__view-option--active"
-                            : "data-controls__view-option"
-                        }
-                        onClick={() => {
-                          onSwitchView?.(sv.id);
-                          setViewDropdownOpen(false);
-                        }}
-                      >
-                        <span className="data-controls__view-option-check">
-                          {activeViewId === sv.id ? (
-                            <Icon name="check" size={12} />
-                          ) : null}
-                        </span>
-                        <span className="data-controls__view-option-label">
-                          {sv.name}
-                        </span>
-                        {isShared ? (
-                          <span
-                            className="data-controls__view-option-shared"
-                            title="Shared by another user"
-                            aria-label="Shared view"
-                          >
-                            <Icon name="share" size={11} />
-                          </span>
-                        ) : null}
-                        {defaultViewId === sv.id ? (
-                          <span
-                            className="data-controls__view-option-default"
-                            title="Default view"
-                            aria-label="Default view"
-                          >
-                            <Icon name="star" size={11} />
-                          </span>
-                        ) : null}
-                      </button>
-                    );
-                  })}
-
-                  <div
-                    className="data-controls__view-separator"
-                    role="separator"
-                  />
-
-                  <button
-                    type="button"
-                    role="option"
-                    className="data-controls__view-option data-controls__view-option--new"
-                    onClick={() => {
-                      setViewDropdownOpen(false);
-                      setCreateViewName("");
-                      setCreateViewTypeDraft(
-                        viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
-                      );
-                      setCreateViewOpen(true);
-                    }}
-                  >
-                    <span className="data-controls__view-option-check">
-                      <Icon name="plus" size={12} />
-                    </span>
-                    <span className="data-controls__view-option-label">
-                      New view
-                    </span>
-                  </button>
-                </div>
+      {viewDropdownOpen ? (
+        <div
+          className="data-controls__view-menu"
+          role="listbox"
+          aria-label="Available views"
+        >
+          <button
+            type="button"
+            role="option"
+            aria-selected={activeViewId === null}
+            className={
+              activeViewId === null
+                ? "data-controls__view-option data-controls__view-option--active"
+                : "data-controls__view-option"
+            }
+            onClick={() => {
+              onSwitchView?.(null);
+              setViewDropdownOpen(false);
+            }}
+          >
+            <span className="data-controls__view-option-check">
+              {activeViewId === null ? (
+                <Icon name="check" size={12} />
               ) : null}
-            </div>
+            </span>
+            <span className="data-controls__view-option-label">
+              All Records
+            </span>
+          </button>
 
-            {/* Settings icon — always visible; disabled on "All Records" */}
-            <button
-              type="button"
-              className="data-controls__view-settings"
-              title={
-                activeViewId !== null
-                  ? "View settings"
-                  : "Select a saved view to edit settings"
-              }
-              aria-label="View settings"
-              disabled={activeViewId === null}
-              onClick={() => {
-                if (!activeView) return;
-                setRenameDraft(activeView.name);
-                setViewTypeDraft(activeView.type);
-                setSettingsOpen(true);
-              }}
-            >
-              <Icon name="settings" size={13} />
-            </button>
-
-            {/* Save changes — only when on a saved view with unsaved modifications */}
-            {hasViewModifications && activeViewId !== null ? (
-              <Button
+          {sortedSavedViews.map((sv) => {
+            const isOwn =
+              currentUserId !== null &&
+              sv.owner_user_id === currentUserId;
+            const isShared = !isOwn;
+            return (
+              <button
+                key={sv.id}
                 type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => void handleSaveChanges()}
-              >
-                Save changes
-              </Button>
-            ) : null}
-
-            {/* Save to new view — whenever there are unsaved modifications */}
-            {hasViewModifications ? (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
+                role="option"
+                aria-selected={activeViewId === sv.id}
+                className={
+                  activeViewId === sv.id
+                    ? "data-controls__view-option data-controls__view-option--active"
+                    : "data-controls__view-option"
+                }
                 onClick={() => {
-                  setCreateViewName("");
-                  setCreateViewTypeDraft(
-                    viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
-                  );
-                  setCreateViewOpen(true);
+                  onSwitchView?.(sv.id);
+                  setViewDropdownOpen(false);
                 }}
               >
-                Save to new view
-              </Button>
+                <span className="data-controls__view-option-check">
+                  {activeViewId === sv.id ? (
+                    <Icon name="check" size={12} />
+                  ) : null}
+                </span>
+                <span className="data-controls__view-option-label">
+                  {sv.name}
+                </span>
+                {isShared ? (
+                  <span
+                    className="data-controls__view-option-shared"
+                    title="Shared by another user"
+                    aria-label="Shared view"
+                  >
+                    <Icon name="share" size={11} />
+                  </span>
+                ) : null}
+                {defaultViewId === sv.id ? (
+                  <span
+                    className="data-controls__view-option-default"
+                    title="Default view"
+                    aria-label="Default view"
+                  >
+                    <Icon name="star" size={11} />
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+
+          <div
+            className="data-controls__view-separator"
+            role="separator"
+          />
+
+          <button
+            type="button"
+            role="option"
+            className="data-controls__view-option data-controls__view-option--new"
+            onClick={() => {
+              setViewDropdownOpen(false);
+              setCreateViewName("");
+              setCreateViewTypeDraft(
+                viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
+              );
+              setCreateViewOpen(true);
+            }}
+          >
+            <span className="data-controls__view-option-check">
+              <Icon name="plus" size={12} />
+            </span>
+            <span className="data-controls__view-option-label">
+              New view
+            </span>
+          </button>
+        </div>
+      ) : null}
+    </div>
+
+    {/* Settings icon — always visible; disabled on "All Records" */}
+    <button
+      type="button"
+      className="data-controls__view-settings"
+      title={
+        activeViewId !== null
+          ? "View settings"
+          : "Select a saved view to edit settings"
+      }
+      aria-label="View settings"
+      disabled={activeViewId === null}
+      onClick={() => {
+        if (!activeView) return;
+        setRenameDraft(activeView.name);
+        setViewTypeDraft(activeView.type);
+        setSettingsOpen(true);
+      }}
+    >
+      <Icon name="settings" size={13} />
+    </button>
+
+    {/* Save changes — only when on a saved view with unsaved modifications */}
+    {hasViewModifications && activeViewId !== null ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => void handleSaveChanges()}
+      >
+        Save changes
+      </Button>
+    ) : null}
+
+    {/* Save to new view — whenever there are unsaved modifications */}
+    {hasViewModifications ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={() => {
+          setCreateViewName("");
+          setCreateViewTypeDraft(
+            viewType === "kanban" && hasEnumColumns ? "kanban" : "table",
+          );
+          setCreateViewOpen(true);
+        }}
+      >
+        Save to new view
+      </Button>
+    ) : null}
+  </div>
+  );
+
+  const activeChipsNode = showActiveChips ? (
+        <div className="data-controls__active">
+          <div className="data-controls__chips">
+            {searchLabel ? (
+              <span className="data-controls__chip data-controls__chip--editable">
+                <span className="data-controls__chip-label">{searchLabel}</span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleStartEditingSearch}
+                    aria-label={`Edit ${searchLabel}`}
+                    title="Edit search"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleClearSearch}
+                    aria-label={`Remove ${searchLabel}`}
+                    title="Remove search"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              </span>
             ) : null}
+            {sortLabel ? (
+              <span className="data-controls__chip data-controls__chip--editable">
+                <span className="data-controls__chip-label">{sortLabel}</span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleStartEditingSort}
+                    aria-label={`Edit ${sortLabel}`}
+                    title="Edit sort"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={handleClearSort}
+                    aria-label={`Remove ${sortLabel}`}
+                    title="Remove sort"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              </span>
+            ) : null}
+            {query.filters.map((filter, index) => (
+              <span
+                key={`${filter.column}-${filter.op}-${filter.value ?? "null"}-${index}`}
+                className="data-controls__chip data-controls__chip--filter data-controls__chip--editable"
+              >
+                <span className="data-controls__chip-label">
+                  {formatFilterChip(filter, table.columns)}
+                </span>
+                <span className="data-controls__chip-actions">
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={() => handleStartEditingFilter(index)}
+                    aria-label={`Edit filter ${formatFilterChip(filter, table.columns)}`}
+                    title="Edit filter"
+                  >
+                    <Icon name="pencil" size={12} />
+                  </button>
+                  <button
+                    type="button"
+                    className="data-controls__chip-action"
+                    onClick={() => handleRemoveFilter(index)}
+                    aria-label={`Remove filter ${formatFilterChip(filter, table.columns)}`}
+                    title="Remove filter"
+                  >
+                    <Icon name="x" size={12} />
+                  </button>
+                </span>
+              </span>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={onResetView}
+              disabled={disabled}
+            >
+              Reset view
+            </Button>
+          </div>
+        </div>
+  ) : null;
+
+  return (
+    <div className="data-controls" ref={rootRef}>
+      {viewSlot ? createPortal(viewSelectorNode, viewSlot) : null}
+      <div className="data-controls__overlay-anchor" ref={overlayAnchorRef}>
+        <div className="data-controls__bar">
+          {/* LEFT — the view selector (unless the page hosts it in its header), then the active search/sort/filter chips */}
+          <div className="data-controls__bar-start">
+            {viewSlot ? null : viewSelectorNode}
+            {activeChipsNode}
           </div>
           <div className="data-controls__menu" ref={menuRef}>
             {toolbarActions}
@@ -1465,11 +1716,10 @@ export function DataQueryControls({
                 <Icon name="search" size={14} />
                 <span className="data-controls__menu-button-label">Search</span>
               </span>
+              {/* An active search shows as a dot on the button; it takes no
+                  room, so the toolbar does not shift. */}
               {query.search ? (
-                <span
-                  className="data-controls__menu-count"
-                  aria-hidden="true"
-                ></span>
+                <span className="data-controls__menu-dot" aria-hidden="true" />
               ) : null}
             </Button>
             <Button
@@ -1505,6 +1755,7 @@ export function DataQueryControls({
                 variant="ghost"
                 className="data-controls__menu-button"
                 aria-label="Configure kanban"
+                {...{ [KANBAN_CONFIG_TRIGGER]: "" }}
                 onClick={() => onConfigureKanban?.()}
               >
                 <span className="data-controls__menu-button-content">
@@ -1584,19 +1835,20 @@ export function DataQueryControls({
                 label="Search rows"
                 name="search"
                 placeholder="Search this table"
+                autoFocus
                 value={searchDraft}
                 onChange={(event) => setSearchDraft(event.target.value)}
-                disabled={disabled}
               />
+              {/* Never disabled while rows load: the live search reloads the
+                  rows as you type, and a disabled field loses focus. */}
               <div className="data-controls__search-actions">
-                <Button type="submit" variant="primary" disabled={disabled}>
+                <Button type="submit" variant="primary">
                   Apply search
                 </Button>
                 {query.search ? (
                   <Button
                     type="button"
                     variant="ghost"
-                    disabled={disabled}
                     onClick={() => {
                       setSearchDraft("");
                       onSearch("");
@@ -1751,8 +2003,8 @@ export function DataQueryControls({
                     }
                     placeholder={
                       filterOp === "in"
-                        ? "Choose enum values"
-                        : "Choose enum value"
+                        ? "Choose values"
+                        : "Choose a value"
                     }
                     options={selectedFilterColumn.values}
                     values={
@@ -1779,9 +2031,9 @@ export function DataQueryControls({
                     value={filterValue}
                     onChange={(event) => setFilterValue(event.target.value)}
                     options={[
-                      { label: "Choose true or false", value: "" },
-                      { label: "true", value: "true" },
-                      { label: "false", value: "false" },
+                      { label: "Choose yes or no", value: "" },
+                      { label: "Yes", value: "true" },
+                      { label: "No", value: "false" },
                     ]}
                     disabled={disabled}
                   />
@@ -1853,32 +2105,81 @@ export function DataQueryControls({
                 role="group"
                 aria-label="Visible columns"
               >
-                {table.columns.map((column) => {
+                {[
+                  ...keyColumns,
+                  ...shownColumnNames
+                    .map((name) => columnByName.get(name))
+                    .filter((column): column is ModelColumn => column !== undefined),
+                ].map((column) => {
                   const checked =
                     column.primaryKey || !hiddenColumnSet.has(column.name);
+                  const label = column.displayName ?? column.name;
+                  const movable = !column.primaryKey && Boolean(onColumnOrderChange);
                   return (
-                    <label
+                    <div
                       key={column.name}
-                      className={
-                        column.primaryKey
-                          ? "data-controls__column-toggle data-controls__column-toggle--locked"
-                          : "data-controls__column-toggle"
-                      }
+                      ref={(element) => {
+                        if (element) columnRowRefs.current.set(column.name, element);
+                        else columnRowRefs.current.delete(column.name);
+                      }}
+                      className={[
+                        "data-controls__column-row",
+                        draggingColumn === column.name
+                          ? "data-controls__column-row--dragging"
+                          : "",
+                      ]
+                        .filter(Boolean)
+                        .join(" ")}
                     >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={column.primaryKey || disabled}
-                        onChange={() =>
-                          handleToggleColumnVisibility(column.name)
+                      {movable ? (
+                        <button
+                          type="button"
+                          className="data-controls__column-grip"
+                          aria-label={`Move ${label}`}
+                          title="Drag to reorder (or use the arrow keys)"
+                          disabled={disabled}
+                          onPointerDown={(event) => startColumnDrag(event, column.name)}
+                          onKeyDown={(event) => {
+                            if (event.key === "ArrowUp" || event.key === "ArrowDown") {
+                              event.preventDefault();
+                              moveColumn(column.name, event.key === "ArrowUp" ? -1 : 1);
+                            }
+                          }}
+                        >
+                          <svg width="10" height="14" viewBox="0 0 10 14" aria-hidden="true">
+                            <circle cx="2.5" cy="2.5" r="1.25" />
+                            <circle cx="7.5" cy="2.5" r="1.25" />
+                            <circle cx="2.5" cy="7" r="1.25" />
+                            <circle cx="7.5" cy="7" r="1.25" />
+                            <circle cx="2.5" cy="11.5" r="1.25" />
+                            <circle cx="7.5" cy="11.5" r="1.25" />
+                          </svg>
+                        </button>
+                      ) : (
+                        <span className="data-controls__column-grip data-controls__column-grip--locked" aria-hidden="true" />
+                      )}
+                      <label
+                        className={
+                          column.primaryKey
+                            ? "data-controls__column-toggle data-controls__column-toggle--locked"
+                            : "data-controls__column-toggle"
                         }
-                      />
-                      <span className="data-controls__column-toggle-copy">
-                        <span className="data-controls__column-toggle-name">
-                          {column.displayName ?? column.name}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={column.primaryKey || disabled}
+                          onChange={() =>
+                            handleToggleColumnVisibility(column.name)
+                          }
+                        />
+                        <span className="data-controls__column-toggle-copy">
+                          <span className="data-controls__column-toggle-name">
+                            {label}
+                          </span>
                         </span>
-                      </span>
-                    </label>
+                      </label>
+                    </div>
                   );
                 })}
               </div>
@@ -1910,103 +2211,6 @@ export function DataQueryControls({
           </div>
         ) : null}
       </div>
-
-      {/* ── Active-query chips bar ── */}
-      {showActiveChips ? (
-        <div className="data-controls__active">
-          <div className="data-controls__chips">
-            {searchLabel ? (
-              <span className="data-controls__chip data-controls__chip--editable">
-                <span className="data-controls__chip-label">{searchLabel}</span>
-                <span className="data-controls__chip-actions">
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={handleStartEditingSearch}
-                    aria-label={`Edit ${searchLabel}`}
-                    title="Edit search"
-                  >
-                    <Icon name="pencil" size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={handleClearSearch}
-                    aria-label={`Remove ${searchLabel}`}
-                    title="Remove search"
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </span>
-              </span>
-            ) : null}
-            {sortLabel ? (
-              <span className="data-controls__chip data-controls__chip--editable">
-                <span className="data-controls__chip-label">{sortLabel}</span>
-                <span className="data-controls__chip-actions">
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={handleStartEditingSort}
-                    aria-label={`Edit ${sortLabel}`}
-                    title="Edit sort"
-                  >
-                    <Icon name="pencil" size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={handleClearSort}
-                    aria-label={`Remove ${sortLabel}`}
-                    title="Remove sort"
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </span>
-              </span>
-            ) : null}
-            {query.filters.map((filter, index) => (
-              <span
-                key={`${filter.column}-${filter.op}-${filter.value ?? "null"}-${index}`}
-                className="data-controls__chip data-controls__chip--filter data-controls__chip--editable"
-              >
-                <span className="data-controls__chip-label">
-                  {formatFilterChip(filter)}
-                </span>
-                <span className="data-controls__chip-actions">
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={() => handleStartEditingFilter(index)}
-                    aria-label={`Edit filter ${formatFilterChip(filter)}`}
-                    title="Edit filter"
-                  >
-                    <Icon name="pencil" size={12} />
-                  </button>
-                  <button
-                    type="button"
-                    className="data-controls__chip-action"
-                    onClick={() => handleRemoveFilter(index)}
-                    aria-label={`Remove filter ${formatFilterChip(filter)}`}
-                    title="Remove filter"
-                  >
-                    <Icon name="x" size={12} />
-                  </button>
-                </span>
-              </span>
-            ))}
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={onResetView}
-              disabled={disabled}
-            >
-              Reset view
-            </Button>
-          </div>
-        </div>
-      ) : null}
 
       {/* ── Create / save-as-new view modal ── */}
       {createViewOpen ? (
@@ -2073,7 +2277,7 @@ export function DataQueryControls({
                     aria-checked={createViewTypeDraft === "kanban"}
                     disabled={!hasEnumColumns && createViewTypeDraft !== "kanban"}
                     title={
-                      !hasEnumColumns ? "Kanban requires at least one enum column" : undefined
+                      !hasEnumColumns ? "Kanban needs a choice column to group by." : undefined
                     }
                     className={
                       createViewTypeDraft === "kanban"
@@ -2180,7 +2384,7 @@ export function DataQueryControls({
                         }
                         title={
                           !hasEnumColumns
-                            ? "Kanban requires at least one enum column"
+                            ? "Kanban needs a choice column to group by."
                             : undefined
                         }
                         className={
@@ -2235,7 +2439,7 @@ export function DataQueryControls({
                     <div className="view-modal__toggle-info">
                       <span className="view-modal__toggle-name">Auto-save</span>
                       <span className="view-modal__toggle-hint">
-                        Persist changes to this view as you edit
+                        Save changes to this view automatically
                       </span>
                     </div>
                     <button

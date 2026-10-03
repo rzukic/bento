@@ -1,16 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { useAppStore, type ThemeMode } from "../../stores/appStore";
+import { useAppStore } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { Icon, type IconName } from "../common/Icon";
 import type { AppRouteHandle } from "../../router";
 import { Button } from "../ui/Button";
 import { ConfirmDialog } from "../ui/Dialog";
-import { SelectField } from "../ui/SelectField";
+import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
+
+const sidebarShortcutLabel =
+  typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
 
 type AppFrameProps = {
   children: React.ReactNode;
@@ -25,19 +28,22 @@ type NavItem = {
 type NavSection = {
   title: string;
   items: NavItem[];
+  /** Modules that are not built yet render dimmed. */
+  dimmed?: boolean;
 };
 
 const navSections: NavSection[] = [
   {
     title: "Workspace",
     items: [
-      { to: "/", label: "Overview", icon: "home" },
+      { to: "/", label: "Home", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
       { to: "/model", label: "Schema", icon: "schema" },
     ],
   },
   {
-    title: "Later Modules",
+    title: "Coming soon",
+    dimmed: true,
     items: [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
@@ -55,8 +61,18 @@ export function AppFrame({ children }: AppFrameProps) {
   const navigate = useNavigate();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
-  const themeMode = useAppStore((state) => state.themeMode);
-  const setThemeMode = useAppStore((state) => state.setThemeMode);
+
+  // ⌘\ (Ctrl+\ elsewhere) toggles the sidebar from anywhere.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "\\" && (event.metaKey || event.ctrlKey) && !event.altKey) {
+        event.preventDefault();
+        toggleSidebar();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [toggleSidebar]);
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const schemaSnapshot = useSchemaStore((state) => state.snapshot);
@@ -116,32 +132,56 @@ export function AppFrame({ children }: AppFrameProps) {
     | AppRouteHandle
     | undefined;
   const hidePageHeader = currentHandle?.hidePageHeader === true;
+  const customPageHeader = currentHandle?.customPageHeader === true;
 
   useDocumentTitle(`${currentTitle} · Repere`);
 
   return (
     <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"}`}>
+      <div className="shell__sky" aria-hidden="true">
+        <div className="shell__pool shell__pool--1" />
+        <div className="shell__pool shell__pool--2" />
+        <svg className="shell__grain" xmlns="http://www.w3.org/2000/svg">
+          <filter id="shell-grain">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#shell-grain)" />
+        </svg>
+      </div>
       <aside className="shell__sidebar" aria-label="Primary sidebar">
         <div className="shell__brand">
-          <div className="shell__brand-mark" aria-hidden="true">
-            <Icon name="layers" size={16} strokeWidth={2} />
-          </div>
+          {/* Collapsed, the mark doubles as the expand control: it turns
+              into the sidebar icon on hover. */}
+          <button
+            type="button"
+            className="shell__brand-mark"
+            onClick={sidebarOpen ? undefined : toggleSidebar}
+            tabIndex={sidebarOpen ? -1 : 0}
+            aria-hidden={sidebarOpen ? true : undefined}
+            aria-label={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+            title={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+          >
+            <span className="shell__brand-logo">
+              <Icon name="layers" size={16} strokeWidth={2} />
+            </span>
+            <span className="shell__brand-expand">
+              <Icon name="panel-left" size={16} />
+            </span>
+          </button>
           <div className="shell__brand-text">
             <span className="shell__brand-name">Repere</span>
-            <span className="shell__brand-env">repere · local</span>
           </div>
+          <button
+            type="button"
+            className="shell__sidebar-toggle"
+            onClick={toggleSidebar}
+            aria-label={`Collapse sidebar (${sidebarShortcutLabel})`}
+            title={`Collapse sidebar (${sidebarShortcutLabel})`}
+          >
+            <Icon name="panel-left" size={16} />
+          </button>
         </div>
-
-        <button
-          type="button"
-          className="shell__search"
-          aria-label="Open command palette"
-        >
-          <Icon name="search" size={14} />
-          <span className="shell__search-text">Search or jump…</span>
-          <span className="kbd">⌘</span>
-          <span className="kbd">K</span>
-        </button>
 
         <nav className="shell__nav" aria-label="Main navigation">
           {navSections.map((section) => (
@@ -156,9 +196,13 @@ export function AppFrame({ children }: AppFrameProps) {
                       to={item.to}
                       end={item.to === "/"}
                       className={({ isActive }) =>
-                        isActive
-                          ? "shell__nav-link shell__nav-link--active"
-                          : "shell__nav-link"
+                        [
+                          "shell__nav-link",
+                          isActive ? "shell__nav-link--active" : "",
+                          section.dimmed ? "shell__nav-link--dimmed" : ""
+                        ]
+                          .filter(Boolean)
+                          .join(" ")
                       }
                     >
                       <Icon name={item.icon} size={15} />
@@ -173,8 +217,8 @@ export function AppFrame({ children }: AppFrameProps) {
 
         <div className="shell__sidebar-footer">
           <div className="shell__user">
-            <div className="shell__user-avatar" aria-hidden="true">
-              <Icon name="user" size={14} />
+            <div className="shell__user-avatar display" aria-hidden="true">
+              {(user?.username ?? "?").slice(0, 1).toUpperCase()}
             </div>
             <div className="shell__user-text">
               <span className="shell__user-name">
@@ -197,42 +241,11 @@ export function AppFrame({ children }: AppFrameProps) {
 
       <main className="shell__main">
         <header className="shell__topbar" aria-label="Toolbar">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shell__collapse"
-            onClick={toggleSidebar}
-            aria-pressed={sidebarOpen}
-            aria-label={sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-          >
-            <Icon
-              name={sidebarOpen ? "chevron-left" : "chevron-right"}
-              size={14}
-            />
-          </Button>
-
           <Breadcrumbs items={breadcrumbItems} />
 
           <div className="shell__topbar-spacer" />
 
-          <div className="shell__theme-picker">
-            <SelectField
-              label="Theme"
-              hideLabel
-              compact
-              value={themeMode}
-              onChange={(event) =>
-                setThemeMode(event.target.value as ThemeMode)
-              }
-              options={[
-                { label: "System", value: "system" },
-                { label: "Dark", value: "dark" },
-                { label: "Light", value: "light" },
-              ]}
-            />
-          </div>
-          <span className="badge">sqlite · dev</span>
-          <span className="badge">v0.1.0</span>
+          <ThemeSwitch className="shell__theme" />
         </header>
 
         <div
@@ -240,10 +253,10 @@ export function AppFrame({ children }: AppFrameProps) {
             hidePageHeader ? "shell__page shell__page--immersive" : "shell__page"
           }
         >
-          {!hidePageHeader ? (
+          {!hidePageHeader && !customPageHeader ? (
             <header className="shell__page-header">
               <div className="shell__page-heading">
-                <h1 className="shell__page-title">{currentTitle}</h1>
+                <h1 className="shell__page-title display">{currentTitle}</h1>
                 {currentSubtitle ? (
                   <p className="shell__page-subtitle">{currentSubtitle}</p>
                 ) : null}
@@ -266,7 +279,7 @@ export function AppFrame({ children }: AppFrameProps) {
       <ConfirmDialog
         open={logoutOpen}
         title="Sign out of this workspace?"
-        description="This clears the in-memory access token and sends you back to the public login route. The refresh cookie remains managed by the backend auth flow."
+        description="You will need to sign in again to get back to your workspace."
         confirmLabel="Sign out"
         confirmVariant="danger"
         onConfirm={handleLogout}

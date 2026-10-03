@@ -525,11 +525,14 @@ apply_demo_schema() {
 
 verify_schema_visibility() {
   api_request 200 GET "/admin/schema" bearer
-  assert_json '.tables | length == 3' 'demo schema should expose three tables'
+  # Three tables plus the N:M junction, which the model lists as a table.
+  assert_json '.tables | length == 4' 'demo schema should expose three tables and the products/orders junction'
   assert_json '.relations | length == 2' 'demo schema should expose two relations'
   assert_json '.tables | any(.name == "customers")' 'customers table should be present'
   assert_json '.tables | any(.name == "orders")' 'orders table should be present'
   assert_json '.tables | any(.name == "products")' 'products table should be present'
+  assert_json '.tables | any(.name == "_jt_orders_products")' 'the products/orders junction table should be listed'
+  assert_json '.relations | any(.name == "product_orders" and .junctionTable == "_jt_orders_products")' 'the N:M relation should point at its junction table'
 }
 
 create_customer() {

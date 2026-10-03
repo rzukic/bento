@@ -1,12 +1,16 @@
-import { useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import type { SchemaModelDocument, SchemaTable } from "../../../types/api";
-import {
-  countLabel,
-  formatMiniErdTypeValue,
-} from "../schemaWorkbenchHelpers";
+import { formatMiniErdTypeValue } from "../schemaWorkbenchHelpers";
 import type { VisualCanvasSelection, WorkbenchDiagnostic } from "../types";
 import {
   createOneToManyRelation,
@@ -19,10 +23,13 @@ import {
   buildErdRelationEdges,
   buildErdTableNodes,
   getErdCanvasSize,
+  findFreeErdPosition,
+  getErdContentBounds,
   getErdDragPath,
   getErdDropTargetTableName,
   getErdRelationHandlePoint,
   getNextVisualTableLayout,
+  smoothErdPath,
   snapToErdGrid,
   type ErdRelationDragState,
   type ErdRelationHandleSide,
@@ -53,6 +60,16 @@ type VisualCanvasViewport = {
   zoom: number;
 };
 
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 1.6;
+const FIT_PADDING = 56;
+/** Dot colours for tables without a colour of their own (by position). */
+const TABLE_DOTS = ["#60a5fa", "#2dd4bf", "#818cf8", "#fbbf24", "#f472b6", "#a3e635", "#fb923c", "#38bdf8"];
+
+function clampZoom(zoom: number): number {
+  return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoom));
+}
+
 type ErdCanvasPanState = {
   startClientX: number;
   startClientY: number;
@@ -61,12 +78,22 @@ type ErdCanvasPanState = {
 };
 
 type ErdTableDragState = {
+  lastX: number;
+  lastY: number;
   originX: number;
   originY: number;
   startClientX: number;
   startClientY: number;
   tableName: string;
 };
+
+/** The last canvas view in this browser tab, kept across remounts. */
+let rememberedViewport: VisualCanvasViewport | null = null;
+
+/** Tests start every render from a fresh canvas. */
+export function resetRememberedCanvasViewport() {
+  rememberedViewport = null;
+}
 
 export function VisualSchemaMode({
   activeDiagnosticId,
@@ -80,11 +107,16 @@ export function VisualSchemaMode({
   onSelectionChange,
   onReturnToJson,
 }: VisualSchemaModeProps) {
-  const [viewport, setViewport] = useState<VisualCanvasViewport>({
-    x: 0,
-    y: 0,
-    zoom: 1,
-  });
+  const [issuesCollapsed, setIssuesCollapsed] = useState(false);
+  const issueCount = issues.length + backendDiagnostics.length;
+  const [viewport, setViewport] = useState<VisualCanvasViewport>(
+    () => rememberedViewport ?? { x: 0, y: 0, zoom: 1 },
+  );
+  // Apply and Refresh reload the schema and remount this canvas; keep the
+  // view the person was looking at instead of re-fitting.
+  useEffect(() => {
+    rememberedViewport = viewport;
+  }, [viewport]);
   const [relationDrag, setRelationDrag] = useState<ErdRelationDragState | null>(
     null,
   );
@@ -92,6 +124,7 @@ export function VisualSchemaMode({
   const relationDragRef = useRef<ErdRelationDragState | null>(null);
   const canvasPanRef = useRef<ErdCanvasPanState | null>(null);
   const tableDragRef = useRef<ErdTableDragState | null>(null);
+  const panMovedRef = useRef(false);
 
   // Node geometry and relation routing depend only on the draft document.
   // Pan/zoom/drag state lives in this component too, so without memoisation
@@ -108,17 +141,73 @@ export function VisualSchemaMode({
     };
   }, [document]);
 
+  // The viewport element and the view that fits every table into it.
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const autoFitDone = useRef(rememberedViewport !== null);
+  const computeFit = (): VisualCanvasViewport | null => {
+    const element = viewportRef.current;
+    const bounds = geometry ? getErdContentBounds(geometry.nodes) : null;
+    if (!element || !bounds || element.clientWidth === 0 || element.clientHeight === 0) {
+      return null;
+    }
+    const zoom = clampZoom(
+      Math.min(
+        1,
+        (element.clientWidth - FIT_PADDING * 2) / bounds.width,
+        (element.clientHeight - FIT_PADDING * 2) / bounds.height,
+      ),
+    );
+    return {
+      zoom,
+      x: (element.clientWidth - bounds.width * zoom) / 2 - bounds.x * zoom,
+      y: (element.clientHeight - bounds.height * zoom) / 2 - bounds.y * zoom,
+    };
+  };
+
+  // Open with every table in view.
+  const hasTables = (geometry?.nodes.length ?? 0) > 0;
+  useLayoutEffect(() => {
+    if (autoFitDone.current || !hasTables) return;
+    const fitted = computeFit();
+    if (fitted) {
+      autoFitDone.current = true;
+      setViewport(fitted);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasTables, syntaxInvalid]);
+
+  // Wheel / two-finger scroll pans; with ⌘/Ctrl (and trackpad pinch, which
+  // arrives as ctrl+wheel) it zooms around the pointer.
+  useEffect(() => {
+    const element = viewportRef.current;
+    if (!element) return;
+    function onWheel(event: WheelEvent) {
+      event.preventDefault();
+      if (event.ctrlKey || event.metaKey) {
+        const rect = element!.getBoundingClientRect();
+        const cx = event.clientX - rect.left;
+        const cy = event.clientY - rect.top;
+        setViewport((current) => {
+          // ~20 % per mouse-wheel notch (deltaY ≈ 100), smooth for trackpad pinch.
+          const zoom = clampZoom(current.zoom * Math.exp(-event.deltaY * 0.0022));
+          const ratio = zoom / current.zoom;
+          return { zoom, x: cx - (cx - current.x) * ratio, y: cy - (cy - current.y) * ratio };
+        });
+        return;
+      }
+      setViewport((current) => ({ ...current, x: current.x - event.deltaX, y: current.y - event.deltaY }));
+    }
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [hasTables, syntaxInvalid]);
+
   if (syntaxInvalid) {
     return (
       <div className="schema-workbench__visual-shell">
         <EmptyState
           title="Fix JSON syntax to use Visual mode"
-          description="Visual mode reads the same draft as the JSON editor. The current draft stays untouched until the JSON parses again."
+          description="Fix the JSON errors to use the visual designer."
           icon="schema"
-          bullets={[
-            "Return to JSON to fix the syntax",
-            "Preview and apply remain disabled for invalid drafts",
-          ]}
         />
         <div className="schema-workbench__visual-actions">
           <Button variant="primary" onClick={onReturnToJson}>
@@ -134,9 +223,8 @@ export function VisualSchemaMode({
       <div className="schema-workbench__visual-shell">
         <EmptyState
           title="Draft cannot be shown visually"
-          description="The JSON parses, but it does not expose the tables and relations arrays the visual designer needs."
+          description="The schema needs a tables list and a relations list."
           icon="schema"
-          bullets={["Add a tables array", "Add a relations array"]}
         />
         <div className="schema-workbench__visual-actions">
           <Button variant="primary" onClick={onReturnToJson}>
@@ -285,7 +373,7 @@ export function VisualSchemaMode({
     if (
       target instanceof Element &&
       target.closest(
-        ".schema-workbench__erd-table, .schema-workbench__erd-relation-button, .schema-workbench__erd-relation-handle, .schema-workbench__erd-relation-hit",
+        ".schema-workbench__erd-table, .schema-workbench__erd-relation-button, .schema-workbench__erd-relation-handle, .schema-workbench__erd-relation-hit, .schema-workbench__erd-controls, .schema-workbench__erd-add-table",
       )
     ) {
       return;
@@ -293,6 +381,7 @@ export function VisualSchemaMode({
 
     event.preventDefault();
     event.currentTarget.setPointerCapture?.(event.pointerId);
+    panMovedRef.current = false;
 
     const nextPan = {
       startClientX: event.clientX,
@@ -308,6 +397,13 @@ export function VisualSchemaMode({
         return;
       }
 
+      if (
+        Math.abs(moveEvent.clientX - currentPan.startClientX) +
+          Math.abs(moveEvent.clientY - currentPan.startClientY) >
+        3
+      ) {
+        panMovedRef.current = true;
+      }
       setViewport((current) => ({
         ...current,
         x:
@@ -359,6 +455,8 @@ export function VisualSchemaMode({
       startClientY: event.clientY,
       originX: layout?.x ?? fallbackLayout.x,
       originY: layout?.y ?? fallbackLayout.y,
+      lastX: layout?.x ?? fallbackLayout.x,
+      lastY: layout?.y ?? fallbackLayout.y,
     };
 
     function handlePointerMove(moveEvent: PointerEvent) {
@@ -370,10 +468,12 @@ export function VisualSchemaMode({
       const deltaX = (moveEvent.clientX - currentDrag.startClientX) / viewport.zoom;
       const deltaY = (moveEvent.clientY - currentDrag.startClientY) / viewport.zoom;
 
+      currentDrag.lastX = snapToErdGrid(currentDrag.originX + deltaX);
+      currentDrag.lastY = snapToErdGrid(currentDrag.originY + deltaY);
       onDocumentChange(
         setTableLayout(visualDocument, currentDrag.tableName, {
-          x: snapToErdGrid(currentDrag.originX + deltaX),
-          y: snapToErdGrid(currentDrag.originY + deltaY),
+          x: currentDrag.lastX,
+          y: currentDrag.lastY,
         }),
       );
     }
@@ -385,6 +485,20 @@ export function VisualSchemaMode({
       }
 
       tableDragRef.current = null;
+      // A table dropped onto another moves to the nearest free spot.
+      const moved =
+        currentDrag.lastX !== currentDrag.originX || currentDrag.lastY !== currentDrag.originY;
+      if (moved) {
+        const free = findFreeErdPosition(
+          nodes,
+          currentDrag.tableName,
+          currentDrag.lastX,
+          currentDrag.lastY,
+        );
+        if (free.x !== currentDrag.lastX || free.y !== currentDrag.lastY) {
+          onDocumentChange(setTableLayout(visualDocument, currentDrag.tableName, free));
+        }
+      }
       window.removeEventListener("pointermove", handlePointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
     }
@@ -397,31 +511,20 @@ export function VisualSchemaMode({
     setViewport((current) => ({
       ...current,
       ...update,
-      zoom: Math.max(0.5, Math.min(1.6, update.zoom ?? current.zoom)),
+      zoom: clampZoom(update.zoom ?? current.zoom),
     }));
-  }
-
-  function panBy(deltaX: number, deltaY: number) {
-    setViewport((current) => ({
-      ...current,
-      x: current.x + deltaX,
-      y: current.y + deltaY,
-    }));
-  }
-
-  function resetCanvas() {
-    setViewport({ x: 0, y: 0, zoom: 1 });
-    relationDragRef.current = null;
-    setRelationDrag(null);
-    onSelectionChange(null);
   }
 
   function fitCanvas() {
-    setViewport({
-      x: 12,
-      y: 12,
-      zoom: visualDocument.tables.length > 3 ? 0.72 : 0.86,
-    });
+    // Without a measured viewport (e.g. before layout) fall back to a fixed
+    // overview zoom.
+    setViewport(
+      computeFit() ?? {
+        x: 12,
+        y: 12,
+        zoom: visualDocument.tables.length > 3 ? 0.72 : 0.86,
+      },
+    );
   }
 
   return (
@@ -430,153 +533,155 @@ export function VisualSchemaMode({
       data-testid="schema-visual-mode"
       aria-label="Visual schema draft"
     >
-      {issues.length > 0 ? (
-        <section
-          className="schema-workbench__visual-issues"
-          aria-label="Visual draft checks"
-        >
-          <h3>Visual draft checks</h3>
-          <ol>
-            {issues.slice(0, 5).map((issue) => (
-              <li key={`${issue.code}:${issue.path}`}>
-                <strong>{issue.code}</strong>
-                <span>{issue.message}</span>
-                <code>{issue.path}</code>
-              </li>
-            ))}
-          </ol>
-          {issues.length > 5 ? (
-            <p>{countLabel(issues.length - 5, "additional issue")} hidden.</p>
-          ) : null}
-        </section>
-      ) : null}
-
-      {backendDiagnostics.length > 0 ? (
-        <VisualPreviewDiagnostics
-          activeDiagnosticId={activeDiagnosticId}
-          diagnostics={backendDiagnostics}
-          document={visualDocument}
-          onSelect={(diagnostic, targetSelection) => {
-            onBackendDiagnosticSelect(diagnostic, targetSelection);
-          }}
-        />
-      ) : null}
-
       <div className="schema-workbench__erd-shell">
-        <div
-          className="schema-workbench__erd-toolbar"
-          role="toolbar"
-          aria-label="ERD canvas controls"
-        >
-          <Button
-            size="icon"
-            aria-label="Pan left"
-            title="Pan left"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => panBy(72, 0)}
+        {issueCount > 0 ? (
+          <div
+            className={
+              issuesCollapsed
+                ? "schema-workbench__canvas-issues schema-workbench__canvas-issues--collapsed"
+                : "schema-workbench__canvas-issues"
+            }
           >
-            <Icon name="chevron-left" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Pan right"
-            title="Pan right"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => panBy(-72, 0)}
-          >
-            <Icon name="chevron-right" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Pan up"
-            title="Pan up"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => panBy(0, 72)}
-          >
-            <Icon name="chevron-up" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Pan down"
-            title="Pan down"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => panBy(0, -72)}
-          >
-            <Icon name="chevron-down" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Zoom out"
-            title="Zoom out"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => updateViewport({ zoom: viewport.zoom - 0.1 })}
-          >
-            <Icon name="minus" size={15} />
-          </Button>
-          <span
-            className="schema-workbench__erd-zoom"
-            aria-label={`Canvas zoom ${zoomPercent}%`}
-          >
-            {zoomPercent}%
-          </span>
-          <Button
-            size="icon"
-            aria-label="Zoom in"
-            title="Zoom in"
-            disabled={visualDocument.tables.length === 0}
-            onClick={() => updateViewport({ zoom: viewport.zoom + 0.1 })}
-          >
-            <Icon name="plus" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Fit canvas"
-            title="Fit canvas"
-            disabled={visualDocument.tables.length === 0}
-            onClick={fitCanvas}
-          >
-            <Icon name="expand" size={15} />
-          </Button>
-          <Button
-            size="icon"
-            aria-label="Reset canvas"
-            title="Reset canvas"
-            disabled={visualDocument.tables.length === 0}
-            onClick={resetCanvas}
-          >
-            <Icon name="refresh" size={15} />
-          </Button>
-          <Button
-            size="sm"
-            variant="primary"
-            className="schema-workbench__erd-add-table"
-            leadingIcon={<Icon name="plus" size={14} />}
-            onClick={addNewTable}
-          >
-            Add table
-          </Button>
-        </div>
+            <button
+              type="button"
+              className="schema-workbench__canvas-issues-toggle"
+              aria-expanded={!issuesCollapsed}
+              onClick={() => setIssuesCollapsed((current) => !current)}
+            >
+              <span
+                className={
+                  issues.length > 0 || backendDiagnostics.some((diagnostic) => diagnostic.severity !== "warning")
+                    ? "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                    : "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                }
+                aria-hidden="true"
+              />
+              {issueCount === 1 ? "1 issue" : `${issueCount} issues`}
+              <Icon name={issuesCollapsed ? "chevron-down" : "chevron-up"} size={12} />
+            </button>
+            {issuesCollapsed ? null : (
+              <>
+                {issues.length > 0 ? (
+                  <section
+                    className="schema-workbench__visual-issues"
+                    aria-label="Problems to fix"
+                  >
+                    <h3>Problems to fix</h3>
+                    <ol>
+                      {issues.slice(0, 5).map((issue) => (
+                        <li key={`${issue.code}:${issue.path}`}>
+                          <span
+                            className="schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                            aria-hidden="true"
+                          />
+                          <span>{issue.message}</span>
+                        </li>
+                      ))}
+                    </ol>
+                    {issues.length > 5 ? <p>+{issues.length - 5} more</p> : null}
+                  </section>
+                ) : null}
 
+                {backendDiagnostics.length > 0 ? (
+                  <VisualPreviewDiagnostics
+                    activeDiagnosticId={activeDiagnosticId}
+                    diagnostics={backendDiagnostics}
+                    document={visualDocument}
+                    onSelect={(diagnostic, targetSelection) => {
+                      onBackendDiagnosticSelect(diagnostic, targetSelection);
+                    }}
+                  />
+                ) : null}
+              </>
+            )}
+          </div>
+        ) : null}
         <div
+          ref={viewportRef}
           className="schema-workbench__erd-viewport"
           data-testid="schema-erd-canvas"
+          style={{
+            // The dot grid is part of the canvas: it pans and zooms with it.
+            backgroundSize: `${24 * viewport.zoom}px ${24 * viewport.zoom}px`,
+            backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+          }}
+          onPointerDown={startCanvasPan}
+          onClick={(event) => {
+            // A click on empty canvas (not the end of a pan) clears the
+            // selection, which closes the inspector.
+            const target = event.target instanceof Element ? event.target : null;
+            if (panMovedRef.current) return;
+            if (
+              target?.closest(
+                ".schema-workbench__erd-table, .schema-workbench__erd-relation-button, .schema-workbench__erd-relation-hit, .schema-workbench__erd-controls, .schema-workbench__erd-add-table",
+              )
+            ) {
+              return;
+            }
+            onSelectionChange(null);
+          }}
         >
+          <div
+            className="schema-workbench__erd-controls"
+            role="toolbar"
+            aria-label="ERD canvas controls"
+          >
+            <button
+              type="button"
+              className="schema-workbench__erd-tool"
+              aria-label="Zoom out"
+              title="Zoom out"
+              disabled={visualDocument.tables.length === 0}
+              onClick={() => updateViewport({ zoom: viewport.zoom - 0.1 })}
+            >
+              <Icon name="minus" size={13} />
+            </button>
+            <span
+              className="schema-workbench__erd-zoom"
+              aria-label={`Canvas zoom ${zoomPercent}%`}
+            >
+              {zoomPercent}%
+            </span>
+            <button
+              type="button"
+              className="schema-workbench__erd-tool"
+              aria-label="Zoom in"
+              title="Zoom in"
+              disabled={visualDocument.tables.length === 0}
+              onClick={() => updateViewport({ zoom: viewport.zoom + 0.1 })}
+            >
+              <Icon name="plus" size={13} />
+            </button>
+            <button
+              type="button"
+              className="schema-workbench__erd-tool schema-workbench__erd-tool--text"
+              aria-label="Fit canvas"
+              title="Fit all tables in view"
+              disabled={visualDocument.tables.length === 0}
+              onClick={fitCanvas}
+            >
+              Fit
+            </button>
+          </div>
+          <button
+            type="button"
+            className="schema-workbench__erd-add-table"
+            onClick={addNewTable}
+          >
+            <Icon name="plus" size={13} />
+            Add table
+          </button>
           {visualDocument.tables.length === 0 ? (
             <EmptyState
               title="No tables in this draft"
-              description="The ERD canvas will render here once the shared Model JSON draft includes at least one table."
+              description="Add a table to start designing."
               icon="schema"
-              bullets={[
-                "JSON mode remains available",
-                "Import, preview, and apply still use the shared draft",
-              ]}
             />
           ) : (
             <div
               ref={canvasRef}
               className="schema-workbench__erd-canvas"
               data-testid="schema-erd-canvas-content"
-              onPointerDown={startCanvasPan}
               style={{
                 width: `${canvasSize.width}px`,
                 height: `${canvasSize.height}px`,
@@ -607,13 +712,14 @@ export function VisualSchemaMode({
                         }}
                       />
                       <path
-                        className={
-                          isSelected
-                            ? "schema-workbench__erd-relation-path schema-workbench__erd-relation-path--selected"
-                            : "schema-workbench__erd-relation-path"
-                        }
-                        d={edge.path}
-                        markerEnd="url(#schema-erd-arrow)"
+                        className={[
+                          "schema-workbench__erd-relation-path",
+                          edge.relation.type === "N:M" ? "schema-workbench__erd-relation-path--many" : "",
+                          isSelected ? "schema-workbench__erd-relation-path--selected" : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        d={smoothErdPath(edge.path)}
                       />
                     </g>
                   );
@@ -625,35 +731,24 @@ export function VisualSchemaMode({
                         ? "schema-workbench__erd-relation-path schema-workbench__erd-relation-path--draft schema-workbench__erd-relation-path--droppable"
                         : "schema-workbench__erd-relation-path schema-workbench__erd-relation-path--draft"
                     }
-                    d={getErdDragPath(relationDrag)}
-                    markerEnd="url(#schema-erd-arrow)"
+                    d={smoothErdPath(getErdDragPath(relationDrag))}
                   />
                 ) : null}
-                <defs>
-                  <marker
-                    id="schema-erd-arrow"
-                    markerWidth="10"
-                    markerHeight="10"
-                    refX="8"
-                    refY="3"
-                    orient="auto"
-                    markerUnits="strokeWidth"
-                  >
-                    <path d="M0,0 L0,6 L9,3 z" />
-                  </marker>
-                </defs>
               </svg>
 
               {edges.map((edge) => (
                 <button
                   key={edge.id}
                   type="button"
-                  className={
-                    selection?.type === "relation" &&
-                    selection.relationName === edge.relation.name
-                      ? "schema-workbench__erd-relation-button schema-workbench__erd-relation-button--selected"
-                      : "schema-workbench__erd-relation-button"
-                  }
+                  className={[
+                    "schema-workbench__erd-relation-button",
+                    edge.relation.type === "N:M" ? "schema-workbench__erd-relation-button--many" : "",
+                    selection?.type === "relation" && selection.relationName === edge.relation.name
+                      ? "schema-workbench__erd-relation-button--selected"
+                      : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
                   style={{
                     left: `${edge.labelX}px`,
                     top: `${edge.labelY}px`,
@@ -671,7 +766,7 @@ export function VisualSchemaMode({
                 </button>
               ))}
 
-              {nodes.map((node) => {
+              {nodes.map((node, nodeIndex) => {
                 const table = node.table;
                 const layout = getTableLayout(table);
                 const selected =
@@ -696,7 +791,6 @@ export function VisualSchemaMode({
                       top: `${node.y}px`,
                       width: `${node.width}px`,
                       minHeight: `${node.height}px`,
-                      borderColor: layout?.color ?? undefined,
                     }}
                   >
                     {selected ? (
@@ -733,11 +827,16 @@ export function VisualSchemaMode({
                         })
                       }
                     >
+                      <span
+                        className="schema-workbench__erd-table-dot"
+                        aria-hidden="true"
+                        style={{ background: layout?.color ?? TABLE_DOTS[nodeIndex % TABLE_DOTS.length] }}
+                      />
                       <span className="schema-workbench__erd-table-title">
                         {table.displayName || table.name}
                       </span>
-                      <span className="schema-workbench__erd-table-name">
-                        {table.name}
+                      <span className="schema-workbench__erd-table-count" aria-label={`${table.columns.length} columns`}>
+                        {table.columns.length}
                       </span>
                     </button>
                     <ol className="schema-workbench__erd-column-list">

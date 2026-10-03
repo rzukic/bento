@@ -240,6 +240,16 @@ Unique columns: a column created together with its table carries an inline `UNIQ
 - supports self-referential N:M junctions with asymmetric default column names (`left_*` / `right_*`) plus optional `fromColumn` / `toColumn` overrides
 - flags self-references and circular dependency sets for higher layers
 
+N:M junction tables are always part of the model (`ManyToManyJunctions`, since v0.2.0):
+- an N:M relation without `junctionTable` still gets a real table (`_jt_<left>_<right>`); the stored model is read with that table listed and the relation pointing at it (`junctionTable`, `fromColumn`, `toColumn`). The table already exists with exactly these columns, so adopting it changes no DDL, and sending the model back is a no-op
+- requests (designer drafts, imports, the startup model) get the same treatment before the diff: an existing junction is kept, a new one is added as a table. One exception: a still-implicit relation whose key columns are named differently from the existing junction is handed back to the implicit "rebuild the junction" path (key columns are primary-key columns and cannot be renamed); that path is destructive and needs confirmation
+- the junction's `created_at` keeps its internal `CURRENT_TIMESTAMP` default (restored on read, since internal defaults are not part of Model JSON)
+- because junction tables are in the model, they have their own CRUD routes (`/api/v1/data/_jt_orders_products`); in v0.1.0 an implicit junction answered 404
+
+Table designer metadata (preserved as extension fields, metadata-only on apply, no DDL):
+- `layout`: `{ x, y, color }` for the ERD canvas
+- `recordLabel`: `{ column, secondary? }`: the column that names a record of the table in the UI (FK chips, pickers, linked records, record editor title), plus an optional column shown with it. Without it the UI uses the first text column
+
 `MigrationRunner` stores schema versions and migration history through the system pool, and on Postgres it now also executes user-schema DDL through that privileged pool with `public` ahead of `_system` in `search_path` so the data role stays DML-only. SQLite keeps applying user-schema DDL against `data.db`. Rollback resolves the target schema version first and refuses to run when that version no longer exists, so data schema and Model JSON cannot drift apart; it then uses the same plan/compensation flow when cross-pool metadata persistence fails after the data schema changes.
 
 `ModelJsonStore` allocates schema versions atomically inside the same system transaction as the insert, using a single-row counter table plus a database-level unique constraint on `schema_versions.version`.

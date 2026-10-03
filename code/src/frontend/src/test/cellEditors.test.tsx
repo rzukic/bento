@@ -15,6 +15,8 @@ import {
 import { parseLenientNumber } from "../features/data-explorer/components/editors/numericParsing";
 import {
   formatDateDraft,
+  formatTimeDraft,
+  getDateTimeSeparator,
   parseDateDraft,
   parseTimeDraft,
 } from "../features/data-explorer/components/editors/temporalEditing";
@@ -225,7 +227,7 @@ describe("BooleanCellEditor", () => {
     const input = screen.getByRole("combobox");
     fireEvent.focus(input);
     const listbox = await screen.findByRole("listbox");
-    fireEvent.mouseDown(within(listbox).getByText("True"));
+    fireEvent.mouseDown(within(listbox).getByText("Yes"));
     expect(onCommit).toHaveBeenCalledWith(true);
   });
 
@@ -368,7 +370,8 @@ describe("DateTimeCellEditor", () => {
     fireEvent.focus(screen.getByRole("textbox", { name: "value time" }));
     expect(screen.getByRole("dialog", { name: "Time picker" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Pick 09:45" }));
-    expect(screen.getByRole("textbox", { name: "value time" })).toHaveValue("09:45");
+    // The time reads like the grid shows it in the current locale.
+    expect(screen.getByRole("textbox", { name: "value time" })).toHaveValue(formatTimeDraft("09:45"));
   });
 
   it("cancels on Escape and shows error", () => {
@@ -393,6 +396,28 @@ describe("DateTimeCellEditor", () => {
 describe("temporalEditing helpers", () => {
   it("parses locale date text back into ISO", () => {
     expect(parseDateDraft(formatDateDraft("2026-04-17"))).toBe("2026-04-17");
+  });
+
+  it("drafts dates and times the way the grid displays them", () => {
+    expect(formatDateDraft("2026-09-08", "de-DE")).toBe("08. Sept. 2026");
+    expect(formatDateDraft("2026-09-08", "en-US")).toBe("Sep 08, 2026");
+    expect(formatTimeDraft("2026-09-08T14:40", "de-DE")).toBe("14:40");
+    expect(formatTimeDraft("2026-09-08T14:40", "en-US")).toBe("02:40 PM");
+    expect(getDateTimeSeparator("de-DE")).toBe(", ");
+  });
+
+  it("parses written months and numeric dates", () => {
+    expect(parseDateDraft("08. Sept. 2026", "de-DE")).toBe("2026-09-08");
+    expect(parseDateDraft("8 Sep 2026", "de-DE")).toBe("2026-09-08");
+    expect(parseDateDraft("Sep 08, 2026", "en-US")).toBe("2026-09-08");
+    expect(parseDateDraft("08.09.2026", "de-DE")).toBe("2026-09-08");
+    expect(parseDateDraft("08. Foo 2026", "de-DE")).toBeNull();
+  });
+
+  it("parses 12-hour times", () => {
+    expect(parseTimeDraft("02:40 PM")).toBe("14:40");
+    expect(parseTimeDraft("12:05 am")).toBe("00:05");
+    expect(parseTimeDraft("12:05 PM")).toBe("12:05");
   });
 
   it("parses compact and separated time drafts", () => {
