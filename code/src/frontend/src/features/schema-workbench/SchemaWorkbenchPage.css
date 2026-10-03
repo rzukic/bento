@@ -30,12 +30,6 @@
   min-height: 20rem;
 }
 
-.schema-workbench__state-copy {
-  max-width: 32rem;
-  margin: 0;
-  color: var(--text-3);
-}
-
 .schema-workbench__toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -170,9 +164,6 @@
 }
 
 .schema-workbench__visual-issues li {
-  display: grid;
-  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1.25fr);
-  gap: 0.25rem 0.625rem;
   padding: 0.5rem 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
 }
@@ -181,15 +172,9 @@
   border-top: 0;
 }
 
-.schema-workbench__visual-issues span,
-.schema-workbench__visual-issues code {
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-}
-
-.schema-workbench__visual-issues code {
-  grid-column: 1 / -1;
-  word-break: break-word;
+.schema-workbench__visual-issues span {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
 }
 
 .schema-workbench__visual-diagnostics {
@@ -883,38 +868,6 @@
   font-weight: 600;
 }
 
-.schema-workbench__visual-relation-resolved {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.375rem;
-  margin: 0;
-  padding: 0.5rem 0.625rem;
-  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--surface-raised) 60%, var(--surface));
-}
-
-.schema-workbench__visual-relation-resolved div {
-  display: flex;
-  flex-direction: column;
-  gap: 0.125rem;
-}
-
-.schema-workbench__visual-relation-resolved dt {
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-}
-
-.schema-workbench__visual-relation-resolved dd {
-  margin: 0;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .schema-workbench__visual-relation-advanced {
   margin: 0;
   padding: 0.5rem 0.625rem;
@@ -974,12 +927,11 @@
   background: color-mix(in srgb, var(--danger) 9%, var(--surface));
 }
 
-.schema-workbench__visual-relation-errors strong {
+.schema-workbench__visual-relation-errors span {
   color: var(--danger);
   font-size: var(--fs-xs);
 }
 
-.schema-workbench__visual-relation-errors span,
 .schema-workbench__visual-muted {
   color: var(--text-4);
   font-size: var(--fs-xs);
@@ -1297,11 +1249,6 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
   font-weight: 700;
-}
-
-.schema-workbench__preview-copy {
-  margin: 0;
-  color: var(--text-3);
 }
 
 .schema-workbench__readonly-badge {
@@ -1672,13 +1619,6 @@
   font-weight: 600;
 }
 
-.schema-workbench__diagnostic-code,
-.schema-workbench__diagnostic-path {
-  padding: 0.125rem 0.375rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-raised) 88%, var(--surface));
-}
-
 .schema-workbench__diagnostic-message {
   margin: 0;
   color: var(--text-1);
@@ -1950,4 +1890,1184 @@
     overflow: visible;
   }
 
+}
+
+/* =========================================================================
+   Step 2.8 — UI language rollout
+   Presentation-only overrides for the workbench chrome: toolbar, mode
+   switch, panels, ERD canvas, preview and apply dialog. Behaviour and the
+   draft/preview/apply flow are untouched.
+   ========================================================================= */
+
+.schema-workbench__toolbar {
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  gap: 0.5rem;
+}
+
+.schema-workbench__mode-switch {
+  gap: 0;
+  padding: 2px;
+  border-color: var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+
+.schema-workbench__mode-button {
+  min-width: 4.25rem;
+  border-color: transparent;
+  color: var(--text-3);
+}
+
+.schema-workbench__mode-button:hover {
+  background: transparent;
+  color: var(--text);
+}
+
+.schema-workbench__mode-button--active,
+.schema-workbench__mode-button--active:hover {
+  background: var(--text);
+  color: var(--bg);
+  border-color: transparent;
+  font-weight: 600;
+}
+
+.schema-workbench__editor-panel .panel__header,
+.schema-workbench__side-panel .panel__header {
+  padding: 1.125rem 1.25rem 0;
+}
+
+/* ERD canvas */
+.schema-workbench__erd-viewport {
+  background-color: transparent;
+  background-image: radial-gradient(var(--line-2) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+  border-radius: var(--r-xl);
+}
+
+.schema-workbench__erd-table {
+  border-color: var(--line-2);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 92%, transparent);
+  box-shadow: none;
+}
+
+.schema-workbench__erd-table--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.schema-workbench__erd-table--relation-target {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 24%, transparent);
+}
+
+.schema-workbench__erd-table-header {
+  border-bottom-color: var(--line-2);
+}
+
+.schema-workbench__erd-table-title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.schema-workbench__erd-relation-handle {
+  border-color: var(--bg);
+  box-shadow: none;
+}
+
+/* Preview changes and the apply dialog */
+.schema-workbench__preview-change {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+.schema-workbench__preview-change--drop-destructive {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+}
+
+.schema-workbench__apply-dialog-hint {
+  border-color: var(--line);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--surface-raised) 55%, transparent);
+}
+
+.schema-workbench__apply-dialog-hint-label {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+/* =========================================================================
+   Schema page as in the design fragment: a page header (title, mode switch,
+   draft status, actions), the canvas as the stage, and a 380 px side panel
+   that only appears for a selection (inspector) or on request (preview).
+   ========================================================================= */
+.schema-workbench {
+  --page-gutter: 2.5rem;
+  gap: 0;
+  padding: 0;
+  height: 100%;
+}
+
+.schema-workbench__header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding: 1.625rem var(--page-gutter) 1.125rem;
+}
+
+.schema-workbench__heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  min-width: 0;
+}
+
+.schema-workbench__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 2.75rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.045em;
+}
+
+.schema-workbench__subhead {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.schema-workbench .schema-workbench__mode-switch {
+  display: inline-flex;
+  gap: 0;
+  padding: 2px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+}
+
+.schema-workbench .schema-workbench__mode-button {
+  height: 1.75rem;
+  padding: 0 0.875rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 var(--fs-sm) var(--font-ui);
+  cursor: pointer;
+}
+
+.schema-workbench .schema-workbench__mode-button--active {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.schema-workbench__status {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.schema-workbench__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.schema-workbench__tool,
+.schema-workbench__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font: 500 var(--fs-sm) var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+
+.schema-workbench__tool {
+  height: 2rem;
+  padding: 0 0.75rem;
+}
+
+.schema-workbench__pill {
+  height: 2.25rem;
+  padding: 0 1rem;
+  color: var(--text);
+}
+
+.schema-workbench__tool:hover:not(:disabled),
+.schema-workbench__pill--ghost:hover:not(:disabled),
+.schema-workbench__pill--active {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.schema-workbench__pill--accent {
+  border-color: transparent;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.schema-workbench__pill--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, #000);
+}
+
+/* Disabled reads as disabled for every action, the accent one included. */
+.schema-workbench__tool:disabled,
+.schema-workbench__pill:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.schema-workbench__pill--accent:disabled {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  color: var(--text-2);
+}
+
+/* Workspace: the stage, plus the side panel only when it has something */
+.schema-workbench .schema-workbench__workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 1rem;
+  flex: 1;
+  min-height: 0;
+  padding: 0 var(--page-gutter) 1.75rem;
+}
+
+.schema-workbench .schema-workbench__workspace--with-side {
+  grid-template-columns: minmax(0, 1fr) 380px;
+}
+
+.schema-workbench__stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.schema-workbench__stage-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.625rem 0.875rem 0.625rem 1.125rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.schema-workbench__stage-label {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.schema-workbench__stage .schema-workbench__editor-shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.schema-workbench__stage .schema-json-editor,
+.schema-workbench__stage .schema-json-editor__layers .cm-editor {
+  background: var(--surface);
+  border: 0;
+  border-radius: 0;
+}
+
+.schema-workbench__stage .schema-json-editor__layers .cm-gutters {
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+}
+
+.schema-workbench__stage-problems {
+  max-height: 30%;
+  overflow: auto;
+  padding: 0.75rem 1.125rem;
+  border-top: 1px solid var(--line);
+}
+
+/* Side panel (inspector or preview) */
+.schema-workbench .schema-workbench__side {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-height: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  overflow: hidden;
+  animation: schema-side-in 160ms var(--ease) both;
+}
+
+@keyframes schema-side-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+
+.schema-workbench__side-header {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 1rem 1rem 0.875rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.schema-workbench__side-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.schema-workbench__side-meta {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.schema-workbench__side-close {
+  display: grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-left: auto;
+  align-self: center;
+  padding: 0;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.schema-workbench__side-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.schema-workbench__side-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem 1.25rem 1.25rem;
+}
+
+/* -------------------------------------------------------------------------
+   Canvas
+   ------------------------------------------------------------------------- */
+.schema-workbench__stage--visual .schema-workbench__visual-shell {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: 0;
+  padding: 0;
+}
+
+.schema-workbench__stage--visual .schema-workbench__visual-issues,
+.schema-workbench__stage--visual .schema-workbench__preview-diagnostics {
+  margin: 0;
+  padding: 0.75rem 1.125rem;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  border-radius: 0;
+}
+
+.schema-workbench .schema-workbench__erd-shell {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.schema-workbench .schema-workbench__erd-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background-color: var(--surface);
+  background-image: radial-gradient(var(--line-2) 1px, transparent 1.2px);
+  background-size: 24px 24px;
+  cursor: grab;
+}
+
+.schema-workbench .schema-workbench__erd-viewport:active {
+  cursor: grabbing;
+}
+
+.schema-workbench .schema-workbench__erd-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+  background: none;
+}
+
+.schema-workbench__erd-controls {
+  position: absolute;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.schema-workbench__erd-tool,
+.schema-workbench .schema-workbench__erd-zoom {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: var(--popover);
+  color: var(--text-2);
+  font: 500 var(--fs-sm) var(--font-ui);
+}
+
+.schema-workbench .schema-workbench__erd-zoom {
+  min-width: 3.5rem;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+}
+
+.schema-workbench__erd-tool {
+  cursor: pointer;
+}
+
+.schema-workbench__erd-tool--text {
+  padding: 0 0.75rem;
+}
+
+.schema-workbench__erd-tool:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--text) 6%, var(--popover));
+}
+
+.schema-workbench__erd-tool:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.schema-workbench .schema-workbench__erd-add-table {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 2rem;
+  padding: 0 0.875rem;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--bg);
+  font: 600 var(--fs-sm) var(--font-ui);
+  cursor: pointer;
+}
+
+.schema-workbench .schema-workbench__erd-add-table:hover {
+  background: color-mix(in srgb, var(--text) 85%, var(--bg));
+}
+
+/* Table cards (header 44 px, rows 30 px: the geometry in erdRouting.ts) */
+.schema-workbench .schema-workbench__erd-table {
+  position: absolute;
+  overflow: visible;
+  border: 1px solid var(--line-2);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.schema-workbench .schema-workbench__erd-table--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.schema-workbench .schema-workbench__erd-table--relation-target {
+  border-color: var(--accent);
+  border-style: dashed;
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.schema-workbench .schema-workbench__erd-table-header {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  height: 44px;
+  min-height: 44px;
+  padding: 0 0.875rem;
+  border: 0;
+  border-bottom: 1px solid var(--line-2);
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: grab;
+}
+
+.schema-workbench__erd-table-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.schema-workbench .schema-workbench__erd-table-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  font-size: 0.875rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.schema-workbench__erd-table-count {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-4);
+}
+
+.schema-workbench .schema-workbench__erd-column-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schema-workbench .schema-workbench__erd-column-list > li + li .schema-workbench__erd-column {
+  border-top: 1px solid var(--line);
+}
+
+.schema-workbench .schema-workbench__erd-column {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  width: 100%;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 0.875rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.schema-workbench .schema-workbench__erd-column:hover {
+  background: var(--hover);
+}
+
+.schema-workbench .schema-workbench__erd-column--selected {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+.schema-workbench .schema-workbench__erd-column-name {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: inherit;
+  text-decoration: none;
+}
+
+.schema-workbench .schema-workbench__erd-column-badges span {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.schema-workbench .schema-workbench__erd-column code {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  color: var(--text-4);
+  background: none;
+  padding: 0;
+}
+
+.schema-workbench .schema-workbench__erd-more {
+  padding: 0.375rem 0.875rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.6875rem;
+  color: var(--text-4);
+}
+
+/* Relation lines: soft curves, blue for one-to-many, teal for many-to-many,
+   a small mono label instead of a pill, no arrowheads. */
+.schema-workbench .schema-workbench__erd-relation-path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  opacity: 0.85;
+}
+
+.schema-workbench .schema-workbench__erd-relation-path--many {
+  stroke: #2dd4bf;
+}
+
+.schema-workbench .schema-workbench__erd-relation-path--selected {
+  stroke-width: 2.5;
+  opacity: 1;
+}
+
+.schema-workbench .schema-workbench__erd-relation-path--draft {
+  stroke-dasharray: 4 4;
+}
+
+.schema-workbench .schema-workbench__erd-relation-button {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  /* The old pill rule set min-width: 3.75rem; the label hugs its text. */
+  min-width: 0;
+  height: auto;
+  min-height: 0;
+  padding: 0.0625rem 0.3125rem;
+  border: 0;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.schema-workbench .schema-workbench__erd-relation-button--many {
+  color: #14b8a6;
+}
+
+.schema-workbench .schema-workbench__erd-relation-button:hover,
+.schema-workbench .schema-workbench__erd-relation-button--selected {
+  background: var(--accent-soft);
+}
+
+.schema-workbench .schema-workbench__erd-relation-handle {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--surface);
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+@media (max-width: 760px) {
+  .schema-workbench {
+    --page-gutter: 1rem;
+    height: auto;
+  }
+
+  .schema-workbench__header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .schema-workbench__title {
+    font-size: 2rem;
+  }
+
+  .schema-workbench .schema-workbench__workspace,
+  .schema-workbench .schema-workbench__workspace--with-side {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .schema-workbench__stage {
+    min-height: 26rem;
+  }
+}
+
+/* Inspector contents in the design language: underline fields, quiet
+   outline pills for actions (delete in red), columns as hairline rows,
+   engine-only fields folded under "Advanced". */
+.schema-workbench__side .schema-workbench__visual-inspector {
+  gap: 1.25rem;
+}
+
+.schema-workbench__side .schema-workbench__visual-inspector-section {
+  gap: 1rem;
+}
+
+.schema-workbench__side .btn {
+  height: 2rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  box-shadow: none;
+}
+
+.schema-workbench__side .btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.schema-workbench__side .btn--danger {
+  border-color: color-mix(in srgb, var(--danger) 35%, transparent);
+  color: var(--danger);
+}
+
+.schema-workbench__side .btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger);
+}
+
+.schema-workbench__side .schema-workbench__visual-column-picker {
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.schema-workbench__side .schema-workbench__visual-column-picker li + li button {
+  border-top: 1px solid var(--line);
+}
+
+.schema-workbench__side .schema-workbench__visual-column-picker button {
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  color: var(--text);
+}
+
+.schema-workbench__side .schema-workbench__visual-column-picker button:hover {
+  background: var(--hover);
+}
+
+.schema-workbench__side .schema-workbench__visual-column-picker code {
+  font-size: 0.6875rem;
+  color: var(--text-4);
+  background: none;
+}
+
+.schema-workbench__advanced {
+  border-top: 1px solid var(--line);
+  padding-top: 0.625rem;
+}
+
+.schema-workbench__advanced > summary {
+  cursor: pointer;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}
+
+.schema-workbench__advanced > summary::-webkit-details-marker {
+  display: none;
+}
+
+.schema-workbench__advanced > summary::before {
+  content: "+ ";
+}
+
+.schema-workbench__advanced[open] > summary::before {
+  content: "− ";
+}
+
+.schema-workbench__advanced[open] > summary {
+  margin-bottom: 0.75rem;
+}
+
+/* ── Issues: a floating card on the canvas, rows with a severity dot ── */
+.schema-workbench__sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.schema-workbench__issue-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.schema-workbench__issue-dot--warning {
+  background: var(--warning);
+}
+
+.schema-workbench .schema-workbench__canvas-issues {
+  position: absolute;
+  z-index: 3;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - 32px));
+  max-height: calc(100% - 96px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: var(--popover-shadow);
+}
+
+.schema-workbench__canvas-issues--collapsed {
+  width: auto;
+}
+
+.schema-workbench__canvas-issues-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.625rem 0.875rem;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: 600 0.8125rem/1.2 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.schema-workbench__canvas-issues-toggle svg {
+  margin-left: auto;
+  color: var(--text-3);
+}
+
+.schema-workbench__canvas-issues-toggle:hover {
+  background: var(--hover);
+}
+
+.schema-workbench .schema-workbench__canvas-issues .schema-workbench__visual-issues,
+.schema-workbench .schema-workbench__canvas-issues .schema-workbench__visual-diagnostics {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.schema-workbench .schema-workbench__canvas-issues h3 {
+  margin: 0;
+  padding: 0.625rem 0.875rem 0.25rem;
+  color: var(--text-3);
+  font: 500 0.6875rem/1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.schema-workbench .schema-workbench__canvas-issues ol {
+  margin: 0;
+  padding: 0 0 0.375rem;
+  list-style: none;
+}
+
+.schema-workbench .schema-workbench__canvas-issues li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0.375rem 0.875rem;
+  border: 0;
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.schema-workbench .schema-workbench__canvas-issues li .schema-workbench__issue-dot {
+  transform: translateY(-1px);
+}
+
+.schema-workbench .schema-workbench__canvas-issues > section > p {
+  margin: 0;
+  padding: 0 0.875rem 0.625rem;
+  color: var(--text-3);
+  font-size: 0.75rem;
+}
+
+/* Diagnostic rows (canvas card, preview panel, JSON problems strip) */
+.schema-workbench .schema-workbench__diagnostic-list {
+  gap: 0;
+  padding: 0 0 0.375rem;
+}
+
+.schema-workbench .schema-workbench__diagnostic-card {
+  gap: 0.25rem;
+  padding: 0.5rem 0.875rem;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+
+.schema-workbench .schema-workbench__diagnostic-card:hover {
+  background: var(--hover);
+}
+
+.schema-workbench .schema-workbench__diagnostic-card--active {
+  background: var(--accent-soft);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.schema-workbench .schema-workbench__diagnostic-meta {
+  gap: 0.5rem;
+  color: var(--text-3);
+  font: 500 0.75rem/1.2 var(--font-mono);
+}
+
+.schema-workbench .schema-workbench__diagnostic-severity,
+.schema-workbench .schema-workbench__diagnostic-location {
+  font-weight: 500;
+}
+
+.schema-workbench .schema-workbench__diagnostic-message {
+  margin: 0;
+  padding-left: calc(7px + 0.5rem);
+  color: var(--text-2);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+/* ── Toasts: apply and import feedback, bottom centre ── */
+.schema-workbench__toasts {
+  position: fixed;
+  z-index: 60;
+  bottom: 24px;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: min(420px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.schema-workbench__toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 0.75rem 0.75rem 0.875rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--popover);
+  box-shadow: var(--popover-shadow);
+  pointer-events: auto;
+  animation: schema-toast-in 180ms ease-out;
+}
+
+@keyframes schema-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.schema-workbench__toast-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+
+.schema-workbench__toast--success .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--success) 16%, transparent);
+  color: var(--success);
+}
+
+.schema-workbench__toast--warning .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--warning) 18%, transparent);
+  color: var(--warning);
+}
+
+.schema-workbench__toast--error .schema-workbench__toast-icon {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.schema-workbench__toast-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.schema-workbench__toast-title {
+  color: var(--text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.schema-workbench__toast-message {
+  margin-top: 0.125rem;
+  color: var(--text-3);
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.schema-workbench__toast-detail {
+  margin-top: 0.375rem;
+  color: var(--text-3);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.schema-workbench__toast-close {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.schema-workbench__toast-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.schema-workbench .schema-workbench__diagnostic-heading h3 {
+  color: var(--text-3);
+  font: 500 0.6875rem/1.2 var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.schema-workbench .schema-workbench__diagnostic-section {
+  gap: 0.25rem;
+}
+
+.schema-workbench .schema-workbench__diagnostic-detail {
+  padding-left: calc(7px + 0.5rem);
+  color: var(--text-3);
+  font-size: 0.75rem;
+}
+
+/* In the side panel the rows bleed to the panel edge so their text lines
+   up with the heading and the hover reaches the edges. */
+.schema-workbench__side-body .schema-workbench__diagnostic-card {
+  width: calc(100% + 40px);
+  margin: 0 -20px;
+  padding-inline: 20px;
+}
+
+.schema-workbench__side-body .schema-workbench__diagnostic-list {
+  padding-bottom: 0.75rem;
+}
+
+/* One hairline between column rows (the list item and its button each drew
+   one, which read as a fat line at most zoom levels), and the last row
+   follows the card's rounded corners so a selected last column stays
+   inside the card. The card itself cannot clip: the relation handles sit
+   on its edge. */
+.schema-workbench .schema-workbench__erd-column-list > li {
+    border-top: 1px solid var(--line);
+}
+
+.schema-workbench .schema-workbench__erd-column-list > li > .schema-workbench__erd-column,
+.schema-workbench .schema-workbench__erd-column-list > li + li .schema-workbench__erd-column {
+    border-top: 0;
+    border-bottom: 0;
+}
+
+.schema-workbench .schema-workbench__erd-column-list > li:last-child > .schema-workbench__erd-column {
+    border-radius: 0 0 11px 11px;
+}
+
+/* The header already draws the line above the first column. */
+.schema-workbench .schema-workbench__erd-column-list > li:first-child {
+    border-top: 0;
+}
+
+/* Apply for a draft that deletes data: red instead of the accent. */
+.schema-workbench__pill--danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: #fff;
+  font-weight: 600;
+}
+
+.schema-workbench__pill--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, #000);
+}
+
+.schema-workbench__pill--danger:disabled {
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+  color: var(--text-2);
 }

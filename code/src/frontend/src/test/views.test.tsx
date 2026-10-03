@@ -1037,7 +1037,7 @@ describe("KanbanView", () => {
     )!;
 
     // The drag handle is a <span draggable> with aria-label — find via CSS selector
-    const dragHandle = pendingLane.querySelector(".kanban-card__drag-handle")!;
+    const dragHandle = pendingLane.querySelector(".kanban-card")!;
     expect(dragHandle).not.toBeNull();
 
     fireEvent.dragStart(dragHandle);
@@ -1055,8 +1055,9 @@ describe("KanbanView", () => {
     await waitFor(() => {
       expect(within(shippedLane).queryAllByRole("article")).toHaveLength(2);
     });
-
-    void container;
+    // ...and does not keep the faded dragging look (its dragend never comes:
+    // the card remounted in the new lane).
+    expect(container.querySelector(".kanban-card--dragging")).toBeNull();
   });
 
   it("snaps the card back on PATCH failure and shows an error banner", async () => {
@@ -1090,7 +1091,7 @@ describe("KanbanView", () => {
       l.querySelector(".kanban-lane__label")?.textContent === "shipped",
     )!;
 
-    const dragHandle = pendingLane.querySelector(".kanban-card__drag-handle")!;
+    const dragHandle = pendingLane.querySelector(".kanban-card")!;
     fireEvent.dragStart(dragHandle);
     fireEvent.dragOver(shippedLane);
     fireEvent.drop(shippedLane);

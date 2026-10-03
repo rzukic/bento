@@ -52,7 +52,7 @@ export const useSetupStore = create<SetupStoreState>((set, get) => ({
       const message =
         cause instanceof ApiClientError
           ? cause.message
-          : "Unable to reach the backend to check the installation state.";
+          : "Could not reach the server. Check your connection and try again.";
       // Keep whatever we knew before so a transient failure during the wizard
       // does not wipe the environment summary.
       set({ status: "error", error: message });

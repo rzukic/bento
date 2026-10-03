@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
+import { ConfirmDialog } from "../../../components/ui/Dialog";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SelectField } from "../../../components/ui/SelectField";
 import { TextField } from "../../../components/ui/TextField";
@@ -119,7 +120,7 @@ function VisualTableColorField({ table, onChange }: VisualTableColorFieldProps) 
         ) : null}
       </div>
       <span className="schema-workbench__visual-color-hint">
-        Layout-only metadata. Saved with the schema but ignored by migrations.
+        Only changes how the table looks in the designer.
       </span>
     </div>
   );
@@ -137,6 +138,13 @@ export function VisualSchemaInspector({
   const [relationDraftIssues, setRelationDraftIssues] = useState<
     VisualSchemaDraftIssue[]
   >([]);
+  // Deleting a table or column asks in the app's own dialog.
+  const [pendingDelete, setPendingDelete] = useState<{
+    title: string;
+    description: string;
+    confirmLabel: string;
+    run: () => void;
+  } | null>(null);
 
   function commit(nextDocument: SchemaModelDocument) {
     onDocumentChange(nextDocument);
@@ -150,7 +158,7 @@ export function VisualSchemaInspector({
       >
         <EmptyState
           title="Select a table, column, or relation"
-          description="Schema settings appear here and update the shared Model JSON draft immediately."
+          description="Click a table, column or relation on the canvas to edit it."
           icon="pencil"
         />
       </aside>
@@ -197,7 +205,7 @@ export function VisualSchemaInspector({
       >
         <EmptyState
           title="Selection no longer exists"
-          description="Choose another table or column from the ERD canvas."
+          description="Choose another table or column from the canvas."
           icon="schema"
         />
       </aside>
@@ -248,26 +256,29 @@ export function VisualSchemaInspector({
   }
 
   function deleteSelectedTable() {
-    const impact = getTableDeleteImpact(document, activeTable.name);
-    const details = [
-      `Delete table "${activeTable.name}" from the visual draft?`,
+    const tableName = activeTable.name;
+    const impact = getTableDeleteImpact(document, tableName);
+    const description = [
       impact.relationCount > 0
         ? `${countLabel(impact.relationCount, "relation")} will be removed.`
         : null,
       impact.referenceColumnCount > 0
         ? `${countLabel(impact.referenceColumnCount, "reference column")} will be removed.`
         : null,
+      "Its rows are dropped when you apply the draft.",
     ]
       .filter(Boolean)
       .join(" ");
 
-    const confirmed = window.confirm(details);
-    if (!confirmed) {
-      return;
-    }
-
-    commit(deleteTableWithDependents(document, activeTable.name));
-    onSelectionChange(null);
+    setPendingDelete({
+      title: `Delete table "${tableName}"?`,
+      description,
+      confirmLabel: "Delete table",
+      run: () => {
+        commit(deleteTableWithDependents(document, tableName));
+        onSelectionChange(null);
+      },
+    });
   }
 
   function updateSelectedColumn(
@@ -329,22 +340,26 @@ export function VisualSchemaInspector({
   }
 
   function deleteSelectedColumn(column: SchemaColumn) {
-    const confirmed = window.confirm(
-      `Delete column "${activeTable.name}.${column.name}" from the visual draft?`,
-    );
-    if (!confirmed) {
-      return;
-    }
-
-    commit(removeColumn(document, activeTable.name, column.name));
-    onSelectionChange({ type: "table", tableName: activeTable.name });
+    const tableName = activeTable.name;
+    setPendingDelete({
+      title: `Delete column "${tableName}.${column.name}"?`,
+      description: "Its values are dropped when you apply the draft.",
+      confirmLabel: "Delete column",
+      run: () => {
+        commit(removeColumn(document, tableName, column.name));
+        onSelectionChange({ type: "table", tableName });
+      },
+    });
   }
 
   const activeRelationDraft =
     relationDraft?.fromTableName === activeTable.name ? relationDraft : null;
+  // A junction table belongs to the N:M relation it stores the links for.
   const activeTableRelations = document.relations.filter(
     (relation) =>
-      relation.from === activeTable.name || relation.to === activeTable.name,
+      relation.from === activeTable.name ||
+      relation.to === activeTable.name ||
+      (relation.type === "N:M" && relation.junctionTable === activeTable.name),
   );
 
   function startRelationDraft() {
@@ -425,6 +440,7 @@ export function VisualSchemaInspector({
           <section className="schema-workbench__visual-inspector-section">
             <h3>Table</h3>
             <TextField
+              underline
               label="Table name"
               value={activeTable.name}
               onChange={(event) =>
@@ -432,6 +448,7 @@ export function VisualSchemaInspector({
               }
             />
             <TextField
+              underline
               label="Table display name"
               value={activeTable.displayName ?? ""}
               onChange={(event) =>
@@ -440,15 +457,35 @@ export function VisualSchemaInspector({
                 })
               }
             />
-            <TextField
-              label="Table renamed from"
-              value={activeTable.renamedFrom ?? ""}
-              onChange={(event) =>
-                updateSelectedTable({
-                  renamedFrom: optionalVisualText(event.currentTarget.value),
-                })
+            <VisualRecordLabelFields
+              table={activeTable}
+              onChange={(recordLabel) =>
+                commit(
+                  updateTable(document, activeTable.name, (table) => {
+                    const next = { ...table };
+                    if (recordLabel) next.recordLabel = recordLabel;
+                    else delete next.recordLabel;
+                    return next;
+                  }),
+                )
               }
             />
+            {/* Renames are tracked automatically; the engine field stays
+                reachable for the rare manual case. */}
+            <details className="schema-workbench__advanced">
+              <summary>Advanced</summary>
+              <TextField
+                underline
+                label="Previous name"
+                message="Set this when renaming so existing data is kept."
+                value={activeTable.renamedFrom ?? ""}
+                onChange={(event) =>
+                  updateSelectedTable({
+                    renamedFrom: optionalVisualText(event.currentTarget.value),
+                  })
+                }
+              />
+            </details>
             <VisualTableColorField
               table={activeTable}
               onChange={(nextColor) => {
@@ -466,14 +503,6 @@ export function VisualSchemaInspector({
             <div className="schema-workbench__visual-inspector-actions schema-workbench__visual-inspector-actions--wrap">
               <Button
                 size="sm"
-                variant="primary"
-                leadingIcon={<Icon name="plus" size={14} />}
-                onClick={startRelationDraft}
-              >
-                New relation
-              </Button>
-              <Button
-                size="sm"
                 leadingIcon={<Icon name="copy" size={14} />}
                 onClick={duplicateSelectedTable}
               >
@@ -488,17 +517,18 @@ export function VisualSchemaInspector({
                 Delete table
               </Button>
             </div>
-            <Button
-              size="sm"
-              variant="primary"
-              leadingIcon={<Icon name="plus" size={14} />}
-              onClick={addNewColumn}
-            >
-              Add column
-            </Button>
           </section>
           <section className="schema-workbench__visual-inspector-section">
-            <h3>Columns</h3>
+            <div className="schema-workbench__visual-inspector-subhead">
+              <h3>Columns</h3>
+              <Button
+                size="sm"
+                leadingIcon={<Icon name="plus" size={14} />}
+                onClick={addNewColumn}
+              >
+                Add column
+              </Button>
+            </div>
             <ol className="schema-workbench__visual-column-picker">
               {activeTable.columns.map((column) => (
                 <li key={column.name}>
@@ -560,7 +590,14 @@ export function VisualSchemaInspector({
                         })
                       }
                     >
-                      <span>{`${relation.name} (${relation.type})`}</span>
+                      <span>
+                        {relation.type === "N:M" &&
+                        relation.junctionTable === activeTable.name
+                          ? `${relation.name} (links ${relation.from} and ${relation.to})`
+                          : `${relation.name} (${
+                              relation.type === "N:M" ? "many-to-many" : "one-to-many"
+                            })`}
+                      </span>
                     </button>
                   </li>
                 ))}
@@ -573,6 +610,19 @@ export function VisualSchemaInspector({
           </section>
         </>
       )}
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title={pendingDelete?.title ?? ""}
+        description={pendingDelete?.description ?? ""}
+        confirmLabel={pendingDelete?.confirmLabel ?? "Delete"}
+        cancelLabel="Keep"
+        confirmVariant="danger"
+        onConfirm={() => {
+          pendingDelete?.run();
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </aside>
   );
 }
@@ -651,11 +701,13 @@ function VisualColumnInspector({
         </div>
       </div>
       <TextField
+        underline
         label="Column name"
         value={column.name}
         onChange={(event) => onChange({ name: event.currentTarget.value })}
       />
       <TextField
+        underline
         label="Column display name"
         value={column.displayName ?? ""}
         onChange={(event) =>
@@ -665,6 +717,7 @@ function VisualColumnInspector({
         }
       />
       <SelectField
+        underline
         label="Column type"
         options={visualColumnTypeOptions}
         value={column.type}
@@ -676,6 +729,7 @@ function VisualColumnInspector({
       />
       {column.type === "reference" ? (
         <SelectField
+          underline
           label="Reference target"
           options={[
             { label: "Select table", value: "" },
@@ -710,6 +764,7 @@ function VisualColumnInspector({
         />
       </div>
       <TextField
+        underline
         label="Default value"
         value={stringifyVisualDefault(column.default)}
         onChange={(event) =>
@@ -719,17 +774,23 @@ function VisualColumnInspector({
           }))
         }
       />
-      <TextField
-        label="Renamed from"
-        value={column.renamedFrom ?? ""}
-        onChange={(event) =>
-          onChange({
-            renamedFrom: optionalVisualText(event.currentTarget.value),
-          })
-        }
-      />
+      <details className="schema-workbench__advanced">
+        <summary>Advanced</summary>
+        <TextField
+          underline
+          label="Previous name"
+          message="Set this when renaming so existing data is kept."
+          value={column.renamedFrom ?? ""}
+          onChange={(event) =>
+            onChange({
+              renamedFrom: optionalVisualText(event.currentTarget.value),
+            })
+          }
+        />
+      </details>
       {column.type === "enum" ? (
         <TextField
+          underline
           label="Enum values"
           value={(column.values ?? []).join(", ")}
           message="Comma-separated values"
@@ -807,4 +868,75 @@ function normalizeVisualColumnType(
   }
 
   return nextColumn;
+}
+
+type RecordLabelValue = { column: string; secondary?: string };
+
+/**
+ * How a record of this table is named across the app: FK chips, pickers,
+ * linked records, the record editor title. Designer metadata only.
+ */
+function VisualRecordLabelFields({
+  table,
+  onChange,
+}: {
+  table: SchemaTable;
+  onChange: (recordLabel: RecordLabelValue | null) => void;
+}) {
+  const current = table.recordLabel as { column?: string; secondary?: string | null } | undefined;
+  const labelColumns = table.columns.filter(
+    (column) => !column.primaryKey && column.type !== "json",
+  );
+  const column = current?.column ?? "";
+  const secondary = current?.secondary ?? "";
+  return (
+    <>
+      <SelectField
+        underline
+        label="Record label"
+        message="Names a record in links, pickers and the record editor."
+        options={[
+          { label: "Automatic", value: "" },
+          ...labelColumns.map((candidate) => ({
+            label: candidate.displayName ?? candidate.name,
+            value: candidate.name,
+          })),
+        ]}
+        value={column}
+        onChange={(event) => {
+          const nextColumn = event.currentTarget.value;
+          if (!nextColumn) {
+            onChange(null);
+            return;
+          }
+          onChange({
+            column: nextColumn,
+            ...(secondary && secondary !== nextColumn ? { secondary } : {}),
+          });
+        }}
+      />
+      {column ? (
+        <SelectField
+          underline
+          label="Shown with it"
+          options={[
+            { label: "Nothing", value: "" },
+            ...labelColumns
+              .filter((candidate) => candidate.name !== column)
+              .map((candidate) => ({
+                label: candidate.displayName ?? candidate.name,
+                value: candidate.name,
+              })),
+          ]}
+          value={secondary}
+          onChange={(event) =>
+            onChange({
+              column,
+              ...(event.currentTarget.value ? { secondary: event.currentTarget.value } : {}),
+            })
+          }
+        />
+      ) : null}
+    </>
+  );
 }

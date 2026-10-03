@@ -1,12 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import { Glyph, Sky } from "../components/common/Atmosphere";
 import { Icon } from "../components/common/Icon";
-import { Alert } from "../components/ui/Alert";
-import { Button } from "../components/ui/Button";
-import { Panel } from "../components/ui/Panel";
+import { ThemeSwitch } from "../components/common/ThemeSwitch";
 import { TextField } from "../components/ui/TextField";
-import { useAuthStore } from "../stores/authStore";
 import { useDocumentTitle } from "../hooks/useDocumentTitle";
+import { useAuthStore } from "../stores/authStore";
 import "./LoginPage.css";
 
 type LocationState = { from?: { pathname?: string } } | null;
@@ -25,8 +24,7 @@ export function LoginPage() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTarget =
-    (location.state as LocationState)?.from?.pathname ?? "/";
+  const redirectTarget = (location.state as LocationState)?.from?.pathname ?? "/";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -60,32 +58,51 @@ export function LoginPage() {
 
   return (
     <main className="login" aria-labelledby="login-title">
-      <Panel className="login__panel" bodyClassName="login__panel-body">
-        <header className="login__brand">
-          <span className="login__brand-mark" aria-hidden="true">
-            <Icon name="layers" size={16} />
-          </span>
-          <span className="login__brand-name">Repere</span>
-          <span className="login__brand-env mono">local · v0.1.0</span>
+      <Sky />
+      <Glyph value="Re" />
+      <div className="login__frame">
+        <header className="login__header">
+          <div className="login__brand">
+            <span className="login__brand-mark" aria-hidden="true">
+              <Icon name="layers" size={15} />
+            </span>
+            <span className="login__brand-name">Repere</span>
+          </div>
+          <div className="login__header-right">
+            <ThemeSwitch />
+          </div>
         </header>
 
         <div className="login__body">
-          <h1 id="login-title" className="login__title">
-            Sign in
-          </h1>
-          <p className="login__lede">
-            Authenticate against the Repere backend to continue to the workspace.
-          </p>
-
-          {error ? <Alert tone="error" message={error} /> : null}
+          <section className="login__content">
+            <span className="login__eyebrow">Sign in</span>
+            <h1 id="login-title" className="login__title display">
+              <span className="login__line">
+                <span>Welcome</span>
+              </span>
+              <span className="login__line">
+                <span style={{ animationDelay: "0.1s" }}>back.</span>
+              </span>
+            </h1>
+            <p className="login__lede">
+              {status === "bootstrapping"
+                ? "Resuming your session…"
+                : "Sign in to continue to your workspace."}
+            </p>
+          </section>
 
           <form className="login__form" onSubmit={handleSubmit} noValidate>
+            {error ? (
+              <p className="login__error" role="alert">
+                {error}
+              </p>
+            ) : null}
             <TextField
+              underline
               label="Username"
               type="text"
               name="username"
               autoComplete="username"
-              placeholder="you@local"
               value={username}
               onChange={(event) => {
                 setUsername(event.target.value);
@@ -93,9 +110,10 @@ export function LoginPage() {
               }}
               disabled={busy}
               required
+              autoFocus
             />
-
             <TextField
+              underline
               label="Password"
               type="password"
               name="password"
@@ -109,27 +127,25 @@ export function LoginPage() {
               disabled={busy}
               required
             />
-
-            <Button
-              className="login__submit"
-              variant="primary"
-              type="submit"
-              disabled={busy || username.length === 0 || password.length === 0}
-            >
-              {loginInFlight ? "Signing in…" : "Sign in"}
-            </Button>
-
-            <p className="login__notice mono">
-              Session resumes automatically while the refresh cookie is valid.
-            </p>
+            <div className="login__row">
+              <button
+                type="submit"
+                className="btn btn--primary btn--lg"
+                disabled={busy || username.length === 0 || password.length === 0}
+              >
+                {loginInFlight ? "Signing in…" : "Sign in"} <Icon name="arrow-right" size={14} />
+              </button>
+            </div>
           </form>
         </div>
 
-        <footer className="login__footer mono">
-          <span>Stable public route: /login</span>
-          <span>© Repere</span>
+        <footer className="login__footer">
+          <div className="login__rule" aria-hidden="true" />
+          <div className="login__footer-row">
+            <span className="login__hint">© Repere</span>
+          </div>
         </footer>
-      </Panel>
+      </div>
     </main>
   );
 }

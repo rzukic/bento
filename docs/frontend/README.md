@@ -14,7 +14,8 @@ Current implementation status:
 - Phase 2 Steps 2.3 and 2.4 add saved views (table and kanban, shareable per table), inline cell editing with optimistic rollback, row add/duplicate/delete with undo, bulk selection, a full-screen record editor, and CSV/JSON export
 - Phase 2 Step 2.6 now ships the schema workbench at `/model`, including JSON and Visual modes backed by the same Model JSON draft
 - every authenticated role can browse the Data Explorer (the schema snapshot is readable by all roles); writes need `editor`/`admin`/`api`, and `/model` editing stays admin-only
-- the workspace is checked in CI on every pull request: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`
+- Phase 2 Step 2.7 adds the `/setup` wizard and the packaged frontend image; Step 2.8 rolls the visual language out to the whole UI (see "Shared UI Primitives and Visual Language")
+- the workspace is checked in CI on every pull request: `pnpm run typecheck`, `pnpm run lint`, `pnpm run test`, `pnpm run build`
 
 ---
 
@@ -151,15 +152,15 @@ Current shipped behavior:
 - reference navigation into linked records
 - selection-driven related-record drilldowns that open the backend relation endpoint for exactly one selected parent row using resolved relation metadata from the admin schema snapshot
 
-Current non-goals for this slice:
-- inline editing
-- row creation/deletion
-- bulk operations
-- export
-- virtual scrolling
-- advanced column management beyond hide/show
+Since Steps 2.3–2.8 (v0.2.0):
+- inline editing with one typography contract for grid cells and record fields (`components/editors/`, popovers portalled via `FloatingPanel`), row create/duplicate/delete, bulk selection, CSV/JSON export, saved views and kanban boards
+- `/data` lists tables as one card with a row per table (canvas colour, name, row and column counts); N:M junction tables follow under "Link tables"
+- the Columns menu shows and hides columns and rearranges them (drag the grip, or arrow keys on it); the order is the view's `columnOrder`
+- one toolbar popover at a time (Search, Sort, Filter, Columns, Export and the kanban configuration close each other and on outside clicks); an active search is a dot on its button plus the "Search: …" chip
+- the record editor shows 1:N relations as lists and N:M relations as link lists built for its side column: name (record label) with the link's own fields, open and remove actions, "Link" with a search picker, rows that open to edit the link's fields
+- record labels: `getDisplayColumnForTable` / `getSecondaryColumnForTable` (`components/editors/referenceMetadata.ts`) read a table's `recordLabel` and fall back to the first text column; `useReferenceLabels` resolves labels per FK column (one failed lookup does not drop the others) and carries secondary values (`lookupReferenceSecondary`)
 
-Those move into Step 2.3 and later Part 8 work.
+Not in scope yet: virtual scrolling.
 
 ---
 
@@ -179,24 +180,32 @@ Design and dependency notes:
 - Backend preview/apply remains the safety boundary. Frontend previews should not guess migration impact independently.
 - Table `layout` metadata is allowed in Model JSON and is inert for migrations. Layout-only apply should not imply a schema version bump.
 - Visual relation editing currently exposes guided `1:N`, self-referential `1:N`, visible `N:M`, relation selection, and relation renaming. Explicit N:M junction tables may use custom names as long as the relation's `junctionTable` points at the visible table and its reference columns match the relation endpoints. Advanced relation properties are still deferred.
+- Layout since Step 2.8: a header (title, Visual/JSON switch, draft status, Import/Export/Refresh, Preview, Apply), the canvas as the stage (`visual/VisualSchemaMode.tsx`: fit on open, wheel pan, pinch/⌘ zoom around the pointer, dot grid that moves with the canvas, drops onto another table move to the nearest free spot), and a side panel that opens only for a selection (inspector) or on request (Preview). The mode lives in `appStore.schemaMode`; the canvas view survives remounts.
+- Safety: `useBlocker` + `beforeunload` guard an unapplied draft; a destructive preview turns Apply red; table/column deletes confirm in the app dialog.
+- `recordLabel` is table metadata like `layout`; `visualSchemaDraft.updateColumn` / `removeColumn` keep it pointing at existing columns.
 
 ---
 
-## Shared UI Primitives
+## Shared UI Primitives and Visual Language
 
-Step 2.1 now has a first reusable primitive layer under `src/components/ui/`.
+Step 2.8 rolled one visual language across the app (designed on a canvas during Step 2.7, first shipped in the setup wizard). The rules, all expressed as tokens in `src/styles.css`:
 
-Current primitives:
-- `Button`
-- `TextField`
-- `SelectField`
-- `Panel`
-- `Alert`
-- `EmptyState`
-- `Spinner`
-- `Dialog` / `ConfirmDialog`
+- **Ground and one accent.** Dark ground `--bg #0b0b0c` (light `#f5f6f2`); `--accent` blue is reserved for the current position (sidebar dot, active tab underline) and the one main action of a screen (`Button variant="accent"`). Everything else is tone-on-tone.
+- **Hairlines, not boxes.** `--line` (8 % of the ink), `--line-2` (14 %), `--hover` (6 %) derive from `--text` and follow the theme; surfaces sit at most one step above the ground; shadows only on overlays. Radii: `--r-xl` 14 px for cards, `--r-pill` for actions.
+- **Type as structure.** `--font-display` (Space Grotesk, bundled, loaded once in `main.tsx`) for page titles, counts and numerals; Public Sans for prose; JetBrains Mono for labels, badges and data. `.display` is the utility for display type.
+- **Light as a material.** `components/common/Atmosphere` provides `Sky` (drifting pools + grain, `--pool-*`/`--grain-*` tokens) and `Glyph` (an outlined gradient glyph) for the public pages; `OutlinedNumeral` draws the stat-card numerals; the shell carries a confined pool behind the top-right. All of it is `aria-hidden`, pointer-events off, and still under `prefers-reduced-motion`.
+- **Contrast.** `--text-3`/`--text-4` are tuned to at least 4.5:1 on their ground in both themes so mono labels stay readable.
 
-These are intentionally lightweight and token-driven. They are the baseline layer for the Data Explorer and Schema Designer, not a finished long-term design system.
+Primitives under `src/components/ui/` and `src/components/common/`:
+
+- `Button` — pills. `default` outlined, `primary` ink fill, `accent` blue fill, `ghost`, `danger` (outlined); sizes `sm`, `lg`, `icon`
+- `TextField` / `SelectField` — hairline boxed fields, or `underline` for editorial forms (login, record editor, inspectors)
+- `Panel`, `.card` — hairline surfaces with display-face titles
+- `.badge` (with `.badge__dot`), `.chip` (enum value with colour dot), `.chip--ref` (reference)
+- `Alert`, `EmptyState`, `Spinner`, `Dialog` / `ConfirmDialog` (16 px radius, display title, hairline footer)
+- `ThemeSwitch` — segmented Dark / Light / System control bound to the app store; used by the shell top bar, setup and login
+
+Feature stylesheets (`DataExplorer.css`, `SchemaWorkbenchPage.css`) end with a "Step 2.8" override section that restyles their chrome on top of these tokens without touching behaviour-bearing structure (fold-out seams, grid internals, the id column).
 
 ---
 

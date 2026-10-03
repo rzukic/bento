@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { renderCellValue } from "../cellValue";
 import { ComboboxCellEditor, type ComboboxOption } from "./ComboboxCellEditor";
 import type { CellEditorProps } from "./types";
 
@@ -29,12 +30,13 @@ export function EnumCellEditor({
       displayLabel={value ?? null}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder="Filter values…"
       loadOptions={loadOptions}
       error={error}
       autoFocus={autoFocus}
       onCommit={onCommit}
       onCancel={onCancel}
+      renderValue={(current) => renderCellValue(column, current)}
+      renderOption={(option) => renderCellValue(column, option.value)}
     />
   );
 }

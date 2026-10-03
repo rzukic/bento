@@ -8,13 +8,29 @@ import {
 } from "../../types/explorer";
 import { scheduleAutoSave } from "./autoSave";
 import {
-  dropPendingNewRows,
+  adjustMetaTotal,
+  dropEmptyDraftRows,
   freshTableView,
+  getDraftRows,
   getExplorerQueryForView,
   getTableModel,
   normalizeRowId
 } from "./helpers";
 import type { ExplorerStoreState, QuerySlice, TableViewState } from "./types";
+
+/**
+ * Reloads (page, sort, filter, table switch, record context) keep drafts the
+ * user has typed into: they are re-appended after the fetched rows, so an
+ * unsaved row is never lost by looking elsewhere. Empty drafts are dropped.
+ */
+function keepDrafts(view: TableViewState, table: string): TableViewState {
+  return dropEmptyDraftRows(view, getTableModel(table));
+}
+
+function withDraftsOnly(view: TableViewState, table: string): TableViewState {
+  const kept = keepDrafts(view, table);
+  return { ...kept, rows: getDraftRows(kept) };
+}
 
 export const initialQueryState = {
   activeTable: null as string | null,
@@ -31,7 +47,7 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
     set((state) => {
       const views = { ...state.views };
       if (state.activeTable && state.activeTable !== table && views[state.activeTable]) {
-        views[state.activeTable] = dropPendingNewRows(views[state.activeTable]!);
+        views[state.activeTable] = keepDrafts(views[state.activeTable]!, state.activeTable);
       }
       if (state.activeTable === table && views[table]) {
         return { activeTable: table, views };
@@ -47,7 +63,7 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
     const { activeTable, views } = get();
     if (!activeTable) return;
 
-    const view = dropPendingNewRows(views[activeTable] ?? freshTableView());
+    const view = keepDrafts(views[activeTable] ?? freshTableView(), activeTable);
     const query = getExplorerQueryForView(view);
 
     // Mark loading
@@ -72,18 +88,22 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
       const normalizedRows = tableModel
         ? result.data.map((row) => normalizeRowId(tableModel, row))
         : result.data;
-      set((state) => ({
-        views: {
-          ...state.views,
-          [activeTable]: {
-            ...state.views[activeTable]!,
-            status: "ready",
-            rows: normalizedRows,
-            meta: result.meta,
-            error: null
+      set((state) => {
+        const current = state.views[activeTable]!;
+        const drafts = getDraftRows(current);
+        return {
+          views: {
+            ...state.views,
+            [activeTable]: {
+              ...current,
+              status: "ready",
+              rows: [...normalizedRows, ...drafts],
+              meta: drafts.length > 0 ? adjustMetaTotal(result.meta, current.perPage, drafts.length) : result.meta,
+              error: null
+            }
           }
-        }
-      }));
+        };
+      });
     } catch (cause) {
       const message =
         cause instanceof ApiClientError
@@ -105,7 +125,7 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
   setQuery: (patch) => {
     const { activeTable, views, fetchRows } = get();
     if (!activeTable) return;
-    const view = dropPendingNewRows(views[activeTable] ?? freshTableView());
+    const view = keepDrafts(views[activeTable] ?? freshTableView(), activeTable);
     set((state) => ({
       views: {
         ...state.views,
@@ -124,7 +144,7 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
   applyRouteQuery: (table, patch) => {
     const { fetchRows } = get();
     set((state) => {
-      const currentView = dropPendingNewRows(state.views[table] ?? freshTableView());
+      const currentView = withDraftsOnly(state.views[table] ?? freshTableView(), table);
       return {
         activeTable: table,
         views: {
@@ -136,7 +156,6 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
             activeViewId: null,
             page: patch.page ?? 1,
             perPage: patch.perPage ?? DEFAULT_QUERY.perPage,
-            rows: [],
             meta: null,
             error: null,
             source: { kind: "table" },
@@ -152,7 +171,7 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
   setPage: (page) => {
     const { activeTable, views, fetchRows } = get();
     if (!activeTable) return;
-    const view = dropPendingNewRows(views[activeTable] ?? freshTableView());
+    const view = keepDrafts(views[activeTable] ?? freshTableView(), activeTable);
     set((state) => ({
       views: {
         ...state.views,
@@ -187,9 +206,8 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
       views: {
         ...state.views,
         [table]: {
-          ...dropPendingNewRows(state.views[table] ?? freshTableView()),
+          ...withDraftsOnly(state.views[table] ?? freshTableView(), table),
           status: "idle",
-          rows: [],
           meta: null,
           error: null,
           source: { kind: "table" },
@@ -222,9 +240,8 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
       views: {
         ...state.views,
         [table]: {
-          ...dropPendingNewRows(state.views[table] ?? freshTableView()),
+          ...withDraftsOnly(state.views[table] ?? freshTableView(), table),
           status: "idle",
-          rows: [],
           meta: null,
           error: null,
           source: {
@@ -269,9 +286,8 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
       views: {
         ...state.views,
         [table]: {
-          ...dropPendingNewRows(state.views[table] ?? freshTableView()),
+          ...withDraftsOnly(state.views[table] ?? freshTableView(), table),
           status: "idle",
-          rows: [],
           meta: null,
           error: null,
           source: { kind: "table" },
@@ -308,9 +324,8 @@ export const createQuerySlice: StateCreator<ExplorerStoreState, [], [], QuerySli
       views: {
         ...state.views,
         [targetTable]: {
-          ...dropPendingNewRows(state.views[targetTable] ?? freshTableView()),
+          ...withDraftsOnly(state.views[targetTable] ?? freshTableView(), targetTable),
           status: "idle",
-          rows: [],
           meta: null,
           error: null,
           source: { kind: "table" },

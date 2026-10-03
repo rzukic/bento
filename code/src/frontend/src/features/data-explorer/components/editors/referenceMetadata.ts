@@ -27,20 +27,29 @@ export function getReferencePrimaryKey(column: ModelColumn): string {
 }
 
 /**
- * Pick a sensible display column for a referenced table. We prefer the first
- * non-PK string column (the most common label), then any non-PK column, then
- * fall back to the first column. This is a heuristic — Phase 2 schemas don't
- * yet declare a dedicated `displayColumn` field.
+ * The column that names a record of `table`: the table's record label when
+ * the schema sets one, otherwise the first non-key text column, then any
+ * non-key column, then the first column.
  */
 export function getDisplayColumnForTable(table: ModelTable | null): string {
   if (!table || table.columns.length === 0) return "id";
-  const stringCol = table.columns.find(
-    (c) => c.type === "string" && !c.primaryKey,
+  const configured = table.recordLabel?.column;
+  if (configured && table.columns.some((c) => c.name === configured)) return configured;
+  const textCol = table.columns.find(
+    (c) => (c.type === "text" || c.type === "string") && !c.primaryKey,
   );
-  if (stringCol) return stringCol.name;
+  if (textCol) return textCol.name;
   const nonPk = table.columns.find((c) => !c.primaryKey);
   if (nonPk) return nonPk.name;
   return table.columns[0]!.name;
+}
+
+/** The record label's secondary column, when set and present. */
+export function getSecondaryColumnForTable(table: ModelTable | null): string | null {
+  const secondary = table?.recordLabel?.secondary;
+  if (!table || !secondary) return null;
+  if (secondary === getDisplayColumnForTable(table)) return null;
+  return table.columns.some((c) => c.name === secondary) ? secondary : null;
 }
 
 export function findTable(snapshot: ModelSnapshot | null, name: string | null): ModelTable | null {

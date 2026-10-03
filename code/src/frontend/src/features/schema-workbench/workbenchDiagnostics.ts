@@ -26,8 +26,9 @@ export function buildBackendDiagnostic(
 export function resolvePreviewErrorLocation(
   message: string,
   draftText: string,
+  serverPath: string | null = null,
 ): Pick<WorkbenchDiagnostic, "location" | "locationExact" | "path"> | null {
-  const path = extractServerJsonPath(message);
+  const path = serverPath ? normalizeServerJsonPath(serverPath) : extractServerJsonPath(message);
   if (path) {
     const resolution = resolveJsonPathLocation(draftText, path);
     if (resolution) {
@@ -69,12 +70,13 @@ function extractServerJsonPath(message: string): string | null {
     return null;
   }
 
-  let path = match[1].trim();
-  if (!path) {
-    return null;
-  }
+  const path = match[1].trim();
+  return path ? normalizeServerJsonPath(path) : null;
+}
 
-  path = path
+function normalizeServerJsonPath(raw: string): string {
+  const path = raw
+    .trim()
     .replace(/^\$/, "")
     .replace(/^\./, "")
     .replace(/\[['"]([^'"]+)['"]\]/g, ".$1");

@@ -50,6 +50,10 @@ function isValidDateParts(year: number, month: number, day: number): boolean {
   );
 }
 
+/**
+ * The date as the grid shows it (e.g. "08. Sept. 2026" / "Sep 08, 2026"),
+ * so entering a date field shows the same text it displayed.
+ */
 export function formatDateDraft(value: string | null, locale = getCurrentLocale()): string {
   if (!value) return "";
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
@@ -58,17 +62,61 @@ export function formatDateDraft(value: string | null, locale = getCurrentLocale(
   const date = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
   return new Intl.DateTimeFormat(locale, {
     day: "2-digit",
-    month: "2-digit",
+    month: "short",
     year: "numeric",
     timeZone: "UTC",
   }).format(date);
 }
 
-export function formatTimeDraft(value: string | null): string {
+/** The time as the grid shows it in this locale ("14:40" / "02:40 PM"). */
+export function formatTimeDraft(value: string | null, locale = getCurrentLocale()): string {
   if (!value) return "";
-  const match = value.match(/[T\s](\d{2}):(\d{2})/);
+  const match = value.match(/(?:^|[T\s])(\d{2}):(\d{2})/);
   if (!match) return "";
-  return `${match[1]}:${match[2]}`;
+  const date = new Date(Date.UTC(2000, 0, 1, Number(match[1]), Number(match[2])));
+  return new Intl.DateTimeFormat(locale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+/** What the grid puts between date and time (", " in most locales). */
+export function getDateTimeSeparator(locale = getCurrentLocale()): string {
+  const parts = new Intl.DateTimeFormat(locale, {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  }).formatToParts(new Date(Date.UTC(2006, 10, 24, 13, 45)));
+  const yearIndex = parts.findIndex((part) => part.type === "year");
+  const hourIndex = parts.findIndex((part) => part.type === "hour");
+  if (yearIndex === -1 || hourIndex !== yearIndex + 2) return ", ";
+  return parts[yearIndex + 1]?.value ?? ", ";
+}
+
+function normalizeMonthToken(token: string): string {
+  return token.toLocaleLowerCase().replace(/[.\s]/g, "");
+}
+
+/** Month number (1-12) for a written month in this locale or English. */
+function parseMonthName(token: string, locale: string): number | null {
+  const wanted = normalizeMonthToken(token);
+  if (wanted.length < 3) return null;
+  for (const candidateLocale of [locale, "en"]) {
+    for (let month = 0; month < 12; month += 1) {
+      const date = new Date(Date.UTC(2006, month, 15));
+      for (const style of ["short", "long"] as const) {
+        const name = normalizeMonthToken(
+          new Intl.DateTimeFormat(candidateLocale, { month: style, timeZone: "UTC" }).format(date),
+        );
+        if (name === wanted || name.startsWith(wanted)) return month + 1;
+      }
+    }
+  }
+  return null;
 }
 
 export function parseDateDraft(
@@ -79,7 +127,22 @@ export function parseDateDraft(
   if (trimmed === "") return null;
 
   const groups = trimmed.match(/\d+/g);
-  if (!groups || groups.length < 3) return null;
+  if (!groups) return null;
+
+  // Written month ("08. Sept. 2026", "Sep 08, 2026"): the two numbers are
+  // day and year.
+  const word = trimmed.match(/\p{L}{3,}\.?/u)?.[0];
+  if (word && groups.length === 2) {
+    const month = parseMonthName(word, locale);
+    if (month === null) return null;
+    const [a, b] = groups.map((part) => Number.parseInt(part, 10)) as [number, number];
+    const aIsYear = (groups[0] ?? "").length > 2 || a > 31;
+    const day = aIsYear ? b : a;
+    const year = normalizeYear(aIsYear ? a : b);
+    if (!isValidDateParts(year, month, day)) return null;
+    return `${year}-${pad(month)}-${pad(day)}`;
+  }
+  if (groups.length < 3) return null;
 
   const [first, second, third] = groups.slice(0, 3).map((part) => Number.parseInt(part, 10));
   if (![first, second, third].every(Number.isFinite)) return null;
@@ -122,6 +185,13 @@ export function parseTimeDraft(raw: string): string | null {
   }
 
   if (!Number.isFinite(hour) || !Number.isFinite(minute)) return null;
+  // 12-hour input ("02:40 PM", "2:40pm").
+  const meridiem = trimmed.match(/\b([ap])\.?\s?m\.?\b/i)?.[1]?.toLowerCase();
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    if (meridiem === "p" && hour < 12) hour += 12;
+    if (meridiem === "a" && hour === 12) hour = 0;
+  }
   if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return null;
   return `${pad(hour)}:${pad(minute)}`;
 }

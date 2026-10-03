@@ -1,10 +1,11 @@
 import { useCallback } from "react";
+import { renderCellValue } from "../cellValue";
 import { ComboboxCellEditor, type ComboboxOption } from "./ComboboxCellEditor";
 import type { CellEditorProps } from "./types";
 
 const BOOLEAN_OPTIONS: ComboboxOption[] = [
-  { value: "true", label: "True" },
-  { value: "false", label: "False" },
+  { value: "true", label: "Yes" },
+  { value: "false", label: "No" },
 ];
 
 export function BooleanCellEditor({
@@ -27,7 +28,7 @@ export function BooleanCellEditor({
 
   const stringValue =
     value === null || value === undefined ? null : value ? "true" : "false";
-  const displayLabel = stringValue === "true" ? "True" : stringValue === "false" ? "False" : null;
+  const displayLabel = stringValue === "true" ? "Yes" : stringValue === "false" ? "No" : null;
 
   return (
     <ComboboxCellEditor
@@ -35,7 +36,6 @@ export function BooleanCellEditor({
       displayLabel={displayLabel}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder={displayLabel ?? "Select…"}
       loadOptions={loadOptions}
       error={error}
       autoFocus={autoFocus}
@@ -47,6 +47,8 @@ export function BooleanCellEditor({
         onCommit(next === "true");
       }}
       onCancel={onCancel}
+      renderValue={(current) => renderCellValue(column, current === "true")}
+      renderOption={(option) => renderCellValue(column, option.value === "true")}
     />
   );
 }

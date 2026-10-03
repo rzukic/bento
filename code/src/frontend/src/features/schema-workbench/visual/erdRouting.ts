@@ -38,16 +38,18 @@ export type ErdRelationDragState = {
   y: number;
 };
 
-const erdTableWidth = 288;
-const erdColumnRowHeight = 34;
-const erdTableHeaderHeight = 88;
-const erdTableBottomInset = 10;
-const erdTableMinHeight = 144;
+const erdTableWidth = 264;
+const erdColumnRowHeight = 30;
+const erdTableHeaderHeight = 44;
+const erdTableBottomInset = 4;
+const erdTableMinHeight = 80;
 const erdGridSize = 48;
 const erdSnapSize = erdGridSize / 4;
 const erdAutoColumnGap = 344;
 const erdAutoRowGap = 292;
 const erdCanvasPadding = 56;
+/** Free space kept on each side of an auto-placed junction table. */
+const junctionClearance = 72;
 
 function getErdTableHeight(table: SchemaTable): number {
   return Math.max(
@@ -59,7 +61,7 @@ function getErdTableHeight(table: SchemaTable): number {
 }
 
 export function buildErdTableNodes(document: SchemaModelDocument): ErdTableNode[] {
-  return document.tables.map((table, index) => {
+  const nodes = document.tables.map((table, index) => {
     const layout = getTableLayout(table);
     const fallbackColumn = index % 3;
     const fallbackRow = Math.floor(index / 3);
@@ -70,6 +72,48 @@ export function buildErdTableNodes(document: SchemaModelDocument): ErdTableNode[
       height: getErdTableHeight(table),
       x: layout?.x ?? erdCanvasPadding + fallbackColumn * erdAutoColumnGap,
       y: layout?.y ?? erdCanvasPadding + fallbackRow * erdAutoRowGap,
+    };
+  });
+  return placeUnlaidJunctions(document, nodes);
+}
+
+/**
+ * A junction table without a saved position (e.g. one the server just made
+ * visible) sits between the two tables it links instead of in the fallback
+ * grid, where it would land on top of other tables.
+ */
+function placeUnlaidJunctions(
+  document: SchemaModelDocument,
+  nodes: ErdTableNode[],
+): ErdTableNode[] {
+  const nodeByName = new Map(nodes.map((node) => [node.table.name, node]));
+  return nodes.map((node) => {
+    if (getTableLayout(node.table)) return node;
+    const relation = document.relations.find(
+      (candidate) =>
+        candidate.type === "N:M" &&
+        getRelationJunctionTableName(candidate) === node.table.name,
+    );
+    if (!relation) return node;
+    const from = nodeByName.get(getRelationEndpoint(relation, "from"));
+    const to = nodeByName.get(getRelationEndpoint(relation, "to"));
+    if (!from || !to || !getTableLayout(from.table) || !getTableLayout(to.table)) {
+      return node;
+    }
+    // Lines leave tables sideways, so the junction needs clear horizontal
+    // room on both sides: in the gap between the two tables if it fits,
+    // otherwise beside the right-hand one.
+    const [left, right] = from.x <= to.x ? [from, to] : [to, from];
+    const gap = right.x - (left.x + left.width);
+    const centerY = (from.y + from.height / 2 + to.y + to.height / 2) / 2;
+    const x =
+      gap >= node.width + junctionClearance * 2
+        ? left.x + left.width + (gap - node.width) / 2
+        : Math.max(left.x + left.width, right.x + right.width) + junctionClearance;
+    return {
+      ...node,
+      x: snapToErdGrid(x),
+      y: snapToErdGrid(centerY - node.height / 2),
     };
   });
 }
@@ -190,8 +234,9 @@ const erdRelationObstaclePadding = 6;
 type ErdRouteSide = "left" | "right";
 type ErdRoutePoint = { x: number; y: number };
 
+/** Lines leave and enter a card at its first row (the id). */
 function getErdRelationAnchorY(node: ErdTableNode): number {
-  return node.y + Math.min(node.height - 42, 96);
+  return node.y + Math.min(node.height - 12, erdTableHeaderHeight + erdColumnRowHeight / 2);
 }
 
 function buildErdRelationEdge(
@@ -592,10 +637,147 @@ export function getErdDropTargetTableName(
   return target?.table.name ?? null;
 }
 
+/**
+ * A free spot for a new table: the first cell of a loose grid (left to
+ * right, top to bottom) whose card would not touch any existing table.
+ */
 export function getNextVisualTableLayout(document: SchemaModelDocument) {
-  const index = document.tables.length;
-  return {
-    x: snapToErdGrid(80 + (index % 3) * 320),
-    y: snapToErdGrid(80 + Math.floor(index / 3) * 240),
-  };
+  const nodes = buildErdTableNodes(document);
+  const gap = 48;
+  const newHeight = erdTableMinHeight + erdColumnRowHeight;
+  const fits = (x: number, y: number) =>
+    nodes.every(
+      (node) =>
+        x + erdTableWidth + gap <= node.x ||
+        x >= node.x + node.width + gap ||
+        y + newHeight + gap <= node.y ||
+        y >= node.y + node.height + gap,
+    );
+  for (let row = 0; row < 40; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const x = snapToErdGrid(80 + column * (erdTableWidth + 72));
+      const y = snapToErdGrid(80 + row * 120);
+      if (fits(x, y)) return { x, y };
+    }
+  }
+  const bottom = Math.max(80, ...nodes.map((node) => node.y + node.height));
+  return { x: 80, y: snapToErdGrid(bottom + gap) };
+}
+
+/** Bounding box of all tables, for fitting the view. */
+export function getErdContentBounds(nodes: ErdTableNode[]) {
+  if (nodes.length === 0) return null;
+  const left = Math.min(...nodes.map((node) => node.x));
+  const top = Math.min(...nodes.map((node) => node.y));
+  const right = Math.max(...nodes.map((node) => node.x + node.width));
+  const bottom = Math.max(...nodes.map((node) => node.y + node.height));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+/**
+ * The routed (orthogonal) path drawn with rounded bends, so relation lines
+ * read as soft curves. Hit-testing and tests keep using the plain path.
+ */
+/**
+ * Drops repeated points and middle points on a straight run. The router can
+ * emit a run that doubles back on itself (down, up, down on one x); rounded
+ * corners turn those into small loops.
+ */
+function simplifyOrthogonalPoints(points: Array<{ x: number; y: number }>) {
+  const same = (a: number, b: number) => Math.abs(a - b) < 0.5;
+  const out: Array<{ x: number; y: number }> = [];
+  for (const point of points) {
+    const last = out[out.length - 1];
+    if (last && same(last.x, point.x) && same(last.y, point.y)) continue;
+    out.push(point);
+    while (out.length >= 3) {
+      const a = out[out.length - 3]!;
+      const b = out[out.length - 2]!;
+      const c = out[out.length - 1]!;
+      const straight = (same(a.x, b.x) && same(b.x, c.x)) || (same(a.y, b.y) && same(b.y, c.y));
+      if (!straight) break;
+      out.splice(out.length - 2, 1);
+    }
+  }
+  return out;
+}
+
+export function smoothErdPath(path: string, radius = 18): string {
+  const points = [...path.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map((match) => ({
+    x: Number(match[1]),
+    y: Number(match[2]),
+  }));
+  const simplified = simplifyOrthogonalPoints(points);
+  if (simplified.length < 3) {
+    return simplified
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" ");
+  }
+  points.splice(0, points.length, ...simplified);
+  const parts = [`M ${points[0]!.x} ${points[0]!.y}`];
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = points[index - 1]!;
+    const corner = points[index]!;
+    const next = points[index + 1]!;
+    const inLength = Math.hypot(corner.x - previous.x, corner.y - previous.y);
+    const outLength = Math.hypot(next.x - corner.x, next.y - corner.y);
+    const r = Math.min(radius, inLength / 2, outLength / 2);
+    const enter = {
+      x: corner.x - ((corner.x - previous.x) / (inLength || 1)) * r,
+      y: corner.y - ((corner.y - previous.y) / (inLength || 1)) * r,
+    };
+    const leave = {
+      x: corner.x + ((next.x - corner.x) / (outLength || 1)) * r,
+      y: corner.y + ((next.y - corner.y) / (outLength || 1)) * r,
+    };
+    parts.push(`L ${enter.x} ${enter.y}`, `Q ${corner.x} ${corner.y} ${leave.x} ${leave.y}`);
+  }
+  const last = points[points.length - 1]!;
+  parts.push(`L ${last.x} ${last.y}`);
+  return parts.join(" ");
+}
+
+/** Free space kept around a table that was dropped onto another. */
+const erdDropGap = 48;
+
+/**
+ * Where a dropped table can sit without covering another one: its own spot
+ * when that is free, otherwise the nearest free grid spot. Tables on top of
+ * each other leave no room for relation lines.
+ */
+export function findFreeErdPosition(
+  nodes: ErdTableNode[],
+  tableName: string,
+  x: number,
+  y: number,
+): { x: number; y: number } {
+  const node = nodes.find((candidate) => candidate.table.name === tableName);
+  if (!node) return { x, y };
+  const others = nodes.filter((candidate) => candidate.table.name !== tableName);
+  const isFree = (left: number, top: number) =>
+    others.every(
+      (other) =>
+        left + node.width + erdDropGap <= other.x ||
+        other.x + other.width + erdDropGap <= left ||
+        top + node.height + erdDropGap <= other.y ||
+        other.y + other.height + erdDropGap <= top,
+    );
+  if (isFree(x, y)) return { x, y };
+
+  const step = erdSnapSize * 2;
+  for (let distance = step; distance <= 4000; distance += step) {
+    const candidates = [
+      { x: x + distance, y },
+      { x: x - distance, y },
+      { x, y: y + distance },
+      { x, y: y - distance },
+      { x: x + distance, y: y + distance },
+      { x: x - distance, y: y + distance },
+      { x: x + distance, y: y - distance },
+      { x: x - distance, y: y - distance },
+    ];
+    const free = candidates.find((candidate) => isFree(candidate.x, candidate.y));
+    if (free) return { x: snapToErdGrid(free.x), y: snapToErdGrid(free.y) };
+  }
+  return { x, y };
 }

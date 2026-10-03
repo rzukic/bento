@@ -171,6 +171,15 @@ export type QuerySlice = {
 
 // ── Slice: inline cell editing (TASK-092 / TASK-093) ──────────────────
 
+/**
+ * Why an inline editor committed, which decides what happens to a draft
+ * (unsaved new) row: "advance" (Enter/Tab) moves to the next missing
+ * required field, "stay" (click elsewhere in the same draft) just ends the
+ * edit, "leave" (click outside the draft) ends it and drops the draft if
+ * nothing was typed into it.
+ */
+export type CellCommitIntent = "advance" | "stay" | "leave";
+
 export type EditingSlice = {
   /** Enter edit mode for a single cell on the given table. */
   startCellEdit: (table: string, rowId: string, columnName: string) => void;
@@ -206,6 +215,7 @@ export type EditingSlice = {
     rowId: string,
     columnName: string,
     nextValue: unknown,
+    intent?: CellCommitIntent,
   ) => Promise<void>;
 
   /**
@@ -264,6 +274,9 @@ export type ViewSlice = {
 
   /** Replace the hidden columns for a table. */
   setHiddenColumns: (table: string, columnNames: string[]) => void;
+
+  /** Replace the column order for a table (non-key columns, left to right). */
+  setColumnOrder: (table: string, columnNames: string[]) => void;
 
   /** Load saved views from the backend for a table. Called on mount. */
   loadSavedViews: (tableId: string) => Promise<void>;

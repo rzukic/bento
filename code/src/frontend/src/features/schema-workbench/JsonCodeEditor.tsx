@@ -63,7 +63,7 @@ const editorExtensions = [
   syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
   keymap.of([indentWithTab, ...defaultKeymap, ...historyKeymap]),
   EditorView.contentAttributes.of({
-    "aria-label": "Model JSON draft",
+    "aria-label": "Schema JSON editor",
     "aria-multiline": "true",
     role: "textbox",
   }),

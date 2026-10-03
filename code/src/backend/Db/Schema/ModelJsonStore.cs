@@ -112,7 +112,7 @@ public class ModelJsonStore
 
     private ModelJson ParseRow(SchemaVersionRow row)
     {
-        var parsed = ModelJsonSerializer.Parse(row.ModelJson);
+        var parsed = ManyToManyJunctions.MakeExplicit(ModelJsonSerializer.Parse(row.ModelJson));
         return parsed.Version == row.Version ? parsed : parsed with { Version = row.Version };
     }
 

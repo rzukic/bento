@@ -78,7 +78,8 @@ describe("App scaffold", () => {
     expect(screen.getByRole("navigation", { name: "Tables" })).toBeInTheDocument();
     expect(screen.getByText("Workspace")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /^orders$/i })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: /orders/i })).not.toBeInTheDocument();
+    // The table page draws its own title; the shell adds no second one.
+    expect(screen.getAllByRole("heading", { level: 1, name: /^orders$/i })).toHaveLength(1);
   });
 
   it("keeps the login route outside the main shell navigation", () => {
@@ -88,7 +89,7 @@ describe("App scaffold", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
-    expect(screen.getByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
   });
 });
 
@@ -100,8 +101,8 @@ describe("Route guard", () => {
     render(<RouterProvider router={router} />);
 
     expect(screen.queryByRole("navigation", { name: "Main navigation" })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByText(/Stable public route: \/login/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
+    expect(screen.getByText(/Sign in to continue to your workspace/i)).toBeInTheDocument();
   });
 
   it("bounces already-authenticated visitors away from /login", () => {
@@ -112,7 +113,7 @@ describe("Route guard", () => {
 
     // Landed back on the workspace shell instead of the login card.
     expect(screen.getByRole("navigation", { name: "Main navigation" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "Sign in" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Welcome back." })).not.toBeInTheDocument();
   });
 
   it("shows the resuming-session splash while bootstrap is in flight", async () => {
@@ -242,7 +243,7 @@ describe("Logout", () => {
     expect(useAuthStore.getState().user).toBeNull();
     expect(useAuthStore.getState().accessToken).toBeNull();
     await waitFor(() => {
-      expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Welcome back." })).toBeInTheDocument();
     });
     // The HttpOnly refresh cookie can only be ended server-side.
     expect(fetchMock).toHaveBeenCalledWith(
@@ -260,12 +261,13 @@ describe("Theme switching", () => {
     render(<RouterProvider router={router} />);
 
     const user = userEvent.setup();
-    const themeSelect = screen.getByRole("combobox", { name: /theme/i });
+    const appearance = screen.getByRole("group", { name: /appearance/i });
 
-    await user.selectOptions(themeSelect, "light");
+    await user.click(within(appearance).getByRole("button", { name: /^light$/i }));
     expect(document.documentElement.dataset.theme).toBe("light");
+    expect(within(appearance).getByRole("button", { name: /^light$/i })).toHaveAttribute("aria-pressed", "true");
 
-    await user.selectOptions(themeSelect, "dark");
+    await user.click(within(appearance).getByRole("button", { name: /^dark$/i }));
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 });

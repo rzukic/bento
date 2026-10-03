@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Dapper;
 using Repere.Api.Db;
 using Repere.Api.Db.Schema;
@@ -50,7 +51,7 @@ public sealed class CrudService
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
         ApplyFiltersStatic(baseQuery, parameters.Filters, table, _dbConfig.Provider);
-        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider);
+        ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider, _schemaCache.GetTable);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
@@ -68,7 +69,7 @@ public sealed class CrudService
         // Apply pagination
         baseQuery = baseQuery.ForPage(parameters.Page, parameters.PerPage);
 
-        var rows = (await baseQuery.GetAsync()).Select(ToDictionary).ToList();
+        var rows = (await baseQuery.GetAsync()).Select(row => ToResponseRow(table, (object)row)).ToList();
         var totalPages = parameters.PerPage > 0
             ? (int)Math.Ceiling((double)total / parameters.PerPage)
             : 0;
@@ -126,7 +127,7 @@ public sealed class CrudService
                 });
         }
 
-        return ToDictionary(row);
+        return ToResponseRow(table, row);
     }
 
     public async Task<IDictionary<string, object?>> CreateAsync(TableDef table, JsonElement body)
@@ -151,6 +152,30 @@ public sealed class CrudService
         }
         else
         {
+            // A composite key (an N:M link) that already exists is a conflict,
+            // not a database error.
+            var existing = scope.Db.Query(table.Name);
+            var hasAllKeys = true;
+            foreach (var primaryKey in primaryKeyColumns)
+            {
+                if (!data.TryGetValue(primaryKey.Name, out var keyValue) || keyValue is null)
+                {
+                    hasAllKeys = false;
+                    break;
+                }
+                existing = existing.Where(primaryKey.Name, keyValue);
+            }
+            if (hasAllKeys && await existing.FirstOrDefaultAsync() is not null)
+            {
+                throw new ApiConflictException(
+                    "This row already exists.",
+                    new Dictionary<string, object?>(StringComparer.Ordinal)
+                    {
+                        ["table"] = table.Name,
+                        ["columns"] = primaryKeyColumns.Select(c => c.Name).ToArray()
+                    });
+            }
+
             await InsertAsync(scope, table.Name, data);
 
             var query = scope.Db.Query(table.Name);
@@ -168,7 +193,7 @@ public sealed class CrudService
             row = await query.FirstOrDefaultAsync();
         }
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
     public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, string id, JsonElement body)
@@ -191,12 +216,13 @@ public sealed class CrudService
         }
 
         await using var scope = await _queryService.UseDataAsync();
+        await EnsureKeyFreeAsync(scope, table, keyValues, data);
         await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
 
-        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues)
+        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
     }
 
     public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, string id, JsonElement body)
@@ -212,14 +238,60 @@ public sealed class CrudService
         if (data.Count > 0)
         {
             await using var scope = await _queryService.UseDataAsync();
+            await EnsureKeyFreeAsync(scope, table, keyValues, data);
             await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
         }
 
         await using var readScope = await _queryService.UseDataAsync();
-        var row = await ApplyKeyFilter(readScope.Db.Query(table.Name), keyValues)
+        var row = await ApplyKeyFilter(readScope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToDictionary(row!);
+        return ToResponseRow(table, row!);
+    }
+
+    /// <summary>
+    /// Moving a row to a key another row already has (a junction row pointed
+    /// at a record it is already linked to) is a conflict, not a database error.
+    /// </summary>
+    private static async Task EnsureKeyFreeAsync(
+        QueryScope scope,
+        TableDef table,
+        IReadOnlyDictionary<string, object> keyValues,
+        IDictionary<string, object?> written)
+    {
+        var nextKey = KeyValuesAfterWrite(keyValues, written);
+        var changed = nextKey.Any(pair => !Equals(pair.Value, keyValues[pair.Key]) &&
+            !string.Equals(Convert.ToString(pair.Value, CultureInfo.InvariantCulture), Convert.ToString(keyValues[pair.Key], CultureInfo.InvariantCulture), StringComparison.Ordinal));
+        if (!changed)
+            return;
+
+        if (await ApplyKeyFilter(scope.Db.Query(table.Name), nextKey).FirstOrDefaultAsync() is not null)
+        {
+            throw new ApiConflictException(
+                "This row already exists.",
+                new Dictionary<string, object?>(StringComparer.Ordinal)
+                {
+                    ["table"] = table.Name,
+                    ["columns"] = nextKey.Keys.ToArray()
+                });
+        }
+    }
+
+    /// <summary>
+    /// The row's key after an update: a written key column (a junction row
+    /// pointed at another record) changes the key the row is read back by.
+    /// </summary>
+    private static IReadOnlyDictionary<string, object> KeyValuesAfterWrite(
+        IReadOnlyDictionary<string, object> keyValues,
+        IDictionary<string, object?> written)
+    {
+        var next = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pair in keyValues)
+        {
+            var writtenKey = written.Keys.FirstOrDefault(k => string.Equals(k, pair.Key, StringComparison.OrdinalIgnoreCase));
+            next[pair.Key] = writtenKey is not null && written[writtenKey] is { } value ? value : pair.Value;
+        }
+        return next;
     }
 
     public async Task DeleteAsync(TableDef table, string id)
@@ -623,21 +695,34 @@ public sealed class CrudService
         SqlKata.Query query,
         string? search,
         TableDef table,
-        DatabaseProvider provider)
+        DatabaseProvider provider,
+        Func<string, TableDef?>? findTable = null)
     {
         if (string.IsNullOrWhiteSpace(search)) return;
 
+        // Own columns are searched only when the table has text-like ones (a
+        // purely numeric table ignores search, as before).
         var hasTextLikeColumns = table.Columns.Any(c =>
             c.Type is ColumnType.Text or ColumnType.Enum or ColumnType.File or ColumnType.Date or ColumnType.DateTime or ColumnType.Uuid);
+        var searchableColumns = !hasTextLikeColumns
+            ? []
+            : table.Columns
+                .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
+                .Select(c => c.Name)
+                .ToList();
 
-        if (!hasTextLikeColumns) return;
+        // A reference column is searched by the record it points to: an order
+        // is found by its customer's name ("Globex"), not only by the id.
+        var referenceSearches = findTable is null
+            ? []
+            : table.Columns
+                .Where(c => c.Type == ColumnType.Reference && !string.IsNullOrWhiteSpace(c.References))
+                .Select(c => BuildReferenceSearch(c, findTable(c.References!), provider))
+                .Where(r => r is not null)
+                .Cast<(string Sql, int Bindings)>()
+                .ToList();
 
-        var searchableColumns = table.Columns
-            .Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && c.Type is not (ColumnType.Json or ColumnType.Boolean))
-            .Select(c => c.Name)
-            .ToList();
-
-        if (searchableColumns.Count == 0) return;
+        if (searchableColumns.Count == 0 && referenceSearches.Count == 0) return;
 
         var terms = ExtractSearchTerms(search);
 
@@ -648,14 +733,79 @@ public sealed class CrudService
             var pattern = $"%{term}%";
             query.Where(q =>
             {
-                q = q.WhereRaw(BuildSearchClause(searchableColumns[0], provider), pattern);
-                for (int i = 1; i < searchableColumns.Count; i++)
+                var first = true;
+                foreach (var column in searchableColumns)
                 {
-                    q = q.OrWhereRaw(BuildSearchClause(searchableColumns[i], provider), pattern);
+                    q = first
+                        ? q.WhereRaw(BuildSearchClause(column, provider), pattern)
+                        : q.OrWhereRaw(BuildSearchClause(column, provider), pattern);
+                    first = false;
+                }
+                foreach (var (sql, bindings) in referenceSearches)
+                {
+                    var values = Enumerable.Repeat<object>(pattern, bindings).ToArray();
+                    q = first ? q.WhereRaw(sql, values) : q.OrWhereRaw(sql, values);
+                    first = false;
                 }
                 return q;
             });
         }
+    }
+
+    /// <summary>
+    /// "fk IN (SELECT pk FROM target WHERE text_col LIKE ? OR ...)" over the
+    /// target table's text and choice columns; null when it has none.
+    /// </summary>
+    private static (string Sql, int Bindings)? BuildReferenceSearch(
+        ColumnDef column,
+        TableDef? target,
+        DatabaseProvider provider)
+    {
+        if (target is null) return null;
+        var primaryKey = target.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (primaryKey is null) return null;
+        var textColumns = GetRecordLabelColumns(target)
+            .Select(name => BuildSearchClause(name, provider))
+            .ToList();
+        if (textColumns.Count == 0) return null;
+
+        var sql =
+            $"{QuoteIdentifier(column.Name)} IN (SELECT {QuoteIdentifier(primaryKey.Name)} " +
+            $"FROM {QuoteIdentifier(target.Name)} WHERE {string.Join(" OR ", textColumns)})";
+        return (sql, textColumns.Count);
+    }
+
+    /// <summary>
+    /// The columns that name a record in the UI: the table's recordLabel
+    /// (column and optional secondary), otherwise the first text column,
+    /// otherwise the first non-key column. Search matches what people see.
+    /// </summary>
+    private static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
+    {
+        var physical = table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type)).ToList();
+        bool Exists(string? name) =>
+            !string.IsNullOrWhiteSpace(name) &&
+            physical.Any(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+
+        if (table.AdditionalData is not null &&
+            table.AdditionalData.TryGetValue("recordLabel", out var label) &&
+            label.ValueKind == JsonValueKind.Object)
+        {
+            var column = label.TryGetProperty("column", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+            var secondary = label.TryGetProperty("secondary", out var sc) && sc.ValueKind == JsonValueKind.String ? sc.GetString() : null;
+            if (Exists(column))
+            {
+                var names = new List<string> { column! };
+                if (Exists(secondary) && !string.Equals(secondary, column, StringComparison.OrdinalIgnoreCase))
+                    names.Add(secondary!);
+                return names;
+            }
+        }
+
+        var firstText = physical.FirstOrDefault(c => c.Type == ColumnType.Text && !c.PrimaryKey);
+        if (firstText is not null) return [firstText.Name];
+        var firstNonKey = physical.FirstOrDefault(c => !c.PrimaryKey && c.Type is not (ColumnType.Json or ColumnType.Boolean));
+        return firstNonKey is null ? [] : [firstNonKey.Name];
     }
 
     private static string BuildSearchClause(string columnName, DatabaseProvider provider)
@@ -832,6 +982,43 @@ public sealed class CrudService
                 => CoerceTemporalForProvider(value, column.Type, provider.Value),
             _ => value
         };
+    }
+
+    /// <summary>
+    /// SQLite's CURRENT_TIMESTAMP (the default of a junction's created_at)
+    /// stores UTC as "yyyy-MM-dd HH:mm:ss" without a zone, which clients read
+    /// as local time. Values the app writes use a "T" and are left alone.
+    /// </summary>
+    private static readonly Regex SqliteCurrentTimestamp =
+        new(@"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d+)?$", RegexOptions.Compiled);
+
+    private IDictionary<string, object?> ToResponseRow(TableDef table, object row)
+    {
+        var dict = ToDictionary(row);
+        NormalizeSqliteTimestamps(table, dict, _dbConfig.Provider);
+        return dict;
+    }
+
+    /// <summary>Rewrites SQLite CURRENT_TIMESTAMP values of datetime columns as UTC ("...Z").</summary>
+    internal static void NormalizeSqliteTimestamps(
+        TableDef? table,
+        IDictionary<string, object?> row,
+        DatabaseProvider provider)
+    {
+        if (provider != DatabaseProvider.Sqlite || table is null)
+            return;
+
+        foreach (var column in table.Columns)
+        {
+            if (column.Type != ColumnType.DateTime)
+                continue;
+            if (row.TryGetValue(column.Name, out var value) &&
+                value is string text &&
+                SqliteCurrentTimestamp.IsMatch(text))
+            {
+                row[column.Name] = text.Replace(' ', 'T') + "Z";
+            }
+        }
     }
 
     private static IDictionary<string, object?> ToDictionary(object row)

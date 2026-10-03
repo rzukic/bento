@@ -6,6 +6,7 @@ import { ComboboxCellEditor, type ComboboxOption } from "./ComboboxCellEditor";
 import {
   findTable,
   getDisplayColumnForTable,
+  getSecondaryColumnForTable,
   getReferencePrimaryKey,
   getReferenceTableName,
 } from "./referenceMetadata";
@@ -22,15 +23,19 @@ export function ReferenceCellEditor({
   onCommit,
   onCancel,
   error,
+  displayLabel,
 }: CellEditorProps<FkValue>) {
   const snapshot = useSchemaStore((s) => s.snapshot);
   const refTableName = getReferenceTableName(column);
   const refTable = findTable(snapshot, refTableName);
   const displayColumn = getDisplayColumnForTable(refTable);
+  const secondaryColumn = getSecondaryColumnForTable(refTable);
   const pkColumn = getReferencePrimaryKey(column);
   const nullable = column.nullable ?? true;
 
-  const [resolvedLabel, setResolvedLabel] = useState<string | null>(null);
+  // Start from the label the cell already showed, so the chip does not flash
+  // the raw id while the name is fetched.
+  const [resolvedLabel, setResolvedLabel] = useState<string | null>(displayLabel ?? null);
 
   // Resolve the current value's display label by fetching the single row,
   // so the closed trigger shows a name rather than a raw FK id.
@@ -39,6 +44,7 @@ export function ReferenceCellEditor({
       setResolvedLabel(null);
       return;
     }
+    if (displayLabel) return;
     let cancelled = false;
     void fetchTableRows(refTableName, {
       ...DEFAULT_QUERY,
@@ -60,7 +66,7 @@ export function ReferenceCellEditor({
     return () => {
       cancelled = true;
     };
-  }, [value, refTableName, pkColumn, displayColumn]);
+  }, [value, refTableName, pkColumn, displayColumn, displayLabel]);
 
   const loadOptions = useCallback(
     async (query: string): Promise<ComboboxOption[]> => {
@@ -78,11 +84,17 @@ export function ReferenceCellEditor({
           const labelRaw = row[displayColumn];
           const label =
             labelRaw === null || labelRaw === undefined ? id : String(labelRaw);
-          return { value: id, label };
+          const secondaryRaw = secondaryColumn ? row[secondaryColumn] : null;
+          const description =
+            secondaryRaw === null || secondaryRaw === undefined || secondaryRaw === ""
+              ? undefined
+              : String(secondaryRaw);
+          const option: ComboboxOption = description ? { value: id, label, description } : { value: id, label };
+          return option;
         })
         .filter((c): c is ComboboxOption => c !== null);
     },
-    [refTableName, pkColumn, displayColumn],
+    [refTableName, pkColumn, displayColumn, secondaryColumn],
   );
 
   const stringValue =
@@ -94,11 +106,19 @@ export function ReferenceCellEditor({
       displayLabel={resolvedLabel ?? stringValue}
       nullable={nullable}
       ariaLabel={column.displayName ?? column.name}
-      searchPlaceholder={refTableName ? `Search ${refTableName}…` : "Search…"}
       loadOptions={loadOptions}
       asyncSearch
       error={error}
       autoFocus={autoFocus}
+      renderValue={(_current, label) => <span className="data-grid__reference">{label}</span>}
+      renderOption={(option) => (
+        <>
+          <span className="data-grid__reference">{option.label}</span>
+          {option.description ? (
+            <span className="cell-combobox__option-secondary">{option.description}</span>
+          ) : null}
+        </>
+      )}
       onCommit={(next) => {
         if (next === null) {
           onCommit(null);

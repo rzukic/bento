@@ -1,37 +1,87 @@
-import { SelectField } from "../components/ui/SelectField";
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { ThemeSwitch } from "../components/common/ThemeSwitch";
+import { Button } from "../components/ui/Button";
+import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
-import { Alert } from "../components/ui/Alert";
-import { useAppStore, type ThemeMode } from "../stores/appStore";
+import { useSetupStore } from "../features/setup/setupStore";
+import { useAuthStore } from "../stores/authStore";
+import "./SettingsPage.css";
 
 export function SettingsPage() {
-  const themeMode = useAppStore((state) => state.themeMode);
-  const setThemeMode = useAppStore((state) => state.setThemeMode);
+  const user = useAuthStore((state) => state.user);
+  const logout = useAuthStore((state) => state.logout);
+  const setupInfo = useSetupStore((state) => state.info);
+  const navigate = useNavigate();
+  const [logoutOpen, setLogoutOpen] = useState(false);
+
+  const facts: Array<[string, string]> = [
+    ["Version", setupInfo?.version ?? "—"],
+    ["Database", databaseLabel(setupInfo?.database_provider)]
+  ];
 
   return (
-    <Panel
-      title="Workspace settings"
-      description="This first settings slice proves the shared component/theme baseline for the rest of Phase 2."
-      eyebrow="Step 2.1 foundation"
-    >
-      <div style={{ display: "grid", gap: "1rem", maxWidth: "28rem" }}>
-        <SelectField
-          label="Theme"
-          name="theme"
-          value={themeMode}
-          onChange={(event) => setThemeMode(event.target.value as ThemeMode)}
-          options={[
-            { label: "System", value: "system" },
-            { label: "Dark", value: "dark" },
-            { label: "Light", value: "light" }
-          ]}
-          message="Theme changes apply immediately through the shared app store."
-        />
-        <Alert
-          tone="info"
-          title="Route is now useful"
-          message="Settings is no longer just a placeholder card. It now exercises the shared select, panel, and alert primitives that later admin pages can build on."
-        />
-      </div>
-    </Panel>
+    <div className="settings">
+      <Panel title="Appearance" description="Applies to this browser immediately.">
+        <div className="settings__row">
+          <span className="settings__label">Theme</span>
+          <ThemeSwitch />
+        </div>
+      </Panel>
+
+      <Panel title="About">
+        <dl className="settings__facts">
+          {facts.map(([label, value]) => (
+            <div key={label} className="settings__fact">
+              <dt className="section-label">{label}</dt>
+              <dd className="mono">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </Panel>
+
+      <Panel title="Account">
+        <div className="settings__row">
+          <div className="settings__account">
+            <span className="settings__avatar display" aria-hidden="true">
+              {(user?.username ?? "?").slice(0, 1).toUpperCase()}
+            </span>
+            <div>
+              <div className="settings__name">{user?.username ?? "—"}</div>
+              <div className="section-label">{user?.role ?? "—"}</div>
+            </div>
+          </div>
+          <Button variant="danger" onClick={() => setLogoutOpen(true)}>
+            Sign out
+          </Button>
+        </div>
+      </Panel>
+
+      <ConfirmDialog
+        open={logoutOpen}
+        title="Sign out of this workspace?"
+        description="You will need to sign in again to get back to your workspace."
+        confirmLabel="Sign out"
+        confirmVariant="danger"
+        onConfirm={() => {
+          setLogoutOpen(false);
+          logout();
+          navigate("/login", { replace: true });
+        }}
+        onCancel={() => setLogoutOpen(false)}
+      />
+    </div>
   );
+}
+
+function databaseLabel(provider: string | undefined): string {
+  switch (provider) {
+    case "sqlite":
+      return "SQLite";
+    case "postgres":
+    case "postgresql":
+      return "PostgreSQL";
+    default:
+      return provider ?? "—";
+  }
 }

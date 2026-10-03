@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Mvc;
 using Repere.Api.Authorization;
 using Repere.Api.Db.Migrations;
@@ -276,9 +277,33 @@ public sealed class AdminController : ControllerBase
             error = new
             {
                 code = "VALIDATION_FAILED",
-                message = $"Invalid Model JSON: {ex.Message}"
+                message = DescribeModelJsonError(ex),
+                // Lets the schema editor jump to the offending line.
+                details = new { path = ex.Path }
             }
         };
+    }
+
+    /// <summary>
+    /// Our own converters throw readable messages ("Unsupported column type
+    /// 'taext'."); System.Text.Json's own ones name .NET types and byte
+    /// offsets, so those are replaced with the position in the schema.
+    /// </summary>
+    private static string DescribeModelJsonError(JsonException ex)
+    {
+        const string prefix = "The schema could not be read: ";
+        var isSerializerMessage = ex.Message.StartsWith("The JSON value could not be converted", StringComparison.Ordinal)
+            || ex.Message.Contains("Path: $", StringComparison.Ordinal);
+        if (!isSerializerMessage)
+        {
+            return prefix + ex.Message;
+        }
+
+        var location = string.Join(", ", Regex.Matches(ex.Path ?? string.Empty, @"(\w+)\[(\d+)\]")
+            .Select(match => $"{match.Groups[1].Value.TrimEnd('s')} {int.Parse(match.Groups[2].Value) + 1}"));
+        return location.Length == 0
+            ? prefix + "a value has the wrong format."
+            : $"{prefix}a value has the wrong format ({location}).";
     }
 
     private static AdminSchemaPreviewResponse BuildSchemaPreviewResponse(SchemaPreviewResult result)

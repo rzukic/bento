@@ -2,15 +2,14 @@ import { useEffect, useId, useMemo, useState, type CSSProperties, type FormEvent
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { postRegister } from "../../api/auth";
 import { ApiClientError } from "../../api/client";
+import { Glyph, Sky, type GlyphTone } from "../../components/common/Atmosphere";
 import { Icon } from "../../components/common/Icon";
+import { ThemeSwitch } from "../../components/common/ThemeSwitch";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
-import { useAppStore, type ThemeMode } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
 import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
-import "@fontsource/space-grotesk/500.css";
-import "@fontsource/space-grotesk/700.css";
 import "./SetupPage.css";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
@@ -75,7 +74,7 @@ export function SetupPage() {
   if ((status === "idle" || status === "loading") && !info) {
     return (
       <main className="setup setup--splash" role="status" aria-live="polite">
-        <Sky hue={0} />
+        <Sky />
         <span className="setup__hint">Checking installation…</span>
       </main>
     );
@@ -83,15 +82,14 @@ export function SetupPage() {
 
   if (status === "error" && !info) {
     return (
-      <SetupFrame hue={0} numeral="!" tone="warn" info={null}>
+      <SetupFrame hue={0} numeral="!" tone="warn">
         <section className="setup__content">
           <span className="setup__eyebrow rise">Setup</span>
           <h1 id="setup-title" className="setup__title setup__title--md">
             <Line>Setup unavailable.</Line>
           </h1>
           <p className="setup__lede rise d2">
-            The backend could not report the installation state. Make sure the API is running and try
-            again.
+            We couldn't check this installation. Make sure Repere is running, then try again.
           </p>
           <p className="setup__error rise d3" role="alert">
             {statusError ?? "Unknown error."}
@@ -123,107 +121,26 @@ export function SetupPage() {
   return <SetupWizard info={info} />;
 }
 
-// ── Frame: sky, numeral, header, footer ──────────────────────────────────────
+// ── Frame: header, footer ───────────────────────────────────────────────────
 
-function Sky({ hue }: { hue: number }) {
-  return (
-    <div className="setup__sky" aria-hidden="true" style={{ filter: `hue-rotate(${hue}deg)` }}>
-      <div className="setup__pool setup__pool--1" />
-      <div className="setup__pool setup__pool--2" />
-      <div className="setup__pool setup__pool--3" />
-      <div className="setup__vignette" />
-      <svg className="setup__grain" xmlns="http://www.w3.org/2000/svg">
-        <filter id="setup-grain">
-          <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
-          <feColorMatrix type="saturate" values="0" />
-        </filter>
-        <rect width="100%" height="100%" filter="url(#setup-grain)" />
-      </svg>
-    </div>
-  );
-}
-
-type NumeralTone = "default" | "ok" | "warn";
-
-/** The step number as a hairline outline stroked with a slowly rotating gradient. */
-function Numeral({ value, tone }: { value: string; tone: NumeralTone }) {
-  const gradientId = useId();
-  const stops =
-    tone === "ok"
-      ? ["#bbf7d0", "#34d399", "#2dd4bf", "#166534"]
-      : tone === "warn"
-        ? ["#fde68a", "#f59e0b", "#fb7185", "#b45309"]
-        : ["#93c5fd", "#3b82f6", "#2dd4bf", "#4338ca"];
-  return (
-    <div className="setup__numeral" aria-hidden="true" key={value}>
-      <svg viewBox="0 0 900 660" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor={stops[0]} />
-            <stop offset="0.4" stopColor={stops[1]} />
-            <stop offset="0.7" stopColor={stops[2]} />
-            <stop offset="1" stopColor={stops[3]} />
-            <animateTransform
-              attributeName="gradientTransform"
-              type="rotate"
-              from="0 0.5 0.5"
-              to="360 0.5 0.5"
-              dur="18s"
-              repeatCount="indefinite"
-            />
-          </linearGradient>
-        </defs>
-        <text className="setup__glyph" x="0" y="600" fill="none" stroke={`url(#${gradientId})`} strokeWidth="1.25">
-          {value}
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-const THEME_OPTIONS: Array<{ value: ThemeMode; label: string }> = [
-  { value: "dark", label: "Dark" },
-  { value: "light", label: "Light" },
-  { value: "system", label: "System" }
-];
-
-function ThemeSwitch() {
-  const themeMode = useAppStore((state) => state.themeMode);
-  const setThemeMode = useAppStore((state) => state.setThemeMode);
-  return (
-    <div className="setup__theme" role="group" aria-label="Appearance">
-      {THEME_OPTIONS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          className="setup__theme-btn"
-          aria-pressed={themeMode === option.value}
-          onClick={() => setThemeMode(option.value)}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
+type NumeralTone = GlyphTone;
 
 type FrameProps = {
   children: ReactNode;
   hue: number;
   numeral: string;
   tone: NumeralTone;
-  info: SetupStatus | null;
   steps?: StepId[];
   current?: StepId;
 };
 
-function SetupFrame({ children, hue, numeral, tone, info, steps, current }: FrameProps) {
+function SetupFrame({ children, hue, numeral, tone, steps, current }: FrameProps) {
   const currentIndex = steps && current ? steps.indexOf(current) : -1;
   const progress = steps && currentIndex >= 0 ? Math.round(((currentIndex + 1) / steps.length) * 100) : 0;
   return (
     <main className="setup" aria-labelledby="setup-title">
       <Sky hue={hue} />
-      <Numeral value={numeral} tone={tone} />
+      <Glyph value={numeral} tone={tone} />
       <div className="setup__frame">
         <header className="setup__header">
           <div className="setup__brand">
@@ -233,11 +150,6 @@ function SetupFrame({ children, hue, numeral, tone, info, steps, current }: Fram
             <span className="setup__brand-name">Repere</span>
           </div>
           <div className="setup__header-right">
-            {info ? (
-              <span className="setup__hint setup__hint--env">
-                {info.database_provider} · {info.auth_mode} · v{info.version}
-              </span>
-            ) : null}
             <ThemeSwitch />
           </div>
         </header>
@@ -275,7 +187,6 @@ function SetupFrame({ children, hue, numeral, tone, info, steps, current }: Fram
           <footer className="setup__footer">
             <div className="setup__track" aria-hidden="true" />
             <div className="setup__footer-row">
-              <span className="setup__hint">Stable public route: /setup</span>
               <span className="setup__hint">© Repere</span>
             </div>
           </footer>
@@ -313,7 +224,6 @@ function SetupWizard({ info }: { info: SetupStatus }) {
       hue={STEP_HUES[Math.min(index, STEP_HUES.length - 1)]}
       numeral={pad(index)}
       tone={current === "done" ? "ok" : "default"}
-      info={info}
       steps={steps}
       current={current}
     >
@@ -346,13 +256,12 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
           <Line delay={0.2}>to shape it.</Line>
         </h1>
         <p className="setup__lede rise d2">
-          This installation has not been set up yet. Five short steps: the deployment, your
-          administrator, an optional demo workspace.
+          This installation has not been set up yet. A few quick steps: check your setup, create an
+          administrator account and, if you like, load a demo workspace.
         </p>
       </section>
       <aside className="setup__actions rise d3">
         <div className="setup__row setup__row--end">
-          <span className="setup__hint">Enter ↵</span>
           <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
             Get started <ArrowIcon />
           </button>
@@ -362,20 +271,32 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   );
 }
 
+function formatDatabase(provider: string): string {
+  const key = provider.toLowerCase();
+  if (key === "sqlite") return "SQLite";
+  if (key === "postgres" || key === "postgresql") return "PostgreSQL";
+  return provider;
+}
+
+function formatSignIn(authMode: string): string {
+  if (authMode === "standard") return "Accounts required";
+  if (authMode === "open") return "Open access";
+  return authMode;
+}
+
 function EnvironmentStep({ info, onNext, onBack }: { info: SetupStatus; onNext: () => void; onBack: () => void }) {
   const facts: Array<[string, string]> = [
-    ["Database", info.database_provider],
-    ["Auth mode", info.auth_mode],
-    ["Backend", info.version],
-    ["Schema", info.schema_version === 0 ? "version 0 · empty" : `version ${info.schema_version}`]
+    ["Database", formatDatabase(info.database_provider)],
+    ["Sign-in", formatSignIn(info.auth_mode)],
+    ["Version", info.version]
   ];
   return (
     <>
       <section className="setup__content">
         <span className="setup__eyebrow rise">Environment</span>
         <h1 id="setup-title" className="setup__title setup__title--md">
-          <Line>Read from</Line>
-          <Line delay={0.1}>your deployment.</Line>
+          <Line>Your</Line>
+          <Line delay={0.1}>installation.</Line>
         </h1>
         <dl className="setup__readout rise d2">
           {facts.map(([label, value], i) => (
@@ -450,7 +371,7 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
       setError(
         closed
           ? "An administrator account already exists for this installation. Sign in with it instead."
-          : describeError(cause, "Unable to reach the backend to create the account.")
+          : describeError(cause, "Couldn't create the account. Check your connection and try again.")
       );
       if (closed) void reloadStatus({ force: true });
       setSubmitting(false);
@@ -481,8 +402,7 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
           <Line delay={0.1}>runs the place.</Line>
         </h1>
         <p className="setup__lede rise d2">
-          It becomes the administrator and signs you in right away. Further users can be added later
-          through the API.
+          It becomes the administrator and signs you in right away.
         </p>
       </section>
       <aside className="setup__actions rise d2">
@@ -562,7 +482,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
     try {
       setResult(await postSampleData());
     } catch (cause) {
-      setError(describeError(cause, "Unable to reach the backend to load the sample data."));
+      setError(describeError(cause, "Couldn't load the demo. Check your connection and try again."));
     } finally {
       setLoading(false);
     }
@@ -608,8 +528,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
               </span>
               <span>
                 <strong>Demo workspace loaded.</strong>{" "}
-                {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows,
-                schema version {result.schema_version}.
+                {result.tables_created.length} tables ({result.tables_created.join(", ")}), {totalRows} rows.
               </span>
             </div>
             <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
@@ -630,7 +549,7 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
                 {loading ? (
                   <>
                     <span className="setup__spin" aria-hidden="true" />
-                    Applying schema and rows…
+                    Loading the demo…
                   </>
                 ) : (
                   <>

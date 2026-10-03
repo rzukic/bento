@@ -99,17 +99,15 @@ function describePreviewChange(change: SchemaChange): {
         title: `Change type of ${getQualifiedColumnName(change)} from ${change.oldValue} to ${change.newValue}`,
         detail:
           change.coercionKind === "Lossy"
-            ? "Lossy conversion. Existing values may be truncated or rejected depending on provider behavior."
-            : change.coercionKind
-              ? `${change.coercionKind} conversion`
-              : undefined,
+            ? "Some existing values may be shortened or cleared."
+            : undefined,
       };
     case "AlterColumnNullability":
       return {
         title:
           change.newValue === false
             ? `Require values in ${getQualifiedColumnName(change)}`
-            : `Allow null values in ${getQualifiedColumnName(change)}`,
+            : `Make ${getQualifiedColumnName(change)} optional`,
       };
     case "AlterColumnDefault":
       return { title: `Change default for ${getQualifiedColumnName(change)}` };
@@ -137,7 +135,7 @@ function describePreviewChange(change: SchemaChange): {
     case "AlterIndex":
       return { title: `Change index ${change.index ?? change.table}` };
     default:
-      return { title: change.changeType };
+      return { title: `Change to ${change.table}` };
   }
 }
 
@@ -204,22 +202,15 @@ export function PreviewSummary({
         >
           {isLayoutOnlyDraft ? (
             <EmptyState
-              title="Layout-only changes"
-              description="No database migration is required. Apply will save the updated layout/metadata in place without bumping the schema version."
+              title="Designer settings only"
+              description="Only colours, positions or record labels changed. Applying won't touch your data."
               icon="check"
-              bullets={[
-                "Migration plan is empty so no SQL will run",
-                "Layout color, position, and other inert metadata will be persisted",
-              ]}
             />
           ) : (
             <EmptyState
               title="No schema changes"
-              description="Preview completed successfully. This draft matches the current schema, so there is nothing to apply."
+              description="Your draft matches the current schema, so there is nothing to apply."
               icon="check"
-              bullets={[
-                "Apply stays disabled until the preview contains schema changes",
-              ]}
             />
           )}
         </div>
@@ -258,9 +249,9 @@ function PreviewChangeCard({ change }: PreviewChangeCardProps) {
         </div>
 
         <div className="schema-workbench__preview-change-badges">
-          {change.coercionKind ? (
+          {change.coercionKind === "Lossy" ? (
             <span className="schema-workbench__preview-badge schema-workbench__preview-badge--muted">
-              {change.coercionKind}
+              May lose data
             </span>
           ) : null}
           {change.isDestructive ? (
@@ -295,7 +286,7 @@ type CastExamplesProps = {
 function CastExamples({ examples }: CastExamplesProps) {
   return (
     <div className="schema-workbench__cast-examples">
-      <h4>Example Casts (first 5 rows)</h4>
+      <h4>How existing values will convert</h4>
       <ol className="schema-workbench__cast-example-list">
         {examples.map((example, index) => (
           <li
@@ -307,7 +298,7 @@ function CastExamples({ examples }: CastExamplesProps) {
               {" -> "}
               {example.isValid
                 ? formatPreviewValue(example.castValue)
-                : "invalid cast"}
+                : "can't convert"}
             </code>
             {!example.isValid && example.error ? (
               <span className="schema-workbench__cast-example-error">
@@ -361,7 +352,7 @@ function RelationImpact({ impact }: RelationImpactProps) {
               ? "Table"
               : impact.objectType === "column"
                 ? "Column"
-                : "Object"}
+                : "Relation"}
           </dt>
           <dd>{impact.objectName}</dd>
         </div>
@@ -415,6 +406,7 @@ function RelationImpact({ impact }: RelationImpactProps) {
 type DiagnosticsSectionProps = {
   activeDiagnosticId: string | null;
   diagnostics: WorkbenchDiagnostic[];
+  locate?: (diagnostic: WorkbenchDiagnostic) => string | null;
   onSelect: (diagnostic: WorkbenchDiagnostic) => void;
   singularLabel: "error" | "warning";
 };
@@ -422,6 +414,8 @@ type DiagnosticsSectionProps = {
 type PreviewDiagnosticsProps = {
   activeDiagnosticId: string | null;
   errorDiagnostics: WorkbenchDiagnostic[];
+  /** Where a problem is, in words (e.g. "widgets.name"); JSON line otherwise. */
+  locate?: (diagnostic: WorkbenchDiagnostic) => string | null;
   onSelect: (diagnostic: WorkbenchDiagnostic) => void;
   warningDiagnostics: WorkbenchDiagnostic[];
 };
@@ -429,6 +423,7 @@ type PreviewDiagnosticsProps = {
 export function PreviewDiagnostics({
   activeDiagnosticId,
   errorDiagnostics,
+  locate,
   onSelect,
   warningDiagnostics,
 }: PreviewDiagnosticsProps) {
@@ -440,6 +435,7 @@ export function PreviewDiagnostics({
     <div className="schema-workbench__preview-diagnostics">
       <DiagnosticsSection
         singularLabel="error"
+        locate={locate}
         diagnostics={errorDiagnostics}
         activeDiagnosticId={activeDiagnosticId}
         onSelect={onSelect}
@@ -447,6 +443,7 @@ export function PreviewDiagnostics({
 
       <DiagnosticsSection
         singularLabel="warning"
+        locate={locate}
         diagnostics={warningDiagnostics}
         activeDiagnosticId={activeDiagnosticId}
         onSelect={onSelect}
@@ -458,6 +455,7 @@ export function PreviewDiagnostics({
 function DiagnosticsSection({
   activeDiagnosticId,
   diagnostics,
+  locate,
   onSelect,
   singularLabel,
 }: DiagnosticsSectionProps) {
@@ -478,7 +476,9 @@ function DiagnosticsSection({
 
       <div className="schema-workbench__diagnostic-list">
         {diagnostics.map((diagnostic) => {
-          const locationLabel = diagnostic.location
+          const locationLabel = locate
+            ? locate(diagnostic)
+            : diagnostic.location
             ? `${diagnostic.locationExact ? "Line" : "Near line"} ${diagnostic.location.line}`
             : null;
 
@@ -508,23 +508,17 @@ function DiagnosticsSection({
               }}
             >
               <div className="schema-workbench__diagnostic-meta">
-                <span className="schema-workbench__diagnostic-severity">
-                  {diagnostic.source === "syntax"
-                    ? "Syntax"
-                    : diagnostic.source === "preview"
-                      ? "Preview"
-                      : diagnostic.severity === "error"
-                        ? "Error"
-                        : "Warning"}
+                <span
+                  className={
+                    diagnostic.severity === "error"
+                      ? "schema-workbench__issue-dot schema-workbench__issue-dot--error"
+                      : "schema-workbench__issue-dot schema-workbench__issue-dot--warning"
+                  }
+                  aria-hidden="true"
+                />
+                <span className="schema-workbench__sr-only">
+                  {diagnostic.severity === "error" ? "Error" : "Warning"}
                 </span>
-                <code className="schema-workbench__diagnostic-code">
-                  {diagnostic.code}
-                </code>
-                {diagnostic.path ? (
-                  <span className="schema-workbench__diagnostic-path mono">
-                    {diagnostic.path}
-                  </span>
-                ) : null}
                 {locationLabel ? (
                   <span className="schema-workbench__diagnostic-location">
                     {locationLabel}

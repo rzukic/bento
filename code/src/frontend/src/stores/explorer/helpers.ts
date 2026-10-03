@@ -277,6 +277,91 @@ export function isCreateReady(
   return true;
 }
 
+// ── Draft (unsaved new) rows ──────────────────────────────────────────
+
+function isEmptyValue(value: unknown): boolean {
+  return value === undefined || value === null || value === "";
+}
+
+/** Columns a new row must fill before it can be created (same rule as isCreateReady). */
+export function isRequiredForCreate(column: ModelColumn): boolean {
+  if (!isWritableColumn(column)) return false;
+  if (!column.primaryKey && column.nullable !== false) return false;
+  return column.default === undefined;
+}
+
+export function getMissingRequiredColumns(
+  table: ModelTable,
+  row: Record<string, unknown>,
+): ModelColumn[] {
+  return getWritableColumns(table).filter(
+    (column) => isRequiredForCreate(column) && isEmptyValue(row[column.name]),
+  );
+}
+
+export function isDraftRowEmpty(table: ModelTable, row: Record<string, unknown>): boolean {
+  return getWritableColumns(table).every((column) => isEmptyValue(row[column.name]));
+}
+
+/**
+ * Where editing should resume on a draft: a field the last save rejected,
+ * else the first missing required field, else the first field.
+ */
+export function getDraftFocusColumn(
+  table: ModelTable,
+  row: Record<string, unknown>,
+  cellErrors?: Record<string, string>,
+): string | null {
+  const rejected = table.columns.find((column) => cellErrors?.[column.name] !== undefined);
+  return (
+    rejected?.name ??
+    getMissingRequiredColumns(table, row)[0]?.name ??
+    getWritableColumns(table)[0]?.name ??
+    null
+  );
+}
+
+/**
+ * After Enter/Tab in a draft: the next missing required field after
+ * `afterColumn` (wrapping), or `afterColumn` itself if it is the only one
+ * still missing, or null when nothing required is missing.
+ */
+export function getNextDraftColumn(
+  table: ModelTable,
+  row: Record<string, unknown>,
+  afterColumn: string,
+): string | null {
+  const missing = getMissingRequiredColumns(table, row).map((column) => column.name);
+  if (missing.length === 0) return null;
+  const order = table.columns.map((column) => column.name);
+  const start = order.indexOf(afterColumn);
+  for (let step = 1; step <= order.length; step += 1) {
+    const candidate = order[(start + step) % order.length]!;
+    if (candidate !== afterColumn && missing.includes(candidate)) return candidate;
+  }
+  return missing.includes(afterColumn) ? afterColumn : null;
+}
+
+export function getDraftRows(view: TableViewState): Record<string, unknown>[] {
+  if (view.pendingNewRowIds.length === 0) return [];
+  const ids = new Set(view.pendingNewRowIds);
+  return view.rows.filter((row) => ids.has(String(row.id ?? "")));
+}
+
+/** Drops drafts the user has not typed anything into; keeps the others. */
+export function dropEmptyDraftRows(
+  view: TableViewState,
+  table: ModelTable | null,
+  options?: { preserveRowIds?: string[] },
+): TableViewState {
+  if (view.pendingNewRowIds.length === 0) return view;
+  const keep = new Set(options?.preserveRowIds ?? []);
+  for (const row of getDraftRows(view)) {
+    if (table && !isDraftRowEmpty(table, row)) keep.add(String(row.id ?? ""));
+  }
+  return dropPendingNewRows(view, { preserveRowIds: [...keep] });
+}
+
 export function buildDuplicatePayload(
   table: ModelTable,
   row: Record<string, unknown>,

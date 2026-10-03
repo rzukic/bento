@@ -144,6 +144,7 @@ export function VisualRelationCreator({
   return (
     <div className="schema-workbench__visual-relation-creator">
       <SelectField
+        underline
         label="Relation type"
         options={[
           { label: "One-to-many", value: "1:N" },
@@ -155,12 +156,14 @@ export function VisualRelationCreator({
         }
       />
       <SelectField
+        underline
         label={draft.relationType === "N:M" ? "Target table" : "Child table"}
         options={tableOptions}
         value={draft.toTableName}
         onChange={(event) => updateToTable(event.currentTarget.value)}
       />
       <TextField
+        underline
         label="Relation name"
         value={draft.relationName}
         onChange={(event) =>
@@ -170,6 +173,7 @@ export function VisualRelationCreator({
       {draft.relationType === "N:M" ? (
         <>
           <TextField
+            underline
             label="Junction table"
             value={draft.junctionTableName}
             onChange={(event) =>
@@ -180,6 +184,7 @@ export function VisualRelationCreator({
             }
           />
           <TextField
+            underline
             label="Source column"
             value={draft.fromColumnName}
             onChange={(event) =>
@@ -187,6 +192,7 @@ export function VisualRelationCreator({
             }
           />
           <TextField
+            underline
             label="Target column"
             value={draft.toColumnName}
             onChange={(event) =>
@@ -197,12 +203,14 @@ export function VisualRelationCreator({
       ) : (
         <>
           <SelectField
+            underline
             label="Reference column"
             options={columnOptions}
             value={draft.columnMode === "new" ? "__new__" : draft.columnName}
             onChange={(event) => updateColumnMode(event.currentTarget.value)}
           />
           <TextField
+            underline
             label="Column name"
             disabled={draft.columnMode === "existing"}
             value={draft.columnName}
@@ -213,14 +221,16 @@ export function VisualRelationCreator({
         </>
       )}
       <TextField
-        label="Parent accessor"
+        underline
+        label="Name on parent records"
         value={draft.fromAccessor}
         onChange={(event) =>
           onChange({ ...draft, fromAccessor: event.currentTarget.value })
         }
       />
       <TextField
-        label="Child accessor"
+        underline
+        label="Name on child records"
         value={draft.toAccessor}
         onChange={(event) =>
           onChange({ ...draft, toAccessor: event.currentTarget.value })
@@ -228,6 +238,7 @@ export function VisualRelationCreator({
       />
       {draft.relationType === "1:N" ? (
         <TextField
+          underline
           label="Index name"
           value={draft.indexName}
           onChange={(event) =>
@@ -239,7 +250,6 @@ export function VisualRelationCreator({
         <ol className="schema-workbench__visual-relation-errors">
           {issues.map((issue) => (
             <li key={`${issue.code}:${issue.path}`}>
-              <strong>{issue.code}</strong>
               <span>{issue.message}</span>
             </li>
           ))}

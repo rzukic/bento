@@ -1,7 +1,7 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 
-type ButtonVariant = "default" | "primary" | "ghost" | "danger";
-type ButtonSize = "default" | "sm" | "icon";
+type ButtonVariant = "default" | "primary" | "accent" | "ghost" | "danger";
+type ButtonSize = "default" | "sm" | "lg" | "icon";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   variant?: ButtonVariant;
@@ -14,6 +14,8 @@ function getVariantClassName(variant: ButtonVariant): string {
   switch (variant) {
     case "primary":
       return "btn--primary";
+    case "accent":
+      return "btn--accent";
     case "ghost":
       return "btn--ghost";
     case "danger":
@@ -27,6 +29,8 @@ function getSizeClassName(size: ButtonSize): string {
   switch (size) {
     case "sm":
       return "btn--sm";
+    case "lg":
+      return "btn--lg";
     case "icon":
       return "btn--icon";
     default:

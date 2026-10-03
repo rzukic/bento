@@ -38,8 +38,8 @@ export function JsonCellEditor({
       const parsed: unknown = JSON.parse(draft);
       setParseError(null);
       onCommit(parsed);
-    } catch (e) {
-      setParseError(e instanceof Error ? e.message : "Invalid JSON");
+    } catch {
+      setParseError("This isn't valid JSON. Check the format and try again.");
     }
   }
 
@@ -56,7 +56,7 @@ export function JsonCellEditor({
   }
 
   return (
-    <EditorShell error={error ?? parseError}>
+    <EditorShell kind="mono" error={error ?? parseError}>
       <textarea
         ref={inputRef}
         rows={4}
