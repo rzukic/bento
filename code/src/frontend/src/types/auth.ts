@@ -11,6 +11,19 @@ export type LoginRequest = {
   password: string;
 };
 
+export type RegisterRequest = {
+  username: string;
+  password: string;
+};
+
+export type RegisterResponse = {
+  id: number;
+  username: string;
+  role: AuthRole | string;
+  /** `true` when this registration created the first (admin) account. */
+  bootstrap_admin: boolean;
+};
+
 export type LoginResponse = {
   access_token: string;
   token_type: string;

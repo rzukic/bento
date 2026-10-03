@@ -32,8 +32,8 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 table_name      AS TableName,
                 default_view_id AS DefaultViewId,
                 auto_save       AS AutoSave,
-                created_at      AS CreatedAt,
-                updated_at      AS UpdatedAt
+                {CreatedAtText} AS CreatedAt,
+                {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
             WHERE user_id = @UserId
               AND table_name = @TableName
@@ -65,8 +65,8 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 table_name      AS TableName,
                 default_view_id AS DefaultViewId,
                 auto_save       AS AutoSave,
-                created_at      AS CreatedAt,
-                updated_at      AS UpdatedAt
+                {CreatedAtText} AS CreatedAt,
+                {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
             WHERE user_id = @UserId
               AND table_name = @TableName
@@ -110,7 +110,7 @@ public sealed class ExplorerPreferencesController : ControllerBase
             UPDATE {PreferencesTable}
             SET default_view_id = @DefaultViewId,
                 auto_save = @AutoSave,
-                updated_at = @Now
+                updated_at = {NowParam}
             WHERE user_id = @UserId
               AND table_name = @TableName
             """,
@@ -130,7 +130,7 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 INSERT INTO {PreferencesTable}
                     (user_id, table_name, default_view_id, auto_save, created_at, updated_at)
                 VALUES
-                    (@UserId, @TableName, @DefaultViewId, @AutoSave, @Now, @Now)
+                    (@UserId, @TableName, @DefaultViewId, @AutoSave, {NowParam}, {NowParam})
                 """,
                 new
                 {
@@ -155,6 +155,11 @@ public sealed class ExplorerPreferencesController : ControllerBase
         _systemPool.Provider == DatabaseProvider.Postgres
             ? "_system.user_table_explorer_preferences"
             : "user_table_explorer_preferences";
+
+    // Postgres stores the timestamps as TIMESTAMPTZ; SQLite as TEXT.
+    private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
+    private string CreatedAtText => SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at");
+    private string UpdatedAtText => SystemSqlDialect.TimestampText(_systemPool.Provider, "updated_at");
 
     private string ViewsTable =>
         _systemPool.Provider == DatabaseProvider.Postgres

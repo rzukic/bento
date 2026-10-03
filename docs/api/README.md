@@ -17,10 +17,11 @@ Current implemented Phase 1 auth method:
 
 Current Step 1.4 auth contract:
 - `GET /api/v1/auth` returns the active auth mode, JWT/cookie runtime settings, whether bootstrap self-registration is currently open, and the list of auth features still deferred
-- `refresh_cookie.require_secure` reports the effective runtime policy: default `false` in development-style hosts, default `true` in production, and can still be overridden with `AUTH_REFRESH_COOKIE_SECURE`
+- `refresh_cookie.require_secure` reports whether `Secure` is forced by `AUTH_REFRESH_COOKIE_SECURE=true`; when it is `false` (the default in every environment since Step 2.7) the cookie follows the request scheme — `Secure` on HTTPS, including TLS terminated at a trusted proxy, plain on HTTP
 - `POST /api/v1/auth/register` allows bootstrap self-registration until the first user exists, then requires an authenticated admin
 - `POST /api/v1/auth/login` issues a bearer access token and refresh cookie
 - `POST /api/v1/auth/refresh` rotates the refresh session and returns a new access token
+- `POST /api/v1/auth/logout` revokes the refresh session named by the cookie (if any) and clears the cookie; always `204`, so a stale or missing cookie never blocks signing out. The short-lived access token stays valid until it expires
 - `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
 - API key auth and logout remain deferred to later phases
 
@@ -82,10 +83,51 @@ Cross-origin and request-size behavior:
 | `GET` | `/api/v1/auth` | Return the active auth-mode/runtime contract and current Step 1.4 deferrals |
 | `POST` | `/api/v1/auth/register` | Create the bootstrap admin or an admin-managed user |
 | `POST` | `/api/v1/auth/login` | Authenticate and receive a JWT |
+| `POST` | `/api/v1/auth/logout` | Revoke the refresh session and clear the cookie |
 | `POST` | `/api/v1/auth/refresh` | Refresh an expiring JWT |
 | `POST` | `/api/v1/auth/logout` | Invalidate current session |
 
 `GET /api/v1/auth`, `POST /register`, `POST /login`, and `POST /refresh` are implemented in Step 1.4. `POST /logout` and API key auth remain future work.
+
+---
+
+### Setup
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/setup/status` | Public first-run status used by the `/setup` wizard |
+| `POST` | `/api/v1/setup/sample-data` | Load the demo workspace into an empty installation (admin only; Step 2.7, TASK-145) |
+
+`GET /api/v1/setup/status` is anonymous in every auth mode; it is a cheap read the SPA calls on every route load, so it is not rate-limited (the `POST` setup routes share the auth rate limit). It never contains secrets, file paths, or JWT details. Response:
+
+```json
+{
+  "initialized": false,
+  "auth_mode": "standard",
+  "auth_required": true,
+  "registration_bootstrap_open": true,
+  "database_provider": "sqlite",
+  "schema_version": 0,
+  "sample_data_available": true,
+  "version": "0.1.0"
+}
+```
+
+- `initialized` is `true` once the first (bootstrap) admin exists; in `open` mode it is always `true` because no account is needed
+- `auth_mode` and `database_provider` are deployment configuration and shown read-only by the wizard
+- `sample_data_available` is `true` only while the schema is still at version 0
+
+`POST /api/v1/setup/sample-data` (admin role) loads the embedded demo workspace: the `customers` / `orders` / `products` schema with two relations plus demo rows (6 customers, 10 orders across all statuses, 5 products). It runs through the normal schema apply and CRUD paths, so it produces schema version 1 and one migration history entry. It is a one-time convenience, not an import feature: once any schema exists (version > 0) it answers `409 CONFLICT` with `error.details.schemaVersion` and changes nothing. Response:
+
+```json
+{
+  "schema_version": 1,
+  "tables_created": ["customers", "orders", "products"],
+  "rows_inserted": { "customers": 6, "orders": 10, "products": 5 }
+}
+```
+
+The fixture files live in `code/scripts/fixtures/` and are embedded into the backend at build time, so the packaged smoke scripts and the wizard share one source.
 
 ---
 

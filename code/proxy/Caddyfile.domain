@@ -1,0 +1,43 @@
+# Repère reverse proxy — public domain mode (Part 13 R13.3).
+#
+# Selected by docker-entrypoint.sh when DOMAIN is a real hostname. Caddy obtains
+# and renews a Let's Encrypt certificate for it; plain HTTP on :80 is redirected
+# to HTTPS. Ports 80 and 443 must be reachable from the internet for the ACME
+# challenge.
+{
+	# No admin API: port 2019 is never exposed and the config is immutable at run time.
+	admin off
+	# Do not try to install the internal CA into the container's trust store.
+	skip_install_trust
+
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 5m
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+import routes.caddy
+
+{$DOMAIN} {
+	import repere
+}
+
+# Container-local probes (the HEALTHCHECK) and anyone hitting the raw IP over
+# HTTP: answer the liveness path, send everything else to the real site.
+http://localhost {
+	handle /proxy-healthz {
+		header Content-Type text/plain
+		respond "ok" 200
+	}
+	handle {
+		redir https://{$DOMAIN}{uri} permanent
+	}
+}

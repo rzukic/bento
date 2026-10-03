@@ -60,7 +60,7 @@ The **[docs/](docs/README.md)** describe how the code actually works — archite
 
 | Section | What's there |
 |---------|-------------|
-| [User Guides](docs/user/README.md) | Setup and practical MVP 1 usage |
+| [User Guides](docs/user/README.md) | Setup wizard, browser workflows, and API usage |
 | [Architecture](docs/architecture/README.md) | System topology, service boundaries, data flow |
 | [Backend](docs/backend/README.md) | ASP.NET Core structure, DB access, runtime config |
 | [API Reference](docs/api/README.md) | REST endpoints, auth contract, error codes |
@@ -136,27 +136,37 @@ The **[project-management/](project-management/README.md)** directory tracks all
 | [2.4](project-management/working-steps/2.4-data-explorer-editing-and-row-ops.md) | Data Explorer editing & row operations | Done |
 | [2.5](project-management/working-steps/2.5-schema-designer-json-workbench.md) | Schema Designer — JSON workbench | Done |
 | [2.6](project-management/working-steps/2.6-schema-designer-visual-erd.md) | Schema Designer — visual ERD | Done |
-| [2.7](project-management/working-steps/2.7-setup-wizard-and-frontend-packaging.md) | Setup wizard & frontend/proxy packaging | Planned |
+| [2.7](project-management/working-steps/2.7-setup-wizard-and-frontend-packaging.md) | Setup wizard & frontend/proxy packaging | Done |
 
-**MVP 2 "Spreadsheet+"**: Browser UI with schema designer, data grid, saved views and inline editing. Reached after Step 2.7; until then the frontend runs from the Vite dev server against the backend.
+**MVP 2 "Spreadsheet+"**: Browser UI with setup wizard, schema designer, data grid, saved views and inline editing, packaged as proxy + frontend + backend. Reached with Step 2.7 (release record [v0.2.0](project-management/releases/v0.2.0.md) prepared).
 
 For a non-technical path through the current product, start with [docs/user/README.md](docs/user/README.md).
 
 ---
 
-## Quick Start (current MVP 1)
+## Quick Start
+
+Full stack (browser UI behind the Caddy proxy, backend not published):
 
 ```bash
 docker compose -f code/docker-compose.yml up --build
 ```
 
-For Postgres:
+Then open `http://localhost` — a fresh installation starts in the setup wizard, which creates the admin account and can load a demo workspace.
+
+For Postgres add the override:
 
 ```bash
 docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml up --build
 ```
 
-Then register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and start using the auto-generated CRUD endpoints.
+### API only (MVP 1 shape)
+
+```bash
+docker compose -f code/docker-compose.backend-only.yml up --build
+```
+
+This publishes just the backend on port 5000. Register the bootstrap admin, define a schema via `PUT /api/v1/admin/schema`, and use the auto-generated CRUD endpoints. The Postgres override works on this base too.
 
 ## Development (frontend + backend)
 

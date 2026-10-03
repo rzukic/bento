@@ -29,7 +29,7 @@ public sealed class AuthMiddleware
             return;
         }
 
-        if (IsPublicHealthRoute(context.Request.Path))
+        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path))
         {
             await _next(context);
             return;
@@ -67,6 +67,16 @@ public sealed class AuthMiddleware
     private static bool IsPublicHealthRoute(PathString path)
     {
         return path.Equals("/" + ApiRoutes.AdminHealth, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The setup wizard has to read the installation state before any account
+    /// exists, so the status probe is public. Everything else under /setup
+    /// stays behind the normal token check.
+    /// </summary>
+    private static bool IsPublicSetupRoute(PathString path)
+    {
+        return path.Equals("/" + ApiRoutes.SetupStatus, StringComparison.OrdinalIgnoreCase);
     }
 
     private ClaimsPrincipal CreateAuthenticatedPrincipal(string? authorizationHeader)

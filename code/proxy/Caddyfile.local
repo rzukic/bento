@@ -1,0 +1,31 @@
+# Repère reverse proxy — local / no-domain mode (Part 13 R13.3).
+#
+# Selected by docker-entrypoint.sh when DOMAIN is unset, "localhost" or an IP.
+# Plain HTTP on :80 for every Host header (localhost, 127.0.0.1, a LAN address),
+# no certificates, no redirects. Port 443 stays closed.
+{
+	# No admin API: port 2019 is never exposed and the config is immutable at run time.
+	admin off
+	# Nothing to issue in this mode; also keeps Caddy from touching the trust store.
+	auto_https off
+	skip_install_trust
+
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 60s
+			idle 5m
+		}
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+import routes.caddy
+
+:80 {
+	import repere
+}

@@ -136,16 +136,30 @@ Request-tracing contract:
 - request logging emits one JSON console log entry with `Method`, `Path`, `StatusCode`, `ElapsedMs`, and `RequestId`
 
 Current middleware order:
-1. `RequestIdMiddleware`
-2. `RequestLoggingMiddleware`
-3. `ErrorHandlingMiddleware`
-4. `CorsPolicyMiddleware`
-5. `BodySizeLimitMiddleware`
+1. ASP.NET `ForwardedHeaders` (only registered when `TRUSTED_PROXIES` is non-empty)
+2. ASP.NET `CookiePolicy` with `Secure = SameAsRequest`
+3. `RequestIdMiddleware`
+4. `RequestLoggingMiddleware`
+5. `ErrorHandlingMiddleware`
+6. `CorsPolicyMiddleware`
+7. `BodySizeLimitMiddleware`
+8. `AuthRateLimitMiddleware`
+9. `AuthMiddleware`
+
+Reverse-proxy awareness (`TRUSTED_PROXIES`):
+- `TRUSTED_PROXIES` is a comma-separated list of IP addresses or CIDR ranges (for example `172.18.0.0/16,10.0.0.5`); it maps to `Backend:TrustedProxies` and defaults to empty
+- when it is empty, no `X-Forwarded-*` header is trusted: `RemoteIpAddress`, `Request.Scheme`, and `Request.Host` stay the TCP peer values, which is the right behaviour for the directly exposed backend-only compose stack
+- when it is non-empty, `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` from those addresses are applied early in the pipeline; ASP.NET's default loopback trust entries are cleared so only the configured proxies are honoured
+- malformed entries (not an IP, prefix length out of range) abort startup with a `TRUSTED_PROXIES ... is invalid` error, like other invalid runtime configuration
+- `AuthRateLimitMiddleware` keys its per-minute buckets on `RemoteIpAddress`, so behind a trusted proxy each forwarded client is limited independently; it also covers `POST` requests under `/api/v1/setup`, and idle buckets are evicted once their window has fully expired so memory stays bounded
+- the refresh cookie is `Secure` whenever the request is HTTPS — including HTTPS terminated at a trusted proxy that sends `X-Forwarded-Proto: https` — or when `AUTH_REFRESH_COOKIE_SECURE=true` forces it; plain HTTP (directly or through the proxy with `DOMAIN=localhost`) issues a non-secure cookie so sessions also resume on `http://<lan-ip>`, where browsers would silently drop a `Secure` cookie
+- `GET /api/v1/admin/health/details` reports `runtime.trusted_proxies_configured`
+- same-origin requests through the proxy need no `ALLOWED_ORIGINS`; the Vite dev proxy case is unchanged
 
 Runtime configuration contract:
 - `BackendRuntimeOptions` is the typed DI model for server settings such as port, log level, auth mode, allowed origins, and body-size limits
-- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
-- `AUTH_REFRESH_COOKIE_SECURE` remains an explicit override, but when it is unset the refresh cookie now defaults to `Secure=false` in development-style hosts and `Secure=true` in production
+- exact env vars like `BACKEND_PORT`, `LOG_LEVEL`, `ALLOWED_ORIGINS`, `TRUSTED_PROXIES`, `MAX_BODY_SIZE`, `AUTH_MODE`, `JWT_SECRET`, and `DATA_DIR` are mapped into the backend config model before binding
+- `AUTH_REFRESH_COOKIE_SECURE` is an explicit override; when it is unset the refresh cookie follows the request scheme (`Secure` on HTTPS, plain on HTTP) in every environment. Until Step 2.7 the unset default was `Secure=true` in production, which broke session resume for packaged stacks reached over plain HTTP on anything but `localhost`
 - SQLite supports a convenience `DATABASE_URL=sqlite:///...` adapter that resolves the shared data root for `system.db` / `data.db`
 - Postgres keeps the explicit dual-pool env adapter in Step 1.3: `DATABASE_SYSTEM_CONNECTION` and `DATABASE_DATA_CONNECTION`
 - the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `REPERE_SYSTEM_PASSWORD`, and `REPERE_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added

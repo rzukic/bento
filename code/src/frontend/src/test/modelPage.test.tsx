@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorView } from "@codemirror/view";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
+import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
 import type { SchemaModelDocument } from "../types/api";
@@ -826,6 +827,7 @@ const previewLossyResponse = {
 beforeEach(() => {
   resetAppStoreForTest();
   resetAuthStoreForTest();
+  seedSetupInitializedForTest();
   resetSchemaStoreForTest();
   vi.stubGlobal(
     "fetch",

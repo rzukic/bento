@@ -42,6 +42,12 @@ public static class BackendRuntimeConfiguration
             overrides[$"Backend:AllowedOrigins:{i}"] = allowedOrigins[i];
         }
 
+        var trustedProxies = SplitCsv(getEnvironmentVariable("TRUSTED_PROXIES"));
+        for (var i = 0; i < trustedProxies.Length; i++)
+        {
+            overrides[$"Backend:TrustedProxies:{i}"] = trustedProxies[i];
+        }
+
         var dataDir = getEnvironmentVariable("DATA_DIR");
         if (!string.IsNullOrWhiteSpace(dataDir))
         {
@@ -101,7 +107,11 @@ public static class BackendRuntimeConfiguration
         }
 
         options.AuthMode = authMode;
-        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? environment.IsProduction();
+        // Unset means "follow the request scheme": the refresh cookie is Secure on
+        // HTTPS (including TLS terminated at a trusted proxy) and plain on HTTP, so
+        // a packaged stack reached over http://<lan-ip> can still resume sessions.
+        // AUTH_REFRESH_COOKIE_SECURE=true forces Secure regardless of the scheme.
+        options.AuthCookie.EffectiveRequireSecure = options.AuthCookie.RequireSecure ?? false;
         Validate(options);
         ValidatePackagedPostgresSecrets(configuration);
         return options;
@@ -225,6 +235,9 @@ public static class BackendRuntimeConfiguration
         }
 
         ParseByteSize(options.MaxBodySize);
+
+        // Fail fast on malformed TRUSTED_PROXIES entries instead of silently trusting nothing.
+        _ = TrustedProxyConfiguration.Parse(options.TrustedProxies);
 
         if (options.AuthMode == BackendAuthMode.Vault)
         {

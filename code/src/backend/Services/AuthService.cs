@@ -145,6 +145,41 @@ public sealed class AuthService
         }
     }
 
+    /// <summary>
+    /// Revokes the refresh session behind <paramref name="refreshToken"/> so a
+    /// later <c>POST /auth/refresh</c> with the same cookie fails. Idempotent:
+    /// a missing, unknown, expired or already revoked token is not an error.
+    /// Returns <c>true</c> when a live session was revoked.
+    /// </summary>
+    public async Task<bool> LogoutAsync(string? refreshToken, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (string.IsNullOrWhiteSpace(refreshToken))
+        {
+            return false;
+        }
+
+        using var conn = await _systemPool.GetConnectionAsync();
+        var now = DateTimeOffset.UtcNow;
+        var affected = await conn.ExecuteAsync(
+            $"""
+            UPDATE {GetAuthSessionsTableName()}
+            SET revoked_at = @RevokedAt,
+                last_used_at = @LastUsedAt
+            WHERE refresh_token_hash = @RefreshTokenHash
+              AND revoked_at IS NULL;
+            """,
+            new
+            {
+                RefreshTokenHash = ComputeRefreshTokenHash(refreshToken),
+                RevokedAt = ToDbValue(now),
+                LastUsedAt = ToDbValue(now)
+            });
+
+        return affected > 0;
+    }
+
     public async Task<RegisterUserResponse> RegisterAsync(
         RegisterUserRequest? request,
         ClaimsPrincipal principal,

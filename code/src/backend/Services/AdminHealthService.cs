@@ -83,7 +83,8 @@ public sealed class AdminHealthService
             LogLevel: _runtimeOptions.LogLevel,
             DataDir: _runtimeOptions.DataDir,
             ConfigPath: _runtimeOptions.PersistentConfigPath,
-            JwtConfigured: !string.IsNullOrWhiteSpace(_runtimeOptions.Jwt.Secret));
+            JwtConfigured: !string.IsNullOrWhiteSpace(_runtimeOptions.Jwt.Secret),
+            TrustedProxiesConfigured: _runtimeOptions.HasTrustedProxies);
     }
 
     private static string FormatUptime(TimeSpan uptime)

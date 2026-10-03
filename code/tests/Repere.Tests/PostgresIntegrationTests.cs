@@ -270,6 +270,147 @@ public sealed class PostgresIntegrationTests
         Assert.Equal(HttpStatusCode.NotFound, gone.StatusCode);
     }
 
+    [PostgresFact]
+    public async Task SetupStatus_ReportsPostgresProvider_AndTracksBootstrap()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "postgres-test-secret"
+        });
+
+        var fresh = await host.Client.GetFromJsonAsync<SetupStatusResponse>("/api/v1/setup/status");
+        fresh = Assert.IsType<SetupStatusResponse>(fresh);
+        Assert.False(fresh.Initialized);
+        Assert.Equal("postgres", fresh.DatabaseProvider);
+        Assert.Equal(0, fresh.SchemaVersion);
+
+        using var register = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, register.StatusCode);
+
+        var initialised = await host.Client.GetFromJsonAsync<SetupStatusResponse>("/api/v1/setup/status");
+        initialised = Assert.IsType<SetupStatusResponse>(initialised);
+        Assert.True(initialised.Initialized);
+        Assert.False(initialised.RegistrationBootstrapOpen);
+    }
+
+    [PostgresFact]
+    public async Task SampleData_LoadsDemoWorkspaceAgainstPostgres()
+    {
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open"
+        });
+
+        using var response = await host.Client.PostAsync("/api/v1/setup/sample-data", content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var summary = await response.Content.ReadFromJsonAsync<SampleDataResponse>();
+        summary = Assert.IsType<SampleDataResponse>(summary);
+        Assert.Equal(10, summary.RowsInserted["orders"]);
+
+        var orders = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?include=customer&filter[status]=paid");
+        Assert.Equal(4, orders.GetProperty("meta").GetProperty("total").GetInt64());
+
+        // TIMESTAMPTZ columns: filtering and patching with ISO strings must bind as timestamps, not text.
+        // Fixture: 5 of the 10 demo orders were placed on or after 2026-09-20.
+        var recent = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?filter[placed_at][gte]=2026-09-20T00:00:00Z");
+        Assert.Equal(5, recent.GetProperty("meta").GetProperty("total").GetInt64());
+
+        var firstOrderId = orders.GetProperty("data")[0].GetProperty("id").GetInt64();
+        using var patch = await host.Client.PatchAsJsonAsync($"/api/v1/data/orders/{firstOrderId}", new { placed_at = "2026-10-02T08:00:00Z" });
+        Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+        var patched = await patch.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.StartsWith("2026-10-02", patched.GetProperty("data").GetProperty("placed_at").GetString());
+
+        using var second = await host.Client.PostAsync("/api/v1/setup/sample-data", content: null);
+        Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
+    }
+
+    [Fact]
+    public async Task SavedViewsAndPreferences_RoundTripAgainstPostgres()
+    {
+        // system_views.config is JSONB and the timestamps are TIMESTAMPTZ on Postgres;
+        // the hand-written statements must cast their text parameters accordingly.
+        // Standard mode: views are owned by a real user row (FK on Postgres), like the
+        // packaged stack after the wizard created the admin.
+        await using var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:Jwt:Secret"] = "postgres-test-secret"
+        });
+
+        using var register = await host.Client.PostAsJsonAsync("/api/v1/auth/register", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.Created, register.StatusCode);
+
+        using var login = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new
+        {
+            username = "bootstrap-admin",
+            password = "supersecure"
+        });
+        Assert.Equal(HttpStatusCode.OK, login.StatusCode);
+        var loginPayload = await login.Content.ReadFromJsonAsync<AuthTokenResponse>();
+        loginPayload = Assert.IsType<AuthTokenResponse>(loginPayload);
+        host.Client.DefaultRequestHeaders.Authorization = new("Bearer", loginPayload.AccessToken);
+
+        using var sample = await host.Client.PostAsync("/api/v1/setup/sample-data", content: null);
+        Assert.Equal(HttpStatusCode.OK, sample.StatusCode);
+
+        using var create = await host.Client.PostAsJsonAsync("/api/v1/views", new
+        {
+            name = "Order board",
+            table_name = "orders",
+            type = "kanban",
+            is_shared = true,
+            config = new
+            {
+                type = "kanban",
+                search = "",
+                sort = Array.Empty<object>(),
+                filters = Array.Empty<object>(),
+                hiddenColumnNames = Array.Empty<string>(),
+                columnOrder = Array.Empty<string>(),
+                kanbanColumn = "status",
+                cardFieldNames = new[] { "total" },
+                hiddenLaneValues = Array.Empty<string>()
+            }
+        });
+        Assert.Equal(HttpStatusCode.Created, create.StatusCode);
+        var created = await create.Content.ReadFromJsonAsync<JsonElement>();
+        var viewId = created.GetProperty("id").GetInt32();
+        Assert.Equal("status", created.GetProperty("config").GetProperty("kanbanColumn").GetString());
+        Assert.StartsWith("20", created.GetProperty("created_at").GetString());
+        Assert.EndsWith("Z", created.GetProperty("created_at").GetString());
+
+        using var update = await host.Client.PutAsJsonAsync($"/api/v1/views/{viewId}", new
+        {
+            name = "Order board (renamed)",
+            config = new { type = "kanban", kanbanColumn = "status", cardFieldNames = new[] { "total", "placed_at" } }
+        });
+        Assert.Equal(HttpStatusCode.OK, update.StatusCode);
+        var updated = await update.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(2, updated.GetProperty("config").GetProperty("cardFieldNames").GetArrayLength());
+
+        var list = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/views/orders");
+        Assert.Single(list.GetProperty("data").EnumerateArray());
+
+        using var prefs = await host.Client.PutAsJsonAsync("/api/v1/explorer/preferences/orders", new
+        {
+            default_view_id = viewId,
+            auto_save = true
+        });
+        Assert.Equal(HttpStatusCode.OK, prefs.StatusCode);
+        var listWithDefault = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/views/orders");
+        Assert.Equal(viewId, listWithDefault.GetProperty("preferences").GetProperty("default_view_id").GetInt32());
+        Assert.True(listWithDefault.GetProperty("preferences").GetProperty("auto_save").GetBoolean());
+    }
+
     private static async Task<long> CreateAsync(ApiIntegrationTestHost host, string table, object body)
     {
         using var response = await host.Client.PostAsJsonAsync($"/api/v1/data/{table}", body);

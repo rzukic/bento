@@ -312,7 +312,7 @@ public class MigrationRunner
         foreach (var rename in tableRenames)
         {
             await conn.ExecuteAsync(
-                $"UPDATE {GetPreferencesTableName()} SET table_name = @NewTableName, updated_at = @Now WHERE table_name = @OldTableName;",
+                $"UPDATE {GetPreferencesTableName()} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
                 new
                 {
                     OldTableName = rename.Key,
@@ -342,7 +342,7 @@ public class MigrationRunner
             }
 
             await conn.ExecuteAsync(
-                $"UPDATE {GetViewsTableName()} SET table_name = @TableName, config = @Config, updated_at = @Now WHERE id = @Id;",
+                $"UPDATE {GetViewsTableName()} SET table_name = @TableName, config = {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id;",
                 new
                 {
                     view.Id,

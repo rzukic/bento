@@ -5,6 +5,8 @@ COPY src/backend/*.csproj ./src/backend/
 RUN dotnet restore ./src/backend/Repere.Api.csproj
 
 COPY src/backend/ ./src/backend/
+# The csproj embeds the demo workspace (schema + rows) from scripts/fixtures.
+COPY scripts/fixtures/ ./scripts/fixtures/
 RUN dotnet publish ./src/backend/Repere.Api.csproj -c Release -o /app/publish /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:8.0 AS runtime
