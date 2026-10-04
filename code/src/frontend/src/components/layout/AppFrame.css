@@ -304,6 +304,13 @@
 /* Collapsed and hovered (or focused): the full sidebar opens over the page.
    The grid keeps its 60px column, so nothing beside it moves. */
 @media (min-width: 901px) {
+  /* Keeping a hovered sidebar open changes nothing visible on it: the page
+     beside it moves over at once instead of sliding. */
+  .shell.shell--peek,
+  .shell.shell--instant {
+    transition: none;
+  }
+
   .shell--peek .shell__main {
     grid-column: 2;
   }
@@ -563,28 +570,28 @@
   color: var(--text);
 }
 
-.shell--collapsed .shell__sidebar-toggle {
+.shell--collapsed:not(.shell--peek) .shell__sidebar-toggle {
   display: none;
 }
 
-.shell--collapsed .shell__brand-mark {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark {
   cursor: pointer;
 }
 
-.shell--collapsed .shell__brand-mark:hover,
-.shell--collapsed .shell__brand-mark:focus-visible {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible {
   background: var(--hover);
   color: var(--text);
   outline: none;
 }
 
-.shell--collapsed .shell__brand-mark:hover .shell__brand-logo,
-.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-logo {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover .shell__brand-logo,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible .shell__brand-logo {
   visibility: hidden;
 }
 
-.shell--collapsed .shell__brand-mark:hover .shell__brand-expand,
-.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-expand {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover .shell__brand-expand,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible .shell__brand-expand {
   visibility: visible;
 }
 
