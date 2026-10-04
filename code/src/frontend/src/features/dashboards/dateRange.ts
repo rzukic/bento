@@ -13,8 +13,15 @@ export const DATE_RANGE_PRESETS: { value: DateRangePreset; label: string }[] = [
   { value: "all", label: "All time" },
 ];
 
-/** A resolved range: `from` inclusive, `to` exclusive, both `yyyy-MM-dd`; null = open. */
-export type ResolvedRange = { from: string | null; to: string | null };
+/**
+ * A resolved range: `from` inclusive, `to` exclusive, both `yyyy-MM-dd`;
+ * null = open. It also carries the dashboard's chosen filters, so every
+ * query that takes the range takes them too.
+ */
+export type ResolvedRange = { from: string | null; to: string | null; filters?: AppliedFilter[] };
+
+/** A dashboard filter with values chosen: it narrows queries on the listed tables. */
+export type AppliedFilter = { column: string; values: (string | number | boolean)[]; tables: string[] };
 
 function iso(year: number, month: number, day = 1): string {
   // month may run past 12 or below 1; Date.UTC normalises it.

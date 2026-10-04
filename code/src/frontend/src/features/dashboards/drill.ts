@@ -3,6 +3,7 @@ import { buildQueryString } from "../../api/data";
 import type { AggregationQuery, QueryBucket } from "../../api/query";
 import { DEFAULT_QUERY, type FilterClause } from "../../types/explorer";
 import type { ResolvedRange } from "./dateRange";
+import { globalFilterClauses } from "./dashboardFilters";
 import { toFilterClauses } from "./useExtraQueries";
 import { isRunningMeasure, nextBucket } from "./widgetData";
 
@@ -54,7 +55,7 @@ export function drillTarget(
       clauses.push({ column: p.column, op: "eq", value: String(p.value) });
     }
   }
-  clauses.push(...extra);
+  clauses.push(...globalFilterClauses(query.source, range), ...extra);
   // One condition per column and operator (the explorer's URL holds one): the narrower, later one wins.
   const filters = clauses.filter((c, i) => !clauses.slice(i + 1).some((later) => later.column === c.column && later.op === c.op));
   return { table: query.source, filters };

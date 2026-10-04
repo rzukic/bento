@@ -12,6 +12,17 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Dashboard Filter Bar
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.8 — Dashboard Filter Bar](working-steps/3.8-filter-bar.md)
+
+Menus above the widgets — an account, a category — narrow the whole dashboard.
+
+**Highlights:**
+- Filters on a column, values from the data (record labels), several at once, reset; the choice is in the address
+- Applied to every widget, variable and drill-down whose table has the column
+
 ### 2026-10-04 — Gaps From The Finanzfluss Copilot Comparison
 
 > **Phase**: Phase 3 — Visualization

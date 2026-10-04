@@ -124,7 +124,12 @@ export type DashboardDocument = {
   widgets: DashboardWidget[];
   variables?: DashboardVariable[];
   annotations?: DashboardAnnotation[];
+  /** Filters in the bar above the widgets (Part 9 R9.6): each narrows every widget whose table has the column. */
+  filters?: DashboardFilter[];
 };
+
+/** A dashboard filter on a column name, e.g. `konto_id`; the chosen values live in the address. */
+export type DashboardFilter = { column: string; label?: string };
 
 export type Dashboard = {
   id: number;

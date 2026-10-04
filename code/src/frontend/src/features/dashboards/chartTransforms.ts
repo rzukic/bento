@@ -76,9 +76,9 @@ function wholeMonths(from: string, to: string): number | null {
 /** The range to compare with: the same period a year earlier, or the one just before (as long, ending where it starts). */
 export function shiftedRange(range: ResolvedRange, shift: TimeShift): ResolvedRange | null {
   if (!range.from || !range.to) return null;
-  if (shift === "year") return { from: addMonths(range.from, -12), to: addMonths(range.to, -12) };
+  if (shift === "year") return { ...range, from: addMonths(range.from, -12), to: addMonths(range.to, -12) };
   const months = wholeMonths(range.from, range.to);
-  return months !== null && months > 0 ? { from: addMonths(range.from, -months), to: range.from } : previousRange(range);
+  return months !== null && months > 0 ? { ...range, from: addMonths(range.from, -months), to: range.from } : previousRange(range);
 }
 
 export const TIME_SHIFT_LABELS: Record<TimeShift, string> = { previous: "period before", year: "a year earlier" };

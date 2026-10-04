@@ -107,6 +107,58 @@ afterEach(() => {
 });
 
 describe("Dashboards", () => {
+  it("narrows every widget by the filter bar, from the address and the menus", async () => {
+    dashboardsApi.getDashboard.mockResolvedValue(
+      dashboard({
+        dateRange: { preset: "all" },
+        filters: [{ column: "kategorie_id", label: "Kategorie" }],
+        widgets: [
+          {
+            id: "spent",
+            type: "kpi",
+            title: "Spent",
+            position: { x: 0, y: 0, w: 4, h: 2 },
+            data: { query: { source: "girokonto", measures: [{ name: "spent", fn: "sum", column: "betrag_eur" }] }, dateColumn: "buchungstag" },
+          },
+        ],
+      }),
+    );
+    // The filter's values: categories with their record labels.
+    queryApi.runQuery.mockImplementation(async (query: AggregationQuery) =>
+      query.measures?.[0]?.name === "rows"
+        ? {
+            data: [
+              { kategorie_id: 2, kategorie_id_label: "Miete", rows: 1 },
+              { kategorie_id: 3, kategorie_id_label: "Lebensmittel", rows: 4 },
+            ],
+            meta: {
+              truncated: false,
+              columns: [
+                { name: "kategorie_id", type: "reference", role: "group" },
+                { name: "kategorie_id_label", type: "text", role: "label", labelOf: "kategorie_id" },
+                { name: "rows", type: "integer", role: "measure" },
+              ],
+            },
+          }
+        : answer(query),
+    );
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/dashboards/7?filter.kategorie_id=2"])} />);
+
+    const spentQueries = () => queryApi.runQuery.mock.calls.map(([q]) => q as AggregationQuery).filter((q) => q.measures?.[0]?.name === "spent");
+    await waitFor(() => expect(spentQueries().at(-1)?.filter).toEqual({ kategorie_id: { eq: 2 } }));
+    const menu = await screen.findByRole("button", { name: /Kategorie\s*Miete/ });
+
+    await user.click(menu);
+    await user.click(screen.getByRole("checkbox", { name: "Lebensmittel" }));
+    await waitFor(() => expect(spentQueries().at(-1)?.filter).toEqual({ kategorie_id: { in: [2, 3] } }));
+    expect(screen.getByRole("button", { name: /Kategorie\s*2 selected/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reset filters" }));
+    await waitFor(() => expect(spentQueries().at(-1)?.filter).toBeUndefined());
+  });
+
+
   it("creates a cash-flow dashboard from a table with dates and amounts", async () => {
     dashboardsApi.createDashboard.mockImplementation(async (name: string, document: DashboardDocument) => dashboard(document, { name }));
     dashboardsApi.getDashboard.mockImplementation(async () => {

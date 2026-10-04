@@ -17,6 +17,8 @@ Or type a name and choose **Create** for an empty dashboard.
 
 The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
 
+**Filters**: in edit mode, **Filters** adds menus above the widgets for a column — an account, a category, a status. Choosing values narrows every widget, variable and drill-down whose table has that column (other widgets stay as they are); several values mean "one of these". The choice is part of the address (`?filter.kategorie_id=2`), so a bookmark keeps it, and **Reset filters** clears it. A widget's own condition on the same column is replaced by the bar's choice.
+
 Widgets refresh when you come back to the tab and with the refresh button; in edit mode you can let the dashboard refresh every 30 seconds, minute or 5 minutes.
 
 ## Edit A Dashboard
