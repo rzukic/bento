@@ -195,3 +195,12 @@ describe("dashboards with formulas", () => {
     expect(queryApi.evaluateVariables).toHaveBeenLastCalledWith([{ name: "value", source: "transactions", formula: "COUNT()" }]);
   });
 });
+
+describe("widget editor guards", () => {
+  it("drops running totals when the date group goes", async () => {
+    const { withoutTimeSeries } = await import("../features/dashboards/WidgetEditor");
+    expect(withoutTimeSeries({ name: "balance", fn: "sum", column: "amount", running: true, carryIn: true })).toEqual({ name: "balance", fn: "sum", column: "amount" });
+    expect(withoutTimeSeries({ name: "balance", formula: "= RUNNING_SUM(SUM(amount WHERE amount > 0))" })).toEqual({ name: "balance", formula: "SUM(amount WHERE amount > 0)" });
+    expect(withoutTimeSeries({ name: "n", formula: "COUNT()" })).toEqual({ name: "n", formula: "COUNT()" });
+  });
+});
