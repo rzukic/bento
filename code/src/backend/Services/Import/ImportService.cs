@@ -204,7 +204,8 @@ public sealed class ImportService
 
     // ── Mapping ───────────────────────────────────────────────────────────
 
-    private sealed record MappedColumn(int SourceIndex, string Source, ColumnDef Column);
+    /// <summary>A table column filled from a file column, or with <paramref name="Fixed"/> for every row.</summary>
+    private sealed record MappedColumn(int SourceIndex, string Source, ColumnDef Column, string? Fixed = null);
 
     private static List<MappedColumn> ResolveMapping(TableDef table, CsvDocument document, IReadOnlyList<ImportColumnMapping>? mapping)
     {
@@ -217,9 +218,12 @@ public sealed class ImportService
         var seenTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entry in entries)
         {
-            var sourceIndex = headers.ToList().FindIndex(h => string.Equals(h, entry.Source?.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (sourceIndex < 0)
-                throw Invalid("mapping", $"The file has no column '{entry.Source}'.");
+            var hasSource = !string.IsNullOrWhiteSpace(entry.Source);
+            if (hasSource && entry.Value is not null)
+                throw Invalid("mapping", $"Column '{entry.Target}' takes a file column or a fixed value, not both.");
+            var sourceIndex = hasSource ? headers.ToList().FindIndex(h => string.Equals(h, entry.Source?.Trim(), StringComparison.OrdinalIgnoreCase)) : -1;
+            if (entry.Value is null && sourceIndex < 0)
+                throw Invalid("mapping", hasSource ? $"The file has no column '{entry.Source}'." : $"Choose a file column or a fixed value for '{entry.Target}'.");
 
             var column = table.Columns.FirstOrDefault(c => string.Equals(c.Name, entry.Target, StringComparison.OrdinalIgnoreCase))
                 ?? throw Invalid("mapping", $"Table '{table.Name}' has no column '{entry.Target}'.");
@@ -228,7 +232,9 @@ public sealed class ImportService
             if (!seenTargets.Add(column.Name))
                 throw Invalid("mapping", $"Column '{column.Name}' is mapped twice.");
 
-            result.Add(new MappedColumn(sourceIndex, headers[sourceIndex], column));
+            result.Add(entry.Value is not null
+                ? new MappedColumn(-1, "", column, entry.Value)
+                : new MappedColumn(sourceIndex, headers[sourceIndex], column));
         }
 
         return result;
@@ -322,7 +328,7 @@ public sealed class ImportService
         var row = new PendingRow { Line = line };
         foreach (var mapped in mapping)
         {
-            var raw = mapped.SourceIndex < cells.Length ? cells[mapped.SourceIndex] : "";
+            var raw = mapped.Fixed ?? (mapped.SourceIndex < cells.Length ? cells[mapped.SourceIndex] : "");
             var column = mapped.Column;
             if (ImportValueParser.IsBlank(raw))
             {

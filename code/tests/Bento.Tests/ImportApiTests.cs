@@ -168,6 +168,51 @@ public sealed class ImportApiTests
     }
 
     [Fact]
+    public async Task Import_FillsAColumnWithAFixedValue_ForEveryRow()
+    {
+        await using var host = await CreateHostAsync();
+        await SeedCategoriesAsync(host);
+
+        // A bank export belongs to one account: here every row gets the category "Gehalt" by name.
+        var body = new
+        {
+            content = Encode(StatementSeptember),
+            mapping = new object[]
+            {
+                new { source = "Buchungstag", target = "booked_on" },
+                new { source = "Auftraggeber / Begünstigter", target = "counterparty" },
+                new { source = "Betrag (EUR)", target = "amount" },
+                new { target = "purpose", value = "Kontoauszug September" },
+                new { target = "category_id", value = "Gehalt" }
+            },
+            keyColumns = new[] { "booked_on", "counterparty", "amount" }
+        };
+        var imported = await PostDataAsync(host, "/api/v1/import/transactions", body);
+        Assert.Equal(4, imported.GetProperty("inserted").GetInt32());
+        var rows = await ListAsync(host);
+        var gehaltId = (await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/categories?filter[name]=Gehalt")).GetProperty("data")[0].GetProperty("id").GetInt64();
+        Assert.All(rows, r =>
+        {
+            Assert.Equal("Kontoauszug September", r.GetProperty("purpose").GetString());
+            Assert.Equal(gehaltId, r.GetProperty("category_id").GetInt64());
+        });
+
+        // A column takes a file column or a fixed value, not both; a name that matches no record is reported.
+        using var both = await host.Client.PostAsJsonAsync("/api/v1/import/transactions", new
+        {
+            content = Encode(StatementSeptember),
+            mapping = new object[] { new { source = "Buchungstag", target = "booked_on", value = "2026-09-01" }, new { source = "Betrag (EUR)", target = "amount" } }
+        });
+        Assert.Equal(HttpStatusCode.BadRequest, both.StatusCode);
+        var unknown = await PostDataAsync(host, "/api/v1/import/transactions/preview", new
+        {
+            content = Encode(StatementSeptember),
+            mapping = new object[] { new { source = "Buchungstag", target = "booked_on" }, new { source = "Betrag (EUR)", target = "amount" }, new { target = "category_id", value = "Urlaub" } }
+        });
+        Assert.True(unknown.GetProperty("invalid").GetInt32() > 0);
+    }
+
+    [Fact]
     public async Task Preview_ReportsInvalidRowsWithTheirFileLine()
     {
         await using var host = await CreateHostAsync();

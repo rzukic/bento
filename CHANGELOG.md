@@ -18,6 +18,13 @@ _Changes that are complete but not yet part of a versioned release._
 
 A collapsed sidebar opens over the page while the pointer is on it (after a short pause, so passing by does not open it) or the keyboard focus is in it; leaving or Escape closes it. The page beside it does not move, and the collapse stays as chosen. Desktop only; the narrow layout is unchanged.
 
+### 2026-10-04 — Import: The Same Value For Every Row
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md) (follow-up from the v0.3.0 demo run)
+
+A bank export belongs to one account, but has no account column. The import's column choice now offers **Same value for every row…** — a record for a link (the account), or typed text — and a profile keeps it. API: a mapping entry takes `value` instead of `source`.
+
 ### 2026-10-04 — Wealth & Cash Flow Template
 
 > **Phase**: Phase 3 — Visualization

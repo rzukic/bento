@@ -22,6 +22,9 @@ const api = vi.hoisted(() => ({
   deleteImportProfile: vi.fn(),
 }));
 
+const dataApi = vi.hoisted(() => ({ fetchTableRows: vi.fn() }));
+vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
+
 vi.mock("../api/import", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../api/import")>()),
   ...api,
@@ -169,6 +172,29 @@ describe("CSV import page", () => {
     expect(useExplorerStore.getState().views.transactions?.status).toBe("idle");
     expect(screen.getByText("Skipped 1 row already in the table and 1 row with problems.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open Transactions" })).toBeInTheDocument();
+  });
+
+  it("fills a column with the same value for every row, a link by its record's name", async () => {
+    dataApi.fetchTableRows.mockResolvedValue({ data: [{ id: 1, name: "Gehalt" }, { id: 2, name: "Lebensmittel" }], meta: { total: 2 } });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "konto.csv", { type: "text/csv" }));
+    await waitFor(() => expect(screen.getByLabelText("File column for Category")).toHaveValue("Kategorie"));
+
+    await user.selectOptions(screen.getByLabelText("File column for Category"), "Same value for every row…");
+    const account = await screen.findByLabelText("Value of Category for every row");
+    await waitFor(() => expect(within(account).getByRole("option", { name: "Lebensmittel" })).toBeInTheDocument());
+    await user.selectOptions(account, "Lebensmittel");
+    await user.selectOptions(screen.getByLabelText("File column for purpose"), "Same value for every row…");
+    await user.type(screen.getByLabelText("Value of purpose for every row"), "Kontoauszug");
+
+    await user.click(screen.getByRole("button", { name: "Check rows" }));
+    expect(api.previewImport.mock.calls.at(-1)![1].mapping).toEqual([
+      { source: "Buchungstag", target: "booked_on" },
+      { target: "purpose", value: "Kontoauszug" },
+      { source: "Betrag (EUR)", target: "amount" },
+      { target: "category_id", value: "Lebensmittel" },
+    ]);
   });
 
   it("makes a changed mapping invalidate an earlier check", async () => {
