@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { DashboardWidget } from "../../../api/dashboards";
+import type { DashboardAnnotation, DashboardWidget } from "../../../api/dashboards";
 import type { QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
@@ -11,7 +11,7 @@ import { runnableQuery, variableValues, type VariableResults } from "../formulaQ
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
-import { applyMeasureShows, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
+import { applyMeasureShows, placeAnnotations, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
 import { useSchemaStore } from "../../../stores/schemaStore";
 
@@ -42,6 +42,7 @@ export function WidgetContent({
   refreshToken,
   tokens,
   variables,
+  annotations,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -49,6 +50,8 @@ export function WidgetContent({
   tokens: ChartTokens;
   /** The dashboard's variables, for KPI cards showing one and for widget formulas. */
   variables?: VariableResults;
+  /** The dashboard's events, drawn on charts by date. */
+  annotations?: DashboardAnnotation[];
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
   const state = useWidgetResult(widget, range, refreshToken, values);
@@ -79,7 +82,16 @@ export function WidgetContent({
       return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
     default:
       return (
-        <ChartWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} refreshToken={refreshToken} values={values} />
+        <ChartWidget
+          widget={widget}
+          result={state.result}
+          query={state.query}
+          range={range}
+          tokens={tokens}
+          refreshToken={refreshToken}
+          values={values}
+          annotations={annotations}
+        />
       );
   }
 }
@@ -92,6 +104,7 @@ function ChartWidget({
   tokens,
   refreshToken,
   values,
+  annotations,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
@@ -100,6 +113,7 @@ function ChartWidget({
   tokens: ChartTokens;
   refreshToken: number;
   values: Record<string, VariableValue>;
+  annotations?: DashboardAnnotation[];
 }) {
   const display = widget.display;
   const stacked = display?.stacked ?? false;
@@ -128,6 +142,11 @@ function ChartWidget({
   // The series under the pointer, read by the tooltip when it renders.
   const hovered = useRef<number | null>(null);
   const referenceLines = useMemo(() => resolveReferenceLines(display?.referenceLines, values), [display?.referenceLines, values]);
+  const showAnnotations = display?.annotations !== false;
+  const placed = useMemo(
+    () => placeAnnotations(showAnnotations ? annotations : undefined, model.categories, model.bucket),
+    [showAnnotations, annotations, model.categories, model.bucket],
+  );
   const option = useMemo(
     () =>
       buildChartOption(widget.type, model, tokens, {
@@ -135,8 +154,9 @@ function ChartWidget({
         hovered: () => hovered.current,
         referenceLines,
         colorBySign: display?.colorBySign ?? false,
+        annotations: placed,
       }),
-    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign],
+    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign, placed],
   );
   const onHoverSeries = useCallback((index: number | null) => {
     hovered.current = index;

@@ -69,6 +69,20 @@ export type WidgetDisplay = {
   referenceLines?: ReferenceLine[];
   /** One-series charts: positive values in the success colour, negative ones in the danger colour. */
   colorBySign?: boolean;
+  /** Charts by date: false hides the dashboard's annotations. */
+  annotations?: boolean;
+};
+
+export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
+export type AnnotationColor = (typeof ANNOTATION_COLORS)[number];
+
+/** An event on the dashboard's charts by date: a day ("Salary raise") or, with `to`, a period ("Vacation"). */
+export type DashboardAnnotation = {
+  date: string;
+  /** Last day of a period, inclusive. */
+  to?: string;
+  label: string;
+  color?: AnnotationColor;
 };
 
 export type DashboardWidget = {
@@ -99,6 +113,7 @@ export type DashboardDocument = {
   refreshSeconds?: number;
   widgets: DashboardWidget[];
   variables?: DashboardVariable[];
+  annotations?: DashboardAnnotation[];
 };
 
 export type Dashboard = {

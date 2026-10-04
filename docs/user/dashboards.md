@@ -34,7 +34,7 @@ Choose **Edit**:
     - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other** (a breakdown starts with the top 5)
   - **Only rows where** conditions, and which date the dashboard's range applies to
   - **Compare with** (charts by date without a breakdown): **the period before** or **the same period a year earlier** — each value again for that range, dashed (lighter bars in a bar chart); needs a range with a start and an end
-  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), and per type the options below
+  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
 
@@ -50,6 +50,10 @@ Tooltips list the series as they sit at that date (stacks top to bottom), mark t
 
 - **Summarized**: rows per group with metrics, optionally a **total row**
 - **Individual rows**: the rows themselves — the columns you pick, sorted and limited — with the widget's conditions and the dashboard range
+
+## Annotations
+
+In edit mode, **Annotations** marks events on every chart by date: a day ("Salary raise" — a line in its month, with the label on top) or, with an end date, a period ("Vacation" — a shaded span). Pick a colour per annotation; the tooltip of that period names it. A chart hides them under **Style → Show annotations**. They are saved with the dashboard.
 
 ## Values At The End Of Each Period
 

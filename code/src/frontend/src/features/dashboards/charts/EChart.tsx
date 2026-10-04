@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { GridComponent, LegendComponent, MarkLineComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
+import { GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
 
 // Only what the widgets use; the rest of ECharts stays out of the bundle.
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, VisualMapComponent, SVGRenderer]);
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent, SVGRenderer]);
 
 /**
  * One ECharts instance on a div that follows its container's size.

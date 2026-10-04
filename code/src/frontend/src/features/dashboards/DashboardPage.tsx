@@ -22,6 +22,7 @@ import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRa
 import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
 import { variableRequests, type VariableResults } from "./formulaQueries";
+import { AnnotationsEditor } from "./AnnotationsEditor";
 import { VariablesEditor } from "./VariablesEditor";
 import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
@@ -53,6 +54,7 @@ export function DashboardPage() {
   const [draft, setDraft] = useState<{ name: string; isShared: boolean; document: DashboardDocument } | null>(null);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
+  const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,6 +117,7 @@ export function DashboardPage() {
   const tables = useMemo(() => snapshot?.tables ?? [], [snapshot]);
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
   const variables = useMemo(() => document?.variables ?? [], [document]);
+  const annotations = useMemo(() => document?.annotations ?? [], [document]);
   const variablesKey = JSON.stringify(variables);
 
   // Variables are evaluated together (they may use each other), with the
@@ -319,6 +322,7 @@ export function DashboardPage() {
                       setDraft(null);
                       setEditingWidgetId(null);
                       setVariablesOpen(false);
+                      setAnnotationsOpen(false);
                     }}
                   >
                     Cancel
@@ -365,10 +369,24 @@ export function DashboardPage() {
             aria-expanded={variablesOpen}
             onClick={() => {
               setVariablesOpen((open) => !open);
+              setAnnotationsOpen(false);
               setEditingWidgetId(null);
             }}
           >
             Variables{variables.length > 0 ? ` (${variables.length})` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="calendar" size={13} />}
+            aria-expanded={annotationsOpen}
+            onClick={() => {
+              setAnnotationsOpen((open) => !open);
+              setVariablesOpen(false);
+              setEditingWidgetId(null);
+            }}
+          >
+            Annotations{annotations.length > 0 ? ` (${annotations.length})` : ""}
           </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
@@ -396,7 +414,7 @@ export function DashboardPage() {
                   <h2 className="widget-frame__title">{widget.title}</h2>
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); }}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -415,7 +433,14 @@ export function DashboardPage() {
                   ) : null}
                 </header>
                 <div className={`widget-frame__body widget-frame__body--${widget.type}`}>
-                  <WidgetContent widget={widget} range={resolved} refreshToken={refreshToken} tokens={tokens} variables={variableResults} />
+                  <WidgetContent
+                    widget={widget}
+                    range={resolved}
+                    refreshToken={refreshToken}
+                    tokens={tokens}
+                    variables={variableResults}
+                    annotations={annotations}
+                  />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}
               </article>
@@ -431,6 +456,7 @@ export function DashboardPage() {
           snapshot={snapshot}
           variables={variables}
           variableResults={variableResults}
+          annotations={annotations}
           range={resolved}
           refreshToken={refreshToken}
           tokens={tokens}
@@ -447,6 +473,13 @@ export function DashboardPage() {
           results={variableResults}
           onChange={(next) => updateDocument((doc) => ({ ...doc, variables: next.length > 0 ? next : undefined }))}
           onClose={() => setVariablesOpen(false)}
+        />
+      ) : null}
+      {editing && annotationsOpen ? (
+        <AnnotationsEditor
+          annotations={annotations}
+          onChange={(next) => updateDocument((doc) => ({ ...doc, annotations: next.length > 0 ? next : undefined }))}
+          onClose={() => setAnnotationsOpen(false)}
         />
       ) : null}
     </div>

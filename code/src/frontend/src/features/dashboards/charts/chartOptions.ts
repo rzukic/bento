@@ -1,6 +1,7 @@
 import type { EChartsCoreOption } from "echarts/core";
 import type { QueryBucket } from "../../../api/query";
-import type { WidgetType } from "../../../api/dashboards";
+import type { AnnotationColor, WidgetType } from "../../../api/dashboards";
+import { annotationsAt, type PlacedAnnotations } from "../chartTransforms";
 import { getCurrentLocale } from "../../data-explorer/components/editors/temporalEditing";
 import { formatCompact, formatNumber } from "../../../lib/format";
 import type { ChartModel } from "../widgetData";
@@ -103,7 +104,16 @@ export function axisTooltipHtml(
     hovered,
     format,
     kindOf = () => undefined,
-  }: { bucket?: QueryBucket; stacked: boolean; hovered: number | null; format: (value: unknown) => string; kindOf?: (seriesIndex: number) => SeriesKind },
+    notes = [],
+  }: {
+    bucket?: QueryBucket;
+    stacked: boolean;
+    hovered: number | null;
+    format: (value: unknown) => string;
+    kindOf?: (seriesIndex: number) => SeriesKind;
+    /** The period's annotations, under its heading. */
+    notes?: string[];
+  },
 ): string {
   if (params.length === 0) return "";
   const all = params.map((p) => ({
@@ -134,7 +144,9 @@ export function axisTooltipHtml(
     stacked && values.length > 1
       ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">${line(`<span style="width:8px;flex:none"></span><span>Total</span>${amount(values.reduce((sum, value) => sum + value, 0))}`)}</div>`
       : "";
-  const title = `<div style="margin-bottom:6px;color:var(--text-3)">${escapeHtml(formatBucketTitle(String(params[0].axisValue ?? ""), bucket))}</div>`;
+  const title =
+    `<div style="margin-bottom:6px;color:var(--text-3)">${escapeHtml(formatBucketTitle(String(params[0].axisValue ?? ""), bucket))}</div>` +
+    notes.map((note) => `<div style="margin:-2px 0 6px;font-weight:600">◆ ${escapeHtml(note)}</div>`).join("");
   return `<div style="min-width:180px">${title}${body}${total}</div>`;
 }
 
@@ -148,10 +160,30 @@ export type ChartOptions = {
   referenceLines?: { value: number; label: string }[];
   /** One series: values below 0 in the danger colour, the rest in the success colour. */
   colorBySign?: boolean;
+  /** The dashboard's events on this axis: lines at a period, shaded spans. */
+  annotations?: PlacedAnnotations;
 };
 
+/** Annotation colours from the chart's tokens; gray is the ink, so it never looks like a series. */
+export function annotationColor(color: AnnotationColor | undefined, tokens: ChartTokens): string {
+  switch (color) {
+    case "blue":
+      return tokens.palette[0];
+    case "teal":
+      return "#14b8a6";
+    case "amber":
+      return "#f59e0b";
+    case "rose":
+      return "#f43f5e";
+    case "violet":
+      return "#a855f7";
+    default:
+      return tokens.text;
+  }
+}
+
 export function buildChartOption(type: WidgetType, model: ChartModel, tokens: ChartTokens, options: ChartOptions = {}): EChartsCoreOption {
-  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false } = options;
+  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false, annotations = { points: [], ranges: [] } } = options;
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
   const tooltip = {
     trigger: type === "donut" ? "item" : "axis",
@@ -215,8 +247,21 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
   };
   const bySign = colorBySign && main.length === 1 && !stacked;
   const references = referenceLines.map((line) => line.value);
+  // Reference lines (across) and annotations (down) share the first series' mark line.
+  const markLineData = [
+    ...referenceLines.map((line) => ({ yAxis: line.value, name: line.label })),
+    ...annotations.points.map((point) => {
+      const color = annotationColor(point.color, tokens);
+      return {
+        xAxis: point.key,
+        name: point.label,
+        lineStyle: { color, type: "solid", width: 1, opacity: 0.7 },
+        label: { color, position: "end", formatter: (p: { name?: string }) => p.name ?? "" },
+      };
+    }),
+  ];
   const markLine =
-    referenceLines.length > 0
+    markLineData.length > 0
       ? {
           silent: true,
           symbol: "none",
@@ -227,18 +272,35 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
             position: "insideEndTop",
             formatter: (p: { name?: string; value?: unknown }) => [p.name, format(p.value)].filter(Boolean).join(" · "),
           },
-          data: referenceLines.map((line) => ({ yAxis: line.value, name: line.label })),
+          data: markLineData,
+        }
+      : undefined;
+  const markArea =
+    annotations.ranges.length > 0
+      ? {
+          silent: true,
+          data: annotations.ranges.map((range) => {
+            const color = annotationColor(range.color, tokens);
+            return [
+              { xAxis: range.from, name: range.label, itemStyle: { color, opacity: 0.08 }, label: { color, fontSize: 11, position: "insideTop" } },
+              { xAxis: range.to },
+            ];
+          }),
         }
       : undefined;
   return {
     ...base,
     tooltip: {
       ...tooltip,
-      formatter: (params: unknown) =>
-        axisTooltipHtml((Array.isArray(params) ? params : [params]) as AxisTooltipParam[], { bucket: model.bucket, stacked, hovered: hovered(), format, kindOf }),
+      formatter: (params: unknown) => {
+        const list = (Array.isArray(params) ? params : [params]) as AxisTooltipParam[];
+        const notes = list.length > 0 ? annotationsAt(annotations, String(list[0].axisValue ?? "")) : [];
+        return axisTooltipHtml(list, { bucket: model.bucket, stacked, hovered: hovered(), format, kindOf, notes });
+      },
     },
     legend,
-    grid: { left: 8, right: 12, top: 12, bottom: legend.show ? 32 : 8, containLabel: true },
+    // Room above the plot for annotation labels.
+    grid: { left: 8, right: 12, top: annotations.points.length > 0 || annotations.ranges.length > 0 ? 26 : 12, bottom: legend.show ? 32 : 8, containLabel: true },
     xAxis: {
       type: "category",
       data: model.categories,
@@ -309,6 +371,7 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
             ? { color: (p: { value?: unknown }) => (typeof p.value === "number" && p.value < 0 ? tokens.negative : tokens.positive) }
             : undefined,
         markLine: index === 0 ? markLine : undefined,
+        markArea: index === 0 ? markArea : undefined,
         emphasis: { focus: "series" },
         // Hovering a line or an area (not only its points) marks the series in the tooltip.
         triggerLineEvent: kind === "line",

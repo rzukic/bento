@@ -1,10 +1,12 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DashboardWidget } from "../api/dashboards";
 import type { QueryResult } from "../api/query";
 import { buildChartOption, type ChartTokens } from "../features/dashboards/charts/chartOptions";
 import {
+  annotationsAt,
   applyMeasureShows,
+  placeAnnotations,
   changes,
   movingAverage,
   resolveReferenceLines,
@@ -16,6 +18,7 @@ import { runnableQuery, withoutChartOptions } from "../features/dashboards/formu
 import { measureAsFormula } from "../features/dashboards/lens/filters";
 import { describeMeasure, normalize } from "../features/dashboards/lens/model";
 import { newVariableSource } from "../features/dashboards/VariablesEditor";
+import { AnnotationsEditor } from "../features/dashboards/AnnotationsEditor";
 import { WidgetContent } from "../features/dashboards/widgets/WidgetContent";
 import type { ChartModel } from "../features/dashboards/widgetData";
 import type { ModelTable } from "../types/api";
@@ -52,7 +55,15 @@ const monthly = (values: (number | null)[], name = "spent"): ChartModel => ({
   series: [{ name, values }],
 });
 
-type Series = { name: string; type: string; stack?: string; lineStyle?: { type?: string }; markLine?: { data: { yAxis: number; name: string }[] }; itemStyle?: { color?: unknown; opacity?: number } };
+type Series = {
+  name: string;
+  type: string;
+  stack?: string;
+  lineStyle?: { type?: string };
+  markLine?: { data: { yAxis?: number; xAxis?: string; name: string; lineStyle?: { color: string } }[] };
+  markArea?: { data: [{ xAxis: string; name: string }, { xAxis: string }][] };
+  itemStyle?: { color?: unknown; opacity?: number };
+};
 const seriesOf = (option: unknown) => (option as { series: Series[] }).series;
 
 describe("show as", () => {
@@ -234,5 +245,65 @@ describe("new dashboard variables", () => {
   it("follow the last variable, and fall back to the first table", () => {
     expect(newVariableSource([{ name: "a", source: "customers", formula: "COUNT()", dateColumn: "created" }], [widget("girokonto")], tables)).toEqual({ source: "customers", dateColumn: "created" });
     expect(newVariableSource([], [], tables)).toEqual({ source: "customers" });
+  });
+});
+
+describe("annotations", () => {
+  const months = ["2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"];
+
+  it("puts each day in its period, joins events of one period and cuts spans to the axis", () => {
+    const placed = placeAnnotations(
+      [
+        { date: "2026-08-15", label: "Salary raise", color: "teal" },
+        { date: "2026-08-20", label: "Moved" },
+        { date: "2026-06-30", label: "Before the range" },
+        { date: "2026-09-10", to: "2026-12-24", label: "Parental leave", color: "violet" },
+        { date: "2026-09-01", label: "  " },
+        { date: "not a date", label: "Broken" },
+      ],
+      months,
+      "month",
+    );
+    expect(placed.points).toEqual([{ key: "2026-08-01", label: "Salary raise · Moved", color: "teal" }]);
+    expect(placed.ranges).toEqual([{ from: "2026-09-01", to: "2026-10-01", label: "Parental leave", color: "violet" }]);
+    expect(annotationsAt(placed, "2026-08-01")).toEqual(["Salary raise · Moved"]);
+    expect(annotationsAt(placed, "2026-10-01")).toEqual(["Parental leave"]);
+    // Nothing without dates along the axis.
+    expect(placeAnnotations([{ date: "2026-08-15", label: "x" }], ["Miete"], undefined)).toEqual({ points: [], ranges: [] });
+  });
+
+  it("draws lines and spans on the chart, beside the reference lines, and names them in the tooltip", () => {
+    const placed = placeAnnotations([{ date: "2026-08-15", label: "Salary raise", color: "teal" }, { date: "2026-09-01", to: "2026-10-31", label: "Vacation" }], months, "month");
+    const model = { ...monthly([1, 2, 3, 4]), categories: months };
+    const option = buildChartOption("line", model, tokens, { annotations: placed, referenceLines: [{ value: 3, label: "Budget" }] }) as {
+      grid: { top: number };
+      tooltip: { formatter: (p: unknown) => string };
+    };
+    const first = seriesOf(option)[0];
+    expect(first.markLine?.data.map((d) => d.xAxis ?? d.yAxis)).toEqual([3, "2026-08-01"]);
+    expect(first.markLine?.data[1].lineStyle?.color).toBe("#14b8a6");
+    expect(first.markArea?.data[0].map((d) => d.xAxis)).toEqual(["2026-09-01", "2026-10-01"]);
+    expect(option.grid.top).toBeGreaterThan(12);
+    const html = option.tooltip.formatter([{ seriesIndex: 0, seriesName: "spent", value: 2, color: "#000", axisValue: "2026-08-01" }]);
+    expect(html).toContain("◆ Salary raise");
+  });
+
+  it("are added and edited in their panel", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<AnnotationsEditor annotations={[]} onChange={onChange} onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add annotation" }));
+    const added = onChange.mock.calls[0][0];
+    expect(added).toHaveLength(1);
+    expect(added[0].date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    rerender(<AnnotationsEditor annotations={[{ date: "2026-08-15", label: "" }]} onChange={onChange} onClose={() => {}} />);
+    fireEvent.change(screen.getByLabelText("Label of annotation 1"), { target: { value: "Salary raise" } });
+    expect(onChange).toHaveBeenLastCalledWith([{ date: "2026-08-15", label: "Salary raise" }]);
+    fireEvent.change(screen.getByLabelText("End of annotation 1"), { target: { value: "2026-08-31" } });
+    expect(onChange).toHaveBeenLastCalledWith([{ date: "2026-08-15", label: "", to: "2026-08-31" }]);
+    fireEvent.change(screen.getByLabelText("Colour of annotation 1"), { target: { value: "rose" } });
+    expect(onChange).toHaveBeenLastCalledWith([{ date: "2026-08-15", label: "", color: "rose" }]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove annotation 1" }));
+    expect(onChange).toHaveBeenLastCalledWith([]);
   });
 });

@@ -1,8 +1,8 @@
-import type { ReferenceLine, TimeShift } from "../../api/dashboards";
+import type { AnnotationColor, DashboardAnnotation, ReferenceLine, TimeShift } from "../../api/dashboards";
 import type { QueryMeasure, VariableValue } from "../../api/query";
 import type { ResolvedRange } from "./dateRange";
 import { previousRange } from "./useExtraQueries";
-import type { ChartModel } from "./widgetData";
+import { bucketStart, type ChartModel } from "./widgetData";
 
 // Step 3.6c: what a chart computes from its result in the browser — the
 // change from the period before, moving averages, an earlier period to
@@ -102,4 +102,45 @@ export function resolveReferenceLines(lines: ReferenceLine[] | undefined, variab
     const label = line.label?.trim() || (typeof line.value === "string" ? line.value : "");
     return [{ value, label }];
   });
+}
+
+export type PlacedAnnotations = {
+  /** One line per period; several events in the same period share it. */
+  points: { key: string; label: string; color?: AnnotationColor }[];
+  /** Shaded spans, cut to the periods shown. */
+  ranges: { from: string; to: string; label: string; color?: AnnotationColor }[];
+};
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** The annotations on a date axis: each date in its period, spans cut to the axis, the rest left out. */
+export function placeAnnotations(annotations: DashboardAnnotation[] | undefined, categories: string[], bucket: ChartModel["bucket"]): PlacedAnnotations {
+  const placed: PlacedAnnotations = { points: [], ranges: [] };
+  if (!bucket || categories.length === 0) return placed;
+  const first = categories[0];
+  const last = categories[categories.length - 1];
+  for (const annotation of annotations ?? []) {
+    if (!ISO_DATE.test(annotation.date) || !annotation.label.trim()) continue;
+    const start = bucketStart(annotation.date, bucket);
+    const label = annotation.label.trim();
+    if (annotation.to && ISO_DATE.test(annotation.to) && annotation.to > annotation.date) {
+      const end = bucketStart(annotation.to, bucket);
+      if (end < first || start > last) continue;
+      placed.ranges.push({ from: start < first ? first : start, to: end > last ? last : end, label, color: annotation.color });
+      continue;
+    }
+    if (!categories.includes(start)) continue;
+    const same = placed.points.find((point) => point.key === start);
+    if (same) same.label = `${same.label} · ${label}`;
+    else placed.points.push({ key: start, label, color: annotation.color });
+  }
+  return placed;
+}
+
+/** The events of one period, for the tooltip. */
+export function annotationsAt(placed: PlacedAnnotations, key: string): string[] {
+  return [
+    ...placed.points.filter((point) => point.key === key).map((point) => point.label),
+    ...placed.ranges.filter((range) => range.from <= key && key <= range.to).map((range) => range.label),
+  ];
 }

@@ -24,6 +24,7 @@ Charts by date can now compare with last year, smooth a line or show its change,
 - **Show as** the change from the period before or a moving average
 - **Median** and **percentiles** as quick functions, in the query API (`median`, `percentile`) and in formulas (`MEDIAN`, `PERCENTILE`) — the same numbers on SQLite and Postgres
 - A **total line** over stacked charts (the net of income and expenses), **reference lines** at a number or a variable, **colour by sign**
+- **Annotations**: events on every chart by date — a day as a line ("Salary raise"), a period as a shaded span ("Vacation") — named in the tooltip
 - New dashboard variables start on the dashboard's table and date column; the formula editor's accessible name follows renames; a chart that cannot be drawn no longer takes the page down
 
 ### 2026-10-04 — A Widget Editor Like Kibana Lens

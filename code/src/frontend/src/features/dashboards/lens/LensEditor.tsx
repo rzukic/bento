@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
+import type { DashboardAnnotation, DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
 import { listSavedQueries, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
@@ -68,6 +68,7 @@ export function LensEditor({
   snapshot,
   variables = [],
   variableResults,
+  annotations,
   range,
   refreshToken,
   tokens,
@@ -79,6 +80,8 @@ export function LensEditor({
   snapshot: ModelSnapshot | null;
   variables?: DashboardVariable[];
   variableResults?: VariableResults;
+  /** The dashboard's events, shown in the preview and switchable per chart. */
+  annotations?: DashboardAnnotation[];
   range: ResolvedRange;
   refreshToken: number;
   tokens: ChartTokens;
@@ -249,7 +252,7 @@ export function LensEditor({
 
         <main className="lens__workspace" onDragOver={allowDrop} onDrop={drop()}>
           <div className={`lens__preview lens__preview--${widget.type}`} aria-label="Preview">
-            <WidgetContent widget={widget} range={range} refreshToken={refreshToken} tokens={tokens} variables={variableResults} />
+            <WidgetContent widget={widget} range={range} refreshToken={refreshToken} tokens={tokens} variables={variableResults} annotations={annotations} />
           </div>
           {usesQuery ? <p className="lens__caption">{describeWidget(widget, table)}</p> : null}
           {usesQuery ? (
@@ -302,7 +305,7 @@ export function LensEditor({
                   allowDrop={allowDrop}
                 />
               ) : (
-                <StyleSettings widget={widget} table={table} variables={variables} setDisplay={setDisplay} onChange={set} />
+                <StyleSettings widget={widget} table={table} variables={variables} annotationCount={annotations?.length ?? 0} setDisplay={setDisplay} onChange={set} />
               )}
             </>
           )}
@@ -666,12 +669,14 @@ function StyleSettings({
   widget,
   table,
   variables,
+  annotationCount,
   setDisplay,
   onChange,
 }: {
   widget: DashboardWidget;
   table: ModelTable | undefined;
   variables: DashboardVariable[];
+  annotationCount: number;
   setDisplay: (patch: Partial<WidgetDisplay>) => void;
   onChange: (widget: DashboardWidget) => void;
 }) {
@@ -711,6 +716,12 @@ function StyleSettings({
         <label className="lens-check">
           <input type="checkbox" checked={display.colorBySign ?? false} onChange={(event) => setDisplay({ colorBySign: event.target.checked || undefined })} />
           Colour by sign (green above 0, red below)
+        </label>
+      ) : null}
+      {isChart && (widget.data?.query?.groupBy ?? []).some((g) => g.bucket) ? (
+        <label className="lens-check" title="The dashboard's annotations — set them under Annotations in the dashboard's toolbar">
+          <input type="checkbox" checked={display.annotations !== false} onChange={(event) => setDisplay({ annotations: event.target.checked ? undefined : false })} />
+          Show annotations{annotationCount > 0 ? ` (${annotationCount})` : ""}
         </label>
       ) : null}
       {isChart ? <ReferenceLines lines={display.referenceLines ?? []} variables={variables} onChange={(referenceLines) => setDisplay({ referenceLines: referenceLines.length > 0 ? referenceLines : undefined })} /> : null}
