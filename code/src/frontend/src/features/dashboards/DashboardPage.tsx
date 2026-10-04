@@ -23,6 +23,8 @@ import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
 import { variableRequests, type VariableResults } from "./formulaQueries";
 import { AnnotationsEditor } from "./AnnotationsEditor";
+import { appliedFilters, clearSelection, selectionFromSearch, selectionToSearch } from "./dashboardFilters";
+import { FilterBar, FiltersEditor } from "./FilterBar";
 import { drillUrl, type DrillTarget } from "./drill";
 import { VariablesEditor } from "./VariablesEditor";
 import { LensEditor } from "./lens/LensEditor";
@@ -56,6 +58,7 @@ export function DashboardPage() {
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,9 +88,20 @@ export function DashboardPage() {
   const editing = draft !== null;
   const document = draft?.document ?? dashboard?.dashboard ?? null;
   const range: DashboardDateRange = rangeFromSearch(searchParams) ?? document?.dateRange ?? { preset: "last-12-months" };
-  // Resolved once per range key so widgets do not refetch on every render.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const resolved = useMemo(() => resolveRange(range), [rangeKey(range)]);
+  // The chosen filter values (from the address) travel with the range into every query.
+  const selection = selectionFromSearch(searchParams);
+  const selectionKey = JSON.stringify(selection);
+  const filterDefs = document?.filters;
+  const filtersKey = JSON.stringify(filterDefs ?? []);
+  const resolved = useMemo(
+    () => {
+      const applied = appliedFilters(filterDefs, selection, snapshot?.tables ?? []);
+      return { ...resolveRange(range), ...(applied.length > 0 ? { filters: applied } : {}) };
+    },
+    // Resolved once per range and selection, so widgets do not refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [rangeKey(range), selectionKey, filtersKey, snapshot],
+  );
   const refreshSeconds = document?.refreshSeconds ?? 0;
 
   const refresh = useCallback(() => {
@@ -186,7 +200,10 @@ export function DashboardPage() {
       setDashboard(saved);
       setDraft(null);
       setEditingWidgetId(null);
-      setSearchParams(new URLSearchParams(), { replace: true });
+      // The range becomes the default; the chosen filter values stay.
+      const kept = new URLSearchParams();
+      searchParams.forEach((value, key) => key.startsWith("filter.") && kept.append(key, value));
+      setSearchParams(kept, { replace: true });
     } catch (cause) {
       setError(message(cause, "The dashboard could not be saved."));
     } finally {
@@ -326,6 +343,7 @@ export function DashboardPage() {
                       setEditingWidgetId(null);
                       setVariablesOpen(false);
                       setAnnotationsOpen(false);
+                      setFiltersOpen(false);
                     }}
                   >
                     Cancel
@@ -348,6 +366,15 @@ export function DashboardPage() {
       </header>
 
       {error ? <Alert tone="error" message={error} /> : null}
+
+      <FilterBar
+        filters={document?.filters ?? []}
+        widgets={widgets}
+        tables={dataTables(tables)}
+        selection={selection}
+        onSelect={(column, values) => setSearchParams(selectionToSearch(column, values, searchParams), { replace: true })}
+        onReset={() => setSearchParams(clearSelection(searchParams), { replace: true })}
+      />
 
       {editing ? (
         <div className="dashboard-page__toolbar">
@@ -373,6 +400,7 @@ export function DashboardPage() {
             onClick={() => {
               setVariablesOpen((open) => !open);
               setAnnotationsOpen(false);
+              setFiltersOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -386,10 +414,25 @@ export function DashboardPage() {
             onClick={() => {
               setAnnotationsOpen((open) => !open);
               setVariablesOpen(false);
+              setFiltersOpen(false);
               setEditingWidgetId(null);
             }}
           >
             Annotations{annotations.length > 0 ? ` (${annotations.length})` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="funnel" size={13} />}
+            aria-expanded={filtersOpen}
+            onClick={() => {
+              setFiltersOpen((open) => !open);
+              setVariablesOpen(false);
+              setAnnotationsOpen(false);
+              setEditingWidgetId(null);
+            }}
+          >
+            Filters{(document?.filters ?? []).length > 0 ? ` (${document!.filters!.length})` : ""}
           </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
@@ -417,7 +460,7 @@ export function DashboardPage() {
                   <h2 className="widget-frame__title">{widget.title}</h2>
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); }}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -477,6 +520,15 @@ export function DashboardPage() {
           results={variableResults}
           onChange={(next) => updateDocument((doc) => ({ ...doc, variables: next.length > 0 ? next : undefined }))}
           onClose={() => setVariablesOpen(false)}
+        />
+      ) : null}
+      {editing && filtersOpen ? (
+        <FiltersEditor
+          filters={document?.filters ?? []}
+          widgets={widgets}
+          tables={dataTables(tables)}
+          onChange={(next) => updateDocument((doc) => ({ ...doc, filters: next.length > 0 ? next : undefined }))}
+          onClose={() => setFiltersOpen(false)}
         />
       ) : null}
       {editing && annotationsOpen ? (

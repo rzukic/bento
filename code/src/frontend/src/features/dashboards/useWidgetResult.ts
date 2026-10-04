@@ -3,6 +3,7 @@ import type { DashboardWidget } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
 import { getSavedQuery, runQuery, runSavedQuery, type AggregationQuery, type QueryResult, type VariableValue } from "../../api/query";
 import type { ResolvedRange } from "./dateRange";
+import { globalFilterFor, mergeFilters } from "./dashboardFilters";
 import { runnableQuery } from "./formulaQueries";
 import { rangeFilter } from "./widgetData";
 
@@ -49,7 +50,7 @@ export function useWidgetResult(
         let result: QueryResult;
         if (data.savedQueryId !== undefined) {
           const dateColumn = data.dateColumn !== undefined ? data.dateColumn : (query?.groupBy?.find((g) => g.bucket)?.column ?? null);
-          result = await runSavedQuery(data.savedQueryId, rangeFilter(dateColumn, range));
+          result = await runSavedQuery(data.savedQueryId, mergeFilters(rangeFilter(dateColumn, range), globalFilterFor(query?.source, range)));
         } else {
           result = await runQuery(runnableQuery(query!, data, range, variables));
         }

@@ -3,6 +3,7 @@ import type { AggregationQuery, QueryBucket, QueryFilter, QueryMeasure, QueryRes
 import { formatKindForType, toNumber, type NumberFormatKind } from "../../lib/format";
 import type { ResolvedRange } from "./dateRange";
 import type { GroupPick } from "./drill";
+import { mergeFilters } from "./dashboardFilters";
 
 const RUNNING_SUM = /^\s*=?\s*RUNNING_SUM\s*\(/i;
 
@@ -22,15 +23,7 @@ export function rangeFilter(dateColumn: string | null | undefined, range: Resolv
 
 export function withFilter(query: AggregationQuery, extra: QueryFilter | undefined): AggregationQuery {
   if (!extra) return query;
-  const filter: QueryFilter = { ...(query.filter ?? {}) };
-  for (const [column, condition] of Object.entries(extra)) {
-    const existing = filter[column];
-    filter[column] =
-      existing && typeof existing === "object" && !Array.isArray(existing) && typeof condition === "object"
-        ? { ...(existing as object), ...(condition as object) }
-        : condition;
-  }
-  return { ...query, filter };
+  return { ...query, filter: mergeFilters(query.filter, extra) };
 }
 
 /** The column a widget's date range applies to: set explicitly, else its date group. */

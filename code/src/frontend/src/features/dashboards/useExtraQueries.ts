@@ -4,6 +4,7 @@ import { fetchTableRows } from "../../api/data";
 import { runQuery, type AggregationQuery, type QueryFilter, type QueryResult, type VariableValue } from "../../api/query";
 import type { FilterClause } from "../../types/explorer";
 import type { ResolvedRange } from "./dateRange";
+import { globalFilterClauses } from "./dashboardFilters";
 import { runnableQuery, withoutChartOptions } from "./formulaQueries";
 
 /** Runs an extra query for a widget (a total row, a trend, the range before); null = none. */
@@ -34,7 +35,7 @@ export function previousRange(range: ResolvedRange): ResolvedRange | null {
   const from = Date.parse(`${range.from}T00:00:00Z`);
   const to = Date.parse(`${range.to}T00:00:00Z`);
   const iso = (ms: number) => new Date(ms).toISOString().slice(0, 10);
-  return { from: iso(from - (to - from)), to: range.from };
+  return { ...range, from: iso(from - (to - from)), to: range.from };
 }
 
 /** The column a key figure's range applies to: chosen, else its date group. */
@@ -97,6 +98,7 @@ export function useRows(widget: DashboardWidget, range: ResolvedRange, refreshTo
     const dateColumn = widget.data?.dateColumn;
     if (dateColumn && range.from) filters.push({ column: dateColumn, op: "gte", value: range.from });
     if (dateColumn && range.to) filters.push({ column: dateColumn, op: "lt", value: range.to });
+    filters.push(...globalFilterClauses(source, range));
     const sort = rows.sort ? [{ column: rows.sort.replace(/^-/, ""), dir: rows.sort.startsWith("-") ? ("desc" as const) : ("asc" as const) }] : [];
     fetchTableRows(source, { page: 1, perPage: Math.min(rows.limit ?? 25, 1000), sort, search: "", filters })
       .then((response) => !cancelled && setState({ status: "ready", rows: response.data, total: response.meta.total, error: null }))

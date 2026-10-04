@@ -1,5 +1,6 @@
 import type { DashboardVariable, WidgetData } from "../../api/dashboards";
 import type { AggregationQuery, QueryVariableResult, VariableValue } from "../../api/query";
+import { globalFilterFor, mergeFilters } from "./dashboardFilters";
 import type { ResolvedRange } from "./dateRange";
 import { rangeFilter, withFilter } from "./widgetData";
 
@@ -55,14 +56,14 @@ export function runnableQuery(
   const dateGroup = query.groupBy?.find((g) => g.bucket);
   if (data.asOf && dateGroup?.bucket) {
     return withVariables({
-      ...query,
+      ...withFilter(query, globalFilterFor(query.source, range)),
       groupBy: query.groupBy?.filter((g) => g !== dateGroup),
       asOf: { bucket: dateGroup.bucket, ...asOfPeriod(range, today), as: dateGroup.as ?? dateGroup.column },
     });
   }
 
   const dateColumn = data.dateColumn !== undefined ? data.dateColumn : (dateGroup?.column ?? null);
-  return withVariables(withFilter(query, rangeFilter(dateColumn, range)));
+  return withVariables(withFilter(withFilter(query, rangeFilter(dateColumn, range)), globalFilterFor(query.source, range)));
 }
 
 /** The variables with the dashboard's range on their date column. */
@@ -71,6 +72,9 @@ export function variableRequests(variables: DashboardVariable[], range: Resolved
     name: variable.name,
     formula: variable.formula,
     ...(variable.source ? { source: variable.source } : {}),
-    ...(variable.source && variable.dateColumn ? { filter: rangeFilter(variable.dateColumn, range) } : {}),
+    // The range on its date column, and the dashboard's filters on its table.
+    ...(variable.source && (variable.dateColumn || globalFilterFor(variable.source, range))
+      ? { filter: mergeFilters(variable.dateColumn ? rangeFilter(variable.dateColumn, range) : undefined, globalFilterFor(variable.source, range)) }
+      : {}),
   }));
 }
