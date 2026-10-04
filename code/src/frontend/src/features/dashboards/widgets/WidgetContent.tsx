@@ -13,7 +13,7 @@ import { runnableQuery, variableValues, type VariableResults } from "../formulaQ
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
-import { applyMeasureShows, placeAnnotations, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
+import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
 import { useSchemaStore } from "../../../stores/schemaStore";
 
@@ -152,7 +152,7 @@ function ChartWidget({
   const model = useMemo(() => {
     const format = overrideFormat(widget);
     const measures = query?.measures ?? [];
-    let next = applyMeasureShows(toChartModel(result, query ?? undefined, range, format), measures, hasBreakdown);
+    let next = withMeasureColors(applyMeasureShows(toChartModel(result, query ?? undefined, range, format), measures, hasBreakdown), measures, hasBreakdown);
     if (shift && earlier && shiftedResult) {
       next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format), measures, false), shift);
     }
@@ -222,7 +222,8 @@ function SankeyWidget({
   const groupCount = result.meta.columns.filter((c) => c.role === "group").length;
   const mode = sankeyMode(widget.display?.sankey, groupCount);
   const model = useMemo(() => toSankeyModel(result, query ?? undefined, mode, overrideFormat(widget) ?? formatKindForType(result.meta.columns.find((c) => c.role === "measure")?.type)), [result, query, mode, widget]);
-  const option = useMemo(() => buildSankeyOption(model, tokens), [model, tokens]);
+  const shares = widget.display?.shares ?? false;
+  const option = useMemo(() => buildSankeyOption(model, tokens, { shares }), [model, tokens, shares]);
   // A node or a flow opens its rows; cash flow sides keep their sign (income above 0, expenses below).
   const onItemClick = useCallback(
     (click: ChartClick) => {

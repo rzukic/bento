@@ -76,6 +76,8 @@ export type WidgetDisplay = {
   annotations?: boolean;
   /** Sankey: how the groups become flows (default: levels with two or more groups, else cash flow). */
   sankey?: SankeyMode;
+  /** Sankey: node labels as shares (%) of the first column instead of amounts. */
+  shares?: boolean;
 };
 
 export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
@@ -100,12 +102,15 @@ export type DashboardWidget = {
 };
 
 export type DateRangePreset =
+  | "last-7-days"
   | "this-month"
   | "last-3-months"
   | "last-6-months"
   | "last-12-months"
   | "this-year"
   | "last-year"
+  | "last-3-years"
+  | "last-5-years"
   | "all";
 
 export type DashboardDateRange = { preset: DateRangePreset } | { from: string; to: string };

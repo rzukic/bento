@@ -15,7 +15,7 @@ Or type a name and choose **Create** for an empty dashboard.
 
 ## Date Range And Refresh
 
-The range at the top (this month, last 3/6/12 months, this year, last year, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
+The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
 
 Widgets refresh when you come back to the tab and with the refresh button; in edit mode you can let the dashboard refresh every 30 seconds, minute or 5 minutes.
 
@@ -29,7 +29,7 @@ Choose **Edit**:
   - **Fields** on the left — dates, numbers, categories, text — with search. Drag a field onto the chart or onto a slot, or click its **+**: a date becomes the horizontal axis per month, a number a value (sum), a category the axis or the breakdown
   - **The chart** in the middle, live, with the chart types above it, a sentence saying what it shows ("Sum of Betrag (EUR) by Buchungstag per month, split by Top 5 Kategorie + other"), other ways to show the same fields (**suggestions**) and **View data** for the numbers behind it
   - **Data** on the right: the chart's slots — *Horizontal axis*, *Vertical axis* and *Breakdown* for line, area and bar charts; *Slice by* and *Size by* for donuts; *Value* and *Secondary value* for key figures; *Rows* and *Metrics* for tables. Click an item to set it up:
-    - a value: **Count, Sum, Average, Minimum, Maximum, Unique count, Median, Percentile** of a field — or a **Formula** — plus a running total when the axis is a date, and **Show as**: the value, the **change from the period before**, or a **moving average** over 2–24 periods (the first points stay empty until there are enough)
+    - a value: **Count, Sum, Average, Minimum, Maximum, Unique count, Median, Percentile** of a field — or a **Formula** — plus a running total when the axis is a date, a **colour** (green for income and red for expenses follow the theme; with a breakdown the values take the palette), and **Show as**: the value, the **change from the period before**, or a **moving average** over 2–24 periods (the first points stay empty until there are enough)
     - a date: the **interval** (day to year)
     - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other** (a breakdown starts with the top 5)
   - **Only rows where** conditions, and which date the dashboard's range applies to
@@ -37,6 +37,8 @@ Choose **Edit**:
   - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
+
+Donuts show their total in the middle and each slice's share in the tooltip. A Sankey can label its nodes with shares of the first column (for a cash flow, of the income) under **Style → Show shares**.
 
 Tooltips list the series as they sit at that date (stacks top to bottom), mark the one under the pointer and show a stack's total. Stacks put positive values above 0 and negative ones below — for income and expenses, stacked bars with a total line read best.
 

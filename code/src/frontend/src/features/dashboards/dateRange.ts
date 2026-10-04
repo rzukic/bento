@@ -1,12 +1,15 @@
 import type { DashboardDateRange, DateRangePreset } from "../../api/dashboards";
 
 export const DATE_RANGE_PRESETS: { value: DateRangePreset; label: string }[] = [
+  { value: "last-7-days", label: "Last 7 days" },
   { value: "this-month", label: "This month" },
   { value: "last-3-months", label: "Last 3 months" },
   { value: "last-6-months", label: "Last 6 months" },
   { value: "last-12-months", label: "Last 12 months" },
   { value: "this-year", label: "This year" },
   { value: "last-year", label: "Last year" },
+  { value: "last-3-years", label: "Last 3 years" },
+  { value: "last-5-years", label: "Last 5 years" },
   { value: "all", label: "All time" },
 ];
 
@@ -30,6 +33,9 @@ export function resolveRange(range: DashboardDateRange | undefined, today = new 
   const year = today.getFullYear();
   const month = today.getMonth() + 1;
   switch (range.preset) {
+    case "last-7-days":
+      // Today and the six days before it.
+      return { from: iso(year, month, today.getDate() - 6), to: iso(year, month, today.getDate() + 1) };
     case "this-month":
       return { from: iso(year, month), to: iso(year, month + 1) };
     case "last-3-months":
@@ -42,6 +48,11 @@ export function resolveRange(range: DashboardDateRange | undefined, today = new 
       return { from: iso(year, 1), to: iso(year + 1, 1) };
     case "last-year":
       return { from: iso(year - 1, 1), to: iso(year, 1) };
+    // Whole months, like the 12-month range: the current one and the 35 or 59 before.
+    case "last-3-years":
+      return { from: iso(year, month - 35), to: iso(year, month + 1) };
+    case "last-5-years":
+      return { from: iso(year, month - 59), to: iso(year, month + 1) };
     default:
       return { from: null, to: null };
   }

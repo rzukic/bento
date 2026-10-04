@@ -31,10 +31,10 @@ export function variableValues(results: VariableResults | undefined): Record<str
   return values;
 }
 
-/** A measure's chart-only options ("show as") never reach the API. */
+/** A measure's chart-only options ("show as", colour) never reach the API. */
 export function withoutChartOptions(query: AggregationQuery): AggregationQuery {
-  if (!(query.measures ?? []).some((m) => m.show !== undefined || m.window !== undefined)) return query;
-  return { ...query, measures: query.measures?.map(({ show: _show, window: _window, ...measure }) => measure) };
+  if (!(query.measures ?? []).some((m) => m.show !== undefined || m.window !== undefined || m.color !== undefined)) return query;
+  return { ...query, measures: query.measures?.map(({ show: _show, window: _window, color: _color, ...measure }) => measure) };
 }
 
 /**

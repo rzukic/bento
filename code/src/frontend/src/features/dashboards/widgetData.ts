@@ -1,5 +1,5 @@
 import type { DashboardWidget } from "../../api/dashboards";
-import type { AggregationQuery, QueryBucket, QueryFilter, QueryMeasure, QueryResult, QueryRow } from "../../api/query";
+import type { AggregationQuery, QueryBucket, QueryFilter, QueryMeasure, QueryResult, QueryRow, SeriesColor } from "../../api/query";
 import { formatKindForType, toNumber, type NumberFormatKind } from "../../lib/format";
 import type { ResolvedRange } from "./dateRange";
 import type { GroupPick } from "./drill";
@@ -113,6 +113,8 @@ export type ChartSeries = {
   kind?: "shifted" | "total";
   /** A breakdown's value, for drilling down. */
   pick?: GroupPick;
+  /** The colour chosen for the measure behind it. */
+  color?: SeriesColor;
 };
 
 export type ChartModel = {
