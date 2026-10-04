@@ -62,7 +62,16 @@ describe("finance template", () => {
       ["finance_accounts", "finance_trades", "account_id"],
       ["finance_accounts", "finance_dividends", "account_id"],
     ]);
-    // Formulas name the prefixed tables.
+    // Labels tell them from existing tables; formulas name the prefixed tables.
+    expect(draft.tables.slice(2).map((t) => t.displayName)).toEqual([
+      "Finance accounts",
+      "Finance categories",
+      "Finance transactions",
+      "Finance trades",
+      "Finance prices",
+      "Finance dividends",
+    ]);
+    expect(withFinanceTables(existing, financeNames("")).tables[2].displayName).toBe("Accounts");
     expect(draft.tables.find((t) => t.name === "finance_trades")?.columns.find((c) => c.name === "value")?.formula).toContain('LOOKUP_ASOF("finance_prices"');
     expect(wealthDashboard(n).widgets.find((w) => w.id === "net-worth")?.data?.query?.measures?.[0].formula).toBe("SUM(balance + SUM(finance_trades.value))");
   });
@@ -131,5 +140,16 @@ describe("finance template", () => {
     expect(schemaApi.applySchemaDraft).toHaveBeenCalledWith(applied);
     await waitFor(() => expect(dashboardsApi.createDashboard.mock.calls.map(([name]) => name)).toEqual(["Cash flow", "Wealth"]));
     expect(dataApi.createRow).toHaveBeenCalledWith("finance_accounts", expect.objectContaining({ name: "Checking" }));
+  });
+});
+
+describe("cash-flow starter", () => {
+  it("splits by the category, not by the first link (the account)", async () => {
+    const { pickColumns } = await import("../features/dashboards/starter");
+    const transactions = withFinanceTables({ version: 1, tables: [], relations: [] }, financeNames("")).tables.find((t) => t.name === "transactions") as unknown as ModelTable;
+    expect(pickColumns(transactions).category?.name).toBe("category_id");
+    const cashFlow = financeCashFlow(transactions);
+    expect(cashFlow.widgets.find((w) => w.id === "money-flow")?.data?.query?.groupBy?.[0].column).toBe("category_id");
+    expect(cashFlow.widgets.find((w) => w.id === "spending-by-category")?.title).toBe("Spending by Category");
   });
 });

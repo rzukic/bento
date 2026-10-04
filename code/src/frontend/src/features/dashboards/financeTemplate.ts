@@ -55,11 +55,18 @@ export function suggestedPrefix(existing: { name: string }[]): string {
 
 const id: SchemaColumn = { name: "id", type: "integer", primaryKey: true };
 
+/** "Transactions", or with a prefix "Finance transactions", so pickers tell them from existing tables. */
+export function financeLabel(n: FinanceNames, key: keyof FinanceNames): string {
+  const prefix = n[key].slice(0, n[key].length - BASE[key].length).replace(/_+$/, "").replace(/_/g, " ").trim();
+  return prefix ? `${prefix.charAt(0).toUpperCase()}${prefix.slice(1)} ${LABELS[key].toLowerCase()}` : LABELS[key];
+}
+
 function tables(n: FinanceNames): SchemaTable[] {
+  const label = (key: keyof FinanceNames) => financeLabel(n, key);
   return [
     {
       name: n.accounts,
-      displayName: LABELS.accounts,
+      displayName: label("accounts"),
       columns: [
         id,
         { name: "name", displayName: "Name", type: "text", nullable: false, unique: true },
@@ -71,7 +78,7 @@ function tables(n: FinanceNames): SchemaTable[] {
     },
     {
       name: n.categories,
-      displayName: LABELS.categories,
+      displayName: label("categories"),
       columns: [
         id,
         { name: "name", displayName: "Name", type: "text", nullable: false, unique: true },
@@ -80,7 +87,7 @@ function tables(n: FinanceNames): SchemaTable[] {
     },
     {
       name: n.transactions,
-      displayName: LABELS.transactions,
+      displayName: label("transactions"),
       columns: [
         id,
         { name: "date", displayName: "Date", type: "date", nullable: false },
@@ -93,7 +100,7 @@ function tables(n: FinanceNames): SchemaTable[] {
     },
     {
       name: n.trades,
-      displayName: LABELS.trades,
+      displayName: label("trades"),
       columns: [
         id,
         { name: "date", displayName: "Date", type: "date", nullable: false },
@@ -111,7 +118,7 @@ function tables(n: FinanceNames): SchemaTable[] {
     },
     {
       name: n.prices,
-      displayName: LABELS.prices,
+      displayName: label("prices"),
       columns: [
         id,
         { name: "isin", displayName: "ISIN", type: "text", nullable: false },
@@ -121,7 +128,7 @@ function tables(n: FinanceNames): SchemaTable[] {
     },
     {
       name: n.dividends,
-      displayName: LABELS.dividends,
+      displayName: label("dividends"),
       columns: [
         id,
         { name: "date", displayName: "Date", type: "date", nullable: false },
@@ -262,11 +269,11 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       display: {
         text: [
           "# How to fill this",
-          `- ${LABELS.accounts}: one row per bank account or depot, with its opening balance`,
-          `- ${LABELS.transactions}: import your bank's CSV (Data → ${LABELS.transactions} → Import)`,
-          `- ${LABELS.trades}: buys and sells with ISIN, shares and price — your broker's export`,
-          `- ${LABELS.prices}: a price per ISIN and date; month ends are enough (live prices come later)`,
-          `- ${LABELS.dividends}: payouts per ISIN`,
+          `- ${financeLabel(n, "accounts")}: one row per bank account or depot, with its opening balance`,
+          `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import)`,
+          `- ${financeLabel(n, "trades")}: buys and sells with ISIN, shares and price — your broker's export`,
+          `- ${financeLabel(n, "prices")}: a price per ISIN and date; month ends are enough (live prices come later)`,
+          `- ${financeLabel(n, "dividends")}: payouts per ISIN`,
         ].join("\n"),
       },
     },
