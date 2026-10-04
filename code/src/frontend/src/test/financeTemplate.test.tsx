@@ -133,3 +133,14 @@ describe("finance template", () => {
     expect(dataApi.createRow).toHaveBeenCalledWith("finance_accounts", expect.objectContaining({ name: "Checking" }));
   });
 });
+
+describe("cash-flow starter", () => {
+  it("splits by the category, not by the first link (the account)", async () => {
+    const { pickColumns } = await import("../features/dashboards/starter");
+    const transactions = withFinanceTables({ version: 1, tables: [], relations: [] }, financeNames("")).tables.find((t) => t.name === "transactions") as unknown as ModelTable;
+    expect(pickColumns(transactions).category?.name).toBe("category_id");
+    const cashFlow = financeCashFlow(transactions);
+    expect(cashFlow.widgets.find((w) => w.id === "money-flow")?.data?.query?.groupBy?.[0].column).toBe("category_id");
+    expect(cashFlow.widgets.find((w) => w.id === "spending-by-category")?.title).toBe("Spending by Category");
+  });
+});

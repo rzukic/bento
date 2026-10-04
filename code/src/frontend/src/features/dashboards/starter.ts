@@ -32,6 +32,8 @@ export function dataTables(tables: ModelTable[]): ModelTable[] {
 
 const usable = (column: ModelColumn) => !column.primaryKey && column.type !== "computed";
 
+const CATEGORY = /categ|kategor|rubri/i;
+
 const PAYEE = /counterparty|payee|recipient|merchant|auftraggeber|empf|beg(ue|ü)nstig|zahlungs|name/i;
 
 export function pickColumns(table: ModelTable) {
@@ -43,7 +45,10 @@ export function pickColumns(table: ModelTable) {
       columns.find((c) => c.type === "currency") ??
       columns.find((c) => c.type === "float") ??
       columns.find((c) => c.type === "integer"),
-    category: columns.find((c) => c.type === "reference" || c.type === "enum"),
+    // A column named like a category wins over other links (an account, a payee).
+    category:
+      columns.find((c) => (c.type === "reference" || c.type === "enum") && CATEGORY.test(`${c.name} ${c.displayName ?? ""}`)) ??
+      columns.find((c) => c.type === "reference" || c.type === "enum"),
     // The payee reads best in a "top" list; otherwise the first text column.
     text: texts.find((c) => PAYEE.test(`${c.name} ${c.displayName ?? ""}`)) ?? texts[0],
   };

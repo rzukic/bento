@@ -22,6 +22,7 @@ One click sets up personal finance: accounts, categories, transactions, depot tr
 **Highlights:**
 - Net worth at each month end (cash + depot × price), depot value, unrealised gain, allocation, positions, dividends
 - Cash flow with an account filter; optional example rows; existing tables untouched (a prefix when names are taken)
+- Fix: the cash-flow starter splits by a column named like a category before other links (it used the template's account)
 
 ### 2026-10-04 — Dashboard Filter Bar
 
