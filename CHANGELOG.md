@@ -12,6 +12,17 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Wealth & Cash Flow Template
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md)
+
+One click sets up personal finance: accounts, categories, transactions, depot trades, prices and dividends, a cash-flow and a wealth dashboard.
+
+**Highlights:**
+- Net worth at each month end (cash + depot × price), depot value, unrealised gain, allocation, positions, dividends
+- Cash flow with an account filter; optional example rows; existing tables untouched (a prefix when names are taken)
+
 ### 2026-10-04 — Dashboard Filter Bar
 
 > **Phase**: Phase 3 — Visualization

@@ -121,7 +121,9 @@
 
 .dashboards-new__starter-actions {
     display: flex;
-    gap: 0.5rem;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
 }
 
 .dashboards-new__starter-actions .field__control {
@@ -864,4 +866,23 @@
     padding: 0.5rem;
     font-size: var(--fs-xs);
     color: var(--text-4);
+}
+
+/* Step 3.9: the finance setup's options. */
+.dashboards-new__prefix,
+.dashboards-new__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.dashboards-new__prefix .field__control {
+    width: 8rem;
+}
+
+.dashboards-new__check input {
+    margin: 0;
+    accent-color: var(--accent);
 }
