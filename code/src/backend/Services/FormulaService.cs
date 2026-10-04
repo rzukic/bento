@@ -21,17 +21,19 @@ public sealed class FormulaService
     private readonly SchemaCache _schemaCache;
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
+    private readonly ComputedColumns _computed;
 
-    public FormulaService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig)
+    public FormulaService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed)
     {
         _schemaCache = schemaCache;
         _queryService = queryService;
         _dbConfig = dbConfig;
+        _computed = computed;
     }
 
     public FormulaValidateResponse Validate(FormulaRequest request)
     {
-        var (_, check) = Check(request, draft: request.Columns is { ValueKind: not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined) });
+        var (_, check) = Check(request, draft: Present(request.Columns) || Present(request.Model));
         return new FormulaValidateResponse(
             check.IsValid,
             check.Result is { } result ? FormulaTypes.Name(result.Type) : null,
@@ -57,13 +59,18 @@ public sealed class FormulaService
         var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
         var inputs = compiled.Columns.Select(name => table.Columns.First(c => c.Name == name)).ToList();
 
+        // The row is addressed by the quoted table name, like in list queries.
+        var row = Q(table.Name);
+        var computed = _computed.For(table);
         var select = new List<string>();
         if (key is not null)
-            select.Add($"t.{Q(key.Name)} AS \"__id\"");
-        select.AddRange(inputs.Select((c, i) => $"t.{Q(c.Name)} AS \"__c{i}\""));
+            select.Add($"{row}.{Q(key.Name)} AS \"__id\"");
+        select.AddRange(inputs.Select((c, i) => computed.TryGetValue(c.Name, out var input)
+            ? $"{input.Sql} AS \"__c{i}\""
+            : $"{row}.{Q(c.Name)} AS \"__c{i}\""));
         select.Add($"{compiled.Sql} AS \"__value\"");
-        var sql = $"SELECT {string.Join(", ", select)} FROM {Q(table.Name)} t" +
-            (key is null ? "" : $" ORDER BY t.{Q(key.Name)}") + $" LIMIT {limit}";
+        var sql = $"SELECT {string.Join(", ", select)} FROM {row}" +
+            (key is null ? "" : $" ORDER BY {row}.{Q(key.Name)}") + $" LIMIT {limit}";
 
         await using var scope = await _queryService.UseDataAsync();
         List<IDictionary<string, object?>> rows;
@@ -82,6 +89,11 @@ public sealed class FormulaService
             for (var i = 0; i < inputs.Count; i++)
             {
                 var raw = row[$"__c{i}"];
+                if (computed.TryGetValue(inputs[i].Name, out var input))
+                {
+                    values[inputs[i].Name] = ResultValues.Shape(raw, input.Type);
+                    continue;
+                }
                 if (inputs[i].Type == ColumnType.DateTime && raw is string text && !text.Contains('T'))
                     raw = text.Replace(' ', 'T') + "Z";
                 values[inputs[i].Name] = ResultValues.Shape(raw, inputs[i].Type);
@@ -97,11 +109,16 @@ public sealed class FormulaService
     {
         if (string.IsNullOrWhiteSpace(request.Table))
             throw Invalid("table", "Choose the table the formula belongs to.");
-        var applied = _schemaCache.GetTable(request.Table.Trim());
-        var table = draft
-            ? new TableDef { Name = request.Table.Trim(), DisplayName = applied?.DisplayName, Columns = DraftColumns(request.Columns!.Value) }
-            : applied ?? throw new ApiNotFoundException($"Table '{request.Table}' does not exist.",
-                new Dictionary<string, object?> { ["field"] = "table", ["table"] = request.Table });
+        var name = request.Table.Trim();
+        var applied = _schemaCache.GetTable(name);
+        ModelJson? draftModel = draft && Present(request.Model) ? DraftModel(request.Model!.Value) : null;
+        var table = draftModel is not null
+            ? draftModel.Tables.FirstOrDefault(t => string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw Invalid("table", $"The draft has no table '{name}'.")
+            : draft
+                ? new TableDef { Name = name, DisplayName = applied?.DisplayName, Columns = DraftColumns(request.Columns!.Value) }
+                : applied ?? throw new ApiNotFoundException($"Table '{request.Table}' does not exist.",
+                    new Dictionary<string, object?> { ["field"] = "table", ["table"] = request.Table });
         if (request.Formula is null)
             throw Invalid("formula", "formula is required.");
         if (request.Formula.Length > 4000)
@@ -114,8 +131,29 @@ public sealed class FormulaService
                 ?? throw Invalid("resultType", $"Unknown result type '{request.ResultType}'; use text, integer, float, currency, boolean, date or datetime.");
         }
 
-        var check = FormulaCompiler.Compile(request.Formula, table, _schemaCache.GetTable, _dbConfig.Provider, expected: expected);
+        var schema = draftModel is not null
+            ? FormulaSchema.From(draftModel)
+            : draft ? FormulaSchema.WithTable(_schemaCache.Current, table) : FormulaSchema.From(_schemaCache.Current);
+        var check = FormulaCompiler.Compile(request.Formula, table, schema, _dbConfig.Provider,
+            alias: Q(table.Name), expected: expected, column: string.IsNullOrWhiteSpace(request.Column) ? null : request.Column.Trim());
         return (table, check);
+    }
+
+    private static bool Present(System.Text.Json.JsonElement? value) =>
+        value is { ValueKind: not (System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined) };
+
+    private static ModelJson DraftModel(System.Text.Json.JsonElement model)
+    {
+        if (model.ValueKind != System.Text.Json.JsonValueKind.Object)
+            throw Invalid("model", "model must be a Model JSON object.");
+        try
+        {
+            return ModelJsonSerializer.Parse(model.GetRawText());
+        }
+        catch (System.Text.Json.JsonException e)
+        {
+            throw Invalid("model", $"model is not valid Model JSON: {e.Message}");
+        }
     }
 
     private static List<ColumnDef> DraftColumns(System.Text.Json.JsonElement columns)

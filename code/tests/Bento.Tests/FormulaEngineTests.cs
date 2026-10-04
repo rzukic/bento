@@ -5,8 +5,9 @@ using Bento.Api.Formula;
 namespace Bento.Tests;
 
 /// <summary>
-/// Step 3.4: parser, type checker and messages, without a database. The
-/// values are covered by <see cref="FormulaConformanceTests"/> on both providers.
+/// Steps 3.4 and 3.5: parser, type checker, links, aggregates and messages,
+/// without a database. The values are covered by <see cref="FormulaConformanceTests"/>
+/// and <see cref="ComputedColumnTests"/> on both providers.
 /// </summary>
 public sealed class FormulaEngineTests
 {
@@ -33,12 +34,46 @@ public sealed class FormulaEngineTests
             new() { Name = "status", Type = ColumnType.Enum, Values = ["open", "done"] },
             new() { Name = "meta", Type = ColumnType.Json },
             new() { Name = "net", Type = ColumnType.Computed, Formula = "amount" },
-            new() { Name = "category_id", Type = ColumnType.Reference, References = "categories" }
+            new() { Name = "category_id", Type = ColumnType.Reference, References = "categories" },
+            new() { Name = "account_id", Type = ColumnType.Reference, References = "accounts" }
         ]
     };
 
-    private static FormulaCheck Check(string formula, DatabaseProvider provider = DatabaseProvider.Sqlite, FormulaType? expected = null) =>
-        FormulaCompiler.Compile(formula, Transactions, _ => null, provider, expected: expected);
+    private static readonly TableDef Categories = new()
+    {
+        Name = "categories",
+        Columns =
+        [
+            new() { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new() { Name = "name", Type = ColumnType.Text }
+        ]
+    };
+
+    private static readonly TableDef Accounts = new()
+    {
+        Name = "accounts",
+        Columns =
+        [
+            new() { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new() { Name = "name", Type = ColumnType.Text },
+            new() { Name = "opening_balance", Type = ColumnType.Currency },
+            new() { Name = "balance", Type = ColumnType.Computed, Formula = "opening_balance + SUM(transactions.amount)" },
+            new() { Name = "a", Type = ColumnType.Computed, Formula = "b + 1" },
+            new() { Name = "b", Type = ColumnType.Computed, Formula = "a + 1" },
+            new() { Name = "selfish", Type = ColumnType.Computed, Formula = "selfish + 1" },
+            new() { Name = "broken", Type = ColumnType.Computed, Formula = "nothing * 2" }
+        ]
+    };
+
+    private static readonly FormulaSchema Schema = new(
+        [Transactions, Categories, Accounts],
+        [
+            new RelationDef { Name = "category_transactions", Type = RelationType.OneToMany, From = "categories", To = "transactions", Column = "category_id" },
+            new RelationDef { Name = "account_transactions", Type = RelationType.OneToMany, From = "accounts", To = "transactions", Column = "account_id" }
+        ]);
+
+    private static FormulaCheck Check(string formula, DatabaseProvider provider = DatabaseProvider.Sqlite, FormulaType? expected = null, TableDef? table = null, string? column = null) =>
+        FormulaCompiler.Compile(formula, table ?? Transactions, Schema, provider, expected: expected, column: column);
 
     private static FormulaError SingleError(string formula)
     {
@@ -65,6 +100,11 @@ public sealed class FormulaEngineTests
     [InlineData("= NOT paid AND !(quantity > 1) || status = \"open\"", "boolean")]
     [InlineData("= NULL", "text")]
     [InlineData("= category_id + 1", "integer")]
+    [InlineData("= category_id.name", "text")]
+    [InlineData("= UPPER(category.name)", "text")]
+    [InlineData("= account.balance - amount", "currency")]
+    [InlineData("= net * 2", "currency")]
+    [InlineData("= \"what?\" & note", "text")]
     public void ValidFormulas_HaveTheirType(string formula, string type)
     {
         var check = Check(formula);
@@ -100,13 +140,14 @@ public sealed class FormulaEngineTests
 
     [Theory]
     [InlineData("= amout * 2", "Column 'amout' not found in Transactions — did you mean 'amount'?", 2, 7)]
-    [InlineData("= SUMM(amount)", "Unknown function SUMM.", 2, 6)]
-    [InlineData("= SUM(amount)", "SUM works across several rows; formulas on a single row cannot use it yet.", 2, 5)]
+    [InlineData("= SUMM(amount)", "Unknown function SUMM — did you mean SUM?", 2, 6)]
+    [InlineData("= SUM(amount)", "SUM adds up related rows; name the link, e.g. SUM(transactions.amount).", 2, 13)]
     [InlineData("= CONCATE(note, \"x\")", "Unknown function CONCATE — did you mean CONCAT?", 2, 9)]
     [InlineData("= today", "TODAY is a function; call it with parentheses: TODAY(…).", 2, 7)]
-    [InlineData("= orders.total", "Column 'orders' not found in Transactions.", 2, 14)]
-    [InlineData("= category_id.name", "Values from related tables (category_id.name) are not supported in formulas yet.", 2, 18)]
-    [InlineData("= net * 2", "'net' is computed itself; formulas cannot use computed columns yet.", 2, 5)]
+    [InlineData("= orders.total", "'orders' is not a column or link of Transactions.", 2, 14)]
+    [InlineData("= categry.name", "'categry' is not a column or link of Transactions — did you mean 'category'?", 2, 14)]
+    [InlineData("= amount.total", "'amount' is not a link; only reference columns and relations can be followed with a dot.", 2, 14)]
+    [InlineData("= category.nme", "Column 'nme' not found in categories — did you mean 'name'?", 2, 14)]
     [InlineData("= meta", "'meta' is a json column; formulas cannot use those.", 2, 6)]
     public void UnknownNames_SuggestTheClosestMatch(string formula, string message, int start, int end)
     {
@@ -137,6 +178,65 @@ public sealed class FormulaEngineTests
     public void TypeErrors_ExplainWhatFits(string formula, string message)
     {
         Assert.Equal(message, SingleError(formula).Message);
+    }
+
+    [Theory]
+    [InlineData("= SUM(transactions.amount)", "currency")]
+    [InlineData("= opening_balance + SUM(transactions.amount)", "currency")]
+    [InlineData("= SUM(transactions.amount * -1, transactions.amount < 0)", "currency")]
+    [InlineData("= SUMIF(transactions.amount, transactions.paid)", "currency")]
+    [InlineData("= COUNT(transactions)", "integer")]
+    [InlineData("= COUNTIF(transactions, transactions.amount < opening_balance)", "integer")]
+    [InlineData("= COUNT(transactions.note)", "integer")]
+    [InlineData("= SUM(transactions.quantity)", "integer")]
+    [InlineData("= AVG(transactions.quantity)", "float")]
+    [InlineData("= AVG(transactions.amount)", "currency")]
+    [InlineData("= MAX(transactions.booked_on)", "date")]
+    [InlineData("= MIN(transactions.recorded_at)", "datetime")]
+    [InlineData("= SUM(transactions.net)", "currency")]
+    [InlineData("= COUNT(transactions, transactions.category.name = \"Food\")", "integer")]
+    [InlineData("= balance * 2", "currency")]
+    public void Aggregates_OverRelatedRows(string formula, string type)
+    {
+        var check = Check(formula, table: Accounts);
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+        Assert.Equal(type, FormulaTypes.Name(check.Result!.Type));
+    }
+
+    [Theory]
+    [InlineData("= transactions.amount", "'transactions' holds several rows; use SUM(transactions.amount), COUNT(transactions), AVG, MIN or MAX.")]
+    [InlineData("= transactions", "'transactions' holds several rows; use SUM(transactions.column), COUNT(transactions), AVG, MIN or MAX.")]
+    [InlineData("= SUM(transactions.note)", "SUM needs a number, not text.")]
+    [InlineData("= SUM(transactions)", "SUM needs a column of the related rows, e.g. SUM(transactions.amount).")]
+    [InlineData("= SUM(transactions.amount, transactions.note)", "The condition of SUM needs a condition (yes/no), not text — compare it, e.g. amount < 0.")]
+    [InlineData("= SUM(SUM(transactions.amount))", "SUM cannot be used inside another aggregate.")]
+    [InlineData("= SUMIF(transactions.amount)", "SUMIF takes 2 arguments: SUMIF(link.column, condition).")]
+    [InlineData("= MAX(transactions.note)", "MAX needs numbers or dates, not text.")]
+    [InlineData("= a", "Circular reference: accounts.a → accounts.b → accounts.a.")]
+    [InlineData("= selfish", "Circular reference: accounts.selfish → accounts.selfish.")]
+    [InlineData("= broken + 1", "'broken' has an error: Column 'nothing' not found in accounts.")]
+    public void AggregateAndDependencyErrors(string formula, string message)
+    {
+        var check = Check(formula, table: Accounts);
+        Assert.False(check.IsValid);
+        Assert.Equal(message, check.Errors[0].Message);
+    }
+
+    [Fact]
+    public void AColumnUsingItself_IsACycle()
+    {
+        var check = Check("= opening_balance + balance", table: Accounts, column: "balance");
+        Assert.Equal("Circular reference: accounts.balance → accounts.balance.", Assert.Single(check.Errors).Message);
+    }
+
+    [Theory]
+    [InlineData(DatabaseProvider.Sqlite, "char(63)")]
+    [InlineData(DatabaseProvider.Postgres, "chr(63)")]
+    public void QuestionMarks_AreNotWrittenIntoTheSql(DatabaseProvider provider, string replacement)
+    {
+        var sql = Check("= \"what?\" & note", provider).Result!.Sql;
+        Assert.DoesNotContain("?", sql);
+        Assert.Contains(replacement, sql);
     }
 
     [Fact]
@@ -170,7 +270,8 @@ public sealed class FormulaEngineTests
     {
         foreach (var function in FormulaFunctions.Catalog)
         {
-            var check = Check(function.Example, provider);
+            // Aggregates run over an account's transactions.
+            var check = Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null);
             Assert.True(check.IsValid, $"{function.Name}: {function.Example} → {string.Join("; ", check.Errors.Select(e => e.Message))}");
             Assert.Contains(function.Name, function.Example, StringComparison.Ordinal);
         }

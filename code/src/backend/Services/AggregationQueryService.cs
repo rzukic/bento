@@ -5,6 +5,7 @@ using Dapper;
 using Bento.Api.Db;
 using Bento.Api.Db.Schema;
 using Bento.Api.Exceptions;
+using Bento.Api.Formula;
 using Bento.Api.Models;
 
 namespace Bento.Api.Services;
@@ -29,12 +30,14 @@ public sealed class AggregationQueryService
     private readonly SchemaCache _schemaCache;
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
+    private readonly ComputedColumns _computed;
 
-    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig)
+    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed)
     {
         _schemaCache = schemaCache;
         _queryService = queryService;
         _dbConfig = dbConfig;
+        _computed = computed;
     }
 
     private bool IsPostgres => _dbConfig.Provider == DatabaseProvider.Postgres;
@@ -47,6 +50,7 @@ public sealed class AggregationQueryService
 
     private sealed record Plan(
         TableDef Table,
+        IReadOnlyDictionary<string, ComputedColumn> Computed,
         List<FilterClause> Filters,
         List<Group> Groups,
         List<Measure> Measures,
@@ -87,6 +91,15 @@ public sealed class AggregationQueryService
             ?? throw new ApiNotFoundException($"Table '{request.Source}' does not exist.",
                 new Dictionary<string, object?> { ["field"] = "source", ["table"] = request.Source });
 
+        // Computed columns take part like stored ones, typed by their result.
+        var computed = _computed.For(table);
+        table = table with
+        {
+            Columns = table.Columns
+                .Select(c => computed.TryGetValue(c.Name, out var formula) ? c with { Type = formula.ValueType } : c)
+                .ToList()
+        };
+
         var filters = ParseFilter(request.Filter, table, "filter");
         filters.AddRange(ParseFilter(extraFilter, table, "filter"));
 
@@ -123,7 +136,7 @@ public sealed class AggregationQueryService
                 join = $"LEFT JOIN {Q(target.Name)} {alias} ON {alias}.{Q(targetKey.Name)} = t.{Q(column.Name)}";
             }
 
-            var expression = bucket is null ? $"t.{Q(column.Name)}" : BucketExpression(column, bucket);
+            var expression = bucket is null ? $"t.{Q(column.Name)}" : BucketExpression(column, bucket, computed.ContainsKey(column.Name));
             groups.Add(new Group(column, bucket, output, expression, labelOutput, labelExpression, join));
         }
 
@@ -182,7 +195,7 @@ public sealed class AggregationQueryService
         if (limit < 1 || limit > MaxLimit)
             throw Invalid("limit", $"limit must be between 1 and {MaxLimit}.");
 
-        return new Plan(table, filters, groups, measures, sort, limit);
+        return new Plan(table, computed, filters, groups, measures, sort, limit);
     }
 
     private static ColumnDef RequireColumn(TableDef table, string? name, string path)
@@ -261,12 +274,13 @@ public sealed class AggregationQueryService
     /// Values are bucketed as stored (wall time; values written with Z are
     /// UTC), never through a session time zone.
     /// </summary>
-    private string BucketExpression(ColumnDef column, string bucket)
+    private string BucketExpression(ColumnDef column, string bucket, bool computed)
     {
         var col = $"t.{Q(column.Name)}";
         if (IsPostgres)
         {
-            var stamp = column.Type == ColumnType.DateTime ? $"({col} AT TIME ZONE 'UTC')" : $"CAST({col} AS TIMESTAMP)";
+            // A computed date-time already is UTC wall time (timestamp without zone).
+            var stamp = column.Type == ColumnType.DateTime && !computed ? $"({col} AT TIME ZONE 'UTC')" : $"CAST({col} AS TIMESTAMP)";
             return bucket == "day"
                 ? $"to_char({stamp}, 'YYYY-MM-DD')"
                 : $"to_char(date_trunc('{bucket}', {stamp}), 'YYYY-MM-DD')";
@@ -285,7 +299,7 @@ public sealed class AggregationQueryService
 
     private (string Sql, DynamicParameters Parameters) BuildSql(Plan plan, QueryScope scope)
     {
-        var (inner, parameters) = CompileFiltered(plan.Table, plan.Filters, scope);
+        var (inner, parameters) = CompileFiltered(plan, plan.Filters, scope);
 
         var select = new List<string>();
         var groupBy = new List<string>();
@@ -336,10 +350,11 @@ public sealed class AggregationQueryService
     }
 
     /// <summary>The source rows with the list endpoint's filter semantics (coercion, providers).</summary>
-    private (string Sql, DynamicParameters Parameters) CompileFiltered(TableDef table, IReadOnlyList<FilterClause> filters, QueryScope scope)
+    private (string Sql, DynamicParameters Parameters) CompileFiltered(Plan plan, IReadOnlyList<FilterClause> filters, QueryScope scope)
     {
-        var query = new SqlKata.Query(table.Name);
-        CrudService.ApplyFiltersStatic(query, filters, table, _dbConfig.Provider);
+        var table = _schemaCache.GetTable(plan.Table.Name) ?? plan.Table;
+        var query = _computed.Select(new SqlKata.Query(table.Name), table);
+        CrudService.ApplyFiltersStatic(query, filters, plan.Table, _dbConfig.Provider, plan.Computed);
         var compiled = scope.Db.Compiler.Compile(query);
         return (compiled.Sql, new DynamicParameters(compiled.NamedBindings));
     }
@@ -360,7 +375,7 @@ public sealed class AggregationQueryService
 
         var before = plan.Filters.Except(lowerBounds).ToList();
         before.AddRange(lowerBounds.Select(f => f with { Operator = f.Operator == "gte" ? "lt" : "lte" }));
-        var (inner, parameters) = CompileFiltered(plan.Table, before, scope);
+        var (inner, parameters) = CompileFiltered(plan, before, scope);
 
         var partitions = plan.Groups.Where(g => g.Bucket is null).ToList();
         var select = partitions.Select(g => $"{g.Expression} AS {Q(g.Output)}")
@@ -391,7 +406,9 @@ public sealed class AggregationQueryService
         {
             shaped[group.Output] = group.Bucket is not null
                 ? Convert.ToString(row[group.Output], CultureInfo.InvariantCulture)
-                : ResultValues.Shape(row[group.Output], group.Column.Type);
+                : plan.Computed.TryGetValue(group.Column.Name, out var formula)
+                    ? ResultValues.Shape(row[group.Output], formula.Type)
+                    : ResultValues.Shape(row[group.Output], group.Column.Type);
             if (group.LabelOutput is not null)
                 shaped[group.LabelOutput] = row[group.LabelOutput] is null ? null : Convert.ToString(row[group.LabelOutput], CultureInfo.InvariantCulture);
         }
@@ -403,7 +420,10 @@ public sealed class AggregationQueryService
             if (measure.CarryIn && offsets is not null &&
                 offsets[measure.Output].TryGetValue(PartitionKey(partitions, row), out var offset))
                 value = (ResultValues.ToDecimal(value) ?? 0m) + offset;
-            shaped[measure.Output] = ShapeMeasure(value, measure);
+            shaped[measure.Output] = measure.Fn is "min" or "max" && value is not (null or DBNull) &&
+                                     plan.Computed.TryGetValue(measure.Column!.Name, out var formula)
+                ? ResultValues.Shape(value, formula.Type)
+                : ShapeMeasure(value, measure);
         }
         return shaped;
     }

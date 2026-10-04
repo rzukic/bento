@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Computed Columns With Live Values
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.5 — Computed Columns](working-steps/3.5-computed-columns.md)
+
+Computed columns now have values everywhere a table is read — computed by the database on every query, never stored.
+
+**Highlights:**
+- `= opening_balance + SUM(transactions.amount)`: sums, counts, averages, minimum and maximum over related rows (1:N and N:M), with conditions; values of linked records (`account.name`)
+- Computed columns can use other computed columns; circular references are rejected with their path
+- Filter, sort, select, export and chart computed columns like stored ones, formatted by their result type
+- The formula editor checks against the whole draft and suggests links and the linked table's columns
+
 ### 2026-10-04 — Formulas: Checked As You Type, Same On SQLite And Postgres
 
 > **Phase**: Phase 3 — Visualization

@@ -96,6 +96,7 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
         List<string> values = [];
         string? references = null;
         string? formula = null;
+        string? resultType = null;
         string? relationName = null;
         string? renamedFrom = null;
 
@@ -137,6 +138,9 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
                 case "formula":
                     formula = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
                     break;
+                case "resultType":
+                    resultType = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
+                    break;
                 case "relationName":
                     relationName = property.Value.ValueKind == JsonValueKind.Null ? null : property.Value.GetString();
                     break;
@@ -163,6 +167,7 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
             Values = values,
             References = references,
             Formula = formula,
+            ResultType = resultType,
             RelationName = relationName,
             RenamedFrom = renamedFrom,
             AdditionalData = additionalData.Count > 0 ? additionalData : null
@@ -202,6 +207,8 @@ internal sealed class ColumnDefJsonConverter : JsonConverter<ColumnDef>
             writer.WriteString("references", value.References);
         if (value.Formula is not null)
             writer.WriteString("formula", value.Formula);
+        if (value.ResultType is not null)
+            writer.WriteString("resultType", value.ResultType);
         if (value.RelationName is not null)
             writer.WriteString("relationName", value.RelationName);
         if (value.RenamedFrom is not null)

@@ -40,6 +40,28 @@ public sealed class FormulaApiTests
         Assert.True(draft.GetProperty("valid").GetBoolean());
         Assert.Equal("currency", draft.GetProperty("type").GetString());
 
+        // A whole draft model: links and tables that are not applied yet.
+        var draftModel = await PostAsync(host, "/api/v1/formulas/validate", new
+        {
+            table = "budgets",
+            column = "left",
+            formula = "planned + SUM(expenses.amount)",
+            model = System.Text.Json.JsonDocument.Parse("""
+                { "tables": [
+                    { "name": "budgets", "columns": [ { "name": "id", "type": "integer", "primaryKey": true }, { "name": "planned", "type": "currency" },
+                                                      { "name": "left", "type": "computed", "formula": "x" } ] },
+                    { "name": "expenses", "columns": [ { "name": "id", "type": "integer", "primaryKey": true }, { "name": "amount", "type": "currency" },
+                                                       { "name": "budget_id", "type": "reference", "references": "budgets" } ] } ],
+                  "relations": [ { "name": "budget_expenses", "type": "1:N", "from": "budgets", "to": "expenses", "column": "budget_id" } ] }
+                """).RootElement
+        });
+        Assert.True(draftModel.GetProperty("valid").GetBoolean(), draftModel.ToString());
+        Assert.Equal("currency", draftModel.GetProperty("type").GetString());
+
+        var self = await PostAsync(host, "/api/v1/formulas/validate", new { table = "samples", formula = "amount + spent", column = "spent",
+            columns = new object[] { new { name = "amount", type = "currency" }, new { name = "spent", type = "computed", formula = "amount + spent" } } });
+        Assert.Equal("Circular reference: samples.spent → samples.spent.", self.GetProperty("errors")[0].GetProperty("message").GetString());
+
         var mismatch = await PostAsync(host, "/api/v1/formulas/validate", new { table = "samples", formula = "label", resultType = "currency" });
         Assert.False(mismatch.GetProperty("valid").GetBoolean());
     }

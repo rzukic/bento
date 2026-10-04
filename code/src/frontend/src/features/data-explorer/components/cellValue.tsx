@@ -1,4 +1,5 @@
 import { getCurrentLocale } from "./editors/temporalEditing";
+import { valueTypeOf } from "../../../lib/columns";
 import { formatAmount, toNumber } from "../../../lib/format";
 import type { ModelColumn } from "../../../types/api";
 
@@ -147,8 +148,10 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
   if (value === null || value === undefined || value === "") {
     return <span className="data-grid__cell-empty">—</span>;
   }
+  // Computed columns look like their result: an amount, a date, yes/no.
+  const type = valueTypeOf(column);
 
-  if (column.type === "boolean") {
+  if (type === "boolean") {
     const booleanValue = normalizeBooleanValue(value);
     if (booleanValue !== null) {
       return (
@@ -171,7 +174,7 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
     );
   }
 
-  if (column.type === "currency") {
+  if (type === "currency") {
     const amount = toNumber(value);
     if (amount !== null) {
       return (
@@ -186,8 +189,8 @@ export function renderCellValue(column: ModelColumn, value: unknown) {
     return <span className="data-grid__mono">{value}</span>;
   }
 
-  if (typeof value === "string" && (column.type === "date" || column.type === "datetime")) {
-    return <span className="data-grid__mono">{formatTemporalValue(value, column.type)}</span>;
+  if (typeof value === "string" && (type === "date" || type === "datetime")) {
+    return <span className="data-grid__mono">{formatTemporalValue(value, type)}</span>;
   }
 
   if (column.type === "json" || typeof value === "object") {

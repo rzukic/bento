@@ -129,10 +129,10 @@ public static class QueryParameterParser
         return sorts;
     }
 
+    /// <summary>Stored columns and computed ones (their values come from the formula).</summary>
     private static HashSet<string> GetPhysicalColumnNames(TableDef table)
     {
         return table.Columns
-            .Where(c => Db.ColumnTypes.HasPhysicalColumn(c.Type))
             .Select(c => c.Name)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
     }

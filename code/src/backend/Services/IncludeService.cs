@@ -1,6 +1,7 @@
 using Bento.Api.Db;
 using Bento.Api.Db.Schema;
 using Bento.Api.Exceptions;
+using Bento.Api.Formula;
 using SqlKata.Execution;
 
 namespace Bento.Api.Services;
@@ -43,12 +44,21 @@ public sealed class IncludeService
     private readonly QueryService _queryService;
     private readonly SchemaCache _schemaCache;
     private readonly DatabaseConfig _dbConfig;
+    private readonly ComputedColumns _computed;
 
-    public IncludeService(QueryService queryService, SchemaCache schemaCache, DatabaseConfig dbConfig)
+    public IncludeService(QueryService queryService, SchemaCache schemaCache, DatabaseConfig dbConfig, ComputedColumns computed)
     {
         _queryService = queryService;
         _schemaCache = schemaCache;
         _dbConfig = dbConfig;
+        _computed = computed;
+    }
+
+    /// <summary>Rows of a table with their computed columns.</summary>
+    private SqlKata.Query RowsOf(QueryScope scope, string tableName)
+    {
+        var query = scope.Db.Query(tableName);
+        return _schemaCache.GetTable(tableName) is { } table ? _computed.Select(query, table) : query;
     }
 
     /// <summary>
@@ -156,8 +166,8 @@ public sealed class IncludeService
             if (include.IsFromSide)
             {
                 // From parent → children (e.g., customers/:id/customer_orders → orders)
-                var relatedQuery = scope.Db.Query(def.To).Where(def.Column!, coercedParentId);
-                return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
+                var relatedQuery = RowsOf(scope, def.To).Where($"{def.To}.{def.Column}", coercedParentId);
+                return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider, _computed.For(targetTable));
             }
             else
             {
@@ -176,10 +186,10 @@ public sealed class IncludeService
                 if (fkValue is null)
                     return EmptyRelatedRowsResult(parameters);
 
-                var parentQuery = scope.Db.Query(def.From)
-                    .Where("id", fkValue);
+                var parentQuery = RowsOf(scope, def.From)
+                    .Where($"{def.From}.id", fkValue);
 
-                return await ExecutePaginatedQuery(parentQuery, parameters, targetTable, _dbConfig.Provider);
+                return await ExecutePaginatedQuery(parentQuery, parameters, targetTable, _dbConfig.Provider, _computed.For(targetTable));
             }
         }
         else // ManyToMany
@@ -202,12 +212,11 @@ public sealed class IncludeService
                 remoteTable = def.From;
             }
 
-            var relatedQuery = scope.Db.Query(remoteTable)
+            var relatedQuery = RowsOf(scope, remoteTable)
                 .Join(junctionTable, $"{junctionTable}.{remoteJunctionCol}", $"{remoteTable}.id")
-                .Where($"{junctionTable}.{localJunctionCol}", coercedParentId)
-                .Select($"{remoteTable}.*");
+                .Where($"{junctionTable}.{localJunctionCol}", coercedParentId);
 
-            return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider);
+            return await ExecutePaginatedQuery(relatedQuery, parameters, targetTable, _dbConfig.Provider, _computed.For(targetTable));
         }
     }
 
@@ -233,8 +242,8 @@ public sealed class IncludeService
 
                 if (parentIds.Count == 0) return;
 
-                var children = (await scope.Db.Query(def.To)
-                    .WhereIn(def.Column!, parentIds)
+                var children = (await RowsOf(scope, def.To)
+                    .WhereIn($"{def.To}.{def.Column}", parentIds)
                     .GetAsync())
                     .Select(r => Shape(def.To, (object)r))
                     .ToList();
@@ -265,8 +274,8 @@ public sealed class IncludeService
 
                 if (fkValues.Count == 0) return;
 
-                var parents = (await scope.Db.Query(def.From)
-                    .WhereIn("id", fkValues)
+                var parents = (await RowsOf(scope, def.From)
+                    .WhereIn($"{def.From}.id", fkValues)
                     .GetAsync())
                     .Select(r => Shape(def.From, (object)r))
                     .ToList();
@@ -327,8 +336,8 @@ public sealed class IncludeService
                 .ToList();
 
             var remoteRows = remoteIds.Count > 0
-                ? (await scope.Db.Query(remoteTable)
-                    .WhereIn("id", remoteIds)
+                ? (await RowsOf(scope, remoteTable)
+                    .WhereIn($"{remoteTable}.id", remoteIds)
                     .GetAsync())
                     .Select(r => Shape(remoteTable, (object)r))
                     .ToList()
@@ -494,27 +503,31 @@ public sealed class IncludeService
         return accessors;
     }
 
-    private static async Task<RelatedRowsResult> ExecutePaginatedQuery(
+    private async Task<RelatedRowsResult> ExecutePaginatedQuery(
         SqlKata.Query query,
         ListQueryParameters parameters,
         TableDef table,
-        DatabaseProvider provider)
+        DatabaseProvider provider,
+        IReadOnlyDictionary<string, ComputedColumn> computed)
     {
         // Apply filters
-        CrudService.ApplyFiltersStatic(query, parameters.Filters, table, provider);
+        CrudService.ApplyFiltersStatic(query, parameters.Filters, table, provider, computed);
 
         // Count
         var total = await query.Clone().CountAsync<long>();
 
         // Sort
-        query = CrudService.ApplySortingStatic(query, parameters.Sorts, table, provider);
+        query = CrudService.ApplySortingStatic(query, parameters.Sorts, table, provider, computed);
 
         // Paginate
         query = query.ForPage(parameters.Page, parameters.PerPage);
 
         var rows = (await query.GetAsync()).Select(ToDictionary).ToList();
         foreach (var row in rows)
+        {
             CrudService.NormalizeSqliteTimestamps(table, row, provider);
+            _computed.Shape(table, row);
+        }
         var totalPages = parameters.PerPage > 0
             ? (int)Math.Ceiling((double)total / parameters.PerPage)
             : 0;
@@ -533,7 +546,10 @@ public sealed class IncludeService
     private IDictionary<string, object?> Shape(string tableName, object row)
     {
         var dict = ToDictionary(row);
-        CrudService.NormalizeSqliteTimestamps(_schemaCache.GetTable(tableName), dict, _dbConfig.Provider);
+        var table = _schemaCache.GetTable(tableName);
+        CrudService.NormalizeSqliteTimestamps(table, dict, _dbConfig.Provider);
+        if (table is not null)
+            _computed.Shape(table, dict);
         return dict;
     }
 

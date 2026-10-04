@@ -17,6 +17,7 @@ export type FormulaColumn = {
   name: string;
   displayName?: string | null;
   type: string;
+  resultType?: string | null;
 };
 
 const keywords = new Set(["AND", "OR", "NOT"]);
@@ -91,22 +92,120 @@ export const formulaHighlightStyle = HighlightStyle.define([
   { tag: tags.operator, class: "formula-tok-operator" },
 ]);
 
-/** Columns a formula can use: everything with a value of its own. */
+/** Columns a formula can use: everything except JSON (computed columns included). */
 export function usableColumns(columns: FormulaColumn[]): FormulaColumn[] {
-  return columns.filter((column) => column.type !== "computed" && column.type !== "json");
+  return columns.filter((column) => column.type !== "json");
+}
+
+/** A link a formula can follow with a dot, with the columns of the table it leads to. */
+export type FormulaLink = {
+  /** The name suggested first: the accessor or the reference column. */
+  name: string;
+  /** Every name that works: accessor, reference column, target table. */
+  names: string[];
+  target: string;
+  /** Several rows (a relation): only usable in SUM, COUNT, AVG, MIN, MAX. */
+  toMany: boolean;
+  columns: FormulaColumn[];
+};
+
+type LinkModel = {
+  tables: { name: string; columns: (FormulaColumn & { references?: unknown })[] }[];
+  relations: {
+    name: string;
+    type: string;
+    from: string;
+    to: string;
+    column?: string | null;
+    fromAccessor?: string | null;
+    toAccessor?: string | null;
+  }[];
+};
+
+const same = (a: string | null | undefined, b: string | null | undefined) =>
+  (a ?? "").toLowerCase() === (b ?? "").toLowerCase();
+
+/** "account_id" → "account" (like the server's default accessor). */
+function referenceAccessor(column: string): string {
+  return column.toLowerCase().endsWith("_id") && column.length > 3 ? column.slice(0, -3) : column;
 }
 
 /**
- * Completions at the cursor: columns and functions for a bare word,
- * display names after "[".
+ * The links of a table, mirroring the server: reference columns (one row),
+ * 1:N relations from the table and N:M relations (several rows).
+ */
+export function formulaLinks(model: LinkModel, tableName: string): FormulaLink[] {
+  const table = model.tables.find((t) => same(t.name, tableName));
+  if (!table) return [];
+  const columnsOf = (name: string) => model.tables.find((t) => same(t.name, name))?.columns ?? [];
+  const links: FormulaLink[] = [];
+
+  for (const column of table.columns) {
+    if (column.type !== "reference" || typeof column.references !== "string") continue;
+    const target = column.references;
+    if (!model.tables.some((t) => same(t.name, target))) continue;
+    const relation = model.relations.find((r) => r.type === "1:N" && same(r.to, table.name) && same(r.column, column.name));
+    const accessor = relation ? relation.toAccessor || referenceAccessor(column.name) : null;
+    const names = accessor && !same(accessor, column.name) ? [column.name, accessor] : [column.name];
+    links.push({ name: names[names.length - 1], names, target, toMany: false, columns: columnsOf(target) });
+  }
+
+  for (const relation of model.relations) {
+    if (relation.type === "1:N" && same(relation.from, table.name) && relation.column) {
+      const accessor = relation.fromAccessor || relation.name;
+      links.push({ name: accessor, names: [accessor, relation.to], target: relation.to, toMany: true, columns: columnsOf(relation.to) });
+    }
+    if (relation.type === "N:M" && same(relation.from, table.name)) {
+      const accessor = relation.fromAccessor || relation.to;
+      links.push({ name: accessor, names: [accessor, relation.to], target: relation.to, toMany: true, columns: columnsOf(relation.to) });
+    }
+    if (relation.type === "N:M" && same(relation.to, table.name)) {
+      const accessor = relation.toAccessor || relation.from;
+      links.push({ name: accessor, names: [accessor, relation.from], target: relation.from, toMany: true, columns: columnsOf(relation.from) });
+    }
+  }
+
+  // A table name stands for a link only when exactly one link leads there.
+  const counts = new Map<string, number>();
+  for (const link of links) {
+    if (link.toMany) counts.set(link.target.toLowerCase(), (counts.get(link.target.toLowerCase()) ?? 0) + 1);
+  }
+  return links.map((link) =>
+    link.toMany && ((counts.get(link.target.toLowerCase()) ?? 0) > 1 || table.columns.some((c) => same(c.name, link.target)))
+      ? { ...link, names: link.names.filter((name, index) => index === 0 || !same(name, link.target)) }
+      : { ...link, names: [...new Set(link.names)] },
+  );
+}
+
+/**
+ * Completions at the cursor: columns, links and functions for a bare word,
+ * the target's columns after "link.", display names after "[".
  */
 export function formulaCompletions(
   columns: FormulaColumn[],
   functions: FormulaFunction[],
+  links: FormulaLink[] = [],
 ): (context: CompletionContext) => CompletionResult | null {
   const usable = usableColumns(columns);
 
   return (context) => {
+    const path = context.matchBefore(/[A-Za-z_][A-Za-z0-9_]*\.[A-Za-z_]?[A-Za-z0-9_]*$/);
+    if (path) {
+      const [linkName] = path.text.split(".");
+      const link = links.find((candidate) => candidate.names.some((name) => same(name, linkName)));
+      if (!link) return null;
+      return {
+        from: path.from + linkName.length + 1,
+        options: usableColumns(link.columns).map((column) => ({
+          label: column.name,
+          type: "variable",
+          detail: `${link.target} · ${column.type === "computed" ? column.resultType ?? "computed" : column.type}`,
+          info: column.displayName && column.displayName !== column.name ? column.displayName : undefined,
+        })),
+        validFor: /^[A-Za-z0-9_]*$/,
+      };
+    }
+
     const bracket = context.matchBefore(/\[[^\]]*$/);
     if (bracket) {
       return {
@@ -129,10 +228,21 @@ export function formulaCompletions(
       ...usable.map((column) => ({
         label: column.name,
         type: "variable",
-        detail: column.type,
+        detail: column.type === "computed" ? `computed${column.resultType ? ` · ${column.resultType}` : ""}` : column.type,
         info: column.displayName && column.displayName !== column.name ? column.displayName : undefined,
         boost: 1,
       })),
+      ...links
+        .filter((link) => link.toMany || !usable.some((column) => same(column.name, link.name)))
+        .map((link) => ({
+          label: link.name,
+          type: "class",
+          detail: link.toMany ? `→ ${link.target} (several rows)` : `→ ${link.target}`,
+          info: link.toMany
+            ? `Related rows: SUM(${link.name}.column), COUNT(${link.name}), AVG, MIN, MAX`
+            : `A value of the linked ${link.target} row: ${link.name}.column`,
+          apply: `${link.name}.`,
+        })),
       ...functions.map((fn) => ({
         label: fn.name,
         type: "function",
