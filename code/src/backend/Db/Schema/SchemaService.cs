@@ -612,6 +612,9 @@ public class SchemaService
 
         foreach (var change in impactChanges)
         {
+            if (change.ChangeType == SchemaChangeType.DropColumn && change.OldValue is ColumnDef { Type: ColumnType.Computed })
+                continue;
+
             if (change.ChangeType == SchemaChangeType.DropColumn
                 && !string.IsNullOrWhiteSpace(change.ColumnName))
             {
