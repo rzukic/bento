@@ -23,6 +23,7 @@ Widgets are now built by dragging fields onto a large live chart instead of fill
 - Fields on the left, the chart with suggestions in the middle, chart-specific slots (axis, breakdown, slices, value, rows) with quick functions or formulas on the right
 - Top values with "Other" (also in the query API), date intervals, options that no longer apply are dropped
 - Key figures for the whole range or the latest period, with secondary value, trend line and goal; tables summarized with a total row or as individual rows
+- Drawn in the app's design language (hairlines, pills, mono labels, display type), neutral in the light theme too
 
 ### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
 
