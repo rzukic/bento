@@ -1,7 +1,10 @@
 import { apiClient } from "./client";
 import type { AggregationQuery } from "./query";
 
-export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "table" | "text";
+export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text";
+
+/** levels: flows between consecutive groups; cashflow: income categories → income → expense categories (and saved). */
+export type SankeyMode = "levels" | "cashflow";
 
 export type WidgetPosition = { x: number; y: number; w: number; h: number };
 
@@ -71,6 +74,8 @@ export type WidgetDisplay = {
   colorBySign?: boolean;
   /** Charts by date: false hides the dashboard's annotations. */
   annotations?: boolean;
+  /** Sankey: how the groups become flows (default: levels with two or more groups, else cash flow). */
+  sankey?: SankeyMode;
 };
 
 export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;

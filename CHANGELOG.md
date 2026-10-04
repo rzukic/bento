@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Sankey & Drill-Down
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.7 — Sankey & Drill-Down](working-steps/3.7-sankey-drilldown.md)
+
+See where the money goes, and click any chart to see the rows behind it.
+
+**Highlights:**
+- **Sankey** widget: income → expenses by category with what is saved, or flows between up to three levels (category → subcategory → payee); a **Money flow** Sankey in the generated cash-flow dashboard
+- **Drill-down**: a bar, point, slice, Sankey flow or key figure opens the Data Explorer with the widget's conditions, the dashboard range and the clicked values — running totals list every row up to the period's end
+- Query API: `rank: "abs"` ranks top values by amount, income and expenses alike
+
 ### 2026-10-04 — Chart Extras: Comparisons, Moving Averages, Percentiles
 
 > **Phase**: Phase 3 — Visualization

@@ -41,7 +41,7 @@ export function fieldsOf(table: ModelTable | undefined): LensField[] {
 
 // ── Slots ─────────────────────────────────────────────────────────────
 
-export type SlotId = "x" | "y" | "breakdown" | "slice" | "size" | "value" | "secondary" | "rows" | "metrics" | "columns";
+export type SlotId = "x" | "y" | "breakdown" | "slice" | "levels" | "size" | "value" | "secondary" | "rows" | "metrics" | "columns";
 
 export type SlotDef = {
   id: SlotId;
@@ -69,6 +69,11 @@ export function slotsFor(widget: DashboardWidget): SlotDef[] {
     case "donut":
       return [
         { id: "slice", label: "Slice by", accepts: "group", max: 1, empty: "Drop a category" },
+        { id: "size", label: "Size by", accepts: "measure", max: 1, empty: "Drop a number" },
+      ];
+    case "sankey":
+      return [
+        { id: "levels", label: "Levels", accepts: "group", max: 3, empty: "Drop categories, e.g. category → subcategory" },
         { id: "size", label: "Size by", accepts: "measure", max: 1, empty: "Drop a number" },
       ];
     case "kpi":
@@ -99,6 +104,7 @@ export function slotIndexes(widget: DashboardWidget, slot: SlotId): number[] {
     case "breakdown":
       return groups.length > 1 ? [1] : [];
     case "rows":
+    case "levels":
       return groups.map((_, i) => i);
     case "y":
     case "metrics":
@@ -180,6 +186,14 @@ export function describeWidget(widget: DashboardWidget, table: ModelTable | unde
     text += groups[0]?.bucket ? `, latest ${groups[0].bucket}` : ", whole range";
     return text;
   }
+  if (widget.type === "sankey") {
+    const levels = groups.map((g) => describeGroup(g, table));
+    if (levels.length === 0) return text;
+    const cashflow = (widget.display?.sankey ?? (levels.length >= 2 ? "levels" : "cashflow")) === "cashflow";
+    return cashflow
+      ? `${text}: income → expenses by ${levels[0]}${levels[1] ? ` → ${levels[1]}` : ""}`
+      : `${text} flowing ${levels.join(" → ")}`;
+  }
   if (groups[0]) text += ` by ${describeGroup(groups[0], table)}`;
   if (groups[1]) text += `, split by ${describeGroup(groups[1], table)}`;
   return text;
@@ -212,8 +226,10 @@ export function groupFor(field: LensField, widgetType: WidgetType, query: Aggreg
   const taken = outputsOf(query);
   if (field.kind === "date") return { column: field.name, bucket: "month", as: uniqueName("month", taken) };
   const group: QueryGroupBy = { column: field.name };
-  if (widgetType === "donut" || widgetType === "line" || widgetType === "area" || widgetType === "bar")
-    return { ...group, top: widgetType === "donut" ? 6 : 10, other: true };
+  if (widgetType === "donut" || widgetType === "line" || widgetType === "area" || widgetType === "bar" || widgetType === "sankey")
+    return widgetType === "sankey"
+      ? { ...group, top: 8, other: true, rank: "abs" }
+      : { ...group, top: widgetType === "donut" ? 6 : 10, other: true };
   return group;
 }
 
@@ -237,6 +253,8 @@ export function normalize(widget: DashboardWidget): DashboardWidget {
   let groups = [...(query.groupBy ?? [])].map((g) => (g.bucket ? { column: g.column, bucket: g.bucket, as: g.as } : g));
   if (widget.type === "kpi") groups = groups.filter((g) => g.bucket).slice(0, 1);
   if (widget.type === "donut") groups = groups.slice(0, 1);
+  // A Sankey's levels are categories (one to three); dates do not flow.
+  if (widget.type === "sankey") groups = groups.filter((g) => !g.bucket).slice(0, 3);
   if (widget.type !== "table") groups = groups.slice(0, 2);
   const byDate = groups.some((g) => g.bucket);
   const dateChart = byDate && (widget.type === "line" || widget.type === "area" || widget.type === "bar");
@@ -244,7 +262,7 @@ export function normalize(widget: DashboardWidget): DashboardWidget {
   if (!byDate) measures = measures.map(withoutTimeSeries);
   // "Show as" (change, moving average) needs periods along the axis.
   if (!dateChart) measures = measures.map(({ show: _show, window: _window, ...m }) => m);
-  if (widget.type === "kpi" || widget.type === "donut") measures = measures.slice(0, widget.type === "kpi" ? 2 : 1);
+  if (widget.type === "kpi" || widget.type === "donut" || widget.type === "sankey") measures = measures.slice(0, widget.type === "kpi" ? 2 : 1);
   // Top values rank by the first measure; they cannot combine with carry-in.
   if (groups.some((g) => g.top)) measures = measures.map(({ carryIn: _c, ...m }) => m);
   const outputs = new Set([...groups.map((g) => g.as ?? g.column), ...measures.map((m) => m.name)]);
@@ -300,7 +318,7 @@ export function addField(widget: DashboardWidget, field: LensField, table: Model
       if (groups.length === 0) groups.push({ column: field.name, ...(field.kind === "date" ? { bucket: "month" as QueryBucket, as: "month" } : {}) });
       // Each value is a line or a colour: five plus "Other" stay readable.
       groups[1] = group.top ? { ...group, top: 5 } : group;
-    } else if (target === "rows") groups.push(group);
+    } else if (target === "rows" || target === "levels") groups.push(group);
   }
   if (measures.length === 0) measures.push(measureFor(null, query));
   return withQuery(widget, { ...query, groupBy: groups, measures });
@@ -316,6 +334,8 @@ function autoSlot(widget: DashboardWidget, field: LensField, groups: QueryGroupB
       return groups.length === 0 ? "x" : "breakdown";
     case "donut":
       return field.kind === "number" ? "size" : field.kind === "date" ? null : "slice";
+    case "sankey":
+      return field.kind === "number" ? "size" : field.kind === "date" ? null : "levels";
     case "kpi":
       return field.kind === "number" ? "value" : null;
     case "table":
@@ -362,6 +382,8 @@ export function switchType(widget: DashboardWidget, type: WidgetType, table: Mod
     const category = groups.find((g) => !g.bucket) ?? groups[0];
     groups = category ? [category.bucket ? category : { ...category, top: category.top ?? 6, other: category.other ?? true }] : [];
   }
+  // Flows rank by amount: income and expenses alike, the largest first.
+  if (type === "sankey") groups = groups.filter((g) => !g.bucket).map((g) => ({ ...g, top: g.top ?? 8, other: g.other ?? true, rank: "abs" as const }));
   const next: DashboardWidget = {
     ...widget,
     type,
@@ -377,7 +399,7 @@ export function suggestions(widget: DashboardWidget, table: ModelTable | undefin
   const groups = query.groupBy ?? [];
   const byDate = groups[0]?.bucket !== undefined;
   const types: WidgetType[] =
-    groups.length === 0 ? ["kpi", "bar", "table"] : byDate ? ["line", "area", "bar", "kpi", "table"] : ["bar", "donut", "table", "kpi"];
+    groups.length === 0 ? ["kpi", "bar", "table"] : byDate ? ["line", "area", "bar", "kpi", "table"] : ["bar", "donut", "sankey", "table", "kpi"];
   return types.filter((t) => t !== widget.type).slice(0, 4).map((t) => switchType(widget, t, table));
 }
 

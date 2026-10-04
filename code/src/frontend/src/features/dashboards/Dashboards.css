@@ -735,3 +735,30 @@
     font-weight: 600;
     border-top: 1px solid var(--line-2);
 }
+
+/* Step 3.7: a key figure opens the rows behind it. */
+.widget-kpi__drill {
+    align-self: flex-start;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+    border-radius: var(--r-sm);
+}
+
+.widget-kpi__drill.widget-kpi__value--negative {
+    color: var(--danger);
+}
+
+.widget-kpi__drill:hover {
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.2em;
+}
+
+.widget-kpi__drill:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}

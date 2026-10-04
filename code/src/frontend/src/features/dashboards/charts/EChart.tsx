@@ -1,25 +1,48 @@
 import { useEffect, useRef, useState } from "react";
-import { BarChart, LineChart, PieChart } from "echarts/charts";
+import { BarChart, LineChart, PieChart, SankeyChart } from "echarts/charts";
 import { GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
 
 // Only what the widgets use; the rest of ECharts stays out of the bundle.
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent, SVGRenderer]);
+echarts.use([LineChart, BarChart, PieChart, SankeyChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent, SVGRenderer]);
 
 /**
  * One ECharts instance on a div that follows its container's size.
  * `onHoverSeries` reports the series under the pointer (null when none).
  */
-export function EChart({ option, label, onHoverSeries }: { option: EChartsCoreOption; label: string; onHoverSeries?: (index: number | null) => void }) {
+export type ChartClick = {
+  componentType?: string;
+  seriesIndex?: number;
+  dataIndex?: number;
+  name?: string;
+  /** Sankey: "node" or "edge". */
+  dataType?: string;
+  data?: unknown;
+};
+
+export function EChart({
+  option,
+  label,
+  onHoverSeries,
+  onItemClick,
+}: {
+  option: EChartsCoreOption;
+  label: string;
+  onHoverSeries?: (index: number | null) => void;
+  /** A click on a bar, point, slice, node or flow (drill-down). */
+  onItemClick?: (click: ChartClick) => void;
+}) {
   const ref = useRef<HTMLDivElement | null>(null);
   const chart = useRef<echarts.ECharts | null>(null);
   const hover = useRef(onHoverSeries);
+  const click = useRef(onItemClick);
 
   useEffect(() => {
     hover.current = onHoverSeries;
-  }, [onHoverSeries]);
+    click.current = onItemClick;
+  }, [onHoverSeries, onItemClick]);
 
   useEffect(() => {
     const element = ref.current;
@@ -40,6 +63,7 @@ export function EChart({ option, label, onHoverSeries }: { option: EChartsCoreOp
       if (event.componentType === "series") report(event.seriesIndex ?? null);
     });
     instance.on("mouseout", () => report(null));
+    instance.on("click", (event) => click.current?.(event as ChartClick));
     instance.on("globalout", () => {
       pointer = null;
       hover.current?.(null);

@@ -57,7 +57,7 @@ public sealed record QueryGroupBy
     public int? Top { get; init; }
     /// <summary>With <see cref="Top"/>: the remaining values as one group, flagged in <c>&lt;as&gt;_other</c>.</summary>
     public bool Other { get; init; }
-    /// <summary>With <see cref="Top"/>: "desc" (largest first, default) or "asc" (smallest first, e.g. spending).</summary>
+    /// <summary>With <see cref="Top"/>: "desc" (largest first, default), "asc" (smallest first, e.g. spending) or "abs" (largest amount first, income and expenses alike).</summary>
     public string? Rank { get; init; }
 }
 

@@ -20,7 +20,7 @@ namespace Bento.Api.Controllers;
 public sealed class DashboardsController : ControllerBase
 {
     public static readonly IReadOnlySet<string> WidgetTypes =
-        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "table", "text" };
+        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "sankey", "table", "text" };
 
     private const int GridColumns = 12;
     private const int MaxWidgets = 60;

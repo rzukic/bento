@@ -171,6 +171,28 @@ public sealed class DashboardApiTests
         return (await response.Content.ReadFromJsonAsync<Bento.Api.Models.AuthTokenResponse>())!.AccessToken;
     }
 
+    [Fact]
+    public async Task SankeyWidgetsAndAnnotations_AreStored()
+    {
+        await using var host = await CreateHostAsync();
+
+        using var created = await host.Client.PostAsJsonAsync("/api/v1/dashboards", new
+        {
+            name = "Flows",
+            dashboard = new
+            {
+                widgets = new[] { new { id = "flow", type = "sankey", position = new { x = 0, y = 0, w = 8, h = 5 }, display = new { sankey = "cashflow" } } },
+                annotations = new[] { new { date = "2026-09-01", label = "Salary raise", color = "teal" } }
+            }
+        });
+
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var dashboard = body.GetProperty("data").GetProperty("dashboard");
+        Assert.Equal("sankey", dashboard.GetProperty("widgets")[0].GetProperty("type").GetString());
+        Assert.Equal("Salary raise", dashboard.GetProperty("annotations")[0].GetProperty("label").GetString());
+    }
+
     private static async Task<ApiIntegrationTestHost> CreateHostAsync()
     {
         var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>

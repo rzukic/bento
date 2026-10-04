@@ -23,7 +23,7 @@ Widgets refresh when you come back to the tab and with the refresh button; in ed
 
 Choose **Edit**:
 
-- **Add widget**: key figure, line, area or bar chart, donut, table or text
+- **Add widget**: key figure, line, area or bar chart, donut, Sankey, table or text
 - Drag a widget by its title; resize it by its lower right corner; the others make room
 - The gear opens the **widget editor** (modelled on Kibana Lens):
   - **Fields** on the left — dates, numbers, categories, text — with search. Drag a field onto the chart or onto a slot, or click its **+**: a date becomes the horizontal axis per month, a number a value (sum), a category the axis or the breakdown
@@ -50,6 +50,21 @@ Tooltips list the series as they sit at that date (stacks top to bottom), mark t
 
 - **Summarized**: rows per group with metrics, optionally a **total row**
 - **Individual rows**: the rows themselves — the columns you pick, sorted and limited — with the widget's conditions and the dashboard range
+
+## Sankey: Where The Money Goes
+
+A **Sankey** shows flows. Drop one to three categories into **Levels** and a number into **Size by**, then choose under **Flows**:
+
+- **Income → expenses** (one level, the default): each category's total decides its side — income categories on the left flow into *Income*, which flows out to the expense categories on the right; what is left flows to **Saved** (or comes **From savings** when you spent more). A second level details the expenses (category → subcategory)
+- **Between levels**: a flow between each pair of levels, e.g. category → subcategory → payee, sized by the amounts
+
+Levels keep the top 8 values by amount (income and expenses alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey.
+
+## Click Through To The Rows
+
+Outside edit mode, click a bar, a point, a donut slice, a Sankey node or flow, or a key figure's number: the **Data Explorer** opens on the widget's table with the rows behind it — the widget's conditions, the dashboard's range and what you clicked (the month, the category; for a cash-flow Sankey also income or expenses). Running totals and values at the end of each period list every row up to that period's end. Use the browser's back button to return.
+
+Not every click has rows to show: *Other* stands for all values outside the top ones, and *Saved* is a difference. Formula values open the rows of their group, not only the ones their `WHERE` picks.
 
 ## Annotations
 

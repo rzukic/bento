@@ -13,8 +13,8 @@ export type QueryGroupBy = {
   top?: number;
   /** With top: the remaining values as one "Other" group (flagged in `<as>_other`). */
   other?: boolean;
-  /** With top: "desc" largest first (default) or "asc" smallest first. */
-  rank?: "asc" | "desc";
+  /** With top: "desc" largest first (default), "asc" smallest first, "abs" the largest amounts of either sign (money flows). */
+  rank?: "asc" | "desc" | "abs";
 };
 
 export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_distinct" | "median" | "percentile";

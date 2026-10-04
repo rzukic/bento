@@ -23,6 +23,7 @@ import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
 import { variableRequests, type VariableResults } from "./formulaQueries";
 import { AnnotationsEditor } from "./AnnotationsEditor";
+import { drillUrl, type DrillTarget } from "./drill";
 import { VariablesEditor } from "./VariablesEditor";
 import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
@@ -118,6 +119,8 @@ export function DashboardPage() {
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
   const variables = useMemo(() => document?.variables ?? [], [document]);
   const annotations = useMemo(() => document?.annotations ?? [], [document]);
+  // Drill-down: a click on a chart opens the rows behind it in the Data Explorer.
+  const openRows = useCallback((target: DrillTarget) => navigate(drillUrl(target)), [navigate]);
   const variablesKey = JSON.stringify(variables);
 
   // Variables are evaluated together (they may use each other), with the
@@ -440,6 +443,7 @@ export function DashboardPage() {
                     tokens={tokens}
                     variables={variableResults}
                     annotations={annotations}
+                    onDrill={editing ? undefined : openRows}
                   />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}

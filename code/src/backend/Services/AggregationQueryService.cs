@@ -44,11 +44,11 @@ public sealed class AggregationQueryService
 
     // ── Resolved query ───────────────────────────────────────────────────
 
-    /// <param name="Top">Top values: only the first N values by the first measure (<paramref name="Ascending"/> for smallest first).</param>
+    /// <param name="Top">Top values: only the first N values by the first measure (<paramref name="Ascending"/> for smallest first, <paramref name="ByAmount"/> for the largest amounts of either sign).</param>
     /// <param name="OtherOutput">Top values with "Other": the flag column marking the remaining values' group.</param>
     private sealed record Group(
         ColumnDef Column, string? Bucket, string Output, string Expression, string? LabelOutput, string? LabelExpression, string? Join,
-        int? Top = null, bool Ascending = false, string? OtherOutput = null);
+        int? Top = null, bool Ascending = false, string? OtherOutput = null, bool ByAmount = false);
 
     public const int MaxTop = 1000;
 
@@ -170,6 +170,7 @@ public sealed class AggregationQueryService
             int? top = null;
             string? otherOutput = null;
             var ascending = false;
+            var byAmount = false;
             if (spec.Top is { } n)
             {
                 if (bucket is not null)
@@ -179,10 +180,11 @@ public sealed class AggregationQueryService
                 if (n < 1 || n > MaxTop)
                     throw Invalid($"{path}.top", $"top must be between 1 and {MaxTop}.");
                 var rank = spec.Rank?.Trim().ToLowerInvariant();
-                if (rank is not (null or "" or "asc" or "desc"))
-                    throw Invalid($"{path}.rank", "rank is \"desc\" (largest first) or \"asc\" (smallest first).");
+                if (rank is not (null or "" or "asc" or "desc" or "abs"))
+                    throw Invalid($"{path}.rank", "rank is \"desc\" (largest first), \"asc\" (smallest first) or \"abs\" (largest amount first, income and expenses alike).");
                 top = n;
                 ascending = rank == "asc";
+                byAmount = rank == "abs";
                 if (spec.Other)
                     otherOutput = Output($"{output}_other", outputs, $"{path}.as");
             }
@@ -190,7 +192,7 @@ public sealed class AggregationQueryService
             {
                 throw Invalid($"{path}.other", "\"other\" needs top: the values after the top ones form the other group.");
             }
-            groups.Add(new Group(column, bucket, output, expression, labelOutput, labelExpression, join, top, ascending, otherOutput));
+            groups.Add(new Group(column, bucket, output, expression, labelOutput, labelExpression, join, top, ascending, otherOutput, byAmount));
         }
 
         var measures = new List<Measure>();
@@ -593,6 +595,8 @@ public sealed class AggregationQueryService
                 // The first N values by the first measure over all filtered rows; empty values stay.
                 var rank = plan.Measures.Count > 0 ? plan.Measures[0].Expression : "COUNT(*)";
                 var direction = group.Ascending ? "ASC" : "DESC";
+                if (group.ByAmount)
+                    rank = $"ABS({rank})";
                 var topValues =
                     $"SELECT t.{Q(group.Column.Name)} FROM ({inner}) t WHERE t.{Q(group.Column.Name)} IS NOT NULL " +
                     $"GROUP BY t.{Q(group.Column.Name)} " +

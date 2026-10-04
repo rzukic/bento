@@ -161,6 +161,16 @@ public sealed class AggregationQueryTests
         Assert.Contains(withOther.GetProperty("meta").GetProperty("columns").EnumerateArray(),
             c => c.GetProperty("name").GetString() == "counterparty_other" && c.GetProperty("role").GetString() == "other");
 
+        // By amount (Step 3.7, for money flows): income and expenses alike, the largest first.
+        var byAmount = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "category_id", top = 2, other = true, rank = "abs" } },
+            measures = new[] { new { name = "total", fn = "sum", column = "amount" } },
+            sort = new[] { "total" }
+        });
+        Assert.Equal(["2 false -2000", " true -119.25", " false -10", "1 false 9100"], Rows(byAmount, "category_id", "category_id_other", "total"));
+
         // Without "other" the rest is left out; ranking by a formula and per category label.
         var top = await QueryAsync(host, new
         {

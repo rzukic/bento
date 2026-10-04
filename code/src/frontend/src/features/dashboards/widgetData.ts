@@ -2,6 +2,7 @@ import type { DashboardWidget } from "../../api/dashboards";
 import type { AggregationQuery, QueryBucket, QueryFilter, QueryMeasure, QueryResult, QueryRow } from "../../api/query";
 import { formatKindForType, toNumber, type NumberFormatKind } from "../../lib/format";
 import type { ResolvedRange } from "./dateRange";
+import type { GroupPick } from "./drill";
 
 const RUNNING_SUM = /^\s*=?\s*RUNNING_SUM\s*\(/i;
 
@@ -72,7 +73,7 @@ export function bucketStart(value: string, bucket: QueryBucket): string {
   }
 }
 
-function nextBucket(value: string, bucket: QueryBucket): string {
+export function nextBucket(value: string, bucket: QueryBucket): string {
   const date = parseIsoDate(value);
   const y = date.getUTCFullYear();
   const m = date.getUTCMonth();
@@ -110,6 +111,8 @@ export type ChartSeries = {
   values: (number | null)[];
   /** shifted: an earlier period (dashed, never stacked); total: the sum of the stack (a line on top). */
   kind?: "shifted" | "total";
+  /** A breakdown's value, for drilling down. */
+  pick?: GroupPick;
 };
 
 export type ChartModel = {
@@ -118,6 +121,8 @@ export type ChartModel = {
   bucket?: QueryBucket;
   series: ChartSeries[];
   format: NumberFormatKind;
+  /** Per category, the group value behind it (drill-down); null when none. */
+  categoryPicks?: (GroupPick | null)[];
 };
 
 /** "Other" (the remaining top values) after the values it stands beside, in legends and on axes. */
@@ -195,6 +200,12 @@ export function toChartModel(
   }
 
   const keyOf = (row: QueryRow) => (bucket ? String(row[x.name] ?? "") : labelOf(row, x.name, xLabel, xOther));
+  const columnOf = (output: string) => query?.groupBy?.find((g) => (g.as ?? g.column) === output)?.column ?? output;
+  const categoryPicks: (GroupPick | null)[] = categories.map((category) => {
+    if (bucket) return { column: columnOf(x.name), bucket, value: category };
+    const row = result.data.find((r) => keyOf(r) === category);
+    return row ? { column: columnOf(x.name), value: row[x.name] ?? null, other: xOther ? row[xOther] === true : false } : null;
+  });
 
   const fill = (values: (number | null)[], isRunning: boolean): (number | null)[] => {
     if (!bucket) return values;
@@ -225,9 +236,13 @@ export function toChartModel(
         const row = result.data.find((r) => keyOf(r) === category && labelOf(r, split.name, splitLabel, splitOther) === name);
         return row ? toNumber(row[measure.name]) : null;
       });
-      return { name, values: fill(values, running.has(measure.name)) };
+      const first = result.data.find((r) => labelOf(r, split.name, splitLabel, splitOther) === name);
+      const pick: GroupPick | undefined = first
+        ? { column: columnOf(split.name), value: first[split.name] ?? null, other: splitOther ? first[splitOther] === true : false }
+        : undefined;
+      return { name, values: fill(values, running.has(measure.name)), pick };
     });
-    return { categories, bucket, series, format };
+    return { categories, bucket, series, format, categoryPicks };
   }
 
   const series = measures.map((measure) => {
@@ -237,7 +252,7 @@ export function toChartModel(
     });
     return { name: measure.name, values: fill(values, running.has(measure.name)) };
   });
-  return { categories, bucket, series, format };
+  return { categories, bucket, series, format, categoryPicks };
 }
 
 export type KpiModel = { value: number | null; previous: number | null; format: NumberFormatKind; label?: string };

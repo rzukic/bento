@@ -4,8 +4,10 @@ import type { QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
 import { useAppStore } from "../../../stores/appStore";
-import { EChart } from "../charts/EChart";
-import { buildChartOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
+import { EChart, type ChartClick } from "../charts/EChart";
+import { buildChartOption, buildSankeyOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
+import { drillTarget, signFilter, type DrillTarget, type GroupPick } from "../drill";
+import { sankeyMode, toSankeyModel } from "../sankey";
 import type { ResolvedRange } from "../dateRange";
 import { runnableQuery, variableValues, type VariableResults } from "../formulaQueries";
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
@@ -43,6 +45,7 @@ export function WidgetContent({
   tokens,
   variables,
   annotations,
+  onDrill,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -52,6 +55,8 @@ export function WidgetContent({
   variables?: VariableResults;
   /** The dashboard's events, drawn on charts by date. */
   annotations?: DashboardAnnotation[];
+  /** Opens the rows behind a click (view mode only). */
+  onDrill?: (target: DrillTarget) => void;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
   const state = useWidgetResult(widget, range, refreshToken, values);
@@ -77,12 +82,26 @@ export function WidgetContent({
 
   switch (widget.type) {
     case "kpi":
-      return <KpiWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} variables={variables} />;
+      return (
+        <KpiWidget
+          result={state.result}
+          widget={widget}
+          query={state.query}
+          range={range}
+          refreshToken={refreshToken}
+          values={values}
+          variables={variables}
+          onDrill={onDrill}
+        />
+      );
     case "table":
       return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
+    case "sankey":
+      return <SankeyWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} onDrill={onDrill} />;
     default:
       return (
         <ChartWidget
+          onDrill={onDrill}
           widget={widget}
           result={state.result}
           query={state.query}
@@ -105,6 +124,7 @@ function ChartWidget({
   refreshToken,
   values,
   annotations,
+  onDrill,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
@@ -114,6 +134,7 @@ function ChartWidget({
   refreshToken: number;
   values: Record<string, VariableValue>;
   annotations?: DashboardAnnotation[];
+  onDrill?: (target: DrillTarget) => void;
 }) {
   const display = widget.display;
   const stacked = display?.stacked ?? false;
@@ -161,24 +182,90 @@ function ChartWidget({
   const onHoverSeries = useCallback((index: number | null) => {
     hovered.current = index;
   }, []);
+  // A bar, point or slice opens its rows: the period or category, and the breakdown's value.
+  const onItemClick = useCallback(
+    (click: ChartClick) => {
+      if (!onDrill || click.componentType !== "series") return;
+      let picks: (GroupPick | null | undefined)[];
+      if (widget.type === "donut") {
+        picks = [model.categoryPicks?.[model.categories.indexOf(String(click.name))]];
+      } else {
+        const series = model.series[click.seriesIndex ?? -1];
+        if (!series || series.kind === "shifted") return;
+        picks = [model.categoryPicks ? model.categoryPicks[click.dataIndex ?? -1] : undefined, series.kind ? undefined : series.pick];
+      }
+      if (picks.some((p) => p === null)) return;
+      const target = drillTarget(query, widget.data, range, picks.filter((p): p is GroupPick => Boolean(p)));
+      if (target) onDrill(target);
+    },
+    [onDrill, widget.type, widget.data, model, query, range],
+  );
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} />;
+  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill ? onItemClick : undefined} />;
+}
+
+function SankeyWidget({
+  widget,
+  result,
+  query,
+  range,
+  tokens,
+  onDrill,
+}: {
+  widget: DashboardWidget;
+  result: QueryResult;
+  query: Parameters<typeof toChartModel>[1] | null;
+  range: ResolvedRange;
+  tokens: ChartTokens;
+  onDrill?: (target: DrillTarget) => void;
+}) {
+  const groupCount = result.meta.columns.filter((c) => c.role === "group").length;
+  const mode = sankeyMode(widget.display?.sankey, groupCount);
+  const model = useMemo(() => toSankeyModel(result, query ?? undefined, mode, overrideFormat(widget) ?? formatKindForType(result.meta.columns.find((c) => c.role === "measure")?.type)), [result, query, mode, widget]);
+  const option = useMemo(() => buildSankeyOption(model, tokens), [model, tokens]);
+  // A node or a flow opens its rows; cash flow sides keep their sign (income above 0, expenses below).
+  const onItemClick = useCallback(
+    (click: ChartClick) => {
+      if (!onDrill) return;
+      const data = click.data as { source?: string; target?: string } | undefined;
+      const item =
+        click.dataType === "edge"
+          ? model.links.find((l) => l.source === data?.source && l.target === data?.target)
+          : model.nodes.find((n) => n.id === click.name);
+      if (!item?.picks) return;
+      const target = drillTarget(query, widget.data, range, item.picks, signFilter(query, item.sign));
+      if (target) onDrill(target);
+    },
+    [onDrill, model, query, widget.data, range],
+  );
+  if (model.links.length === 0) {
+    return (
+      <p className="widget-note">
+        {mode === "levels" && groupCount < 2 ? "Add a second level, or show it as income → expenses under Style." : "No flows in this range."}
+      </p>
+    );
+  }
+  return <EChart option={option} label={widget.title || "Sankey"} onItemClick={onDrill ? onItemClick : undefined} />;
 }
 
 function KpiWidget({
   result,
   widget,
+  query,
   range,
   refreshToken,
   values,
   variables,
+  onDrill,
 }: {
   result: QueryResult;
   widget: DashboardWidget;
+  query: Parameters<typeof toChartModel>[1] | null;
   range: ResolvedRange;
   refreshToken: number;
   values: Record<string, VariableValue>;
   variables?: VariableResults;
+  onDrill?: (target: DrillTarget) => void;
 }) {
   const extra = useMemo(() => kpiExtraQueries(widget, range, values), [widget, range, values]);
   const previousResult = useQueryRun(extra.previous, refreshToken);
@@ -212,11 +299,22 @@ function KpiWidget({
   const goalSetting = widget.display?.goal;
   const goal = typeof goalSetting === "number" ? goalSetting : typeof goalSetting === "string" ? toNumber(variables?.[goalSetting]?.value) : null;
 
+  const valueClass = model.value < 0 && model.format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value";
+  // The rows behind the figure: the whole range, or its latest period.
+  const dateGroup = query?.groupBy?.find((g) => g.bucket);
+  const drill = onDrill
+    ? drillTarget(query, widget.data, range, dateGroup && model.label ? [{ column: dateGroup.column, bucket: dateGroup.bucket, value: model.label }] : [])
+    : null;
+
   return (
     <div className="widget-kpi">
-      <span className={model.value < 0 && model.format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value"}>
-        {formatNumber(model.value, model.format)}
-      </span>
+      {drill && onDrill ? (
+        <button type="button" className={`${valueClass} widget-kpi__drill`} title="Show the rows behind this number" onClick={() => onDrill(drill)}>
+          {formatNumber(model.value, model.format)}
+        </button>
+      ) : (
+        <span className={valueClass}>{formatNumber(model.value, model.format)}</span>
+      )}
       {compare ? (
         <span className={good ? "widget-kpi__delta widget-kpi__delta--up" : "widget-kpi__delta widget-kpi__delta--down"}>
           <Icon name={delta >= 0 ? "chevron-up" : "chevron-down"} size={12} />

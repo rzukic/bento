@@ -314,7 +314,7 @@ curl -fsS "$API_ROOT/query" -H "Authorization: Bearer $TOKEN" -H "Content-Type: 
 
 - `filter` uses the list operators (`eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `like`, `in` with an array, `null`, `notnull`); a plain value means `eq`
 - `bucket` groups dates by `day`, `week` (from Monday), `month`, `quarter` or `year`; the value is the first day of the bucket
-- `"top": 10` keeps the 10 values ranked first by the first measure (`"rank": "asc"` for smallest first, e.g. spending); `"other": true` adds the rest as one group, flagged by `<name>_other: true`; empty values stay their own group
+- `"top": 10` keeps the 10 values ranked first by the first measure (`"rank": "asc"` for smallest first, e.g. spending; `"rank": "abs"` for the largest amounts of either sign, e.g. income and expenses in a money flow); `"other": true` adds the rest as one group, flagged by `<name>_other: true`; empty values stay their own group
 - a link column (here `category_id`) also returns `<name>_label`, the linked record's name
 - `fn` is `count`, `sum`, `avg`, `min`, `max`, `count_distinct`, `median` or `percentile` (with `"percentile": 90`, 0–100); median and percentiles interpolate between neighbours like Postgres' `percentile_cont`
 - `"running": true` turns a sum or count into a running total over the date group; add `"carryIn": true` to start from the rows before the date range — a balance from September on then starts at the end-of-August balance
