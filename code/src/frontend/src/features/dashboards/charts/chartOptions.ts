@@ -2,6 +2,7 @@ import type { EChartsCoreOption } from "echarts/core";
 import type { QueryBucket } from "../../../api/query";
 import type { AnnotationColor, WidgetType } from "../../../api/dashboards";
 import { annotationsAt, type PlacedAnnotations } from "../chartTransforms";
+import type { SankeyModel, SankeyNode } from "../sankey";
 import { getCurrentLocale } from "../../data-explorer/components/editors/temporalEditing";
 import { formatCompact, formatNumber } from "../../../lib/format";
 import type { ChartModel } from "../widgetData";
@@ -377,5 +378,77 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
         triggerLineEvent: kind === "line",
       };
     }),
+  };
+}
+
+/** The depth of each node: its longest path from a start (ECharts lays out the columns the same way). */
+function nodeDepths(model: SankeyModel): Map<string, number> {
+  const depth = new Map<string, number>(model.nodes.map((n) => [n.id, 0]));
+  for (let pass = 0; pass < model.nodes.length; pass++) {
+    let changed = false;
+    for (const link of model.links) {
+      const next = (depth.get(link.source) ?? 0) + 1;
+      if (next > (depth.get(link.target) ?? 0)) {
+        depth.set(link.target, next);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return depth;
+}
+
+/** Step 3.7: a Sankey of money flows; the last column's labels sit left of their nodes so they stay inside. */
+export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens): EChartsCoreOption {
+  const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
+  const labels = new Map(model.nodes.map((n) => [n.id, n.label]));
+  const label = (id: unknown) => escapeHtml(labels.get(String(id)) ?? String(id));
+  const depths = nodeDepths(model);
+  const last = Math.max(0, ...depths.values());
+  let next = 0;
+  const colorOf = (node: SankeyNode) => {
+    if (node.kind === "center") return tokens.text;
+    if (node.kind === "saved") return tokens.positive;
+    if (node.kind === "deficit") return tokens.negative;
+    return tokens.palette[next++ % tokens.palette.length];
+  };
+  return {
+    color: tokens.palette,
+    animationDuration: 300,
+    textStyle: { fontFamily: "inherit" },
+    tooltip: {
+      trigger: "item",
+      confine: true,
+      backgroundColor: tokens.popover,
+      borderColor: tokens.line,
+      textStyle: { color: tokens.text, fontSize: 12 },
+      formatter: (p: { dataType?: string; name?: string; value?: unknown; data?: { source?: string; target?: string } }) =>
+        p.dataType === "edge"
+          ? `${label(p.data?.source)} → ${label(p.data?.target)}<br><b>${escapeHtml(format(p.value))}</b>`
+          : `${label(p.name)}<br><b>${escapeHtml(format(p.value))}</b>`,
+    },
+    series: [
+      {
+        type: "sankey",
+        left: 8,
+        right: 8,
+        top: 8,
+        bottom: 8,
+        nodeWidth: 10,
+        nodeGap: 10,
+        nodeAlign: "justify",
+        draggable: false,
+        emphasis: { focus: "adjacency" },
+        lineStyle: { color: "gradient", opacity: 0.3, curveness: 0.5 },
+        label: {
+          color: tokens.text,
+          fontSize: 11,
+          formatter: (p: { name?: string; value?: unknown }) => `${labels.get(String(p.name)) ?? p.name}  ${typeof p.value === "number" ? formatCompact(p.value, model.format) : ""}`,
+        },
+        levels: last > 0 ? [{ depth: last, label: { position: "left" } }] : [],
+        data: model.nodes.map((node) => ({ name: node.id, itemStyle: { color: colorOf(node), borderWidth: 0 } })),
+        links: model.links.map((link) => ({ source: link.source, target: link.target, value: link.value })),
+      },
+    ],
   };
 }

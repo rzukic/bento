@@ -13,6 +13,7 @@ import { WIDGET_LABELS, dataTables, defaultQuery } from "../starter";
 import { useWidgetResult } from "../useWidgetResult";
 import { WidgetContent } from "../widgets/WidgetContent";
 import { DimensionEditor } from "./DimensionEditor";
+import { sankeyMode } from "../sankey";
 import { OPERATORS, filterToRows, measureAsFormula, rowsToFilter, type FilterRow } from "./filters";
 import {
   addField,
@@ -51,7 +52,7 @@ const FORMATS: { value: NonNullable<WidgetDisplay["format"]>; label: string }[] 
   { value: "percent", label: "Percent" },
 ];
 
-const TYPES: WidgetType[] = ["bar", "line", "area", "donut", "kpi", "table", "text"];
+const TYPES: WidgetType[] = ["bar", "line", "area", "donut", "sankey", "kpi", "table", "text"];
 
 type Editing = { slot: SlotId; index: number } | null;
 
@@ -389,6 +390,35 @@ function DataSettings({
           <button type="button" role="radio" aria-checked={isRowsTable(widget)} onClick={() => onChange(setTableMode(widget, true, table))}>
             Individual rows
           </button>
+        </div>
+      ) : null}
+
+      {widget.type === "sankey" ? (
+        <div className="lens-field">
+          <span className="lens-field__label">Flows</span>
+          <div className="lens-segmented" role="radiogroup" aria-label="Sankey shows">
+            {(
+              [
+                ["levels", "Between levels"],
+                ["cashflow", "Income → expenses"],
+              ] as const
+            ).map(([mode, text]) => (
+              <button
+                key={mode}
+                type="button"
+                role="radio"
+                aria-checked={sankeyMode(widget.display?.sankey, (query?.groupBy ?? []).length) === mode}
+                onClick={() => onChange({ ...widget, display: { ...widget.display, sankey: mode } })}
+              >
+                {text}
+              </button>
+            ))}
+          </div>
+          <span className="lens-field__hint">
+            {sankeyMode(widget.display?.sankey, (query?.groupBy ?? []).length) === "cashflow"
+              ? "The first level split by sign: income on the left, expenses on the right (a second level details them), what is left as Saved."
+              : "A flow between each pair of levels, e.g. category → subcategory → payee."}
+          </span>
         </div>
       ) : null}
 

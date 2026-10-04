@@ -108,6 +108,7 @@
 }
 
 .lens__types {
+    min-width: 0;
     display: flex;
     flex-wrap: wrap;
     justify-content: center;
@@ -117,7 +118,10 @@
 
 .lens__types-track {
     display: inline-flex;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
     gap: 2px;
     padding: 3px;
     border: 1px solid var(--line-2);
@@ -127,8 +131,9 @@
 }
 
 .lens__type {
+    flex: none;
     height: 2rem;
-    padding: 0 0.875rem;
+    padding: 0 0.75rem;
     border: 0;
     border-radius: var(--r-pill);
     background: transparent;

@@ -426,7 +426,7 @@ public sealed class OpenApiDocumentBuilder
                     ["as"] = Str(),
                     ["top"] = Int(10),
                     ["other"] = new JsonObject { ["type"] = "boolean", ["description"] = "With top: the remaining values as one group, flagged in <as>_other." },
-                    ["rank"] = Str(["desc", "asc"])
+                    ["rank"] = Str(["desc", "asc", "abs"])
                 })
             },
             ["measures"] = new JsonObject

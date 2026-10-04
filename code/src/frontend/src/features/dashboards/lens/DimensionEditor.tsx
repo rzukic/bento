@@ -360,10 +360,11 @@ function GroupSettings({ group, table, onChange }: { group: QueryGroupBy; table:
                   className="field__control field__control--compact"
                   aria-label="Rank"
                   value={group.rank ?? "desc"}
-                  onChange={(event) => onChange({ ...group, rank: event.target.value as "asc" | "desc" })}
+                  onChange={(event) => onChange({ ...group, rank: event.target.value as "asc" | "desc" | "abs" })}
                 >
                   <option value="desc">Largest first</option>
                   <option value="asc">Smallest first (e.g. spending)</option>
+                  <option value="abs">Largest amount first (income and expenses)</option>
                 </select>
               </label>
               <label className="lens-check">

@@ -134,14 +134,16 @@ describe("Dashboards", () => {
       "Net per month",
       "Spending by Kategorie",
       "Top spending: Auftraggeber / Begünstigter",
+      "Money flow",
     ]);
+    expect(document.widgets[7]).toMatchObject({ type: "sankey", display: { sankey: "cashflow" }, data: { query: { groupBy: [{ column: "kategorie_id", rank: "abs" }] } } });
     const balance = document.widgets[0].data!.query!;
     expect(balance.measures![0]).toMatchObject({ fn: "sum", column: "betrag_eur", running: true, carryIn: true });
     expect(balance.groupBy![0]).toMatchObject({ column: "buchungstag", bucket: "month" });
 
     // The new dashboard opens with every widget asking for its numbers in the range.
     expect(await screen.findByRole("heading", { name: "Cash flow · Girokonto" })).toBeInTheDocument();
-    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(7));
+    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(8));
     const filtered = queryApi.runQuery.mock.calls.map(([query]) => (query as AggregationQuery).filter?.buchungstag);
     expect(filtered.every((f) => f && typeof f === "object" && "gte" in f && "lt" in f)).toBe(true);
   });

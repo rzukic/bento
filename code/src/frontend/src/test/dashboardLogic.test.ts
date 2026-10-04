@@ -158,9 +158,14 @@ describe("widget data", () => {
       today,
     );
     expect(model.categories).toEqual(["2026-09-01", "2026-10-01"]);
+    // Each series and period keeps the group value behind it, for drilling down.
     expect(model.series).toEqual([
-      { name: "Food", values: [-49.1, -20.05] },
-      { name: "Rent", values: [-1000, 0] },
+      { name: "Food", values: [-49.1, -20.05], pick: { column: "category_id", value: 3, other: false } },
+      { name: "Rent", values: [-1000, 0], pick: { column: "category_id", value: 2, other: false } },
+    ]);
+    expect(model.categoryPicks).toEqual([
+      { column: "booked_on", bucket: "month", value: "2026-09-01" },
+      { column: "booked_on", bucket: "month", value: "2026-10-01" },
     ]);
   });
 

@@ -9,6 +9,7 @@ const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   area: { w: 6, h: 4 },
   bar: { w: 6, h: 4 },
   donut: { w: 4, h: 4 },
+  sankey: { w: 8, h: 5 },
   table: { w: 6, h: 4 },
   text: { w: 4, h: 2 },
 };
@@ -19,6 +20,7 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   area: "Area chart",
   bar: "Bar chart",
   donut: "Donut",
+  sankey: "Sankey",
   table: "Table",
   text: "Text",
 };
@@ -103,6 +105,11 @@ export function defaultQuery(type: WidgetType, table: ModelTable): AggregationQu
         ? { source: table.name, groupBy: [{ column: by.name }], measures: [value], sort: [`-${value.name}`], limit: 12 }
         : { source: table.name, measures: [value] };
     }
+    case "sankey": {
+      // Income categories → income → expense categories: one category and the amount.
+      const by = category ?? text;
+      return by ? { source: table.name, groupBy: [{ column: by.name, top: 8, other: true, rank: "abs" }], measures: [value] } : { source: table.name, measures: [value] };
+    }
     case "table": {
       const by = text ?? category;
       return by
@@ -133,8 +140,8 @@ export function newWidget(type: WidgetType, table: ModelTable | undefined, layou
 /**
  * "Monthly Cash Flow" for a table with a date and an amount: balance and
  * net KPIs, the balance over time (running total that starts from the rows
- * before the range), net per month, spending by category and top
- * counterparties.
+ * before the range), net per month, spending by category, top
+ * counterparties and the money flow (income → expenses by category).
  */
 export function cashFlowDashboard(table: ModelTable): DashboardDocument {
   const columns = cashFlowColumns(table);
@@ -215,6 +222,17 @@ export function cashFlowDashboard(table: ModelTable): DashboardDocument {
         dateColumn: date.name,
       },
       display: { format: "auto" },
+    });
+  }
+  if (category) {
+    // Where the money goes: income by category → expenses by category, the rest saved.
+    widgets.push({
+      id: "money-flow",
+      type: "sankey",
+      title: "Money flow",
+      position: { x: 0, y: 10, w: 12, h: 5 },
+      data: { query: { source: table.name, groupBy: [{ column: category.name, top: 8, other: true, rank: "abs" }], measures: [sum("amount")] }, dateColumn: date.name },
+      display: { format: "auto", sankey: "cashflow" },
     });
   }
   return { dateRange: { preset: "last-12-months" }, refreshSeconds: 0, widgets };
