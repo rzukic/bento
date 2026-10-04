@@ -441,6 +441,7 @@ export function DashboardPage() {
       {editing && variablesOpen ? (
         <VariablesEditor
           variables={variables}
+          widgets={widgets}
           tables={dataTables(tables)}
           snapshot={snapshot}
           results={variableResults}

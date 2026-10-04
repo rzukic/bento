@@ -17,7 +17,14 @@ export type WidgetData = {
   variable?: string;
   /** Table: the rows as they are (no grouping) — these columns, sorted and limited. */
   rows?: WidgetRows;
+  /** Charts by date: the same measures over the period before or the same period a year earlier, as dashed lines. */
+  timeShift?: TimeShift;
 };
+
+export type TimeShift = "previous" | "year";
+
+/** A horizontal line at a number or a dashboard variable's value. */
+export type ReferenceLine = { value: number | string; label?: string };
 
 export type WidgetRows = {
   columns: string[];
@@ -56,6 +63,12 @@ export type WidgetDisplay = {
   goal?: number | string;
   /** Table: a total row. */
   summary?: boolean;
+  /** Stacked charts: a line with the total (the net with mixed signs) on top. */
+  totalLine?: boolean;
+  /** Charts: horizontal lines, e.g. a target or a budget. */
+  referenceLines?: ReferenceLine[];
+  /** One-series charts: positive values in the success colour, negative ones in the danger colour. */
+  colorBySign?: boolean;
 };
 
 export type DashboardWidget = {

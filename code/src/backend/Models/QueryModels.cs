@@ -70,9 +70,11 @@ public sealed record QueryMeasure
     /// <c>SUM(amount WHERE amount &gt; 0) / COUNT()</c>; <c>RUNNING_SUM(…)</c> makes it a running total.
     /// </summary>
     public string? Formula { get; init; }
-    /// <summary>count, sum, avg, min, max or count_distinct.</summary>
+    /// <summary>count, sum, avg, min, max, count_distinct, median or percentile.</summary>
     public string? Fn { get; init; }
     public string? Column { get; init; }
+    /// <summary>With fn percentile: which one, 0–100 (90 = the value 90 % of the rows stay below).</summary>
+    public double? Percentile { get; init; }
     /// <summary>Accumulate over the time bucket (sum and count only).</summary>
     public bool Running { get; init; }
     /// <summary>

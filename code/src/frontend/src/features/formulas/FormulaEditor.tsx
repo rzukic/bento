@@ -88,6 +88,7 @@ export function FormulaEditor({
   const onChangeRef = useRef(onChange);
   const suppressChangeRef = useRef(false);
   const completionCompartment = useRef(new Compartment()).current;
+  const attributesCompartment = useRef(new Compartment()).current;
   // The view is created once from the first props; later changes are applied below.
   const initialRef = useRef({ value, columns, functions, links, ariaLabel, placeholder });
 
@@ -112,12 +113,7 @@ export function FormulaEditor({
           errorField,
           EditorView.lineWrapping,
           placeholderExtension(initial.placeholder),
-          EditorView.contentAttributes.of({
-            "aria-label": initial.ariaLabel,
-            "aria-multiline": "true",
-            role: "textbox",
-            spellcheck: "false",
-          }),
+          attributesCompartment.of(contentAttributes(initial.ariaLabel)),
           EditorView.updateListener.of((update) => {
             if (update.docChanged && !suppressChangeRef.current) {
               onChangeRef.current(update.state.doc.toString());
@@ -132,7 +128,12 @@ export function FormulaEditor({
       view.destroy();
       viewRef.current = null;
     };
-  }, [completionCompartment]);
+  }, [attributesCompartment, completionCompartment]);
+
+  // The label follows the measure's name (renaming "spent" relabels "Formula of spent").
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: attributesCompartment.reconfigure(contentAttributes(ariaLabel)) });
+  }, [ariaLabel, attributesCompartment]);
 
   useLayoutEffect(() => {
     const view = viewRef.current;
@@ -155,4 +156,13 @@ export function FormulaEditor({
   }, [errors]);
 
   return <div ref={hostRef} className="formula-editor mono" data-testid="formula-editor" />;
+}
+
+function contentAttributes(ariaLabel: string) {
+  return EditorView.contentAttributes.of({
+    "aria-label": ariaLabel,
+    "aria-multiline": "true",
+    role: "textbox",
+    spellcheck: "false",
+  });
 }

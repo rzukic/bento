@@ -276,7 +276,7 @@ public sealed class FormulaEngineTests
     [InlineData("SUM(amount) + quantity", "'quantity' differs from row to row; use it inside SUM(…), AVG(…), MIN(…), MAX(…) or COUNT(…).")]
     [InlineData("SUM()", "Write SUM(column) or SUM(column WHERE condition), e.g. SUM(amount WHERE amount < 0).")]
     [InlineData("SUM(amount WHERE note)", "The condition of SUM needs a condition (yes/no), not text — compare it, e.g. amount < 0.")]
-    [InlineData("UPPER(note WHERE paid)", "WHERE only works inside SUM, COUNT, AVG, MIN or MAX, not in UPPER.")]
+    [InlineData("UPPER(note WHERE paid)", "WHERE only works inside SUM, COUNT, AVG, MIN, MAX, MEDIAN or PERCENTILE, not in UPPER.")]
     [InlineData("SUM(amount) + RUNNING_SUM(SUM(amount))", "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).")]
     [InlineData("RUNNING_SUM(MAX(booked_on))", "RUNNING_SUM needs a number, not a date.")]
     [InlineData("SUM(amount WHERE booked_on <= BUCKET_END())", "BUCKET_END() only works in queries by period end (\"Value at the end of each period\").")]

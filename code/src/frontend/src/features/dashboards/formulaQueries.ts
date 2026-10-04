@@ -31,6 +31,12 @@ export function variableValues(results: VariableResults | undefined): Record<str
   return values;
 }
 
+/** A measure's chart-only options ("show as") never reach the API. */
+export function withoutChartOptions(query: AggregationQuery): AggregationQuery {
+  if (!(query.measures ?? []).some((m) => m.show !== undefined || m.window !== undefined)) return query;
+  return { ...query, measures: query.measures?.map(({ show: _show, window: _window, ...measure }) => measure) };
+}
+
 /**
  * The query a widget runs: the dashboard's range as a filter on its date
  * column — or, for values at the end of each period, as the calendar of
@@ -44,7 +50,7 @@ export function runnableQuery(
   today = new Date(),
 ): AggregationQuery {
   const withVariables = (next: AggregationQuery): AggregationQuery =>
-    (next.measures ?? []).some((m) => m.formula) && Object.keys(variables).length > 0 ? { ...next, variables } : next;
+    withoutChartOptions((next.measures ?? []).some((m) => m.formula) && Object.keys(variables).length > 0 ? { ...next, variables } : next);
 
   const dateGroup = query.groupBy?.find((g) => g.bucket);
   if (data.asOf && dateGroup?.bucket) {

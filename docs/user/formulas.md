@@ -44,6 +44,7 @@ A dot follows a link to another table:
 | `SUM(transactions.amount)` | the total; 0 when there are none |
 | `COUNT(transactions)`, `COUNT(transactions.note)` | the number of rows, or of non-empty values |
 | `AVG(transactions.amount)`, `MIN(…)`, `MAX(transactions.booked_on)` | average, smallest, largest (numbers and dates); empty when there are none |
+| `MEDIAN(transactions.amount)`, `PERCENTILE(transactions.amount, 90)` | the middle value, or the value 90 % of the rows stay below (interpolated between neighbours) |
 | `SUM(transactions.amount, transactions.amount < 0)` or `SUMIF(…)` | only the rows meeting the condition; also `COUNTIF`, `AVGIF` |
 | `SUM(transactions.amount * -1)` | an expression over each related row |
 
@@ -64,7 +65,7 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Logic | `IF(condition, then, [else])`, `AND`, `OR`, `NOT`, `SWITCH(value, match1, result1, …, [default])`, `COALESCE(a, b, …)`, `ISBLANK(value)` |
 | Math | `ROUND(number, [digits])`, `FLOOR`, `CEIL`, `ABS`, `MOD(number, divisor)`, `POWER(number, exponent)`, `SQRT` |
 | Text | `CONCAT(a, b, …)`, `LEFT(text, count)`, `RIGHT(text, count)`, `MID(text, start, count)`, `LEN`, `UPPER`, `LOWER`, `TRIM`, `REPLACE(text, search, replacement)`, `SEARCH(search, text)`, `CONTAINS(text, search)` |
-| Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
+| Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `MEDIAN`, `PERCENTILE`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
 | Lookup | `LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)` |
 | Dashboards | `RUNNING_SUM(measure)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
@@ -81,13 +82,14 @@ The full list with descriptions and examples is at `GET /api/v1/formulas/functio
 
 ## Formulas In Dashboards
 
-A widget value or a dashboard variable can be a formula over many rows — a **measure**. There, `SUM`, `COUNT`, `AVG`, `MIN` and `MAX` work on the rows of each group (each month, each category):
+A widget value or a dashboard variable can be a formula over many rows — a **measure**. There, `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `MEDIAN` and `PERCENTILE` work on the rows of each group (each month, each category):
 
 | Write | Gives |
 |---|---|
 | `SUM(amount WHERE amount > 0)` | income; also `SUMIF(amount, amount > 0)` |
 | `COUNT()`, `COUNT(WHERE category = "Miete")` | the number of rows, all or meeting a condition; also `COUNTIF(…)` |
 | `(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)` | a savings rate |
+| `MEDIAN(amount WHERE amount < 0)`, `PERCENTILE(amount, 90 WHERE amount < 0)` | a typical expense; a large one (90th percentile) |
 | `RUNNING_SUM(SUM(amount))` | a running total over the months, e.g. a balance |
 | `SUM(SUM(transactions.amount))` on accounts | an aggregate of related rows inside one over the group |
 | `SUM(amount) / months` | with the dashboard variable `months` |

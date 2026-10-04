@@ -91,6 +91,8 @@ public sealed class FormulaCompiler
     private AggregateFrame? _aggregate;
     /// <summary>Measures: inside an aggregate over the group's rows, where row values may be used.</summary>
     private bool _inGroup;
+    /// <summary>The fraction PERCENTILE asked for while its call binds (MEDIAN: 0.5).</summary>
+    private double _percentile = 0.5;
     private readonly List<FormulaError> _errors = [];
     private readonly List<string> _columns = [];
 
@@ -521,10 +523,12 @@ public sealed class FormulaCompiler
         }
 
         var name = info.Name;
+        if (name == "PERCENTILE")
+            return BindPercentile(call);
         if (info.Category == FormulaFunctions.RelatedRows)
             return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(call, name) : BindAggregate(call, name);
         if (call.HasWhere)
-            return Fail(call, $"WHERE only works inside SUM, COUNT, AVG, MIN or MAX, not in {name}.");
+            return Fail(call, $"WHERE only works inside SUM, COUNT, AVG, MIN, MAX, MEDIAN or PERCENTILE, not in {name}.");
         if (name == "RUNNING_SUM")
             return Fail(call, "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).");
         if (name == "LOOKUP_ASOF")
@@ -813,6 +817,12 @@ public sealed class FormulaCompiler
                     : value.Type == FormulaType.Null ? FormulaType.Number : value.Type;
                 aggregate = $"{fn}({value.Sql})";
                 break;
+            case "MEDIAN" or "PERCENTILE":
+                if (!RequireNumber(value, name))
+                    return null;
+                type = value.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
+                aggregate = PercentileSql(value.Sql, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
+                break;
             default:
                 if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type)))
                     return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
@@ -903,6 +913,12 @@ public sealed class FormulaCompiler
                     : value!.Type == FormulaType.Null ? FormulaType.Number : value.Type;
                 aggregate = $"{fn}({guarded})";
                 break;
+            case "MEDIAN" or "PERCENTILE":
+                if (!RequireNumber(value!, name))
+                    return null;
+                type = value!.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
+                aggregate = PercentileSql(guarded, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
+                break;
             default:
                 if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type)))
                     return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
@@ -915,6 +931,43 @@ public sealed class FormulaCompiler
         if (fn is "SUM" or "COUNT")
             aggregate = $"COALESCE({aggregate}, 0)";
         return new Expr(aggregate, type, call);
+    }
+
+    /// <summary>
+    /// PERCENTILE(column, p [WHERE condition]): MEDIAN at another point — the
+    /// percentile (0–100, a number) is taken out and the rest binds like MEDIAN.
+    /// </summary>
+    private Expr? BindPercentile(FunctionCall call)
+    {
+        var usage = "Write PERCENTILE(column, 90) or PERCENTILE(column, 90 WHERE condition), e.g. PERCENTILE(amount, 90).";
+        if (call.Arguments.Count < 2 || call.Arguments.Count > (call.HasWhere ? 3 : 2))
+            return Fail(call, usage);
+        if (call.Arguments[1] is not NumberLiteral { Value: >= 0 and <= 100 } p)
+            return Fail(call.Arguments[1], "The percentile is a number from 0 to 100, e.g. PERCENTILE(amount, 90).");
+        var rest = call with { Arguments = [call.Arguments[0], .. call.Arguments.Skip(2)] };
+        var previous = _percentile;
+        _percentile = (double)p.Value / 100;
+        try
+        {
+            return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(rest, "PERCENTILE") : BindAggregate(rest, "PERCENTILE");
+        }
+        finally
+        {
+            _percentile = previous;
+        }
+    }
+
+    /// <summary>
+    /// The continuous percentile (0–1) of the non-empty values, interpolated
+    /// between neighbours: Postgres' <c>percentile_cont</c>, on SQLite the
+    /// registered <c>bento_percentile</c> that computes it the same way.
+    /// </summary>
+    public static string PercentileSql(string value, double fraction, bool postgres)
+    {
+        var f = fraction.ToString("0.############", System.Globalization.CultureInfo.InvariantCulture);
+        return postgres
+            ? $"percentile_cont({f}) WITHIN GROUP (ORDER BY CAST({value} AS DOUBLE PRECISION))"
+            : $"bento_percentile({value}, {f})";
     }
 
     /// <summary>

@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Chart Extras: Comparisons, Moving Averages, Percentiles
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.6c — Chart Extras](working-steps/3.6c-chart-extras.md)
+
+Charts by date can now compare with last year, smooth a line or show its change, and every value can be a median or a percentile.
+
+**Highlights:**
+- **Compare with** the period before or the same period a year earlier (dashed lines, lighter bars)
+- **Show as** the change from the period before or a moving average
+- **Median** and **percentiles** as quick functions, in the query API (`median`, `percentile`) and in formulas (`MEDIAN`, `PERCENTILE`) — the same numbers on SQLite and Postgres
+- A **total line** over stacked charts (the net of income and expenses), **reference lines** at a number or a variable, **colour by sign**
+- New dashboard variables start on the dashboard's table and date column; the formula editor's accessible name follows renames; a chart that cannot be drawn no longer takes the page down
+
 ### 2026-10-04 — A Widget Editor Like Kibana Lens
 
 > **Phase**: Phase 3 — Visualization

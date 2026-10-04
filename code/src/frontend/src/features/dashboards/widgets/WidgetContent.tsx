@@ -11,6 +11,7 @@ import { runnableQuery, variableValues, type VariableResults } from "../formulaQ
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
+import { applyMeasureShows, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
 import { useSchemaStore } from "../../../stores/schemaStore";
 
@@ -77,7 +78,9 @@ export function WidgetContent({
     case "table":
       return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
     default:
-      return <ChartWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} />;
+      return (
+        <ChartWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} refreshToken={refreshToken} values={values} />
+      );
   }
 }
 
@@ -87,19 +90,53 @@ function ChartWidget({
   query,
   range,
   tokens,
+  refreshToken,
+  values,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
   query: Parameters<typeof toChartModel>[1] | null;
   range: ResolvedRange;
   tokens: ChartTokens;
+  refreshToken: number;
+  values: Record<string, VariableValue>;
 }) {
-  const model = useMemo(() => toChartModel(result, query ?? undefined, range, overrideFormat(widget)), [result, query, range, widget]);
+  const display = widget.display;
+  const stacked = display?.stacked ?? false;
+  const hasBreakdown = (query?.groupBy ?? []).length > 1;
+
+  // The same measures over an earlier period, for a dashed comparison line.
+  const shift = widget.data?.timeShift;
+  const earlier = useMemo(() => (shift ? shiftedRange(range, shift) : null), [shift, range]);
+  const shiftedQuery = useMemo(
+    () => (earlier && widget.data?.query && !hasBreakdown ? runnableQuery(widget.data.query, widget.data, earlier, values) : null),
+    [earlier, widget.data, hasBreakdown, values],
+  );
+  const shiftedResult = useQueryRun(shiftedQuery, refreshToken);
+
+  const model = useMemo(() => {
+    const format = overrideFormat(widget);
+    const measures = query?.measures ?? [];
+    let next = applyMeasureShows(toChartModel(result, query ?? undefined, range, format), measures, hasBreakdown);
+    if (shift && earlier && shiftedResult) {
+      next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format), measures, false), shift);
+    }
+    if (stacked && display?.totalLine) next = withTotal(next);
+    return next;
+  }, [result, query, range, widget, shift, earlier, shiftedResult, stacked, hasBreakdown, display?.totalLine]);
+
   // The series under the pointer, read by the tooltip when it renders.
   const hovered = useRef<number | null>(null);
+  const referenceLines = useMemo(() => resolveReferenceLines(display?.referenceLines, values), [display?.referenceLines, values]);
   const option = useMemo(
-    () => buildChartOption(widget.type, model, tokens, widget.display?.stacked ?? false, () => hovered.current),
-    [widget.type, widget.display?.stacked, model, tokens],
+    () =>
+      buildChartOption(widget.type, model, tokens, {
+        stacked,
+        hovered: () => hovered.current,
+        referenceLines,
+        colorBySign: display?.colorBySign ?? false,
+      }),
+    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign],
   );
   const onHoverSeries = useCallback((index: number | null) => {
     hovered.current = index;

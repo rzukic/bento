@@ -13,6 +13,9 @@ export type ChartTokens = {
   surface: string;
   popover: string;
   palette: string[];
+  /** Colour by sign: values from 0 up, and below 0. */
+  positive: string;
+  negative: string;
 };
 
 const SERIES_COLORS = ["#14b8a6", "#f59e0b", "#a855f7", "#f43f5e", "#84cc16", "#06b6d4", "#fb923c", "#64748b"];
@@ -27,6 +30,8 @@ export function readChartTokens(): ChartTokens {
     surface: token("--surface", "#141416"),
     popover: token("--popover", "#1c1c1f"),
     palette: [token("--accent", "#3b82f6"), ...SERIES_COLORS],
+    positive: token("--success", "#4ade80"),
+    negative: token("--danger", "#f87171"),
   };
 }
 
@@ -81,6 +86,7 @@ export function orderTooltipRows<T extends { index: number; value: number | null
 }
 
 type AxisTooltipParam = { seriesIndex: number; seriesName: string; value: unknown; color: unknown; axisValue: unknown };
+type SeriesKind = "shifted" | "total" | undefined;
 
 const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -91,18 +97,26 @@ const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.char
  */
 export function axisTooltipHtml(
   params: AxisTooltipParam[],
-  { bucket, stacked, hovered, format }: { bucket?: QueryBucket; stacked: boolean; hovered: number | null; format: (value: unknown) => string },
+  {
+    bucket,
+    stacked,
+    hovered,
+    format,
+    kindOf = () => undefined,
+  }: { bucket?: QueryBucket; stacked: boolean; hovered: number | null; format: (value: unknown) => string; kindOf?: (seriesIndex: number) => SeriesKind },
 ): string {
   if (params.length === 0) return "";
-  const rows = orderTooltipRows(
-    params.map((p) => ({
-      index: p.seriesIndex,
-      name: p.seriesName,
-      value: typeof p.value === "number" && Number.isFinite(p.value) ? p.value : null,
-      color: typeof p.color === "string" ? p.color : "currentColor",
-    })),
-    stacked,
-  );
+  const all = params.map((p) => ({
+    index: p.seriesIndex,
+    name: p.seriesName,
+    value: typeof p.value === "number" && Number.isFinite(p.value) ? p.value : null,
+    color: typeof p.color === "string" ? p.color : "currentColor",
+    kind: kindOf(p.seriesIndex),
+  }));
+  // The stack (or the plain series) in chart order, then the earlier period;
+  // a total line is the Total row below.
+  const main = all.filter((row) => !row.kind);
+  const rows = [...orderTooltipRows(main, stacked), ...orderTooltipRows(all.filter((row) => row.kind === "shifted"), false)];
   const active = rows.some((row) => row.index === hovered) ? hovered : null;
   const line = (content: string, style = "") =>
     `<div style="display:flex;align-items:center;gap:8px;padding:2px 6px;margin:0 -6px;border-radius:6px;${style}">${content}</div>`;
@@ -115,7 +129,7 @@ export function axisTooltipHtml(
       return line(`${dot}<span>${escapeHtml(row.name)}</span>${amount(row.value)}`, style);
     })
     .join("");
-  const values = rows.map((row) => row.value).filter((value): value is number => value !== null);
+  const values = main.map((row) => row.value).filter((value): value is number => value !== null);
   const total =
     stacked && values.length > 1
       ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">${line(`<span style="width:8px;flex:none"></span><span>Total</span>${amount(values.reduce((sum, value) => sum + value, 0))}`)}</div>`
@@ -124,13 +138,20 @@ export function axisTooltipHtml(
   return `<div style="min-width:180px">${title}${body}${total}</div>`;
 }
 
-export function buildChartOption(
-  type: WidgetType,
-  model: ChartModel,
-  tokens: ChartTokens,
-  stacked = false,
-  hovered: () => number | null = () => null,
-): EChartsCoreOption {
+const SIGN_LIMIT = 1e15;
+
+export type ChartOptions = {
+  stacked?: boolean;
+  /** The series under the pointer, read when the tooltip renders. */
+  hovered?: () => number | null;
+  /** Horizontal lines with their numbers. */
+  referenceLines?: { value: number; label: string }[];
+  /** One series: values below 0 in the danger colour, the rest in the success colour. */
+  colorBySign?: boolean;
+};
+
+export function buildChartOption(type: WidgetType, model: ChartModel, tokens: ChartTokens, options: ChartOptions = {}): EChartsCoreOption {
+  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false } = options;
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
   const tooltip = {
     trigger: type === "donut" ? "item" : "axis",
@@ -184,12 +205,37 @@ export function buildChartOption(
   }
 
   const kind = type === "bar" ? "bar" : "line";
+  const kindOf = (index: number) => model.series[index]?.kind;
+  // An earlier period takes the colour of the series it repeats.
+  const main = model.series.filter((series) => !series.kind);
+  const colorOf = (series: ChartModel["series"][number]) => {
+    if (series.kind === "total") return tokens.text;
+    const base = series.kind === "shifted" ? main.findIndex((m) => series.name.startsWith(`${m.name} (`)) : main.indexOf(series);
+    return tokens.palette[Math.max(0, base) % tokens.palette.length];
+  };
+  const bySign = colorBySign && main.length === 1 && !stacked;
+  const references = referenceLines.map((line) => line.value);
+  const markLine =
+    referenceLines.length > 0
+      ? {
+          silent: true,
+          symbol: "none",
+          lineStyle: { color: tokens.muted, type: "dashed", width: 1 },
+          label: {
+            color: tokens.muted,
+            fontSize: 11,
+            position: "insideEndTop",
+            formatter: (p: { name?: string; value?: unknown }) => [p.name, format(p.value)].filter(Boolean).join(" · "),
+          },
+          data: referenceLines.map((line) => ({ yAxis: line.value, name: line.label })),
+        }
+      : undefined;
   return {
     ...base,
     tooltip: {
       ...tooltip,
       formatter: (params: unknown) =>
-        axisTooltipHtml((Array.isArray(params) ? params : [params]) as AxisTooltipParam[], { bucket: model.bucket, stacked, hovered: hovered(), format }),
+        axisTooltipHtml((Array.isArray(params) ? params : [params]) as AxisTooltipParam[], { bucket: model.bucket, stacked, hovered: hovered(), format, kindOf }),
     },
     legend,
     grid: { left: 8, right: 12, top: 12, bottom: legend.show ? 32 : 8, containLabel: true },
@@ -205,21 +251,68 @@ export function buildChartOption(
       type: "value",
       splitLine: { lineStyle: { color: tokens.line } },
       axisLabel: { color: tokens.muted, fontSize: 11, formatter: (value: number) => formatCompact(value, model.format) },
+      // Reference lines stay in view even above or below every value.
+      ...(references.length > 0
+        ? {
+            min: (extent: { min: number }) => Math.min(extent.min, ...references),
+            max: (extent: { max: number }) => Math.max(extent.max, ...references),
+          }
+        : {}),
     },
-    series: model.series.map((series) => ({
-      name: series.name,
-      type: kind,
-      data: series.values,
-      stack: stacked ? "total" : undefined,
-      showSymbol: model.categories.length <= 16,
-      symbolSize: 5,
-      connectNulls: false,
-      barMaxWidth: 28,
-      lineStyle: kind === "line" ? { width: 2 } : undefined,
-      areaStyle: type === "area" ? { opacity: 0.16 } : undefined,
-      emphasis: { focus: "series" },
-      // Hovering a line or an area (not only its points) marks the series in the tooltip.
-      triggerLineEvent: kind === "line",
-    })),
+    // Line and area by sign: the colour changes where the line crosses 0.
+    ...(bySign && kind === "line"
+      ? {
+          visualMap: {
+            show: false,
+            seriesIndex: model.series.indexOf(main[0]),
+            dimension: 1,
+            // Open-ended pieces crash ECharts' line gradient (no colour stops), so the ends are finite.
+            pieces: [
+              { gte: -SIGN_LIMIT, lt: 0, color: tokens.negative },
+              { gte: 0, lte: SIGN_LIMIT, color: tokens.positive },
+            ],
+          },
+        }
+      : {}),
+    series: model.series.map((series, index) => {
+      const color = colorOf(series);
+      if (series.kind === "total") {
+        return {
+          name: series.name,
+          type: "line",
+          data: series.values,
+          color,
+          z: 5,
+          symbolSize: 5,
+          showSymbol: model.categories.length <= 16,
+          lineStyle: { width: 2 },
+          emphasis: { focus: "series" },
+          triggerLineEvent: true,
+        };
+      }
+      const shifted = series.kind === "shifted";
+      return {
+        name: series.name,
+        type: kind,
+        data: series.values,
+        color,
+        stack: stacked && !shifted ? "total" : undefined,
+        showSymbol: !shifted && model.categories.length <= 16,
+        symbolSize: 5,
+        connectNulls: false,
+        barMaxWidth: 28,
+        lineStyle: kind === "line" ? { width: shifted ? 1.5 : 2, type: shifted ? "dashed" : "solid" } : undefined,
+        areaStyle: type === "area" && !shifted ? { opacity: 0.16 } : undefined,
+        itemStyle: shifted
+          ? { opacity: kind === "bar" ? 0.4 : 0.8 }
+          : bySign && kind === "bar"
+            ? { color: (p: { value?: unknown }) => (typeof p.value === "number" && p.value < 0 ? tokens.negative : tokens.positive) }
+            : undefined,
+        markLine: index === 0 ? markLine : undefined,
+        emphasis: { focus: "series" },
+        // Hovering a line or an area (not only its points) marks the series in the tooltip.
+        triggerLineEvent: kind === "line",
+      };
+    }),
   };
 }

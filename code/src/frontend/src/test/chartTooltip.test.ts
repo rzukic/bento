@@ -53,7 +53,7 @@ describe("chart tooltip", () => {
 });
 
 describe("chart legend", () => {
-  const tokens: ChartTokens = { text: "#eee", muted: "#999", line: "#333", surface: "#111", popover: "#222", palette: ["#3b82f6"] };
+  const tokens: ChartTokens = { text: "#eee", muted: "#999", line: "#333", surface: "#111", popover: "#222", palette: ["#3b82f6"], positive: "#4ade80", negative: "#f87171" };
   const model = {
     categories: ["2026-08-01", "2026-09-01"],
     bucket: "month" as const,

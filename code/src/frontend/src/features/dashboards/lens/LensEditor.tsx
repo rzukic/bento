@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardVariable, DashboardWidget, WidgetDisplay, WidgetType } from "../../../api/dashboards";
+import type { DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
 import { listSavedQueries, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
@@ -431,11 +431,30 @@ function DataSettings({
             checked={Boolean(widget.data?.asOf)}
             onChange={(event) => {
               const on = event.target.checked;
-              const measures = on ? (query.measures ?? []).map((m) => ({ name: m.name, formula: measureAsFormula(m, dateGroup.column) })) : query.measures;
+              const measures = on
+                ? (query.measures ?? []).map((m) => ({ name: m.name, formula: measureAsFormula(m, dateGroup.column), show: m.show, window: m.window }))
+                : query.measures;
               onChange(normalize({ ...widget, data: { ...widget.data, asOf: on || undefined, query: { ...query, measures } } }));
             }}
           />
           Value at the end of each period
+        </label>
+      ) : null}
+
+      {dateGroup && (widget.type === "line" || widget.type === "area" || widget.type === "bar") && (query.groupBy ?? []).length === 1 ? (
+        <label className="lens-field">
+          <span className="lens-field__label">Compare with</span>
+          <select
+            className="field__control field__control--compact"
+            aria-label="Compare with"
+            value={widget.data?.timeShift ?? ""}
+            onChange={(event) => onChange({ ...widget, data: { ...widget.data, timeShift: (event.target.value || undefined) as TimeShift | undefined } })}
+          >
+            <option value="">Nothing</option>
+            <option value="previous">The period before</option>
+            <option value="year">The same period a year earlier</option>
+          </select>
+          <span className="lens-field__hint">Each value again for the earlier range, dashed (or as lighter bars). Needs a dashboard range with a start and an end.</span>
         </label>
       ) : null}
 
@@ -661,6 +680,7 @@ function StyleSettings({
   const hasBreakdown = (widget.data?.query?.groupBy ?? []).length > 1;
   const rows = widget.data?.rows;
   const goal = display.goal;
+  const isChart = widget.type === "line" || widget.type === "area" || widget.type === "bar";
   return (
     <div className="lens-settings">
       {!rows ? (
@@ -681,6 +701,19 @@ function StyleSettings({
           Stacked
         </label>
       ) : null}
+      {(widget.type === "bar" || widget.type === "area") && hasBreakdown && display.stacked ? (
+        <label className="lens-check" title="A line with the sum of the stack — the net when values are positive and negative">
+          <input type="checkbox" checked={display.totalLine ?? false} onChange={(event) => setDisplay({ totalLine: event.target.checked || undefined })} />
+          Total line
+        </label>
+      ) : null}
+      {isChart && !hasBreakdown && (widget.data?.query?.measures ?? []).length === 1 ? (
+        <label className="lens-check">
+          <input type="checkbox" checked={display.colorBySign ?? false} onChange={(event) => setDisplay({ colorBySign: event.target.checked || undefined })} />
+          Colour by sign (green above 0, red below)
+        </label>
+      ) : null}
+      {isChart ? <ReferenceLines lines={display.referenceLines ?? []} variables={variables} onChange={(referenceLines) => setDisplay({ referenceLines: referenceLines.length > 0 ? referenceLines : undefined })} /> : null}
       {widget.type === "kpi" ? (
         <>
           <label className="lens-check">
@@ -783,6 +816,57 @@ function StyleSettings({
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Horizontal lines at a number or a dashboard variable, each with an optional label. */
+function ReferenceLines({ lines, variables, onChange }: { lines: ReferenceLine[]; variables: DashboardVariable[]; onChange: (lines: ReferenceLine[]) => void }) {
+  const update = (index: number, patch: Partial<ReferenceLine>) => onChange(lines.map((line, i) => (i === index ? { ...line, ...patch } : line)));
+  return (
+    <section className="lens-section" aria-label="Reference lines">
+      <h3>Reference lines</h3>
+      {lines.map((line, index) => (
+        <div key={index} className="lens-reference">
+          <select
+            className="field__control field__control--compact"
+            aria-label="Line at"
+            value={typeof line.value === "number" ? "number" : `var:${line.value}`}
+            onChange={(event) => update(index, { value: event.target.value === "number" ? 0 : event.target.value.slice(4) })}
+          >
+            <option value="number">A number</option>
+            {variables.map((v) => (
+              <option key={v.name} value={`var:${v.name}`}>
+                Variable {v.name}
+              </option>
+            ))}
+          </select>
+          {typeof line.value === "number" ? (
+            <input
+              className="field__control field__control--compact"
+              type="number"
+              aria-label="Line value"
+              value={line.value}
+              onChange={(event) => update(index, { value: Number(event.target.value) })}
+            />
+          ) : (
+            <span />
+          )}
+          <input
+            className="field__control field__control--compact"
+            aria-label="Line label"
+            placeholder="Label, e.g. Budget"
+            value={line.label ?? ""}
+            onChange={(event) => update(index, { label: event.target.value || undefined })}
+          />
+          <Button type="button" variant="ghost" size="sm" aria-label="Remove reference line" onClick={() => onChange(lines.filter((_, i) => i !== index))}>
+            <Icon name="x" size={12} />
+          </Button>
+        </div>
+      ))}
+      <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="plus" size={13} />} onClick={() => onChange([...lines, { value: 0 }])}>
+        Add reference line
+      </Button>
+    </section>
   );
 }
 
