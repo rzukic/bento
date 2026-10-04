@@ -47,10 +47,12 @@ describe("Lens model", () => {
     bar = addField(bar, field("betrag_eur"), table);
     bar = addField(bar, field("kategorie_id"), table);
     expect(bar.data!.query).toMatchObject({
-      groupBy: [{ column: "buchungstag", bucket: "month" }, { column: "kategorie_id", top: 10, other: true }],
+      groupBy: [{ column: "buchungstag", bucket: "month" }, { column: "kategorie_id", top: 5, other: true }],
       measures: [{ fn: "sum", column: "betrag_eur" }],
     });
-    expect(describeWidget(bar, table)).toBe("Sum of Betrag (EUR) by Buchungstag per month, split by Top 10 Kategorie + other");
+    // A breakdown keeps five values (each one a line or colour); a category axis keeps ten.
+    expect(describeWidget(bar, table)).toBe("Sum of Betrag (EUR) by Buchungstag per month, split by Top 5 Kategorie + other");
+    expect(addField(empty("bar"), field("kategorie_id"), table).data!.query!.groupBy).toEqual([{ column: "kategorie_id", top: 10, other: true }]);
 
     const donut = addField(addField(empty("donut"), field("kategorie_id"), table), field("betrag_eur"), table);
     expect(donut.data!.query).toMatchObject({ groupBy: [{ column: "kategorie_id", top: 6, other: true }], measures: [{ fn: "sum", column: "betrag_eur" }] });
@@ -112,6 +114,30 @@ describe("Lens rendering", () => {
   it("names the remaining top values Other", () => {
     const model = toChartModel(topResult, { source: "girokonto", groupBy: [{ column: "kategorie_id", top: 1, other: true }] }, { from: null, to: null });
     expect(model.categories).toEqual(["Miete", "(none)", "Other"]);
+  });
+
+  it("puts Other last in a breakdown, wherever its rows come", () => {
+    const result = {
+      data: [
+        { month: "2026-09-01", kategorie_id: null, kategorie_id_label: null, kategorie_id_other: true, spent: -62 },
+        { month: "2026-09-01", kategorie_id: 2, kategorie_id_label: "Miete", kategorie_id_other: false, spent: -1150 },
+        { month: "2026-09-01", kategorie_id: 1, kategorie_id_label: "Lebensmittel", kategorie_id_other: false, spent: -171.85 },
+      ],
+      meta: {
+        truncated: false,
+        columns: [
+          { name: "month", type: "date", role: "group" },
+          { name: "kategorie_id_other", type: "boolean", role: "other", labelOf: "kategorie_id" },
+          { name: "kategorie_id", type: "reference", role: "group" },
+          { name: "kategorie_id_label", type: "text", role: "label", labelOf: "kategorie_id" },
+          { name: "spent", type: "currency", role: "measure" },
+        ],
+      },
+    };
+    const query = { source: "girokonto", groupBy: [{ column: "buchungstag", bucket: "month" as const, as: "month" }, { column: "kategorie_id", top: 2, other: true }] };
+    const model = toChartModel(result as never, query, { from: null, to: null });
+    expect(model.series.map((s) => s.name)).toEqual(["Miete", "Lebensmittel", "Other"]);
+    expect(model.series[2].values).toEqual([-62]);
   });
 
   it("shows tables with Other, a total row and individual rows", async () => {

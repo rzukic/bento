@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { axisTooltipHtml, formatBucketTitle, orderTooltipRows } from "../features/dashboards/charts/chartOptions";
+import { axisTooltipHtml, buildChartOption, formatBucketTitle, orderTooltipRows, type ChartTokens } from "../features/dashboards/charts/chartOptions";
 
 const row = (index: number, value: number | null) => ({ index, value });
 const order = (rows: { index: number; value: number | null }[], stacked: boolean) => orderTooltipRows(rows, stacked).map((r) => r.index);
@@ -49,5 +49,24 @@ describe("chart tooltip", () => {
     expect(formatBucketTitle("2026-07-01", "quarter", "en-GB")).toBe("Q3 2026");
     expect(formatBucketTitle("2026-09-07", "day", "en-GB")).toBe("7 Sept 2026");
     expect(formatBucketTitle("Groceries", undefined)).toBe("Groceries");
+  });
+});
+
+describe("chart legend", () => {
+  const tokens: ChartTokens = { text: "#eee", muted: "#999", line: "#333", surface: "#111", popover: "#222", palette: ["#3b82f6"] };
+  const model = {
+    categories: ["2026-08-01", "2026-09-01"],
+    bucket: "month" as const,
+    format: "number" as const,
+    series: ["Acme Corp", "Globex GmbH", "Initech", "Umbrella Ltd", "Stark Industries", "A very long customer name GmbH & Co. KG"].map((name) => ({ name, values: [1, 2] })),
+  };
+
+  it("stays on one line that pages, with long names cut and shown in full on hover", () => {
+    for (const type of ["line", "bar", "donut"] as const) {
+      const legend = (buildChartOption(type, model as never, tokens) as { legend: Record<string, unknown> }).legend;
+      expect(legend).toMatchObject({ show: true, type: "scroll", textStyle: { width: 120, overflow: "truncate" }, tooltip: { show: true } });
+      const formatter = (legend.tooltip as { formatter: (p: { name: string }) => string }).formatter;
+      expect(formatter({ name: "A & <b>B</b>" })).toBe("A &#38; &#60;b&#62;B&#60;/b&#62;");
+    }
   });
 });

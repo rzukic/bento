@@ -115,6 +115,11 @@ export type ChartModel = {
   format: NumberFormatKind;
 };
 
+/** "Other" (the remaining top values) after the values it stands beside, in legends and on axes. */
+function otherLast(names: string[], hasOther: boolean): string[] {
+  return hasOther && names.includes("Other") ? [...names.filter((name) => name !== "Other"), "Other"] : names;
+}
+
 /** The name a group value shows as: its record label, "Other" for the remaining top values, "(none)" when empty. */
 export function labelOf(row: QueryRow, key: string, labelKey: string | undefined, otherKey?: string): string {
   if (otherKey && row[otherKey] === true) return "Other";
@@ -181,6 +186,7 @@ export function toChartModel(
       const label = labelOf(row, x.name, xLabel, xOther);
       if (!categories.includes(label)) categories.push(label);
     }
+    if (xOther) categories = otherLast(categories, result.data.some((row) => row[xOther] === true));
   }
 
   const keyOf = (row: QueryRow) => (bucket ? String(row[x.name] ?? "") : labelOf(row, x.name, xLabel, xOther));
@@ -203,11 +209,12 @@ export function toChartModel(
     const splitLabel = labelFor(split.name);
     const splitOther = otherKeyOf(result, split.name);
     const measure = measures[0];
-    const names: string[] = [];
+    let names: string[] = [];
     for (const row of result.data) {
       const name = labelOf(row, split.name, splitLabel, splitOther);
       if (!names.includes(name)) names.push(name);
     }
+    if (splitOther) names = otherLast(names, result.data.some((row) => row[splitOther] === true));
     const series = names.map((name) => {
       const values = categories.map((category) => {
         const row = result.data.find((r) => keyOf(r) === category && labelOf(r, split.name, splitLabel, splitOther) === name);

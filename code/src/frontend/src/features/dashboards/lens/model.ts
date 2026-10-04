@@ -188,7 +188,7 @@ export function measureFor(field: LensField | null, query: AggregationQuery): Qu
   return { name: uniqueName(`unique_${field.name}`, taken), fn: "count_distinct", column: field.name };
 }
 
-/** A group for a field: dates per month, categories with their top values on charts. */
+/** A group for a field: dates per month, categories with their top values on charts (a breakdown keeps five). */
 export function groupFor(field: LensField, widgetType: WidgetType, query: AggregationQuery): QueryGroupBy {
   const taken = outputsOf(query);
   if (field.kind === "date") return { column: field.name, bucket: "month", as: uniqueName("month", taken) };
@@ -274,7 +274,8 @@ export function addField(widget: DashboardWidget, field: LensField, table: Model
     if (target === "x" || target === "slice") groups[0] = group;
     else if (target === "breakdown") {
       if (groups.length === 0) groups.push({ column: field.name, ...(field.kind === "date" ? { bucket: "month" as QueryBucket, as: "month" } : {}) });
-      groups[1] = group;
+      // Each value is a line or a colour: five plus "Other" stay readable.
+      groups[1] = group.top ? { ...group, top: 5 } : group;
     } else if (target === "rows") groups.push(group);
   }
   if (measures.length === 0) measures.push(measureFor(null, query));

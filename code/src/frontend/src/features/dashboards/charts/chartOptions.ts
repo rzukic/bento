@@ -141,13 +141,21 @@ export function buildChartOption(
     textStyle: { color: tokens.text, fontSize: 12 },
     valueFormatter: format,
   };
+  // One line that pages (‹ 1/2 ›) instead of wrapping into the axis; long
+  // names are cut and shown in full on hover.
   const legend = {
     show: model.series.length > 1 || type === "donut",
+    type: "scroll",
     bottom: 0,
     icon: "circle",
     itemWidth: 8,
     itemHeight: 8,
-    textStyle: { color: tokens.muted, fontSize: 11 },
+    textStyle: { color: tokens.muted, fontSize: 11, width: 120, overflow: "truncate" },
+    pageIconColor: tokens.text,
+    pageIconInactiveColor: tokens.line,
+    pageIconSize: 9,
+    pageTextStyle: { color: tokens.muted, fontSize: 11 },
+    tooltip: { show: true, formatter: (params: { name?: string }) => escapeHtml(params.name ?? "") },
   };
   const base = { color: tokens.palette, animationDuration: 300, textStyle: { fontFamily: "inherit" } };
 
@@ -160,7 +168,7 @@ export function buildChartOption(
     return {
       ...base,
       tooltip: { ...tooltip, valueFormatter: (value: unknown) => format(value) },
-      legend: { ...legend, type: "scroll" },
+      legend,
       series: [
         {
           type: "pie",
