@@ -53,6 +53,25 @@ describe("collapsed sidebar", () => {
     await waitFor(() => expect(shell()).not.toHaveClass("shell--peek"));
   });
 
+  it("keeps a hovered sidebar open from the button where collapsing sits, without sliding", async () => {
+    act(() => useAppStore.setState({ sidebarOpen: false }));
+    render(<RouterProvider router={createTestRouter(["/settings"])} />);
+    const sidebar = await screen.findByRole("complementary", { name: "Primary sidebar" });
+    fireEvent.mouseEnter(sidebar);
+    await waitFor(() => expect(shell()).toHaveClass("shell--peek"));
+
+    // While hovered the logo is just the logo; the pin is the toggle in the corner.
+    expect(screen.queryByRole("button", { name: /Expand sidebar/ })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Keep sidebar open/ }));
+    expect(useAppStore.getState().sidebarOpen).toBe(true);
+    await waitFor(() => expect(shell()).not.toHaveClass("shell--peek"));
+    expect(shell()).not.toHaveClass("shell--collapsed");
+    expect(screen.getByRole("button", { name: /Collapse sidebar/ })).toBeInTheDocument();
+    // The slide is off for that one change only.
+    expect(shell()).toHaveClass("shell--instant");
+    await waitFor(() => expect(shell()).not.toHaveClass("shell--instant"));
+  });
+
   it("does nothing while the sidebar is open", async () => {
     act(() => useAppStore.setState({ sidebarOpen: true }));
     render(<RouterProvider router={createTestRouter(["/settings"])} />);
