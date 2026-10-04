@@ -32,6 +32,18 @@ export function movingAverage(values: (number | null)[], window: number): (numbe
   });
 }
 
+/** Each measure's chosen colour on its series (a breakdown colours its values from the palette). */
+export function withMeasureColors(model: ChartModel, measures: QueryMeasure[], hasBreakdown: boolean): ChartModel {
+  if (hasBreakdown || !measures.some((m) => m.color)) return model;
+  return {
+    ...model,
+    series: model.series.map((series) => {
+      const color = measures.find((m) => m.name === series.name)?.color;
+      return color && !series.kind ? { ...series, color } : series;
+    }),
+  };
+}
+
 /** Applies each measure's "show as" to its series — every series of the first measure when split by a breakdown. */
 export function applyMeasureShows(model: ChartModel, measures: QueryMeasure[], hasBreakdown: boolean): ChartModel {
   if (!model.bucket) return model;

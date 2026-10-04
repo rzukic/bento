@@ -1,5 +1,5 @@
 import type { DashboardWidget } from "../../../api/dashboards";
-import type { MeasureShow, QueryBucket, QueryFunction, QueryGroupBy, QueryMeasure, VariableValue } from "../../../api/query";
+import type { MeasureShow, QueryBucket, QueryFunction, QueryGroupBy, QueryMeasure, SeriesColor, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import type { ModelSnapshot, ModelTable } from "../../../types/api";
@@ -16,6 +16,17 @@ const QUICK_FUNCTIONS: { value: QueryFunction; label: string }[] = [
   { value: "count_distinct", label: "Unique count" },
   { value: "median", label: "Median" },
   { value: "percentile", label: "Percentile" },
+];
+
+const SERIES_COLORS: [SeriesColor, string][] = [
+  ["green", "Green (income)"],
+  ["red", "Red (expenses)"],
+  ["blue", "Blue"],
+  ["teal", "Teal"],
+  ["amber", "Amber"],
+  ["violet", "Violet"],
+  ["rose", "Rose"],
+  ["gray", "Ink"],
 ];
 
 /** Functions that need a number column. */
@@ -276,6 +287,25 @@ function MeasureSettings({
             </label>
           ) : null}
         </div>
+      ) : null}
+
+      {isDateChart(widget) && (widget.data?.query?.groupBy ?? []).length < 2 ? (
+        <label className="lens-field">
+          <span className="lens-field__label">Colour</span>
+          <select
+            className="field__control field__control--compact"
+            aria-label="Colour"
+            value={measure.color ?? ""}
+            onChange={(event) => onChange({ ...measure, color: (event.target.value || undefined) as SeriesColor | undefined })}
+          >
+            <option value="">Automatic</option>
+            {SERIES_COLORS.map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
       ) : null}
 
       <label className="lens-field">

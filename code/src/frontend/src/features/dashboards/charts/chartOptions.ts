@@ -1,5 +1,5 @@
 import type { EChartsCoreOption } from "echarts/core";
-import type { QueryBucket } from "../../../api/query";
+import type { QueryBucket, SeriesColor } from "../../../api/query";
 import type { AnnotationColor, WidgetType } from "../../../api/dashboards";
 import { annotationsAt, type PlacedAnnotations } from "../chartTransforms";
 import type { SankeyModel, SankeyNode } from "../sankey";
@@ -167,7 +167,16 @@ export type ChartOptions = {
 
 /** Annotation colours from the chart's tokens; gray is the ink, so it never looks like a series. */
 export function annotationColor(color: AnnotationColor | undefined, tokens: ChartTokens): string {
+  return namedColor(color, tokens);
+}
+
+/** A named colour from the chart's tokens: green and red follow the theme, gray is the ink. */
+export function namedColor(color: SeriesColor | undefined, tokens: ChartTokens): string {
   switch (color) {
+    case "green":
+      return tokens.positive;
+    case "red":
+      return tokens.negative;
     case "blue":
       return tokens.palette[0];
     case "teal":
@@ -219,10 +228,24 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
     const data = model.categories
       .map((name, index) => ({ name, value: Math.abs(values[index] ?? 0) }))
       .filter((item) => item.value > 0);
+    const total = data.reduce((sum, item) => sum + item.value, 0);
     return {
       ...base,
-      tooltip: { ...tooltip, valueFormatter: (value: unknown) => format(value) },
+      tooltip: {
+        ...tooltip,
+        // The amount and its share of the whole.
+        formatter: (p: { name?: string; value?: unknown; percent?: number }) =>
+          `${escapeHtml(p.name ?? "")}<br><b>${escapeHtml(format(p.value))}</b> · ${escapeHtml(formatNumber((p.percent ?? 0) / 100, "percent"))}`,
+      },
       legend,
+      // The total in the middle of the ring.
+      title: {
+        text: total > 0 ? format(total) : "",
+        left: "center",
+        top: "45%",
+        textVerticalAlign: "middle",
+        textStyle: { color: tokens.text, fontSize: 16, fontWeight: 700, fontFamily: "inherit" },
+      },
       series: [
         {
           type: "pie",
@@ -244,7 +267,8 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
   const colorOf = (series: ChartModel["series"][number]) => {
     if (series.kind === "total") return tokens.text;
     const base = series.kind === "shifted" ? main.findIndex((m) => series.name.startsWith(`${m.name} (`)) : main.indexOf(series);
-    return tokens.palette[Math.max(0, base) % tokens.palette.length];
+    const chosen = main[base]?.color;
+    return chosen ? namedColor(chosen, tokens) : tokens.palette[Math.max(0, base) % tokens.palette.length];
   };
   const bySign = colorBySign && main.length === 1 && !stacked;
   const references = referenceLines.map((line) => line.value);
@@ -399,8 +423,12 @@ function nodeDepths(model: SankeyModel): Map<string, number> {
 }
 
 /** Step 3.7: a Sankey of money flows; the last column's labels sit left of their nodes so they stay inside. */
-export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens): EChartsCoreOption {
+export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens, { shares = false }: { shares?: boolean } = {}): EChartsCoreOption {
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
+  // Shares are of the first column's total: the income in a cash flow.
+  const depthsForBase = nodeDepths(model);
+  const base = model.links.filter((link) => (depthsForBase.get(link.source) ?? 0) === 0).reduce((sum, link) => sum + link.value, 0);
+  const share = (value: unknown) => (typeof value === "number" && base > 0 ? formatNumber(value / base, "percent") : "");
   const labels = new Map(model.nodes.map((n) => [n.id, n.label]));
   const label = (id: unknown) => escapeHtml(labels.get(String(id)) ?? String(id));
   const depths = nodeDepths(model);
@@ -423,9 +451,8 @@ export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens): ECha
       borderColor: tokens.line,
       textStyle: { color: tokens.text, fontSize: 12 },
       formatter: (p: { dataType?: string; name?: string; value?: unknown; data?: { source?: string; target?: string } }) =>
-        p.dataType === "edge"
-          ? `${label(p.data?.source)} → ${label(p.data?.target)}<br><b>${escapeHtml(format(p.value))}</b>`
-          : `${label(p.name)}<br><b>${escapeHtml(format(p.value))}</b>`,
+        `${p.dataType === "edge" ? `${label(p.data?.source)} → ${label(p.data?.target)}` : label(p.name)}<br><b>${escapeHtml(format(p.value))}</b>` +
+        (base > 0 ? ` · ${escapeHtml(share(p.value))}` : ""),
     },
     series: [
       {
@@ -443,7 +470,8 @@ export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens): ECha
         label: {
           color: tokens.text,
           fontSize: 11,
-          formatter: (p: { name?: string; value?: unknown }) => `${labels.get(String(p.name)) ?? p.name}  ${typeof p.value === "number" ? formatCompact(p.value, model.format) : ""}`,
+          formatter: (p: { name?: string; value?: unknown }) =>
+            `${labels.get(String(p.name)) ?? p.name}  ${shares ? share(p.value) : typeof p.value === "number" ? formatCompact(p.value, model.format) : ""}`,
         },
         levels: last > 0 ? [{ depth: last, label: { position: "left" } }] : [],
         data: model.nodes.map((node) => ({ name: node.id, itemStyle: { color: colorOf(node), borderWidth: 0 } })),

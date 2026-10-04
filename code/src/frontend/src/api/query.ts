@@ -19,6 +19,9 @@ export type QueryGroupBy = {
 
 export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_distinct" | "median" | "percentile";
 
+/** A named chart colour; green and red follow the theme's success and danger colours. */
+export type SeriesColor = "blue" | "teal" | "amber" | "violet" | "rose" | "green" | "red" | "gray";
+
 /** How a chart shows a measure over its date axis (Step 3.6c), computed in the browser. */
 export type MeasureShow = "change" | "moving_average";
 
@@ -33,6 +36,8 @@ export type QueryMeasure = {
   show?: MeasureShow;
   /** With show moving_average: how many periods (default 3). */
   window?: number;
+  /** Charts only, never sent: the series colour (default: the palette in order). */
+  color?: SeriesColor;
   /** A formula over the group's rows (Step 3.6): `SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`. */
   formula?: string;
   running?: boolean;

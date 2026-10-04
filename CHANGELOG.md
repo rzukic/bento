@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Gaps From The Finanzfluss Copilot Comparison
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.7b — Copilot Gaps](working-steps/3.7b-copilot-gaps.md)
+
+A comparison with the Finanzfluss Copilot dashboard ([report](../docs/research/finanzfluss-copilot-comparison.md)); the easy gaps nothing planned are built, the rest is in the plan's backlog.
+
+**Highlights:**
+- Ranges: last 7 days, last 3 years, last 5 years
+- A colour per value (green income, red expenses), donut totals and shares, Sankey labels in %
+- Backlog: dashboard filter bar, finance template, budget widget, viewer interval switch, second axis, time-series functions for returns
+
 ### 2026-10-04 — Sankey & Drill-Down
 
 > **Phase**: Phase 3 — Visualization

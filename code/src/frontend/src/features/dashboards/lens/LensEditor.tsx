@@ -748,6 +748,12 @@ function StyleSettings({
           Colour by sign (green above 0, red below)
         </label>
       ) : null}
+      {widget.type === "sankey" ? (
+        <label className="lens-check" title="Labels show each node's share of the first column — for a cash flow, of the income">
+          <input type="checkbox" checked={display.shares ?? false} onChange={(event) => setDisplay({ shares: event.target.checked || undefined })} />
+          Show shares (%) instead of amounts
+        </label>
+      ) : null}
       {isChart && (widget.data?.query?.groupBy ?? []).some((g) => g.bucket) ? (
         <label className="lens-check" title="The dashboard's annotations — set them under Annotations in the dashboard's toolbar">
           <input type="checkbox" checked={display.annotations !== false} onChange={(event) => setDisplay({ annotations: event.target.checked ? undefined : false })} />
