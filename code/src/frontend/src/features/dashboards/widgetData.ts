@@ -1,7 +1,14 @@
 import type { DashboardWidget } from "../../api/dashboards";
-import type { AggregationQuery, QueryBucket, QueryFilter, QueryResult, QueryRow } from "../../api/query";
+import type { AggregationQuery, QueryBucket, QueryFilter, QueryMeasure, QueryResult, QueryRow } from "../../api/query";
 import { formatKindForType, toNumber, type NumberFormatKind } from "../../lib/format";
 import type { ResolvedRange } from "./dateRange";
+
+const RUNNING_SUM = /^\s*=?\s*RUNNING_SUM\s*\(/i;
+
+/** A running total: the flag, or a formula wrapped in RUNNING_SUM(…). */
+export function isRunningMeasure(measure: QueryMeasure): boolean {
+  return Boolean(measure.running) || (typeof measure.formula === "string" && RUNNING_SUM.test(measure.formula));
+}
 
 /** Adds the dashboard's date range to a query's filter on `dateColumn`. */
 export function rangeFilter(dateColumn: string | null | undefined, range: ResolvedRange): QueryFilter | undefined {
@@ -132,7 +139,7 @@ export function toChartModel(
   const measures = result.meta.columns.filter((c) => c.role === "measure");
   const labelFor = (group: string) => result.meta.columns.find((c) => c.role === "label" && c.labelOf === group)?.name;
   const format = formatOverride ?? formatKindForType(measures[0]?.type);
-  const running = new Set((query?.measures ?? []).filter((m) => m.running).map((m) => m.name));
+  const running = new Set((query?.measures ?? []).filter(isRunningMeasure).map((m) => m.name));
 
   if (groups.length === 0) {
     const row = result.data[0] ?? {};

@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.6 — Formulas In Widgets & Time Series](working-steps/3.6-formula-measures.md)
+
+Widget values and dashboard variables can be formulas over many rows, and charts can show values at the end of each period.
+
+**Highlights:**
+- Formula values: `SUM(amount WHERE amount > 0)`, a savings rate per month with its trend against last month, `RUNNING_SUM(…)`
+- "Value at the end of each period": balances and net worth per month with `BUCKET_END()` and `LOOKUP_ASOF` for prices at that time
+- Dashboard variables such as `burn_rate` and `runway`, shown in key figures and usable in widget formulas
+- `POST /api/v1/query` measures with `formula`, `asOf` and `variables`; `POST /api/v1/query/variables`
+
 ### 2026-10-04 — Computed Columns With Live Values
 
 > **Phase**: Phase 3 — Visualization

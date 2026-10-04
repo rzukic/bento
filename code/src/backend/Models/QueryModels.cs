@@ -20,6 +20,27 @@ public sealed record AggregationQueryRequest
     /// <summary>Output names (group columns or measures); a leading "-" sorts descending.</summary>
     public IReadOnlyList<string>? Sort { get; init; }
     public int? Limit { get; init; }
+
+    /// <summary>
+    /// Values at the end of each period (Step 3.6): one row per period of the
+    /// calendar, the measures computed over all rows with BUCKET_START() and
+    /// BUCKET_END() — e.g. a balance as SUM(amount WHERE booked_on &lt;= BUCKET_END()).
+    /// </summary>
+    public QueryAsOf? AsOf { get; init; }
+
+    /// <summary>Dashboard variables (name → number, text or yes/no) usable in measure formulas.</summary>
+    public Dictionary<string, JsonElement>? Variables { get; init; }
+}
+
+public sealed record QueryAsOf
+{
+    /// <summary>day, week, month, quarter or year.</summary>
+    public string? Bucket { get; init; }
+    /// <summary>First and last day of the calendar (yyyy-MM-dd).</summary>
+    public string? From { get; init; }
+    public string? To { get; init; }
+    /// <summary>Output name of the period; defaults to "period".</summary>
+    public string? As { get; init; }
 }
 
 public sealed record QueryGroupBy
@@ -35,6 +56,11 @@ public sealed record QueryMeasure
 {
     /// <summary>Output name.</summary>
     public string? Name { get; init; }
+    /// <summary>
+    /// A formula over the group's rows instead of fn/column (Step 3.6), e.g.
+    /// <c>SUM(amount WHERE amount &gt; 0) / COUNT()</c>; <c>RUNNING_SUM(…)</c> makes it a running total.
+    /// </summary>
+    public string? Formula { get; init; }
     /// <summary>count, sum, avg, min, max or count_distinct.</summary>
     public string? Fn { get; init; }
     public string? Column { get; init; }
@@ -80,3 +106,22 @@ public sealed record SavedQueryResponse(
     JsonElement Query,
     string CreatedAt,
     string UpdatedAt);
+
+// ── Dashboard variables ──
+
+public sealed record QueryVariable
+{
+    public string? Name { get; init; }
+    /// <summary>The table a measure formula runs over; none = a formula over other variables.</summary>
+    public string? Source { get; init; }
+    public string? Formula { get; init; }
+    /// <summary>Filters for the source rows (e.g. the dashboard's date range).</summary>
+    public JsonElement? Filter { get; init; }
+}
+
+public sealed record QueryVariablesRequest
+{
+    public IReadOnlyList<QueryVariable>? Variables { get; init; }
+}
+
+public sealed record QueryVariableResult(string Name, string? Type, object? Value, string? Error);

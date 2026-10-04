@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { valueTypeOf } from "../../lib/columns";
 import { createPortal } from "react-dom";
-import type { DashboardWidget, WidgetDisplay, WidgetType } from "../../api/dashboards";
+import type { DashboardVariable, DashboardWidget, WidgetDisplay, WidgetType } from "../../api/dashboards";
+import { MeasureFormulaField } from "../formulas/MeasureFormulaField";
+import { variableValues, type VariableResults } from "./formulaQueries";
 import { listSavedQueries, type AggregationQuery, type QueryBucket, type QueryFunction, type QueryMeasure, type SavedQuery } from "../../api/query";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
-import type { ModelColumn, ModelTable } from "../../types/api";
+import type { ModelColumn, ModelSnapshot, ModelTable } from "../../types/api";
 import { WIDGET_LABELS, dataTables, defaultQuery } from "./starter";
 
 const BUCKETS: { value: QueryBucket; label: string }[] = [
@@ -87,17 +89,34 @@ function Select({ label, value, onChange, children, className }: { label: string
   );
 }
 
+/** A plain measure as the formula it stands for (formulas are needed by period end). */
+function measureAsFormula(measure: QueryMeasure, dateColumn: string | null): string {
+  if (measure.formula) return measure.formula;
+  const until = dateColumn ? ` WHERE ${dateColumn} <= BUCKET_END()` : "";
+  const fn = measure.fn === "count_distinct" ? "COUNT" : (measure.fn ?? "sum").toUpperCase();
+  return measure.column && fn !== "COUNT" ? `${fn}(${measure.column}${until})` : `COUNT(${until.trim()})`;
+}
+
 export function WidgetEditor({
   widget,
   tables,
+  snapshot = null,
+  variables = [],
+  variableResults,
   onChange,
   onClose,
 }: {
   widget: DashboardWidget;
   tables: ModelTable[];
+  /** The schema with relations, for formula completions. */
+  snapshot?: ModelSnapshot | null;
+  /** The dashboard's variables: KPI cards can show one, formulas can use them. */
+  variables?: DashboardVariable[];
+  variableResults?: VariableResults;
   onChange: (widget: DashboardWidget) => void;
   onClose: () => void;
 }) {
+  const values = useMemo(() => variableValues(variableResults), [variableResults]);
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   useEffect(() => {
     listSavedQueries().then(setSaved).catch(() => setSaved([]));
@@ -126,6 +145,8 @@ export function WidgetEditor({
 
   const groups = query?.groupBy ?? [];
   const measures = query?.measures ?? [];
+  const asOf = Boolean(widget.data?.asOf);
+  const dateGroup = groups.find((g) => g.bucket);
   const filterRows = filterToRows(query?.filter);
   const hasDateGroup = groups.some((g) => g.bucket);
   const outputs = [...groups.map((g) => g.as ?? g.column), ...measures.map((m) => m.name)];
@@ -149,6 +170,10 @@ export function WidgetEditor({
     if (!query) return;
     const next = measures.map((m, i) => (i === index ? { ...m, ...patch } : m));
     const measure = next[index];
+    if (measure.formula !== undefined) {
+      delete measure.fn;
+      delete measure.column;
+    }
     if (measure.fn === "count" && patch.fn) delete measure.column;
     if (measure.fn !== "sum" && measure.fn !== "count") {
       delete measure.running;
@@ -205,9 +230,10 @@ export function WidgetEditor({
           <>
             <Select
               label="Data from"
-              value={savedId !== undefined ? `saved:${savedId}` : query ? `table:${query.source}` : ""}
+              value={widget.data?.variable ? `var:${widget.data.variable}` : savedId !== undefined ? `saved:${savedId}` : query ? `table:${query.source}` : ""}
               onChange={(value) => {
-                if (value.startsWith("saved:")) set({ data: { savedQueryId: Number(value.slice(6)), dateColumn: widget.data?.dateColumn } });
+                if (value.startsWith("var:")) set({ data: { variable: value.slice(4) } });
+                else if (value.startsWith("saved:")) set({ data: { savedQueryId: Number(value.slice(6)), dateColumn: widget.data?.dateColumn } });
                 else {
                   const next = sources.find((t) => t.name === value.slice(6));
                   if (next) set({ data: { query: defaultQuery(widget.type, next) } });
@@ -233,7 +259,19 @@ export function WidgetEditor({
                   ))}
                 </optgroup>
               ) : null}
+              {widget.type === "kpi" && variables.length > 0 ? (
+                <optgroup label="Dashboard variable">
+                  {variables.map((v) => (
+                    <option key={v.name} value={`var:${v.name}`}>
+                      {v.label || v.name}
+                    </option>
+                  ))}
+                </optgroup>
+              ) : null}
             </Select>
+            {widget.data?.variable ? (
+              <p className="widget-editor__hint">Shows the variable's current value. Variables are edited under "Variables".</p>
+            ) : null}
 
             {query ? (
               <>
@@ -265,22 +303,61 @@ export function WidgetEditor({
                       </div>
                     );
                   })}
+                  {dateGroup ? (
+                    <div className="widget-editor__checks">
+                      <label title="Each period shows the value at its last day, e.g. a balance or net worth">
+                        <input
+                          type="checkbox"
+                          checked={asOf}
+                          onChange={(event) => {
+                            const on = event.target.checked;
+                            // By period end, values are formulas with BUCKET_END().
+                            const nextMeasures = on
+                              ? measures.map((m) => ({ name: m.name, formula: measureAsFormula(m, dateGroup.column) }))
+                              : measures;
+                            set({ data: { ...widget.data, asOf: on || undefined, query: { ...query, measures: nextMeasures } } });
+                          }}
+                        />
+                        Value at the end of each period
+                      </label>
+                    </div>
+                  ) : null}
+                  {asOf ? (
+                    <p className="widget-editor__hint">
+                      The range sets the periods; each value is computed over all rows with BUCKET_END(), the period's last day.
+                    </p>
+                  ) : null}
                 </section>
 
                 <section className="widget-editor__section">
                   <h3>Values</h3>
                   {measures.map((measure, index) => {
                     const candidates = measure.fn === "sum" || measure.fn === "avg" ? columns.filter(isNumberColumn) : columns;
+                    const isFormula = measure.formula !== undefined;
                     return (
                       <div key={index} className="widget-editor__measure">
                         <div className="widget-editor__row">
-                          <Select label="Function" value={measure.fn} onChange={(value) => updateMeasure(index, { fn: value as QueryFunction, column: value === "count" ? undefined : (measure.column ?? candidates[0]?.name) })}>
+                          <Select
+                            label="Function"
+                            value={isFormula ? "formula" : (measure.fn ?? "sum")}
+                            onChange={(value) => {
+                              if (value === "formula") {
+                                const next = { name: measure.name, formula: measureAsFormula(measure, asOf ? (dateGroup?.column ?? null) : null) };
+                                setQuery({ ...query, measures: measures.map((m, i) => (i === index ? next : m)) });
+                              } else {
+                                const next = { name: measure.name, fn: value as QueryFunction, column: value === "count" ? undefined : (measure.column ?? candidates[0]?.name) };
+                                setQuery({ ...query, measures: measures.map((m, i) => (i === index ? next : m)) });
+                              }
+                            }}
+                          >
                             {FUNCTIONS.map((f) => (
-                              <option key={f.value} value={f.value}>
+                              <option key={f.value} value={f.value} disabled={asOf}>
                                 {f.label}
                               </option>
                             ))}
+                            <option value="formula">Formula…</option>
                           </Select>
+                          {isFormula ? null : (
                           <Select label="Of" value={measure.column ?? ""} onChange={(value) => updateMeasure(index, { column: value || undefined })}>
                             {measure.fn === "count" ? <option value="">Rows</option> : null}
                             {candidates.map((c) => (
@@ -289,6 +366,7 @@ export function WidgetEditor({
                               </option>
                             ))}
                           </Select>
+                          )}
                           <Button
                             type="button"
                             variant="ghost"
@@ -300,6 +378,20 @@ export function WidgetEditor({
                             <Icon name="trash" size={13} />
                           </Button>
                         </div>
+                        {isFormula ? (
+                          <div className="widget-editor__field">
+                            <span className="widget-editor__label">Formula</span>
+                            <MeasureFormulaField
+                              table={query.source}
+                              snapshot={snapshot}
+                              value={measure.formula ?? ""}
+                              onChange={(formula) => updateMeasure(index, { formula })}
+                              asOf={asOf}
+                              variables={values}
+                              ariaLabel={`Formula of ${measure.name}`}
+                            />
+                          </div>
+                        ) : null}
                         <label className="widget-editor__field">
                           <span className="widget-editor__label">Name</span>
                           <input
@@ -333,7 +425,9 @@ export function WidgetEditor({
                     onClick={() => {
                       const number = columns.find(isNumberColumn);
                       const name = outputs.includes("value") ? `value_${measures.length + 1}` : "value";
-                      setQuery({ ...query, measures: [...measures, number ? { name, fn: "sum", column: number.name } : { name, fn: "count" }] });
+                      const plain: QueryMeasure = number ? { name, fn: "sum", column: number.name } : { name, fn: "count" };
+                      const added = asOf ? { name, formula: measureAsFormula(plain, dateGroup?.column ?? null) } : plain;
+                      setQuery({ ...query, measures: [...measures, added] });
                     }}
                   >
                     Add value
@@ -439,7 +533,7 @@ export function WidgetEditor({
               </>
             ) : null}
 
-            {table ? (
+            {table && !asOf ? (
               <Select
                 label="Date range filters"
                 value={widget.data?.dateColumn === null ? "__none" : (widget.data?.dateColumn ?? "")}

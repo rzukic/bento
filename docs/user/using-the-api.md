@@ -318,6 +318,23 @@ curl -fsS "$API_ROOT/query" -H "Authorization: Bearer $TOKEN" -H "Content-Type: 
 - `fn` is `count`, `sum`, `avg`, `min`, `max` or `count_distinct`
 - `"running": true` turns a sum or count into a running total over the date group; add `"carryIn": true` to start from the rows before the date range — a balance from September on then starts at the end-of-August balance
 
+A measure can be a formula over the rows of each group instead of `fn`/`column`, and `asOf` computes values at the end of each period:
+
+```bash
+curl -fsS "$API_ROOT/query" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{
+  "source": "transactions",
+  "groupBy": [ { "column": "booked_on", "bucket": "month", "as": "month" } ],
+  "measures": [
+    { "name": "savings_rate", "formula": "(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)" },
+    { "name": "balance", "formula": "RUNNING_SUM(SUM(amount))" }
+  ]
+}'
+```
+
+- `"asOf": { "bucket": "month", "from": "2025-01-01", "to": "2026-09-30", "as": "month" }` returns one row per month; measures are formulas over all rows with `BUCKET_START()`/`BUCKET_END()`, e.g. `SUM(amount WHERE booked_on <= BUCKET_END())`
+- `"variables": { "months": 3 }` makes values usable by name in formulas
+- `POST $API_ROOT/query/variables` with `{ "variables": [ { "name": "spent", "source": "transactions", "formula": "-SUM(amount WHERE amount < 0)", "filter": { … } }, { "name": "burn_rate", "formula": "spent / 3" } ] }` evaluates dashboard variables in dependency order and returns each one's `value` and `type`, or its `error`
+
 Save a query to run it again (also from dashboards later): `POST $API_ROOT/queries` with `{ "name": "Monthly spending", "isShared": true, "query": { … } }`, then `POST $API_ROOT/queries/<id>/run`, optionally with `{ "filter": { … } }` to narrow it further. `GET $API_ROOT/queries` lists your queries and shared ones; only the owner changes or deletes a query.
 
 ---

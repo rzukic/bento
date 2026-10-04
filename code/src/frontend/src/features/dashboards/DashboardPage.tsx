@@ -11,6 +11,7 @@ import {
   type WidgetType,
 } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
+import { evaluateVariables } from "../../api/query";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -20,6 +21,8 @@ import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
 import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
+import { variableRequests, type VariableResults } from "./formulaQueries";
+import { VariablesEditor } from "./VariablesEditor";
 import { WidgetEditor } from "./WidgetEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
 import "./Dashboards.css";
@@ -49,6 +52,8 @@ export function DashboardPage() {
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [draft, setDraft] = useState<{ name: string; isShared: boolean; document: DashboardDocument } | null>(null);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
+  const [variablesOpen, setVariablesOpen] = useState(false);
+  const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -109,6 +114,37 @@ export function DashboardPage() {
 
   const tables = useMemo(() => snapshot?.tables ?? [], [snapshot]);
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
+  const variables = useMemo(() => document?.variables ?? [], [document]);
+  const variablesKey = JSON.stringify(variables);
+
+  // Variables are evaluated together (they may use each other), with the
+  // range on their date column; while editing, after a pause in typing.
+  useEffect(() => {
+    const definitions = JSON.parse(variablesKey) as typeof variables;
+    if (definitions.length === 0) {
+      setVariableResults({});
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(
+      () => {
+        evaluateVariables(variableRequests(definitions, resolved))
+          .then((results) => {
+            if (!cancelled) setVariableResults(Object.fromEntries(results.map((r) => [r.name, r])));
+          })
+          .catch((cause) => {
+            if (cancelled) return;
+            const error = cause instanceof ApiClientError ? cause.message : "The variables could not be computed.";
+            setVariableResults(Object.fromEntries(definitions.map((d) => [d.name, { name: d.name, type: null, value: null, error }])));
+          });
+      },
+      editing ? 400 : 0,
+    );
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [editing, refreshToken, resolved, variablesKey]);
   const layout: LayoutItem[] = useMemo(() => widgets.map((w) => ({ id: w.id, ...w.position })), [widgets]);
   const editingWidget = widgets.find((w) => w.id === editingWidgetId) ?? null;
 
@@ -282,6 +318,7 @@ export function DashboardPage() {
                     onClick={() => {
                       setDraft(null);
                       setEditingWidgetId(null);
+                      setVariablesOpen(false);
                     }}
                   >
                     Cancel
@@ -321,6 +358,18 @@ export function DashboardPage() {
               </div>
             ) : null}
           </div>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="sparkles" size={13} />}
+            aria-expanded={variablesOpen}
+            onClick={() => {
+              setVariablesOpen((open) => !open);
+              setEditingWidgetId(null);
+            }}
+          >
+            Variables{variables.length > 0 ? ` (${variables.length})` : ""}
+          </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
       ) : null}
@@ -347,7 +396,7 @@ export function DashboardPage() {
                   <h2 className="widget-frame__title">{widget.title}</h2>
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => setEditingWidgetId(widget.id)}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -366,7 +415,7 @@ export function DashboardPage() {
                   ) : null}
                 </header>
                 <div className={`widget-frame__body widget-frame__body--${widget.type}`}>
-                  <WidgetContent widget={widget} range={resolved} refreshToken={refreshToken} tokens={tokens} />
+                  <WidgetContent widget={widget} range={resolved} refreshToken={refreshToken} tokens={tokens} variables={variableResults} />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}
               </article>
@@ -376,7 +425,25 @@ export function DashboardPage() {
       )}
 
       {editing && editingWidget ? (
-        <WidgetEditor widget={editingWidget} tables={tables} onChange={setWidget} onClose={() => setEditingWidgetId(null)} />
+        <WidgetEditor
+          widget={editingWidget}
+          tables={tables}
+          snapshot={snapshot}
+          variables={variables}
+          variableResults={variableResults}
+          onChange={setWidget}
+          onClose={() => setEditingWidgetId(null)}
+        />
+      ) : null}
+      {editing && variablesOpen ? (
+        <VariablesEditor
+          variables={variables}
+          tables={dataTables(tables)}
+          snapshot={snapshot}
+          results={variableResults}
+          onChange={(next) => updateDocument((doc) => ({ ...doc, variables: next.length > 0 ? next : undefined }))}
+          onClose={() => setVariablesOpen(false)}
+        />
       ) : null}
     </div>
   );

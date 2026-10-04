@@ -10,6 +10,8 @@ export type FormulaValidation = {
   errors: FormulaError[];
   /** The columns the formula reads. */
   columns: string[];
+  /** Measures: wrapped in RUNNING_SUM(…). */
+  running?: boolean;
 };
 
 export type FormulaPreviewRow = {
@@ -43,6 +45,12 @@ export type FormulaRequest = {
   columns?: unknown[];
   /** Validate only: the whole drafted Model JSON (other tables and links too). */
   model?: unknown;
+  /** Validate only: "measure" for dashboard measures (aggregates over the group's rows). */
+  mode?: "row" | "measure";
+  /** Measures: a query by period end (BUCKET_START()/BUCKET_END()). */
+  asOf?: boolean;
+  /** Measures: dashboard variables with their current values. */
+  variables?: Record<string, number | string | boolean | null>;
   limit?: number;
 };
 

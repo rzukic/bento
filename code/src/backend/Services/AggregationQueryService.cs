@@ -46,11 +46,16 @@ public sealed class AggregationQueryService
 
     private sealed record Group(ColumnDef Column, string? Bucket, string Output, string Expression, string? LabelOutput, string? LabelExpression, string? Join);
 
-    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression);
+    /// <param name="Fn">count, sum, … or "formula" (then <paramref name="Type"/> is the formula's result).</param>
+    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null);
+
+    /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
+    private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods);
 
     private sealed record Plan(
         TableDef Table,
         IReadOnlyDictionary<string, ComputedColumn> Computed,
+        Calendar? Calendar,
         List<FilterClause> Filters,
         List<Group> Groups,
         List<Measure> Measures,
@@ -58,11 +63,17 @@ public sealed class AggregationQueryService
         int Limit);
 
     /// <summary>Checks a query against the schema without running it (saved queries are validated on save).</summary>
-    public void Validate(AggregationQueryRequest request) => Resolve(request, null);
+    public void Validate(AggregationQueryRequest request) => Resolve(request, null, null);
 
     public async Task<AggregationQueryResponse> RunAsync(AggregationQueryRequest request, JsonElement? extraFilter = null)
+        => await RunAsync(request, extraFilter, null);
+
+    private async Task<AggregationQueryResponse> RunAsync(
+        AggregationQueryRequest request,
+        JsonElement? extraFilter,
+        IReadOnlyDictionary<string, FormulaValue>? variables)
     {
-        var plan = Resolve(request, extraFilter);
+        var plan = Resolve(request, extraFilter, variables);
         await using var scope = await _queryService.UseDataAsync();
 
         var (sql, parameters) = BuildSql(plan, scope);
@@ -83,7 +94,7 @@ public sealed class AggregationQueryService
         return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated));
     }
 
-    private Plan Resolve(AggregationQueryRequest request, JsonElement? extraFilter)
+    private Plan Resolve(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables)
     {
         if (string.IsNullOrWhiteSpace(request.Source))
             throw Invalid("source", "Choose a table to query.");
@@ -92,6 +103,7 @@ public sealed class AggregationQueryService
                 new Dictionary<string, object?> { ["field"] = "source", ["table"] = request.Source });
 
         // Computed columns take part like stored ones, typed by their result.
+        var source = table;
         var computed = _computed.For(table);
         table = table with
         {
@@ -105,6 +117,17 @@ public sealed class AggregationQueryService
 
         var outputs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var groups = new List<Group>();
+        var calendar = request.AsOf is null ? null : ResolveCalendar(request.AsOf, outputs);
+        if (calendar is not null)
+        {
+            var period = new ColumnDef { Name = calendar.Output, Type = ColumnType.Date, TypeSpecified = true };
+            groups.Add(new Group(period, calendar.Bucket, calendar.Output, $"b.{Q("label")}", null, null, null));
+        }
+        var context = new FormulaContext
+        {
+            BucketAlias = calendar is null ? null : "b",
+            Variables = variables ?? ResolveVariables(request.Variables)
+        };
         var joinIndex = 0;
         foreach (var (spec, index) in (request.GroupBy ?? []).Select((g, i) => (g, i)))
         {
@@ -144,9 +167,17 @@ public sealed class AggregationQueryService
         foreach (var (spec, index) in (request.Measures ?? []).Select((m, i) => (m, i)))
         {
             var path = $"measures[{index}]";
+            if (!string.IsNullOrWhiteSpace(spec.Formula))
+            {
+                measures.Add(FormulaMeasure(spec, path, source, context, groups, outputs));
+                continue;
+            }
+            if (calendar is not null)
+                throw Invalid($"{path}.formula", "Values at the end of each period need a formula, e.g. SUM(amount WHERE booked_on <= BUCKET_END()).");
+
             var fn = spec.Fn?.Trim().ToLowerInvariant() ?? "";
             if (!Functions.Contains(fn))
-                throw Invalid($"{path}.fn", $"Unknown function '{spec.Fn}'; use count, sum, avg, min, max or count_distinct.");
+                throw Invalid($"{path}.fn", $"Unknown function '{spec.Fn}'; use count, sum, avg, min, max or count_distinct, or a formula.");
 
             ColumnDef? column = null;
             if (fn != "count" || !string.IsNullOrWhiteSpace(spec.Column))
@@ -195,7 +226,218 @@ public sealed class AggregationQueryService
         if (limit < 1 || limit > MaxLimit)
             throw Invalid("limit", $"limit must be between 1 and {MaxLimit}.");
 
-        return new Plan(table, computed, filters, groups, measures, sort, limit);
+        return new Plan(table, computed, calendar, filters, groups, measures, sort, limit);
+    }
+
+    /// <summary>A measure given as a formula over the group's rows.</summary>
+    private Measure FormulaMeasure(QueryMeasure spec, string path, TableDef source, FormulaContext context, List<Group> groups, HashSet<string> outputs)
+    {
+        var schema = FormulaSchema.From(_schemaCache.Current);
+        var (check, running) = FormulaCompiler.CompileMeasure(spec.Formula!, source, schema, _dbConfig.Provider, "t", context);
+        if (!check.IsValid)
+        {
+            var error = check.Errors[0];
+            throw new ApiValidationException($"{error.Message}", new Dictionary<string, object?>
+            {
+                ["field"] = $"{path}.formula",
+                ["errors"] = check.Errors.Select(e => new FormulaErrorResponse(e.Message, e.Start, e.End)).ToList()
+            });
+        }
+
+        running |= spec.Running;
+        if (running && groups.Count(g => g.Bucket is not null) != 1)
+            throw Invalid($"{path}.running", "Running totals need exactly one date group (day, week, month, quarter or year).");
+        if (spec.CarryIn && !running)
+            throw Invalid($"{path}.carryIn", "carryIn only applies to running totals.");
+        if (spec.CarryIn && context.BucketAlias is not null)
+            throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
+
+        var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type);
+    }
+
+    private const int MaxPeriods = 1000;
+
+    private static Calendar ResolveCalendar(QueryAsOf asOf, HashSet<string> outputs)
+    {
+        var bucket = asOf.Bucket?.Trim().ToLowerInvariant();
+        if (bucket is null || !Buckets.Contains(bucket))
+            throw Invalid("asOf.bucket", "Choose the period: day, week, month, quarter or year.");
+        if (!DateOnly.TryParseExact(asOf.From?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
+            throw Invalid("asOf.from", "asOf.from must be a date (yyyy-MM-dd).");
+        if (!DateOnly.TryParseExact(asOf.To?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var to))
+            throw Invalid("asOf.to", "asOf.to must be a date (yyyy-MM-dd).");
+        if (to < from)
+            throw Invalid("asOf.to", "asOf.to is before asOf.from.");
+
+        DateOnly Start(DateOnly day) => bucket switch
+        {
+            "day" => day,
+            "week" => day.AddDays(-(((int)day.DayOfWeek + 6) % 7)),
+            "month" => new DateOnly(day.Year, day.Month, 1),
+            "quarter" => new DateOnly(day.Year, (day.Month - 1) / 3 * 3 + 1, 1),
+            _ => new DateOnly(day.Year, 1, 1)
+        };
+        DateOnly Next(DateOnly start) => bucket switch
+        {
+            "day" => start.AddDays(1),
+            "week" => start.AddDays(7),
+            "month" => start.AddMonths(1),
+            "quarter" => start.AddMonths(3),
+            _ => start.AddYears(1)
+        };
+
+        var periods = new List<(DateOnly, DateOnly)>();
+        for (var start = Start(from); start <= to; start = Next(start))
+        {
+            if (periods.Count == MaxPeriods)
+                throw Invalid("asOf", $"At most {MaxPeriods} periods; choose a longer period or a shorter range.");
+            periods.Add((start, Next(start).AddDays(-1)));
+        }
+        return new Calendar(bucket, Output(asOf.As ?? "period", outputs, "asOf.as"), periods);
+    }
+
+    /// <summary>Variables sent with a query: numbers, text and yes/no as formula constants.</summary>
+    internal static IReadOnlyDictionary<string, FormulaValue>? ResolveVariables(Dictionary<string, JsonElement>? variables)
+    {
+        if (variables is null || variables.Count == 0)
+            return null;
+        var result = new Dictionary<string, FormulaValue>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (name, value) in variables)
+        {
+            result[name] = value.ValueKind switch
+            {
+                JsonValueKind.Number when value.TryGetInt64(out var whole) => new FormulaValue(FormulaType.Integer, whole),
+                JsonValueKind.Number => new FormulaValue(FormulaType.Number, value.GetDecimal()),
+                JsonValueKind.True or JsonValueKind.False => new FormulaValue(FormulaType.Boolean, value.GetBoolean()),
+                JsonValueKind.String => new FormulaValue(FormulaType.Text, value.GetString()),
+                JsonValueKind.Null => new FormulaValue(FormulaType.Null, null),
+                _ => throw Invalid($"variables.{name}", "A variable is a number, text, yes/no or empty.")
+            };
+        }
+        return result;
+    }
+
+    /// <summary>The periods as a derived table b(label, bucket, bucket_end), typed per provider.</summary>
+    private string CalendarSql(Calendar calendar)
+    {
+        string Day(DateOnly day) => IsPostgres ? $"DATE '{day:yyyy-MM-dd}'" : $"'{day:yyyy-MM-dd}'";
+        return string.Join(" UNION ALL ", calendar.Periods.Select(p =>
+            $"SELECT '{p.Start:yyyy-MM-dd}' AS {Q("label")}, {Day(p.Start)} AS {Q("bucket")}, {Day(p.End)} AS {Q("bucket_end")}"));
+    }
+
+    // ── Dashboard variables ─────────────────────────────────────────────
+
+    public const int MaxVariables = 50;
+
+    /// <summary>
+    /// Evaluates dashboard variables (Part 9 R9.10) in dependency order: a
+    /// variable with a source table is a measure over its rows (no groups),
+    /// one without is a formula over other variables (<c>cash / burn_rate</c>).
+    /// A broken variable gets an error; the others still get values.
+    /// </summary>
+    public async Task<IReadOnlyList<QueryVariableResult>> EvaluateVariablesAsync(QueryVariablesRequest request)
+    {
+        var definitions = request.Variables ?? [];
+        if (definitions.Count > MaxVariables)
+            throw Invalid("variables", $"A dashboard has at most {MaxVariables} variables.");
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (definition, index) in definitions.Select((d, i) => (d, i)))
+        {
+            var name = definition.Name?.Trim() ?? "";
+            if (!System.Text.RegularExpressions.Regex.IsMatch(name, "^[A-Za-z_][A-Za-z0-9_]*$"))
+                throw Invalid($"variables[{index}].name", "A variable name uses letters, digits and _ and starts with a letter, e.g. burn_rate.");
+            if (!names.Add(name))
+                throw Invalid($"variables[{index}].name", $"The variable '{name}' appears twice.");
+        }
+
+        // Which variables each formula uses, from its syntax tree.
+        var uses = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var syntaxErrors = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var definition in definitions)
+        {
+            var name = definition.Name!.Trim();
+            try
+            {
+                var root = FormulaParser.Parse(definition.Formula ?? "");
+                uses[name] = FormulaNodes.Names(root).Where(n => names.Contains(n) && !string.Equals(n, name, StringComparison.OrdinalIgnoreCase)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                if (FormulaNodes.Names(root).Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)) && string.IsNullOrWhiteSpace(definition.Source))
+                    syntaxErrors[name] = $"Circular reference: {name} → {name}.";
+            }
+            catch (FormulaSyntaxException e)
+            {
+                uses[name] = [];
+                syntaxErrors[name] = e.Error.Message;
+            }
+        }
+
+        var values = new Dictionary<string, FormulaValue>(StringComparer.OrdinalIgnoreCase);
+        var results = new Dictionary<string, QueryVariableResult>(StringComparer.OrdinalIgnoreCase);
+        var pending = definitions.Select(d => d.Name!.Trim()).ToList();
+        while (pending.Count > 0)
+        {
+            var ready = pending.FirstOrDefault(n => uses[n].All(results.ContainsKey));
+            if (ready is null)
+            {
+                foreach (var name in pending)
+                    results[name] = new QueryVariableResult(name, null, null, $"Circular reference between {string.Join(", ", pending)}.");
+                break;
+            }
+            pending.Remove(ready);
+            var definition = definitions.First(d => string.Equals(d.Name!.Trim(), ready, StringComparison.OrdinalIgnoreCase));
+
+            var broken = uses[ready].FirstOrDefault(n => results[n].Error is not null);
+            if (syntaxErrors.TryGetValue(ready, out var syntax))
+                results[ready] = new QueryVariableResult(ready, null, null, syntax);
+            else if (broken is not null)
+                results[ready] = new QueryVariableResult(ready, null, null, $"'{broken}' has an error.");
+            else
+                results[ready] = await EvaluateVariableAsync(ready, definition, values);
+
+            if (results[ready] is { Error: null } ok && FormulaTypes.FromName(ok.Type) is { } type)
+                values[ready] = new FormulaValue(type, ok.Value is null ? null : ok.Value switch
+                {
+                    decimal or long or bool or string => ok.Value,
+                    _ => System.Convert.ToString(ok.Value, CultureInfo.InvariantCulture)
+                });
+        }
+        return definitions.Select(d => results[d.Name!.Trim()]).ToList();
+    }
+
+    private async Task<QueryVariableResult> EvaluateVariableAsync(string name, QueryVariable definition, IReadOnlyDictionary<string, FormulaValue> values)
+    {
+        try
+        {
+            if (!string.IsNullOrWhiteSpace(definition.Source))
+            {
+                var result = await RunAsync(new AggregationQueryRequest
+                {
+                    Source = definition.Source,
+                    Filter = definition.Filter,
+                    Measures = [new QueryMeasure { Name = "value", Formula = definition.Formula }]
+                }, null, values);
+                var column = result.Meta.Columns.Single();
+                return new QueryVariableResult(name, column.Type, result.Data.FirstOrDefault()?["value"], null);
+            }
+
+            var table = new TableDef { Name = "__variables", DisplayName = "the dashboard variables" };
+            var check = FormulaCompiler.Compile(definition.Formula ?? "", table, FormulaSchema.From(_schemaCache.Current), _dbConfig.Provider,
+                context: new FormulaContext { Variables = values });
+            if (!check.IsValid)
+                return new QueryVariableResult(name, null, null, check.Errors[0].Message);
+
+            await using var scope = await _queryService.UseDataAsync();
+            var raw = await scope.Db.Connection.ExecuteScalarAsync($"SELECT {check.Result!.Sql} AS {Q("value")}");
+            return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
+        }
+        catch (ApiException e)
+        {
+            return new QueryVariableResult(name, null, null, e.Message);
+        }
+        catch (System.Data.Common.DbException e)
+        {
+            return new QueryVariableResult(name, null, null, $"The formula could not be computed: {e.Message}");
+        }
     }
 
     private static ColumnDef RequireColumn(TableDef table, string? name, string path)
@@ -319,9 +561,16 @@ public sealed class AggregationQueryService
             select.Add($"{measure.Expression} AS {Q(measure.Running ? $"__r{i}" : measure.Output)}");
         }
 
+        // The period's days are fixed per label; grouping by them lets measures use BUCKET_END() anywhere.
+        if (plan.Calendar is not null)
+            groupBy.AddRange([$"b.{Q("bucket")}", $"b.{Q("bucket_end")}"]);
+
         var grouped = new StringBuilder()
             .Append("SELECT ").Append(string.Join(", ", select))
-            .Append(" FROM (").Append(inner).Append(") t");
+            .Append(" FROM ");
+        if (plan.Calendar is not null)
+            grouped.Append('(').Append(CalendarSql(plan.Calendar)).Append(") b CROSS JOIN ");
+        grouped.Append('(').Append(inner).Append(") t");
         foreach (var join in plan.Groups.Select(g => g.Join).Where(j => j is not null))
             grouped.Append(' ').Append(join);
         if (groupBy.Count > 0)
@@ -420,7 +669,7 @@ public sealed class AggregationQueryService
             if (measure.CarryIn && offsets is not null &&
                 offsets[measure.Output].TryGetValue(PartitionKey(partitions, row), out var offset))
                 value = (ResultValues.ToDecimal(value) ?? 0m) + offset;
-            shaped[measure.Output] = measure.Fn is "min" or "max" && value is not (null or DBNull) &&
+            shaped[measure.Output] = measure.Fn is "min" or "max" && value is not (null or DBNull) && measure.Column is not null &&
                                      plan.Computed.TryGetValue(measure.Column!.Name, out var formula)
                 ? ResultValues.Shape(value, formula.Type)
                 : ShapeMeasure(value, measure);
@@ -430,6 +679,8 @@ public sealed class AggregationQueryService
 
     private static object? ShapeMeasure(object? value, Measure measure)
     {
+        if (measure.Type is { } formulaType)
+            return ResultValues.Shape(value, formulaType);
         if (value is null or DBNull)
             return measure.Fn is "count" or "count_distinct" ? 0L : null;
         if (measure.Fn is "count" or "count_distinct")
@@ -459,6 +710,7 @@ public sealed class AggregationQueryService
         {
             var type = measure.Fn switch
             {
+                "formula" => FormulaTypes.Name(measure.Type!.Value),
                 "count" or "count_distinct" => "integer",
                 "avg" => measure.Column!.Type == ColumnType.Currency ? "currency" : "float",
                 _ => TypeName(measure.Column!.Type)

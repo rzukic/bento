@@ -28,12 +28,35 @@ Choose **Edit**:
 - The gear opens the widget's settings:
   - **Data from**: a table or a saved query
   - **Group by**: the axis or rows (dates per day, week, month, quarter or year) and an optional split into one series per value (e.g. spending per category per month)
-  - **Values**: sum, count, average, smallest, largest or distinct values of a column (computed columns too, e.g. a balance); for sums and counts over dates a **running total**, optionally **including earlier rows** (for balances)
+  - **Values**: sum, count, average, smallest, largest or distinct values of a column (computed columns too, e.g. a balance), or a **Formula…** over the rows of each group, such as a savings rate `(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)` — see [Formulas in dashboards](formulas.md#formulas-in-dashboards); for sums and counts over dates a **running total**, optionally **including earlier rows** (for balances)
   - **Only rows where**: conditions such as amount < 0
   - **Order** and **Limit** (e.g. the top 10)
   - **Date range filters**: which date column the dashboard range applies to, or none
   - **Display**: amounts, numbers, whole numbers or percent; stacked bars and areas; for key figures the comparison with the period before
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
+
+## Values At The End Of Each Period
+
+For a balance or net worth over time, check **Value at the end of each period** under Group by. Each month (or week, quarter, …) of the range then shows the value at its last day, computed over all rows with `BUCKET_END()`:
+
+- balance: `SUM(amount WHERE booked_on <= BUCKET_END())`
+- net worth from accounts with a depot: `SUM(opening_balance + SUM(transactions.amount WHERE transactions.booked_on <= BUCKET_END()) + SUM(holdings.shares * LOOKUP_ASOF("prices", "ticker", holdings.ticker, "date", BUCKET_END(), "price") WHERE holdings.bought_on <= BUCKET_END()))`
+
+Switching it on turns the widget's values into such formulas.
+
+## Variables
+
+In edit mode, **Variables** holds named values for the whole dashboard, e.g.:
+
+| Name | From | Formula |
+|---|---|---|
+| `spent` | Girokonto, date range on Buchungstag | `-SUM(betrag_eur WHERE betrag_eur < 0)` |
+| `months` | other variables | `3` |
+| `burn_rate` | other variables | `spent / months` |
+| `cash` | Girokonto | `SUM(betrag_eur)` |
+| `runway` | other variables | `cash / burn_rate` |
+
+Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable), and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
 
 ## Amounts
 

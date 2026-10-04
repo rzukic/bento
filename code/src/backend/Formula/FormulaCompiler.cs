@@ -12,6 +12,29 @@ public sealed record FormulaCheck(CompiledFormula? Result, IReadOnlyList<Formula
     public bool IsValid => Result is not null && Errors.Count == 0;
 }
 
+/// <summary>A dashboard variable's value, used as a constant in formulas.</summary>
+public sealed record FormulaValue(FormulaType Type, object? Value);
+
+/// <summary>Where a formula runs, beyond a single row of its table.</summary>
+public sealed record FormulaContext
+{
+    /// <summary>
+    /// A measure (Step 3.6): the outermost SUM/COUNT/AVG/MIN/MAX run over the
+    /// rows of a group (<c>SUM(amount WHERE amount &gt; 0)</c>); aggregates inside
+    /// them run over related rows as in row formulas.
+    /// </summary>
+    public bool Measure { get; init; }
+
+    /// <summary>The alias of the period in queries "as of" each period end: BUCKET_START()/BUCKET_END().</summary>
+    public string? BucketAlias { get; init; }
+
+    /// <summary>Dashboard variables by name, used where no column has that name.</summary>
+    public IReadOnlyDictionary<string, FormulaValue>? Variables { get; init; }
+}
+
+/// <summary>A compiled measure: <c>RUNNING_SUM(…)</c> around the whole formula makes it a running total.</summary>
+public sealed record MeasureCheck(FormulaCheck Check, bool Running);
+
 /// <summary>
 /// Type-checks a parsed formula against a table and compiles it into a SQL
 /// expression for SQLite or Postgres. Both providers must give the same
@@ -43,10 +66,11 @@ public sealed class FormulaCompiler
     private sealed record Scope(TableDef Table, string Alias);
 
     /// <summary>State shared by a formula and the computed columns it pulls in.</summary>
-    private sealed class Shared(FormulaSchema schema, bool pg)
+    private sealed class Shared(FormulaSchema schema, bool pg, FormulaContext context)
     {
         public FormulaSchema Schema { get; } = schema;
         public bool Pg { get; } = pg;
+        public FormulaContext Context { get; } = context;
         /// <summary>"table.column" of the computed columns being compiled, for cycle errors.</summary>
         public List<string> Chain { get; } = [];
         private int _aliases;
@@ -65,6 +89,8 @@ public sealed class FormulaCompiler
     private readonly Scope _root;
     private Scope _scope;
     private AggregateFrame? _aggregate;
+    /// <summary>Measures: inside an aggregate over the group's rows, where row values may be used.</summary>
+    private bool _inGroup;
     private readonly List<FormulaError> _errors = [];
     private readonly List<string> _columns = [];
 
@@ -87,12 +113,46 @@ public sealed class FormulaCompiler
         DatabaseProvider provider,
         string alias = "t",
         FormulaType? expected = null,
-        string? column = null)
+        string? column = null,
+        FormulaContext? context = null)
     {
-        var shared = new Shared(schema, provider == DatabaseProvider.Postgres);
+        var shared = new Shared(schema, provider == DatabaseProvider.Postgres, context ?? new FormulaContext());
         if (column is not null)
             shared.Chain.Add($"{table.Name}.{column}");
         return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected);
+    }
+
+    /// <summary>
+    /// A measure over the rows of a group (a widget's value per month, per
+    /// category, …). <c>RUNNING_SUM(…)</c> around the whole formula accumulates
+    /// it over the date group.
+    /// </summary>
+    public static MeasureCheck CompileMeasure(
+        string formula,
+        TableDef table,
+        FormulaSchema schema,
+        DatabaseProvider provider,
+        string alias = "t",
+        FormulaContext? context = null)
+    {
+        var shared = new Shared(schema, provider == DatabaseProvider.Postgres, (context ?? new FormulaContext()) with { Measure = true });
+        var compiler = new FormulaCompiler(shared, new Scope(table, alias));
+        FormulaNode root;
+        try
+        {
+            root = FormulaParser.Parse(formula ?? "");
+        }
+        catch (FormulaSyntaxException e)
+        {
+            return new MeasureCheck(new FormulaCheck(null, [e.Error]), false);
+        }
+
+        var running = root is FunctionCall { Arguments.Count: 1, HasWhere: false } call &&
+                      string.Equals(call.Name, "RUNNING_SUM", StringComparison.OrdinalIgnoreCase);
+        var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null);
+        if (running && check.Result is { } result && !FormulaTypes.IsNumeric(result.Type))
+            check = new FormulaCheck(null, [new FormulaError($"RUNNING_SUM needs a number, not {FormulaTypes.Describe(result.Type)}.", root.Start, root.End)]);
+        return new MeasureCheck(check, running);
     }
 
     private FormulaCheck Run(string? formula, FormulaType? expected)
@@ -106,7 +166,11 @@ public sealed class FormulaCompiler
         {
             return new FormulaCheck(null, [e.Error]);
         }
+        return RunNode(root, (formula ?? "").Length, expected);
+    }
 
+    private FormulaCheck RunNode(FormulaNode root, int length, FormulaType? expected)
+    {
         var expr = Bind(root);
         if (expr is null || _errors.Count > 0)
             return new FormulaCheck(null, _errors);
@@ -119,7 +183,7 @@ public sealed class FormulaCompiler
         {
             if (!Fits(type, target))
                 return new FormulaCheck(null, [new FormulaError(
-                    $"The formula gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, (formula ?? "").Length)]);
+                    $"The formula gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, length)]);
             sql = Convert(expr, target);
             type = target;
         }
@@ -155,6 +219,15 @@ public sealed class FormulaCompiler
         var name = reference.Path[0];
         var column = table.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
             ?? table.Columns.FirstOrDefault(c => string.Equals(c.DisplayName?.Trim(), name, StringComparison.OrdinalIgnoreCase));
+
+        if (column is null && reference.Path.Count == 1 && !reference.Bracketed &&
+            _shared.Context.Variables?.FirstOrDefault(v => string.Equals(v.Key, name, StringComparison.OrdinalIgnoreCase)) is { Key: not null } variable)
+            return Constant(variable.Value, reference);
+
+        // A measure sees the group, not single rows: row values only inside an aggregate.
+        if (_shared.Context.Measure && !_inGroup && ReferenceEquals(_scope, _root) &&
+            (column is not null || _shared.Schema.FindNavigation(table, name) is not null))
+            return Fail(reference, $"'{string.Join(".", reference.Path)}' differs from row to row; use it inside SUM(…), AVG(…), MIN(…), MAX(…) or COUNT(…).");
 
         if (reference.Path.Count > 1)
             return BindPath(reference, column);
@@ -214,7 +287,8 @@ public sealed class FormulaCompiler
             _columns.Add(column.Name);
 
         _shared.Chain.Add(key);
-        var check = new FormulaCompiler(_shared, _scope).Run(column.Formula, FormulaTypes.FromName(column.ResultType));
+        // A computed column is a row formula, also inside a measure.
+        var check = new FormulaCompiler(_shared, _scope) { _inGroup = true }.Run(column.Formula, FormulaTypes.FromName(column.ResultType));
         _shared.Chain.RemoveAt(_shared.Chain.Count - 1);
 
         if (!check.IsValid)
@@ -277,6 +351,8 @@ public sealed class FormulaCompiler
     private Expr? BindRows(ColumnReference reference, FormulaNavigation navigation, IReadOnlyList<string> rest)
     {
         var display = string.Join(".", reference.Path);
+        if (_aggregate is null && _shared.Context.Measure && _inGroup && ReferenceEquals(_scope, _root))
+            return Fail(reference, $"In a measure, SUM(…) adds up the rows of the group; for the related rows of each row nest it: SUM(SUM({(rest.Count > 0 ? display : reference.Path[0] + ".column")})).");
         if (_aggregate is null)
             return Fail(reference, $"'{reference.Path[0]}' holds several rows; use SUM({(rest.Count > 0 ? display : reference.Path[0] + ".column")}), COUNT({reference.Path[0]}), AVG, MIN or MAX.");
         if (!ReferenceEquals(_aggregate.Outer, _scope))
@@ -446,7 +522,13 @@ public sealed class FormulaCompiler
 
         var name = info.Name;
         if (info.Category == FormulaFunctions.RelatedRows)
-            return BindAggregate(call, name);
+            return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(call, name) : BindAggregate(call, name);
+        if (call.HasWhere)
+            return Fail(call, $"WHERE only works inside SUM, COUNT, AVG, MIN or MAX, not in {name}.");
+        if (name == "RUNNING_SUM")
+            return Fail(call, "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).");
+        if (name == "LOOKUP_ASOF")
+            return BindLookupAsOf(call);
 
         var args = new List<Expr>();
         var failed = false;
@@ -635,6 +717,14 @@ public sealed class FormulaCompiler
                 return Arity(call, 2, 2) ? new Expr($"({Search(args[1], args[0])} > 0)", FormulaType.Boolean, call) : null;
 
             // Dates
+            case "BUCKET_START" or "BUCKET_END":
+            {
+                if (!Arity(call, 0, 0))
+                    return null;
+                if (_shared.Context.BucketAlias is not { } bucket)
+                    return Fail(call, $"{name}() only works in queries by period end (\"Value at the end of each period\").");
+                return new Expr($"{bucket}.{Q(name == "BUCKET_START" ? "bucket" : "bucket_end")}", FormulaType.Date, call);
+            }
             case "TODAY":
                 return Arity(call, 0, 0)
                     ? new Expr(_pg ? "CAST((now() AT TIME ZONE 'UTC') AS DATE)" : "date('now')", FormulaType.Date, call)
@@ -683,6 +773,8 @@ public sealed class FormulaCompiler
     {
         var conditional = name.EndsWith("IF", StringComparison.Ordinal);
         var fn = conditional ? name[..^2] : name;
+        if (call.HasWhere && call.Arguments.Count != 2)
+            return Fail(call, $"Write {fn}(link.column WHERE condition), e.g. {fn}(transactions.amount WHERE transactions.amount < 0).");
         if (!Arity(call, conditional ? 2 : 1, 2))
             return null;
         if (_aggregate is not null)
@@ -759,6 +851,153 @@ public sealed class FormulaCompiler
             from += $" AND {condition.Sql}";
 
         return new Expr($"(SELECT {aggregate} {from})", type, call);
+    }
+
+    /// <summary>
+    /// Measures: SUM/COUNT/AVG/MIN/MAX over the rows of the group, with an
+    /// optional condition — <c>SUM(amount WHERE amount &lt; 0)</c>, <c>SUMIF(amount, amount &lt; 0)</c>,
+    /// <c>COUNT()</c>, <c>COUNT(WHERE paid)</c>, <c>COUNTIF(paid)</c>.
+    /// </summary>
+    private Expr? BindGroupAggregate(FunctionCall call, string name)
+    {
+        var conditional = name.EndsWith("IF", StringComparison.Ordinal);
+        var fn = conditional ? name[..^2] : name;
+        var hasCondition = call.HasWhere || conditional;
+        var valueCount = call.Arguments.Count - (hasCondition ? 1 : 0);
+        var minValues = fn == "COUNT" ? 0 : 1;
+        if (valueCount < minValues || valueCount > 1 || (hasCondition && call.Arguments.Count == 0))
+        {
+            var info = FormulaFunctions.Find(name)!;
+            return Fail(call, fn == "COUNT"
+                ? $"Write COUNT(), COUNT(column) or COUNT(WHERE condition) — {info.Description}"
+                : $"Write {fn}(column) or {fn}(column WHERE condition), e.g. {fn}(amount WHERE amount < 0).");
+        }
+
+        _inGroup = true;
+        var value = valueCount == 1 ? Bind(call.Arguments[0]) : null;
+        var condition = hasCondition ? Bind(call.Arguments[^1]) : null;
+        _inGroup = false;
+        if ((valueCount == 1 && value is null) || (hasCondition && condition is null))
+            return null;
+        if (condition is not null && !RequireBoolean(condition, $"The condition of {name}"))
+            return null;
+        if (value is { IsRows: true })
+            return Fail(value.Node, $"Related rows go into an aggregate per row: {fn}(SUM(…)) adds up a sum per row.");
+
+        string aggregate;
+        FormulaType type;
+        var guarded = value is null ? "1" : value.Sql;
+        if (condition is not null)
+            guarded = $"CASE WHEN {condition.Sql} THEN {guarded} END";
+        switch (fn)
+        {
+            case "COUNT":
+                aggregate = value is null && condition is null ? "COUNT(*)" : $"COUNT({guarded})";
+                type = FormulaType.Integer;
+                break;
+            case "SUM" or "AVG":
+                if (!RequireNumber(value!, name))
+                    return null;
+                type = fn == "AVG"
+                    ? value!.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number
+                    : value!.Type == FormulaType.Null ? FormulaType.Number : value.Type;
+                aggregate = $"{fn}({guarded})";
+                break;
+            default:
+                if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type)))
+                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                type = value.Type;
+                aggregate = $"{fn}({guarded})";
+                break;
+        }
+        if (type == FormulaType.Integer && fn != "COUNT")
+            aggregate = $"CAST({aggregate} AS {(_pg ? "BIGINT" : "INTEGER")})";
+        if (fn is "SUM" or "COUNT")
+            aggregate = $"COALESCE({aggregate}, 0)";
+        return new Expr(aggregate, type, call);
+    }
+
+    /// <summary>
+    /// LOOKUP_ASOF(table, match_column, match_value, date_column, at_date, value_column):
+    /// the value of the latest row on or before the date, e.g. a price at a month end.
+    /// </summary>
+    private Expr? BindLookupAsOf(FunctionCall call)
+    {
+        if (!Arity(call, 6, 6))
+            return null;
+        var args = call.Arguments;
+        string? Name(int i)
+        {
+            if (args[i] is StringLiteral literal && !string.IsNullOrWhiteSpace(literal.Value))
+                return literal.Value.Trim();
+            Fail(args[i], "LOOKUP_ASOF takes table and column names as text, e.g. \"prices\".");
+            return null;
+        }
+
+        var tableName = Name(0);
+        var matchName = Name(1);
+        var dateName = Name(3);
+        var valueName = Name(5);
+        if (tableName is null || matchName is null || dateName is null || valueName is null)
+            return null;
+        var target = _shared.Schema.Table(tableName);
+        if (target is null)
+        {
+            var suggestion = Suggest(tableName, _shared.Schema.TableNames);
+            return Fail(args[0], $"Table '{tableName}' not found" + (suggestion is null ? "." : $" — did you mean '{suggestion}'?"));
+        }
+
+        var matchValue = Bind(args[2]);
+        var atDate = Bind(args[4]);
+        if (matchValue is null || atDate is null)
+            return null;
+
+        var alias = _shared.NextAlias("a");
+        var outer = _scope;
+        var frame = _aggregate;
+        var inGroup = _inGroup;
+        _scope = new Scope(target, alias);
+        _aggregate = null;
+        _inGroup = true;
+        ColumnReference Ref(int i, string column) => new([column], false, args[i].Start, args[i].End);
+        var matchColumn = BindColumn(Ref(1, matchName));
+        var dateColumn = BindColumn(Ref(3, dateName));
+        var valueColumn = BindColumn(Ref(5, valueName));
+        _scope = outer;
+        _aggregate = frame;
+        _inGroup = inGroup;
+        if (matchColumn is null || dateColumn is null || valueColumn is null)
+            return null;
+        if (!FormulaTypes.IsTemporal(dateColumn.Type))
+            return Fail(args[3], $"'{dateName}' is not a date column.");
+
+        var match = Compare(matchColumn, "=", matchValue, args[2]);
+        var onOrBefore = Compare(dateColumn, "<=", atDate, args[4]);
+        if (match is null || onOrBefore is null)
+            return null;
+
+        return new Expr(
+            $"(SELECT {valueColumn.Sql} FROM {Q(target.Name)} {alias} WHERE {match.Sql} AND {onOrBefore.Sql} ORDER BY {dateColumn.Sql} DESC LIMIT 1)",
+            valueColumn.Type, call);
+    }
+
+    /// <summary>A dashboard variable's value as a literal.</summary>
+    private Expr Constant(FormulaValue value, FormulaNode node)
+    {
+        var sql = value.Value switch
+        {
+            null => "NULL",
+            bool b => b ? "TRUE" : "FALSE",
+            string text when value.Type == FormulaType.Date && ParseDate(text) is { } date => DateLiteral(date),
+            string text when value.Type == FormulaType.DateTime && ParseDateTime(text) is { } stamp => DateTimeLiteral(stamp),
+            string text => Str(text),
+            decimal d => NumberSql(d, value.Type == FormulaType.Integer),
+            long l => NumberSql(l, true),
+            double d => NumberSql((decimal)d, false),
+            _ => Str(System.Convert.ToString(value.Value, CultureInfo.InvariantCulture) ?? "")
+        };
+        object? constant = value.Value switch { long l => (decimal)l, double d => (decimal)d, _ => value.Value };
+        return new Expr(sql, value.Value is null ? FormulaType.Null : value.Type, node, constant);
     }
 
     // ── Checks ───────────────────────────────────────────────────────────

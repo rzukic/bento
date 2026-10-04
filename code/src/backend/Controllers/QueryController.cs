@@ -32,6 +32,11 @@ public sealed class QueryController : ControllerBase
         var result = await _queries.RunAsync(request);
         return Ok(new { data = result.Data, meta = result.Meta });
     }
+
+    /// <summary>Dashboard variables (Step 3.6): each one's value, type or error, in the order given.</summary>
+    [HttpPost("variables")]
+    public async Task<IActionResult> Variables([FromBody] QueryVariablesRequest request) =>
+        Ok(new { data = await _queries.EvaluateVariablesAsync(request) });
 }
 
 /// <summary>
