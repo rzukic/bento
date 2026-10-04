@@ -16,7 +16,7 @@ _Changes that are complete but not yet part of a versioned release._
 
 > **Phase**: Phase 3 — Visualization
 
-A collapsed sidebar opens over the page while the pointer is on it (after a short pause, so passing by does not open it) or the keyboard focus is in it; leaving or Escape closes it. The page beside it does not move, and the collapse stays as chosen. Desktop only; the narrow layout is unchanged.
+A collapsed sidebar opens over the page while the pointer is on it (after a short pause, so passing by does not open it) or the keyboard focus is in it; leaving or Escape closes it. The page beside it does not move, and the collapse stays as chosen. Desktop only; the narrow layout is unchanged. While it is open this way, **Keep sidebar open** sits where the collapse button is when the sidebar is open, and keeps it open without sliding.
 
 ### 2026-10-04 — Import: The Same Value For Every Row
 
