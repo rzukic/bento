@@ -7,6 +7,8 @@ import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { useAuthStore } from "../../stores/authStore";
+import { FinanceSetup } from "./FinanceSetup";
 import { cashFlowDashboard, dataTables, describeCashFlow, isFinanceTable } from "./starter";
 import "./Dashboards.css";
 
@@ -14,6 +16,8 @@ export function DashboardsListPage() {
   const navigate = useNavigate();
   const snapshot = useSchemaStore((state) => state.snapshot);
   const loadSchema = useSchemaStore((state) => state.load);
+  // Setting up the finance tables changes the schema: admins only.
+  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
   const [dashboards, setDashboards] = useState<Dashboard[] | null>(null);
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -112,6 +116,7 @@ export function DashboardsListPage() {
             </div>
           </div>
         ) : null}
+        {isAdmin && snapshot ? <FinanceSetup tables={snapshot.tables} onError={setError} /> : null}
         <form
           className="dashboards-new__form"
           onSubmit={(event) => {

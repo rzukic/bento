@@ -13,6 +13,15 @@ Open **Dashboards** in the sidebar. For every table with a date and an amount (a
 
 Or type a name and choose **Create** for an empty dashboard.
 
+## Wealth & Cash Flow In One Click
+
+Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — and two dashboards:
+
+- **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
+- **Wealth**: net worth, depot value, unrealised gain and dividends; net worth at each month end (cash and depot stacked, with a total line); allocation by security; positions (shares, invested, value, gain); dividends per month
+
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends, month-end prices into Prices (live prices are planned for a later version).
+
 ## Date Range And Refresh
 
 The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
