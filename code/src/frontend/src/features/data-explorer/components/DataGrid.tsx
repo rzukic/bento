@@ -1,3 +1,4 @@
+import { valueTypeOf } from "../../../lib/columns";
 import {
   Fragment,
   useEffect,
@@ -88,7 +89,8 @@ function getColumnTypeIconName(column: ModelColumn) {
   if (isPrimarySelectionColumn(column)) return "number" as const;
   if (column.references || column.type === "relation") return "link" as const;
 
-  switch (column.type) {
+  // Computed columns show the type of their result (an amount, a date, …).
+  switch (valueTypeOf(column)) {
     case "boolean":
       return "toggle-left" as const;
     case "date":
@@ -118,7 +120,10 @@ function getColumnTypeIconName(column: ModelColumn) {
   }
 }
 
-function getColumnTypeLabel(column: ModelColumn) {
+function getColumnTypeLabel(column: ModelColumn): string {
+  if (column.type === "computed") {
+    return `Calculated · ${getColumnTypeLabel({ ...column, type: valueTypeOf(column) })}`;
+  }
   if (column.references || column.type === "relation") {
     return "Reference";
   }
@@ -580,6 +585,14 @@ export function DataGrid({
                             <span className="data-grid__header-name">
                               {column.displayName ?? column.name}
                             </span>
+                            {column.type === "computed" ? (
+                              <span
+                                className="data-grid__header-key-badge data-grid__header-key-badge--inline"
+                                title="Calculated by a formula"
+                              >
+                                ƒx
+                              </span>
+                            ) : null}
                             {column.references || column.type === "relation" ? (
                               <span className="data-grid__header-key-badge data-grid__header-key-badge--inline">FK</span>
                             ) : null}
@@ -608,6 +621,14 @@ export function DataGrid({
                             <span className="data-grid__header-name">
                               {column.displayName ?? column.name}
                             </span>
+                            {column.type === "computed" ? (
+                              <span
+                                className="data-grid__header-key-badge data-grid__header-key-badge--inline"
+                                title="Calculated by a formula"
+                              >
+                                ƒx
+                              </span>
+                            ) : null}
                             {column.references || column.type === "relation" ? (
                               <span className="data-grid__header-key-badge data-grid__header-key-badge--inline">FK</span>
                             ) : null}

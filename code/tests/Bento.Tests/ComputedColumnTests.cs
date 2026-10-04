@@ -213,6 +213,19 @@ public sealed class ComputedColumnTests
         var json = model.ToString();
         Assert.Contains("\"resultType\":\"currency\"", json.Replace(" ", ""));
 
+        // Dropping a computed column loses no data: no confirmation, no row impact.
+        var draft = System.Text.Json.Nodes.JsonNode.Parse(Schema)!;
+        var accountColumns = draft["tables"]![0]!["columns"]!.AsArray();
+        accountColumns.Remove(accountColumns.First(c => (string?)c!["name"] == "label"));
+        var withoutLabel = draft.ToJsonString();
+        using var drop = await host.Client.PostAsync("/api/v1/admin/schema/preview", new StringContent(withoutLabel, System.Text.Encoding.UTF8, "application/json"));
+        var dropped = await drop.Content.ReadFromJsonAsync<JsonElement>();
+        var change = Assert.Single(dropped.GetProperty("changes").EnumerateArray());
+        Assert.Equal("DropColumn", change.GetProperty("changeType").GetString());
+        Assert.False(change.GetProperty("isDestructive").GetBoolean());
+        Assert.False(dropped.GetProperty("isDestructive").GetBoolean());
+        Assert.False(change.TryGetProperty("impact", out var impact) && impact.ValueKind != JsonValueKind.Null);
+
         var cyclic = Schema.Replace("\"formula\": \"COUNT(transactions)\" }", "\"formula\": \"COUNT(transactions) + label\" }");
         using var preview = await host.Client.PostAsync("/api/v1/admin/schema/preview", new StringContent(cyclic, System.Text.Encoding.UTF8, "application/json"));
         var errors = (await preview.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors").EnumerateArray().Select(e => e.GetProperty("message").GetString()).ToList();

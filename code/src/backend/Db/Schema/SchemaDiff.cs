@@ -223,7 +223,8 @@ public sealed class SchemaDiffEngine
                 PreviousTableName = oldTable.Name,
                 ColumnName = removedColumn.Name,
                 OldValue = removedColumn,
-                IsDestructive = true
+                // A computed column stores nothing; dropping it loses no data.
+                IsDestructive = removedColumn.Type != ColumnType.Computed
             });
         }
 

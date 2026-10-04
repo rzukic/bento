@@ -280,3 +280,26 @@ describe("DataGrid — inline edit wiring (TASK-092)", () => {
     expect(onDeleteRowsShortcut).toHaveBeenCalledWith("2");
   });
 });
+
+describe("DataGrid — computed columns", () => {
+  it("marks them as calculated and shows the type of their result", () => {
+    render(
+      <DataGrid
+        table={{
+          ...sampleTable,
+          columns: [
+            ...sampleTable.columns,
+            { name: "total", type: "computed", formula: "qty * 2.5", resultType: "currency" },
+          ],
+        }}
+        rows={[{ id: 1, title: "Alpha", qty: 5, total: 12.5 }]}
+        page={1}
+        perPage={25}
+      />,
+    );
+
+    expect(screen.getByTitle("Calculated by a formula")).toHaveTextContent("ƒx");
+    expect(screen.getByTitle("Calculated · Currency")).toBeInTheDocument();
+    expect(screen.getByText(/12[.,]50/)).toBeInTheDocument();
+  });
+});
