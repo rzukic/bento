@@ -27,6 +27,11 @@ public sealed record ImportColumnMapping
     public string? Source { get; init; }
     /// <summary>Target column in the table.</summary>
     public string? Target { get; init; }
+    /// <summary>
+    /// Instead of a file column: the same value for every row, e.g. the
+    /// account a bank export belongs to (a record's name or id for a link).
+    /// </summary>
+    public string? Value { get; init; }
 }
 
 public sealed record ImportRunRequest

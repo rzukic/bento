@@ -365,7 +365,7 @@ public sealed class OpenApiDocumentBuilder
         {
             ["content"] = Str(example: "base64 of the file"),
             ["settings"] = anyObject.DeepClone(),
-            ["mapping"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["source"] = Str(), ["target"] = Str() }) },
+            ["mapping"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["source"] = Str(), ["target"] = Str(), ["value"] = Str(example: "Checking") }) },
             ["keyColumns"] = new JsonObject { ["type"] = "array", ["items"] = Str() },
             ["distinctKeys"] = new JsonObject { ["type"] = "boolean" }
         });

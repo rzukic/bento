@@ -1,8 +1,18 @@
 import type { ImportColumnMapping, ImportProfileConfig } from "../../../api/import";
 import type { ModelColumn, ModelTable } from "../../../types/api";
 
-/** Column name → file header; "" means the column is not imported. */
+/**
+ * Column name → file header; "" means the column is not imported. A fixed
+ * value for every row is kept behind FIXED, so "is it mapped" stays a
+ * truthy check: `${FIXED}Checking`.
+ */
 export type MappingState = Record<string, string>;
+
+export const FIXED = "\u0001";
+
+export const isFixed = (entry: string | undefined): boolean => Boolean(entry?.startsWith(FIXED));
+export const fixedValue = (entry: string | undefined): string => (isFixed(entry) ? entry!.slice(FIXED.length) : "");
+export const asFixed = (value: string): string => `${FIXED}${value}`;
 
 /** Columns a file can fill: everything except generated keys and computed columns. */
 export function getImportableColumns(table: ModelTable): ModelColumn[] {
@@ -111,9 +121,14 @@ export function applyProfile(
 ): { mapping: MappingState; keyColumns: string[] } {
   const mapping: MappingState = Object.fromEntries(columns.map((column) => [column.name, ""]));
   for (const entry of config.mapping ?? []) {
-    const header = headers.find((h) => h.toLowerCase() === entry.source.toLowerCase());
     const column = columns.find((c) => c.name.toLowerCase() === entry.target.toLowerCase());
-    if (header && column) mapping[column.name] = header;
+    if (!column) continue;
+    if (entry.value !== undefined && entry.value !== null) {
+      mapping[column.name] = asFixed(entry.value);
+      continue;
+    }
+    const header = headers.find((h) => h.toLowerCase() === (entry.source ?? "").toLowerCase());
+    if (header) mapping[column.name] = header;
   }
   const keyColumns = (config.keyColumns ?? []).filter((name) => mapping[name]);
   return { mapping, keyColumns };
@@ -122,12 +137,12 @@ export function applyProfile(
 /** Keeps mapped headers that still exist after the file was read differently. */
 export function retainMapping(mapping: MappingState, headers: string[]): MappingState {
   return Object.fromEntries(
-    Object.entries(mapping).map(([column, header]) => [column, headers.includes(header) ? header : ""]),
+    Object.entries(mapping).map(([column, header]) => [column, isFixed(header) || headers.includes(header) ? header : ""]),
   );
 }
 
 export function toMappingPayload(mapping: MappingState): ImportColumnMapping[] {
   return Object.entries(mapping)
     .filter(([, header]) => header)
-    .map(([target, source]) => ({ source, target }));
+    .map(([target, source]) => (isFixed(source) ? { target, value: fixedValue(source) } : { source, target }));
 }
