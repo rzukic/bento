@@ -23,7 +23,7 @@ public sealed class AggregationQueryService
     public const int MaxLimit = 10000;
 
     private static readonly HashSet<string> Buckets = new(StringComparer.Ordinal) { "day", "week", "month", "quarter", "year" };
-    private static readonly HashSet<string> Functions = new(StringComparer.Ordinal) { "count", "sum", "avg", "min", "max", "count_distinct" };
+    private static readonly HashSet<string> Functions = new(StringComparer.Ordinal) { "count", "sum", "avg", "min", "max", "count_distinct", "median", "percentile" };
     private static readonly HashSet<string> FilterOperators = new(StringComparer.Ordinal)
         { "eq", "neq", "gt", "gte", "lt", "lte", "like", "in", "null", "notnull" };
 
@@ -207,13 +207,17 @@ public sealed class AggregationQueryService
 
             var fn = spec.Fn?.Trim().ToLowerInvariant() ?? "";
             if (!Functions.Contains(fn))
-                throw Invalid($"{path}.fn", $"Unknown function '{spec.Fn}'; use count, sum, avg, min, max or count_distinct, or a formula.");
+                throw Invalid($"{path}.fn", $"Unknown function '{spec.Fn}'; use count, sum, avg, min, max, count_distinct, median or percentile, or a formula.");
 
             ColumnDef? column = null;
             if (fn != "count" || !string.IsNullOrWhiteSpace(spec.Column))
                 column = RequireColumn(table, spec.Column, $"{path}.column");
-            if (fn is "sum" or "avg" && column!.Type is not (ColumnType.Integer or ColumnType.Float or ColumnType.Currency))
+            if (fn is "sum" or "avg" or "median" or "percentile" && column!.Type is not (ColumnType.Integer or ColumnType.Float or ColumnType.Currency))
                 throw Invalid($"{path}.column", $"'{column.Name}' is not a number; {fn} needs a number column.");
+            if (fn == "percentile" && spec.Percentile is not (>= 0 and <= 100))
+                throw Invalid($"{path}.percentile", "percentile needs a number from 0 to 100, e.g. 90.");
+            if (fn != "percentile" && spec.Percentile is not null)
+                throw Invalid($"{path}.percentile", "percentile only applies to fn percentile.");
             if (fn is "min" or "max" && column!.Type is ColumnType.Json or ColumnType.Boolean)
                 throw Invalid($"{path}.column", $"'{column.Name}' has no order; {fn} needs numbers, dates or text.");
 
@@ -227,11 +231,13 @@ public sealed class AggregationQueryService
             if (spec.CarryIn && !spec.Running)
                 throw Invalid($"{path}.carryIn", "carryIn only applies to running totals.");
 
-            var output = Output(spec.Name ?? $"{fn}_{column?.Name ?? "rows"}", outputs, $"{path}.name");
+            var output = Output(spec.Name ?? $"{(fn == "percentile" ? $"p{spec.Percentile:0.##}" : fn)}_{column?.Name ?? "rows"}", outputs, $"{path}.name");
             var expression = fn switch
             {
                 "count" => column is null ? "COUNT(*)" : $"COUNT(t.{Q(column.Name)})",
                 "count_distinct" => $"COUNT(DISTINCT t.{Q(column!.Name)})",
+                "median" => FormulaCompiler.PercentileSql($"t.{Q(column!.Name)}", 0.5, IsPostgres),
+                "percentile" => FormulaCompiler.PercentileSql($"t.{Q(column!.Name)}", spec.Percentile!.Value / 100, IsPostgres),
                 _ => $"{fn.ToUpperInvariant()}(t.{Q(column!.Name)})"
             };
             measures.Add(new Measure(output, fn, column, spec.Running, spec.CarryIn, expression));
@@ -780,7 +786,7 @@ public sealed class AggregationQueryService
             {
                 "formula" => FormulaTypes.Name(measure.Type!.Value),
                 "count" or "count_distinct" => "integer",
-                "avg" => measure.Column!.Type == ColumnType.Currency ? "currency" : "float",
+                "avg" or "median" or "percentile" => measure.Column!.Type == ColumnType.Currency ? "currency" : "float",
                 _ => TypeName(measure.Column!.Type)
             };
             columns.Add(new QueryResultColumn(measure.Output, type, "measure"));

@@ -1,9 +1,10 @@
 import type { DashboardWidget } from "../../../api/dashboards";
-import type { QueryBucket, QueryFunction, QueryGroupBy, QueryMeasure, VariableValue } from "../../../api/query";
+import type { MeasureShow, QueryBucket, QueryFunction, QueryGroupBy, QueryMeasure, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import type { ModelSnapshot, ModelTable } from "../../../types/api";
 import { MeasureFormulaField } from "../../formulas/MeasureFormulaField";
+import { DEFAULT_WINDOW } from "../chartTransforms";
 import { describeGroup, describeMeasure, fieldsOf, type SlotDef } from "./model";
 
 const QUICK_FUNCTIONS: { value: QueryFunction; label: string }[] = [
@@ -13,7 +14,12 @@ const QUICK_FUNCTIONS: { value: QueryFunction; label: string }[] = [
   { value: "min", label: "Minimum" },
   { value: "max", label: "Maximum" },
   { value: "count_distinct", label: "Unique count" },
+  { value: "median", label: "Median" },
+  { value: "percentile", label: "Percentile" },
 ];
+
+/** Functions that need a number column. */
+const NUMERIC: QueryFunction[] = ["sum", "avg", "median", "percentile"];
 
 const INTERVALS: { value: QueryBucket; label: string }[] = [
   { value: "day", label: "Day" },
@@ -110,7 +116,7 @@ function MeasureSettings({
   const isFormula = measure.formula !== undefined;
   const fn = measure.fn ?? "count";
   const candidates =
-    fn === "sum" || fn === "avg"
+    NUMERIC.includes(fn)
       ? fields.filter((f) => f.kind === "number")
       : fn === "min" || fn === "max"
         ? fields.filter((f) => f.kind === "number" || f.kind === "date")
@@ -118,9 +124,18 @@ function MeasureSettings({
 
   const pick = (next: QueryFunction) => {
     const keeps = next === "count" || next === "count_distinct" || candidates.some((f) => f.name === measure.column);
-    const fallback = next === "count" ? undefined : (next === "sum" || next === "avg" ? fields.find((f) => f.kind === "number") : fields[0])?.name;
-    const { formula: _formula, ...plain } = measure;
-    onChange({ ...plain, fn: next, column: next === "count" && !measure.column ? undefined : keeps ? measure.column : fallback });
+    const nextCandidates = NUMERIC.includes(next) ? fields.filter((f) => f.kind === "number") : fields;
+    const keepsColumn = keeps && (next === "count" || next === "count_distinct" || nextCandidates.some((f) => f.name === measure.column));
+    const fallback = next === "count" ? undefined : nextCandidates[0]?.name;
+    const { formula: _formula, percentile: _percentile, ...plain } = measure;
+    onChange({
+      ...plain,
+      fn: next,
+      column: next === "count" && !measure.column ? undefined : keepsColumn ? measure.column : fallback,
+      ...(next === "percentile" ? { percentile: measure.percentile ?? 90 } : {}),
+      // Running totals add up sums and counts only.
+      ...(next === "sum" || next === "count" ? {} : { running: undefined, carryIn: undefined }),
+    });
   };
 
   return (
@@ -136,7 +151,16 @@ function MeasureSettings({
           className="lens-tabs__tab"
           onClick={() =>
             !isFormula &&
-            onChange({ name: measure.name, formula: measure.column ? `${fn === "count_distinct" ? "COUNT" : fn.toUpperCase()}(${measure.column})` : "COUNT()" })
+            onChange({
+              name: measure.name,
+              show: measure.show,
+              window: measure.window,
+              formula: !measure.column
+                ? "COUNT()"
+                : fn === "percentile"
+                  ? `PERCENTILE(${measure.column}, ${measure.percentile ?? 90})`
+                  : `${fn === "count_distinct" ? "COUNT" : fn.toUpperCase()}(${measure.column})`,
+            })
           }
         >
           Formula
@@ -188,6 +212,21 @@ function MeasureSettings({
               ))}
             </select>
           </label>
+          {fn === "percentile" ? (
+            <label className="lens-field">
+              <span className="lens-field__label">Percentile</span>
+              <input
+                className="field__control field__control--compact"
+                type="number"
+                min={0}
+                max={100}
+                aria-label="Percentile"
+                value={measure.percentile ?? 90}
+                onChange={(event) => onChange({ ...measure, percentile: Math.max(0, Math.min(100, Number(event.target.value) || 0)) })}
+              />
+              <span className="lens-field__hint">90: the value 90 % of the rows stay below. 50 is the median.</span>
+            </label>
+          ) : null}
           {byDate && (fn === "sum" || fn === "count") ? (
             <label className="lens-check">
               <input type="checkbox" checked={measure.running ?? false} onChange={(event) => onChange({ ...measure, running: event.target.checked || undefined, carryIn: undefined })} />
@@ -203,12 +242,52 @@ function MeasureSettings({
         </>
       )}
 
+      {byDate && isDateChart(widget) ? (
+        <div className="lens-field">
+          <label className="lens-field">
+            <span className="lens-field__label">Show as</span>
+            <select
+              className="field__control field__control--compact"
+              aria-label="Show as"
+              value={measure.show ?? ""}
+              onChange={(event) => {
+                const show = (event.target.value || undefined) as MeasureShow | undefined;
+                onChange({ ...measure, show, window: show === "moving_average" ? (measure.window ?? DEFAULT_WINDOW) : undefined });
+              }}
+            >
+              <option value="">The value</option>
+              <option value="change">Change from the period before</option>
+              <option value="moving_average">Moving average</option>
+            </select>
+          </label>
+          {measure.show === "moving_average" ? (
+            <label className="lens-field">
+              <span className="lens-field__label">Periods</span>
+              <input
+                className="field__control field__control--compact"
+                type="number"
+                min={2}
+                max={24}
+                aria-label="Periods"
+                value={measure.window ?? DEFAULT_WINDOW}
+                onChange={(event) => onChange({ ...measure, window: Math.max(2, Math.min(24, Math.round(Number(event.target.value)) || DEFAULT_WINDOW)) })}
+              />
+              <span className="lens-field__hint">Each point averages this period and the ones before; the first points stay empty.</span>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       <label className="lens-field">
         <span className="lens-field__label">Name</span>
         <input className="field__control field__control--compact" value={measure.name} onChange={(event) => onChange({ ...measure, name: event.target.value })} />
       </label>
     </>
   );
+}
+
+function isDateChart(widget: DashboardWidget): boolean {
+  return widget.type === "line" || widget.type === "area" || widget.type === "bar";
 }
 
 function GroupSettings({ group, table, onChange }: { group: QueryGroupBy; table: ModelTable | undefined; onChange: (group: QueryGroupBy) => void }) {

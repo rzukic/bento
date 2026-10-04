@@ -17,7 +17,14 @@ export type WidgetData = {
   variable?: string;
   /** Table: the rows as they are (no grouping) — these columns, sorted and limited. */
   rows?: WidgetRows;
+  /** Charts by date: the same measures over the period before or the same period a year earlier, as dashed lines. */
+  timeShift?: TimeShift;
 };
+
+export type TimeShift = "previous" | "year";
+
+/** A horizontal line at a number or a dashboard variable's value. */
+export type ReferenceLine = { value: number | string; label?: string };
 
 export type WidgetRows = {
   columns: string[];
@@ -56,6 +63,26 @@ export type WidgetDisplay = {
   goal?: number | string;
   /** Table: a total row. */
   summary?: boolean;
+  /** Stacked charts: a line with the total (the net with mixed signs) on top. */
+  totalLine?: boolean;
+  /** Charts: horizontal lines, e.g. a target or a budget. */
+  referenceLines?: ReferenceLine[];
+  /** One-series charts: positive values in the success colour, negative ones in the danger colour. */
+  colorBySign?: boolean;
+  /** Charts by date: false hides the dashboard's annotations. */
+  annotations?: boolean;
+};
+
+export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
+export type AnnotationColor = (typeof ANNOTATION_COLORS)[number];
+
+/** An event on the dashboard's charts by date: a day ("Salary raise") or, with `to`, a period ("Vacation"). */
+export type DashboardAnnotation = {
+  date: string;
+  /** Last day of a period, inclusive. */
+  to?: string;
+  label: string;
+  color?: AnnotationColor;
 };
 
 export type DashboardWidget = {
@@ -86,6 +113,7 @@ export type DashboardDocument = {
   refreshSeconds?: number;
   widgets: DashboardWidget[];
   variables?: DashboardVariable[];
+  annotations?: DashboardAnnotation[];
 };
 
 export type Dashboard = {

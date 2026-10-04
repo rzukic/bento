@@ -105,7 +105,12 @@ export function bucketSequence(first: string, last: string, bucket: QueryBucket)
 
 // ── Chart model ───────────────────────────────────────────────────────────
 
-export type ChartSeries = { name: string; values: (number | null)[] };
+export type ChartSeries = {
+  name: string;
+  values: (number | null)[];
+  /** shifted: an earlier period (dashed, never stacked); total: the sum of the stack (a line on top). */
+  kind?: "shifted" | "total";
+};
 
 export type ChartModel = {
   categories: string[];

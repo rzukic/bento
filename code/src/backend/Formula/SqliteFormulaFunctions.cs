@@ -16,6 +16,40 @@ public static class SqliteFormulaFunctions
         connection.CreateFunction("bento_lower", (string? text) => text?.ToLowerInvariant(), isDeterministic: true);
         connection.CreateFunction("bento_upper", (string? text) => text?.ToUpperInvariant(), isDeterministic: true);
         connection.CreateFunction("bento_num_text", (double? value) => NumberText(value), isDeterministic: true);
+        // percentile_cont on SQLite. The seed stays null: every group starts its own list.
+        connection.CreateAggregate<double?, double, PercentileValues?, double?>(
+            "bento_percentile",
+            null,
+            (values, value, fraction) =>
+            {
+                values ??= new PercentileValues(fraction);
+                if (value is { } number)
+                    values.Numbers.Add(number);
+                return values;
+            },
+            values => values is null ? null : Percentile(values.Numbers, values.Fraction),
+            isDeterministic: true);
+    }
+
+    public sealed record PercentileValues(double Fraction)
+    {
+        public List<double> Numbers { get; } = [];
+    }
+
+    /// <summary>
+    /// Postgres' <c>percentile_cont</c>: the value at <paramref name="fraction"/> (0–1) of the
+    /// sorted values, interpolated linearly between neighbours; empty without values.
+    /// </summary>
+    public static double? Percentile(List<double> numbers, double fraction)
+    {
+        if (numbers.Count == 0)
+            return null;
+        numbers.Sort();
+        var position = fraction * (numbers.Count - 1);
+        var lower = (int)Math.Floor(position);
+        var upper = (int)Math.Ceiling(position);
+        var first = numbers[lower];
+        return lower == upper ? first : first + (numbers[upper] - first) * (position - lower);
     }
 
     /// <summary>

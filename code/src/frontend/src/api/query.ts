@@ -17,13 +17,22 @@ export type QueryGroupBy = {
   rank?: "asc" | "desc";
 };
 
-export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_distinct";
+export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_distinct" | "median" | "percentile";
+
+/** How a chart shows a measure over its date axis (Step 3.6c), computed in the browser. */
+export type MeasureShow = "change" | "moving_average";
 
 export type QueryMeasure = {
   name: string;
   /** count, sum, …; absent when the measure is a formula. */
   fn?: QueryFunction;
   column?: string;
+  /** With fn percentile: 0–100. */
+  percentile?: number;
+  /** Charts only, never sent: the change from the period before, or a moving average over `window` periods. */
+  show?: MeasureShow;
+  /** With show moving_average: how many periods (default 3). */
+  window?: number;
   /** A formula over the group's rows (Step 3.6): `SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`. */
   formula?: string;
   running?: boolean;

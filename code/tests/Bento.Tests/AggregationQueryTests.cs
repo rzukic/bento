@@ -99,6 +99,54 @@ public sealed class AggregationQueryTests
             Rows(result, "category_id", "category_id_label", "total", "avg"));
     }
 
+    /// <summary>Step 3.6c: median and percentiles (interpolated like Postgres' percentile_cont), as quick functions and in formulas.</summary>
+    internal static async Task MedianAndPercentiles(ApiIntegrationTestHost host)
+    {
+        var quick = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "category_id" } },
+            measures = new object[]
+            {
+                new { name = "median", fn = "median", column = "amount" },
+                new { name = "p90", fn = "percentile", column = "amount", percentile = 90 },
+                new { name = "items", fn = "median", column = "quantity" }
+            },
+            sort = new[] { "median" }
+        });
+        // Lebensmittel: -50.10, -45.90, -20.05, -3.20 → median halfway between the middle two, p90 at 2.7 of 3.
+        Assert.Equal(
+            ["2 Miete -1000 -1000 1", "3 Lebensmittel -32.975 -8.255 2", "  -10 -10 1", "1 Gehalt 3000 3080 1"],
+            Rows(quick, "category_id", "category_id_label", "median", "p90", "items"));
+        var types = quick.GetProperty("meta").GetProperty("columns").EnumerateArray()
+            .Where(c => c.GetProperty("role").GetString() == "measure")
+            .Select(c => $"{c.GetProperty("name").GetString()}:{c.GetProperty("type").GetString()}");
+        Assert.Equal(["median:currency", "p90:currency", "items:float"], types);
+
+        var formula = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "booked_on", bucket = "month", @as = "month" } },
+            measures = new[]
+            {
+                new { name = "typical_expense", formula = "MEDIAN(amount WHERE amount < 0)" },
+                new { name = "small_expense", formula = "PERCENTILE(amount, 90 WHERE amount < 0)" }
+            }
+        });
+        Assert.Equal(
+            ["2026-08-01 -525.05 -145.09", "2026-09-01 -45.9 -11.74", "2026-10-01 -15.025 -11.005"],
+            Rows(formula, "month", "typical_expense", "small_expense"));
+
+        // Over related rows: the median per category, added up per group (one category each).
+        var related = await QueryAsync(host, new
+        {
+            source = "categories",
+            groupBy = new[] { new { column = "name" } },
+            measures = new[] { new { name = "median", formula = "SUM(MEDIAN(transactions.amount))" } }
+        });
+        Assert.Equal(["Gehalt 3000", "Lebensmittel -32.975", "Miete -1000"], Rows(related, "name", "median"));
+    }
+
     /// <summary>Step 3.6b: the N largest (or smallest) groups, the rest as "Other".</summary>
     internal static async Task TopValues(ApiIntegrationTestHost host)
     {
@@ -224,6 +272,7 @@ public sealed class AggregationQueryTests
         await TotalsByCategory(host);
         await RunningBalance(host);
         await TopValues(host);
+        await MedianAndPercentiles(host);
         await RunningTotalsPerCategory(host);
         await Buckets(host);
         await MinMaxDistinct(host);
@@ -233,7 +282,10 @@ public sealed class AggregationQueryTests
     [InlineData("""{ "source": "nope", "measures": [{ "fn": "count" }] }""", 404, "source")]
     [InlineData("""{ "source": "transactions" }""", 400, "measures")]
     [InlineData("""{ "source": "transactions", "measures": [{ "fn": "sum", "column": "counterparty" }] }""", 400, "measures[0].column")]
-    [InlineData("""{ "source": "transactions", "measures": [{ "fn": "median", "column": "amount" }] }""", 400, "measures[0].fn")]
+    [InlineData("""{ "source": "transactions", "measures": [{ "fn": "mode", "column": "amount" }] }""", 400, "measures[0].fn")]
+    [InlineData("""{ "source": "transactions", "measures": [{ "fn": "percentile", "column": "amount" }] }""", 400, "measures[0].percentile")]
+    [InlineData("""{ "source": "transactions", "measures": [{ "fn": "percentile", "column": "amount", "percentile": 120 }] }""", 400, "measures[0].percentile")]
+    [InlineData("""{ "source": "transactions", "measures": [{ "fn": "median", "column": "counterparty" }] }""", 400, "measures[0].column")]
     [InlineData("""{ "source": "transactions", "groupBy": [{ "column": "counterparty", "bucket": "month" }], "measures": [{ "fn": "count" }] }""", 400, "groupBy[0].bucket")]
     [InlineData("""{ "source": "transactions", "measures": [{ "fn": "sum", "column": "amount", "running": true }] }""", 400, "measures[0].running")]
     [InlineData("""{ "source": "transactions", "measures": [{ "fn": "count" }], "sort": ["nope"] }""", 400, "sort[0]")]
@@ -422,6 +474,7 @@ public sealed class PostgresAggregationQueryTests
         await AggregationQueryTests.TotalsByCategory(host);
         await AggregationQueryTests.RunningBalance(host);
         await AggregationQueryTests.TopValues(host);
+        await AggregationQueryTests.MedianAndPercentiles(host);
         await AggregationQueryTests.RunningTotalsPerCategory(host);
         await AggregationQueryTests.Buckets(host);
         await AggregationQueryTests.MinMaxDistinct(host);

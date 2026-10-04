@@ -4,7 +4,7 @@ import { fetchTableRows } from "../../api/data";
 import { runQuery, type AggregationQuery, type QueryFilter, type QueryResult, type VariableValue } from "../../api/query";
 import type { FilterClause } from "../../types/explorer";
 import type { ResolvedRange } from "./dateRange";
-import { runnableQuery } from "./formulaQueries";
+import { runnableQuery, withoutChartOptions } from "./formulaQueries";
 
 /** Runs an extra query for a widget (a total row, a trend, the range before); null = none. */
 export function useQueryRun(query: AggregationQuery | null, refreshToken: number): QueryResult | null {
@@ -16,7 +16,7 @@ export function useQueryRun(query: AggregationQuery | null, refreshToken: number
       return;
     }
     let cancelled = false;
-    runQuery(query)
+    runQuery(withoutChartOptions(query))
       .then((r) => !cancelled && setResult(r))
       .catch(() => !cancelled && setResult(null));
     return () => {

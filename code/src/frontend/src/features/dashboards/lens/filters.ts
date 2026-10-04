@@ -45,5 +45,6 @@ export function measureAsFormula(measure: QueryMeasure, dateColumn: string | nul
   if (measure.formula) return measure.formula;
   const until = dateColumn ? ` WHERE ${dateColumn} <= BUCKET_END()` : "";
   const fn = measure.fn === "count_distinct" ? "COUNT" : (measure.fn ?? "sum").toUpperCase();
+  if (measure.column && fn === "PERCENTILE") return `PERCENTILE(${measure.column}, ${measure.percentile ?? 90}${until})`;
   return measure.column && fn !== "COUNT" ? `${fn}(${measure.column}${until})` : `COUNT(${until.trim()})`;
 }

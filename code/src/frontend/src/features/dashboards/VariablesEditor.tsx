@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardVariable } from "../../api/dashboards";
+import type { DashboardVariable, DashboardWidget } from "../../api/dashboards";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
 import { formatKindForType, formatNumber, toNumber } from "../../lib/format";
@@ -15,6 +15,31 @@ function freeName(base: string, taken: string[]): string {
   let n = 2;
   while (taken.includes(`${base}_${n}`)) n++;
   return `${base}_${n}`;
+}
+
+/**
+ * Where a new variable starts: the table (and date column) of the last
+ * variable that has one, else the table most of the dashboard's widgets
+ * use with their date column, else the first table.
+ */
+export function newVariableSource(
+  variables: DashboardVariable[],
+  widgets: DashboardWidget[],
+  tables: ModelTable[],
+): Pick<DashboardVariable, "source" | "dateColumn"> {
+  const known = (name: string | undefined) => (name && tables.some((t) => t.name === name) ? name : undefined);
+  const last = [...variables].reverse().find((v) => known(v.source));
+  if (last) return { source: last.source, dateColumn: last.dateColumn };
+  const counts = new Map<string, number>();
+  for (const widget of widgets) {
+    const source = known(widget.data?.query?.source);
+    if (source) counts.set(source, (counts.get(source) ?? 0) + 1);
+  }
+  const [source] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
+  if (!source) return { source: tables[0]?.name };
+  const dated = widgets.find((w) => w.data?.query?.source === source && (w.data.dateColumn || w.data.query.groupBy?.some((g) => g.bucket)));
+  const dateColumn = dated?.data?.dateColumn || dated?.data?.query?.groupBy?.find((g) => g.bucket)?.column;
+  return { source, dateColumn: dateColumn ?? undefined };
 }
 
 function formatValue(result: VariableResults[string] | undefined): string {
@@ -33,6 +58,7 @@ function formatValue(result: VariableResults[string] | undefined): string {
  */
 export function VariablesEditor({
   variables,
+  widgets = [],
   tables,
   snapshot,
   results,
@@ -40,6 +66,8 @@ export function VariablesEditor({
   onClose,
 }: {
   variables: DashboardVariable[];
+  /** The dashboard's widgets, for where a new variable starts. */
+  widgets?: DashboardWidget[];
   tables: ModelTable[];
   snapshot: ModelSnapshot | null;
   results?: VariableResults;
@@ -151,7 +179,7 @@ export function VariablesEditor({
           size="sm"
           leadingIcon={<Icon name="plus" size={13} />}
           onClick={() =>
-            onChange([...variables, { name: freeName("value", variables.map((v) => v.name)), source: tables[0]?.name, formula: "COUNT()" }])
+            onChange([...variables, { name: freeName("value", variables.map((v) => v.name)), ...newVariableSource(variables, widgets, tables), formula: "COUNT()" }])
           }
         >
           Add variable

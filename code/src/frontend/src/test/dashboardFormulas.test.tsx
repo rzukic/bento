@@ -198,7 +198,10 @@ describe("dashboards with formulas", () => {
     const variables = await screen.findByRole("complementary", { name: "Dashboard variables" });
     await user.click(within(variables).getByRole("button", { name: "Add variable" }));
     await waitFor(() => expect(within(variables).getByText("= 9")).toBeInTheDocument());
-    expect(queryApi.evaluateVariables).toHaveBeenLastCalledWith([{ name: "value", source: "transactions", formula: "COUNT()" }]);
+    // A new variable starts on the widgets' table and date column, so the dashboard's range applies.
+    expect(queryApi.evaluateVariables).toHaveBeenLastCalledWith([
+      { name: "value", source: "transactions", formula: "COUNT()", filter: { booked_on: { gte: "2026-08-01", lt: "2026-11-01" } } },
+    ]);
   });
 });
 

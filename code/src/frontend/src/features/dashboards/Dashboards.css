@@ -405,6 +405,7 @@
 
 /* ── Widget contents ── */
 
+.widget-chart-frame,
 .widget-chart {
     width: 100%;
     height: 100%;

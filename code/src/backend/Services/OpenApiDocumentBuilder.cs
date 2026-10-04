@@ -278,7 +278,7 @@ public sealed class OpenApiDocumentBuilder
         paths["/query"] = new JsonObject
         {
             ["post"] = Operation("Query", "Run an aggregation query", "read",
-                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
+                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct, median, percentile (`percentile`: 0–100) or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
                 body: Ref("AggregationQuery"),
                 responses: Responses(200, "Rows and column metadata.", Ref("QueryResult")))
         };
@@ -435,8 +435,9 @@ public sealed class OpenApiDocumentBuilder
                 ["items"] = Obj(new JsonObject
                 {
                     ["name"] = Str(),
-                    ["fn"] = Str(["count", "sum", "avg", "min", "max", "count_distinct"]),
+                    ["fn"] = Str(["count", "sum", "avg", "min", "max", "count_distinct", "median", "percentile"]),
                     ["column"] = Str(),
+                    ["percentile"] = new JsonObject { ["type"] = "number", ["minimum"] = 0, ["maximum"] = 100, ["description"] = "With fn percentile, e.g. 90" },
                     ["formula"] = Str(example: "SUM(amount WHERE amount > 0) / COUNT()"),
                     ["running"] = new JsonObject { ["type"] = "boolean" },
                     ["carryIn"] = new JsonObject { ["type"] = "boolean" }

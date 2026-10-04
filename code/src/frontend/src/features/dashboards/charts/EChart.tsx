@@ -1,12 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BarChart, LineChart, PieChart } from "echarts/charts";
-import { GridComponent, LegendComponent, TooltipComponent } from "echarts/components";
+import { GridComponent, LegendComponent, MarkAreaComponent, MarkLineComponent, TooltipComponent, VisualMapComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { SVGRenderer } from "echarts/renderers";
 import type { EChartsCoreOption } from "echarts/core";
 
 // Only what the widgets use; the rest of ECharts stays out of the bundle.
-echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, SVGRenderer]);
+echarts.use([LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, MarkLineComponent, MarkAreaComponent, VisualMapComponent, SVGRenderer]);
 
 /**
  * One ECharts instance on a div that follows its container's size.
@@ -53,9 +53,27 @@ export function EChart({ option, label, onHoverSeries }: { option: EChartsCoreOp
     };
   }, []);
 
+  // A chart that cannot be drawn says so instead of taking the page down.
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
-    chart.current?.setOption(option, { notMerge: true });
+    try {
+      chart.current?.setOption(option, { notMerge: true });
+      setFailed(false);
+    } catch (error) {
+      console.error("Chart could not be drawn", error);
+      chart.current?.clear();
+      setFailed(true);
+    }
   }, [option]);
 
-  return <div ref={ref} className="widget-chart" role="img" aria-label={label} />;
+  return (
+    <div className="widget-chart-frame">
+      <div ref={ref} className="widget-chart" role="img" aria-label={label} hidden={failed} />
+      {failed ? (
+        <p className="widget-note widget-note--error" role="alert">
+          This chart could not be drawn with these settings.
+        </p>
+      ) : null}
+    </div>
+  );
 }

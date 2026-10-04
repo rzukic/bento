@@ -2,6 +2,7 @@ import type { DashboardWidget, WidgetType } from "../../../api/dashboards";
 import type { AggregationQuery, QueryBucket, QueryFunction, QueryGroupBy, QueryMeasure } from "../../../api/query";
 import { valueTypeOf } from "../../../lib/columns";
 import type { ModelColumn, ModelTable } from "../../../types/api";
+import { DEFAULT_WINDOW } from "../chartTransforms";
 
 /**
  * The Lens-style editor's model (Step 3.6b): a widget is edited through
@@ -121,6 +122,8 @@ const FUNCTION_LABELS: Record<QueryFunction, string> = {
   min: "Minimum",
   max: "Maximum",
   count_distinct: "Unique count",
+  median: "Median",
+  percentile: "Percentile",
 };
 
 export function fieldLabel(table: ModelTable | undefined, name: string | undefined): string {
@@ -129,12 +132,28 @@ export function fieldLabel(table: ModelTable | undefined, name: string | undefin
   return column?.displayName || name;
 }
 
+/** 90 → "90th", 1 → "1st", 22 → "22nd", 12.5 → "12.5th". */
+function ordinal(n: number): string {
+  if (!Number.isInteger(n)) return `${n}th`;
+  const tens = n % 100;
+  const suffix = tens >= 11 && tens <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" } as Record<number, string>)[n % 10] ?? "th";
+  return `${n}${suffix}`;
+}
+
 export function describeMeasure(measure: QueryMeasure, table: ModelTable | undefined): string {
-  if (measure.formula !== undefined) return measure.name || "Formula";
-  const fn = FUNCTION_LABELS[measure.fn ?? "count"];
   const running = measure.running ? " (running)" : "";
-  if (!measure.column) return `Count of rows${running}`;
-  return `${fn} of ${fieldLabel(table, measure.column)}${running}`;
+  const field = fieldLabel(table, measure.column);
+  const base =
+    measure.formula !== undefined
+      ? measure.name || "Formula"
+      : !measure.column
+        ? `Count of rows${running}`
+        : measure.fn === "percentile"
+          ? `${ordinal(measure.percentile ?? 90)} percentile of ${field}`
+          : `${FUNCTION_LABELS[measure.fn ?? "count"]} of ${field}${running}`;
+  if (measure.show === "change") return `Change in ${base}`;
+  if (measure.show === "moving_average") return `${base}, ${measure.window ?? DEFAULT_WINDOW}-period average`;
+  return base;
 }
 
 const BUCKET_LABELS: Record<QueryBucket, string> = { day: "day", week: "week", month: "month", quarter: "quarter", year: "year" };
@@ -220,8 +239,11 @@ export function normalize(widget: DashboardWidget): DashboardWidget {
   if (widget.type === "donut") groups = groups.slice(0, 1);
   if (widget.type !== "table") groups = groups.slice(0, 2);
   const byDate = groups.some((g) => g.bucket);
+  const dateChart = byDate && (widget.type === "line" || widget.type === "area" || widget.type === "bar");
   let measures = query.measures ?? [];
   if (!byDate) measures = measures.map(withoutTimeSeries);
+  // "Show as" (change, moving average) needs periods along the axis.
+  if (!dateChart) measures = measures.map(({ show: _show, window: _window, ...m }) => m);
   if (widget.type === "kpi" || widget.type === "donut") measures = measures.slice(0, widget.type === "kpi" ? 2 : 1);
   // Top values rank by the first measure; they cannot combine with carry-in.
   if (groups.some((g) => g.top)) measures = measures.map(({ carryIn: _c, ...m }) => m);
@@ -232,6 +254,8 @@ export function normalize(widget: DashboardWidget): DashboardWidget {
     data: {
       ...data,
       asOf: byDate ? data.asOf : undefined,
+      // An earlier period repeats each measure as one dashed line: a date chart without a breakdown.
+      timeShift: dateChart && groups.length === 1 ? data.timeShift : undefined,
       query: { ...query, groupBy: groups, measures, sort: sort && sort.length > 0 ? sort : undefined },
     },
   };
