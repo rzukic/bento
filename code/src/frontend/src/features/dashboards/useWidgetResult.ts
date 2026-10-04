@@ -35,7 +35,7 @@ export function useWidgetResult(
 
   useEffect(() => {
     const data = widget.data;
-    if (widget.type === "text" || !data || data.variable || (!data.query && data.savedQueryId === undefined)) {
+    if (widget.type === "text" || !data || data.variable || data.rows || (!data.query && data.savedQueryId === undefined)) {
       setState({ status: "ready", result: null, query: null, error: null });
       return;
     }

@@ -115,10 +115,17 @@ export type ChartModel = {
   format: NumberFormatKind;
 };
 
-function labelOf(row: QueryRow, key: string, labelKey: string | undefined): string {
+/** The name a group value shows as: its record label, "Other" for the remaining top values, "(none)" when empty. */
+export function labelOf(row: QueryRow, key: string, labelKey: string | undefined, otherKey?: string): string {
+  if (otherKey && row[otherKey] === true) return "Other";
   const label = labelKey ? row[labelKey] : null;
   const value = label ?? row[key];
   return value === null || value === undefined || value === "" ? "(none)" : String(value);
+}
+
+/** The flag column marking a group's "Other" row, when the query asked for one. */
+export function otherKeyOf(result: QueryResult, group: string): string | undefined {
+  return result.meta.columns.find((c) => c.role === "other" && c.labelOf === group)?.name;
 }
 
 /**
@@ -152,6 +159,7 @@ export function toChartModel(
 
   const x = groups[0];
   const xLabel = labelFor(x.name);
+  const xOther = otherKeyOf(result, x.name);
   const bucket = query?.groupBy?.find((g) => (g.as ?? g.column) === x.name)?.bucket;
 
   let categories: string[];
@@ -170,12 +178,12 @@ export function toChartModel(
   } else {
     categories = [];
     for (const row of result.data) {
-      const label = labelOf(row, x.name, xLabel);
+      const label = labelOf(row, x.name, xLabel, xOther);
       if (!categories.includes(label)) categories.push(label);
     }
   }
 
-  const keyOf = (row: QueryRow) => (bucket ? String(row[x.name] ?? "") : labelOf(row, x.name, xLabel));
+  const keyOf = (row: QueryRow) => (bucket ? String(row[x.name] ?? "") : labelOf(row, x.name, xLabel, xOther));
 
   const fill = (values: (number | null)[], isRunning: boolean): (number | null)[] => {
     if (!bucket) return values;
@@ -193,15 +201,16 @@ export function toChartModel(
   if (groups.length >= 2 && measures.length >= 1) {
     const split = groups[1];
     const splitLabel = labelFor(split.name);
+    const splitOther = otherKeyOf(result, split.name);
     const measure = measures[0];
     const names: string[] = [];
     for (const row of result.data) {
-      const name = labelOf(row, split.name, splitLabel);
+      const name = labelOf(row, split.name, splitLabel, splitOther);
       if (!names.includes(name)) names.push(name);
     }
     const series = names.map((name) => {
       const values = categories.map((category) => {
-        const row = result.data.find((r) => keyOf(r) === category && labelOf(r, split.name, splitLabel) === name);
+        const row = result.data.find((r) => keyOf(r) === category && labelOf(r, split.name, splitLabel, splitOther) === name);
         return row ? toNumber(row[measure.name]) : null;
       });
       return { name, values: fill(values, running.has(measure.name)) };

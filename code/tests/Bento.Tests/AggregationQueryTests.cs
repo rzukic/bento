@@ -99,6 +99,40 @@ public sealed class AggregationQueryTests
             Rows(result, "category_id", "category_id_label", "total", "avg"));
     }
 
+    /// <summary>Step 3.6b: the N largest (or smallest) groups, the rest as "Other".</summary>
+    internal static async Task TopValues(ApiIntegrationTestHost host)
+    {
+        var withOther = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "counterparty", top = 2, other = true, rank = "asc" } },
+            measures = new[] { new { name = "total", fn = "sum", column = "amount" } },
+            sort = new[] { "-total" }
+        });
+        Assert.Equal([" true 9086.8", "REWE false -116.05", "Vermieter false -2000"], Rows(withOther, "counterparty", "counterparty_other", "total"));
+        Assert.Contains(withOther.GetProperty("meta").GetProperty("columns").EnumerateArray(),
+            c => c.GetProperty("name").GetString() == "counterparty_other" && c.GetProperty("role").GetString() == "other");
+
+        // Without "other" the rest is left out; ranking by a formula and per category label.
+        var top = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "category_id", top = 1, other = false, rank = (string?)null } },
+            measures = new[] { new { name = "bookings", formula = "COUNT()" } },
+            sort = new[] { "-bookings" }
+        });
+        Assert.Equal(["3 Lebensmittel 4", "  1"], Rows(top, "category_id", "category_id_label", "bookings"));
+
+        var topPerCategoryLabel = await QueryAsync(host, new
+        {
+            source = "transactions",
+            groupBy = new[] { new { column = "category_id", top = 1, other = true, rank = "desc" } },
+            measures = new[] { new { name = "total", fn = "sum", column = "amount" } },
+            sort = new[] { "-total" }
+        });
+        Assert.Equal(["1 Gehalt false 9100", "  false -10", "  true -2119.25"], Rows(topPerCategoryLabel, "category_id", "category_id_label", "category_id_other", "total"));
+    }
+
     internal static async Task RunningBalance(ApiIntegrationTestHost host)
     {
         var all = await QueryAsync(host, new
@@ -189,6 +223,7 @@ public sealed class AggregationQueryTests
         await MonthlyExpenses(host);
         await TotalsByCategory(host);
         await RunningBalance(host);
+        await TopValues(host);
         await RunningTotalsPerCategory(host);
         await Buckets(host);
         await MinMaxDistinct(host);
@@ -386,6 +421,7 @@ public sealed class PostgresAggregationQueryTests
         await AggregationQueryTests.MonthlyExpenses(host);
         await AggregationQueryTests.TotalsByCategory(host);
         await AggregationQueryTests.RunningBalance(host);
+        await AggregationQueryTests.TopValues(host);
         await AggregationQueryTests.RunningTotalsPerCategory(host);
         await AggregationQueryTests.Buckets(host);
         await AggregationQueryTests.MinMaxDistinct(host);

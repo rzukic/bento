@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-04 — A Widget Editor Like Kibana Lens
+
+> **Phase**: Phase 3 — Visualization
+> **Working step**: [Step 3.6b — Widget Editor Like Kibana Lens](working-steps/3.6b-widget-editor.md)
+
+Widgets are now built by dragging fields onto a large live chart instead of filling in a form.
+
+**Highlights:**
+- Fields on the left, the chart with suggestions in the middle, chart-specific slots (axis, breakdown, slices, value, rows) with quick functions or formulas on the right
+- Top values with "Other" (also in the query API), date intervals, options that no longer apply are dropped
+- Key figures for the whole range or the latest period, with secondary value, trend line and goal; tables summarized with a total row or as individual rows
+
 ### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
 
 > **Phase**: Phase 3 — Visualization

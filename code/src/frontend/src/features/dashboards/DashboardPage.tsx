@@ -23,7 +23,7 @@ import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
 import { variableRequests, type VariableResults } from "./formulaQueries";
 import { VariablesEditor } from "./VariablesEditor";
-import { WidgetEditor } from "./WidgetEditor";
+import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
 import "./Dashboards.css";
 
@@ -425,12 +425,15 @@ export function DashboardPage() {
       )}
 
       {editing && editingWidget ? (
-        <WidgetEditor
+        <LensEditor
           widget={editingWidget}
           tables={tables}
           snapshot={snapshot}
           variables={variables}
           variableResults={variableResults}
+          range={resolved}
+          refreshToken={refreshToken}
+          tokens={tokens}
           onChange={setWidget}
           onClose={() => setEditingWidgetId(null)}
         />

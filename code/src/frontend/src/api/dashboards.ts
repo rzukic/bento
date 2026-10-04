@@ -15,6 +15,15 @@ export type WidgetData = {
   asOf?: boolean;
   /** KPI: show a dashboard variable instead of a query. */
   variable?: string;
+  /** Table: the rows as they are (no grouping) — these columns, sorted and limited. */
+  rows?: WidgetRows;
+};
+
+export type WidgetRows = {
+  columns: string[];
+  /** A column name; "-" in front sorts descending. */
+  sort?: string;
+  limit?: number;
 };
 
 /**
@@ -37,8 +46,16 @@ export type WidgetDisplay = {
   stacked?: boolean;
   /** Text widget content (headings with #, lists with -). */
   text?: string;
-  /** KPI: compare with the previous date bucket. */
+  /** KPI: compare with the previous date bucket (latest period) or the range before (whole range). */
   compare?: boolean;
+  /** KPI: green when the value goes up (default); off for costs. */
+  higherIsBetter?: boolean;
+  /** KPI: a small trend line of the value per period. */
+  trend?: boolean;
+  /** KPI: a goal — a number or a dashboard variable's name — shown as progress. */
+  goal?: number | string;
+  /** Table: a total row. */
+  summary?: boolean;
 };
 
 export type DashboardWidget = {

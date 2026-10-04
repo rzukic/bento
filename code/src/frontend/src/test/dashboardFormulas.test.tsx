@@ -178,13 +178,19 @@ describe("dashboards with formulas", () => {
 
     await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(await screen.findByRole("button", { name: "Configure Savings rate" }));
-    const panel = await screen.findByRole("complementary", { name: "Widget settings" });
-    expect(within(panel).getByLabelText("Formula of rate")).toBeInTheDocument();
+    const editor = await screen.findByRole("dialog", { name: "Edit widget" });
+    const settings = within(editor).getByRole("complementary", { name: "Widget settings" });
+    await user.click(within(settings).getByRole("button", { name: "Edit Value: rate" }));
+    expect(within(settings).getByLabelText("Formula of rate")).toBeInTheDocument();
     await waitFor(() => expect(formulasApi.validateFormula).toHaveBeenCalledWith(expect.objectContaining({ mode: "measure", table: "transactions" })));
-    expect(await within(panel).findByText("Gives an amount")).toBeInTheDocument();
+    expect(await within(settings).findByText("Gives an amount")).toBeInTheDocument();
+    await user.click(within(settings).getByRole("button", { name: "Done" }));
 
-    await user.click(within(panel).getByLabelText("Value at the end of each period"));
+    // As a line chart, the values can be taken at the end of each month.
+    await user.click(within(editor).getByRole("radio", { name: "Line chart" }));
+    await user.click(within(editor).getByLabelText("Value at the end of each period"));
     await waitFor(() => expect(queryApi.runQuery.mock.calls.at(-1)![0].asOf).toMatchObject({ bucket: "month", as: "month" }));
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
 
     // Variables panel: add one and see its value.
     queryApi.evaluateVariables.mockResolvedValue([{ name: "value", type: "integer", value: 9, error: null }]);
@@ -198,7 +204,7 @@ describe("dashboards with formulas", () => {
 
 describe("widget editor guards", () => {
   it("drops running totals when the date group goes", async () => {
-    const { withoutTimeSeries } = await import("../features/dashboards/WidgetEditor");
+    const { withoutTimeSeries } = await import("../features/dashboards/lens/model");
     expect(withoutTimeSeries({ name: "balance", fn: "sum", column: "amount", running: true, carryIn: true })).toEqual({ name: "balance", fn: "sum", column: "amount" });
     expect(withoutTimeSeries({ name: "balance", formula: "= RUNNING_SUM(SUM(amount WHERE amount > 0))" })).toEqual({ name: "balance", formula: "SUM(amount WHERE amount > 0)" });
     expect(withoutTimeSeries({ name: "n", formula: "COUNT()" })).toEqual({ name: "n", formula: "COUNT()" });

@@ -5,7 +5,17 @@ export type QueryFilter = Record<string, unknown>;
 
 export type QueryBucket = "day" | "week" | "month" | "quarter" | "year";
 
-export type QueryGroupBy = { column: string; bucket?: QueryBucket; as?: string };
+export type QueryGroupBy = {
+  column: string;
+  bucket?: QueryBucket;
+  as?: string;
+  /** Only the N values ranked first by the first measure ("top values"). */
+  top?: number;
+  /** With top: the remaining values as one "Other" group (flagged in `<as>_other`). */
+  other?: boolean;
+  /** With top: "desc" largest first (default) or "asc" smallest first. */
+  rank?: "asc" | "desc";
+};
 
 export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_distinct";
 
@@ -40,7 +50,7 @@ export type AggregationQuery = {
 export type QueryResultColumn = {
   name: string;
   type: string;
-  role: "group" | "label" | "measure";
+  role: "group" | "label" | "measure" | "other";
   labelOf?: string | null;
 };
 
