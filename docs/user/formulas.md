@@ -65,6 +65,8 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Math | `ROUND(number, [digits])`, `FLOOR`, `CEIL`, `ABS`, `MOD(number, divisor)`, `POWER(number, exponent)`, `SQRT` |
 | Text | `CONCAT(a, b, …)`, `LEFT(text, count)`, `RIGHT(text, count)`, `MID(text, start, count)`, `LEN`, `UPPER`, `LOWER`, `TRIM`, `REPLACE(text, search, replacement)`, `SEARCH(search, text)`, `CONTAINS(text, search)` |
 | Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
+| Lookup | `LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)` |
+| Dashboards | `RUNNING_SUM(measure)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
 
 A few details:
@@ -77,8 +79,29 @@ A few details:
 
 The full list with descriptions and examples is at `GET /api/v1/formulas/functions` and in the editor's suggestions.
 
+## Formulas In Dashboards
+
+A widget value or a dashboard variable can be a formula over many rows — a **measure**. There, `SUM`, `COUNT`, `AVG`, `MIN` and `MAX` work on the rows of each group (each month, each category):
+
+| Write | Gives |
+|---|---|
+| `SUM(amount WHERE amount > 0)` | income; also `SUMIF(amount, amount > 0)` |
+| `COUNT()`, `COUNT(WHERE category = "Miete")` | the number of rows, all or meeting a condition; also `COUNTIF(…)` |
+| `(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)` | a savings rate |
+| `RUNNING_SUM(SUM(amount))` | a running total over the months, e.g. a balance |
+| `SUM(SUM(transactions.amount))` on accounts | an aggregate of related rows inside one over the group |
+| `SUM(amount) / months` | with the dashboard variable `months` |
+
+Outside an aggregate a measure cannot use a single row's value: `amount * 2` is an error, `SUM(amount) * 2` is fine. Grouped by month, a key figure compares the last month with the one before.
+
+**By period end** (see [Dashboards](dashboards.md#values-at-the-end-of-each-period)), `BUCKET_START()` and `BUCKET_END()` are the first and last day of each period: `SUM(amount WHERE booked_on <= BUCKET_END())` is the balance at each month end.
+
+**`LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)`** finds the latest row on or before a date — a price at a month end: `LOOKUP_ASOF("prices", "ticker", ticker, "date", BUCKET_END(), "price")`. It also works in computed columns, e.g. the price of a holding today with `TODAY()`.
+
+`WHERE` also works in aggregates over related rows: `SUM(transactions.amount WHERE transactions.amount < 0)`.
+
 ## Not Yet
 
-- formulas in dashboard widgets (`SUM(amount WHERE amount > 0)`), running sums and as-of lookups — step 3.6
+- formulas in saved queries are not updated when a column they use is renamed (stored columns in saved queries are)
 - aggregates over related rows of related rows (add a computed column on the related table and sum that)
 - the app's text search does not look into computed columns

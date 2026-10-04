@@ -683,3 +683,16 @@
         margin-left: 0;
     }
 }
+
+/* Dashboard variables panel (Step 3.6) */
+.variables-editor__item {
+    border-top: 1px solid var(--line);
+    padding-top: 0.75rem;
+}
+
+.variables-editor__value {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    color: var(--text);
+}

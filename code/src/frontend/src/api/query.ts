@@ -11,11 +11,19 @@ export type QueryFunction = "count" | "sum" | "avg" | "min" | "max" | "count_dis
 
 export type QueryMeasure = {
   name: string;
-  fn: QueryFunction;
+  /** count, sum, …; absent when the measure is a formula. */
+  fn?: QueryFunction;
   column?: string;
+  /** A formula over the group's rows (Step 3.6): `SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`. */
+  formula?: string;
   running?: boolean;
   carryIn?: boolean;
 };
+
+/** Values at the end of each period: one row per period, measures with BUCKET_END(). */
+export type QueryAsOf = { bucket: QueryBucket; from: string; to: string; as?: string };
+
+export type VariableValue = number | string | boolean | null;
 
 export type AggregationQuery = {
   source: string;
@@ -24,6 +32,9 @@ export type AggregationQuery = {
   measures?: QueryMeasure[];
   sort?: string[];
   limit?: number;
+  asOf?: QueryAsOf;
+  /** Dashboard variables used in measure formulas. */
+  variables?: Record<string, VariableValue>;
 };
 
 export type QueryResultColumn = {
@@ -74,4 +85,13 @@ export async function createSavedQuery(name: string, query: AggregationQuery, is
 
 export async function getSavedQuery(id: number): Promise<SavedQuery> {
   return (await apiClient.get<DataEnvelope<SavedQuery>>(`/queries/${id}`)).data;
+}
+
+export type QueryVariable = { name: string; source?: string; formula: string; filter?: QueryFilter };
+
+export type QueryVariableResult = { name: string; type: string | null; value: VariableValue; error: string | null };
+
+/** POST /api/v1/query/variables — values in the order given; a broken one has an error. */
+export async function evaluateVariables(variables: QueryVariable[]): Promise<QueryVariableResult[]> {
+  return (await apiClient.post<DataEnvelope<QueryVariableResult[]>>("/query/variables", { variables })).data;
 }

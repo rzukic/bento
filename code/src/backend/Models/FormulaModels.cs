@@ -21,6 +21,15 @@ public sealed record FormulaRequest
     public JsonElement? Model { get; init; }
     /// <summary>The computed column the formula belongs to: using itself is reported as a cycle.</summary>
     public string? Column { get; init; }
+    /// <summary>
+    /// Validate only: "measure" checks a dashboard measure (aggregates over the
+    /// group's rows, RUNNING_SUM) instead of a row formula.
+    /// </summary>
+    public string? Mode { get; init; }
+    /// <summary>Validate only, measures: a query by period end (BUCKET_START()/BUCKET_END()).</summary>
+    public bool AsOf { get; init; }
+    /// <summary>Validate only, measures: dashboard variables by name with an example value.</summary>
+    public Dictionary<string, JsonElement>? Variables { get; init; }
     /// <summary>Preview only: number of sample rows (1–100, default 20).</summary>
     public int? Limit { get; init; }
 }
@@ -31,7 +40,8 @@ public sealed record FormulaValidateResponse(
     bool Valid,
     string? Type,
     IReadOnlyList<FormulaErrorResponse> Errors,
-    IReadOnlyList<string> Columns);
+    IReadOnlyList<string> Columns,
+    bool Running = false);
 
 public sealed record FormulaPreviewRow(object? Id, object? Value, IDictionary<string, object?> Inputs);
 

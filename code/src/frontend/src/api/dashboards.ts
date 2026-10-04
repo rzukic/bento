@@ -11,6 +11,24 @@ export type WidgetData = {
   savedQueryId?: number;
   /** The date column the dashboard's date range filters; none = the widget ignores the range. */
   dateColumn?: string | null;
+  /** The value at the end of each period of the date group (the range sets the periods). */
+  asOf?: boolean;
+  /** KPI: show a dashboard variable instead of a query. */
+  variable?: string;
+};
+
+/**
+ * A dashboard variable (Part 9 R9.10): a measure formula over a table's rows
+ * (`SUM(amount WHERE amount < 0)`) or, without a table, over other variables
+ * (`cash / burn_rate`). Usable in KPI cards and in widget formulas by name.
+ */
+export type DashboardVariable = {
+  name: string;
+  label?: string;
+  source?: string;
+  formula: string;
+  /** The date column the dashboard's range filters; none = all rows. */
+  dateColumn?: string;
 };
 
 export type WidgetDisplay = {
@@ -50,6 +68,7 @@ export type DashboardDocument = {
   /** Seconds between automatic refreshes; 0 or missing = off. */
   refreshSeconds?: number;
   widgets: DashboardWidget[];
+  variables?: DashboardVariable[];
 };
 
 export type Dashboard = {

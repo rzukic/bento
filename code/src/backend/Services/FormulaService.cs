@@ -33,12 +33,39 @@ public sealed class FormulaService
 
     public FormulaValidateResponse Validate(FormulaRequest request)
     {
+        if (string.Equals(request.Mode?.Trim(), "measure", StringComparison.OrdinalIgnoreCase))
+            return ValidateMeasure(request);
+        if (!string.IsNullOrWhiteSpace(request.Mode) && !string.Equals(request.Mode.Trim(), "row", StringComparison.OrdinalIgnoreCase))
+            throw Invalid("mode", "mode is \"row\" (a column formula) or \"measure\" (a dashboard measure).");
+
         var (_, check) = Check(request, draft: Present(request.Columns) || Present(request.Model));
         return new FormulaValidateResponse(
             check.IsValid,
             check.Result is { } result ? FormulaTypes.Name(result.Type) : null,
             check.Errors.Select(e => new FormulaErrorResponse(e.Message, e.Start, e.End)).ToList(),
             check.Result?.Columns ?? []);
+    }
+
+    /// <summary>A dashboard measure over the applied table's rows.</summary>
+    private FormulaValidateResponse ValidateMeasure(FormulaRequest request)
+    {
+        if (string.IsNullOrWhiteSpace(request.Table))
+            throw Invalid("table", "Choose the table the measure runs over.");
+        var table = _schemaCache.GetTable(request.Table.Trim())
+            ?? throw new ApiNotFoundException($"Table '{request.Table}' does not exist.",
+                new Dictionary<string, object?> { ["field"] = "table", ["table"] = request.Table });
+        var (check, running) = FormulaCompiler.CompileMeasure(request.Formula ?? "", table, FormulaSchema.From(_schemaCache.Current), _dbConfig.Provider,
+            context: new FormulaContext
+            {
+                BucketAlias = request.AsOf ? "b" : null,
+                Variables = AggregationQueryService.ResolveVariables(request.Variables)
+            });
+        return new FormulaValidateResponse(
+            check.IsValid,
+            check.Result is { } result ? FormulaTypes.Name(result.Type) : null,
+            check.Errors.Select(e => new FormulaErrorResponse(e.Message, e.Start, e.End)).ToList(),
+            check.Result?.Columns ?? [],
+            running);
     }
 
     public async Task<FormulaPreviewResponse> PreviewAsync(FormulaRequest request)

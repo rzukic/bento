@@ -131,17 +131,22 @@ public static class FormulaFunctions
         new("MINUTE", "Date", "MINUTE(datetime)", "The minute, 0–59 (0 for dates).", "MINUTE(recorded_at)", "integer"),
         new("DATEDIFF", "Date", "DATEDIFF(start, end, unit)", "Whole days, weeks, months or years from start to end (negative when end is earlier). The time of day is ignored.", "DATEDIFF(booked_on, TODAY(), \"months\")", "integer"),
         new("DATEADD", "Date", "DATEADD(date, count, unit)", "Adds count days, weeks, months or years (count may be negative). Month ends stay in their month: Jan 31 + 1 month is Feb 28.", "DATEADD(booked_on, 1, \"months\")", "the type of date"),
-        new("SUM", RelatedRows, "SUM(link.column, [condition])", "Adds up a column of the related rows (0 when there are none), optionally only those meeting the condition.", "SUM(transactions.amount)", "the type of column"),
-        new("COUNT", RelatedRows, "COUNT(link, [condition])", "The number of related rows, or of their non-empty values with COUNT(link.column).", "COUNT(transactions, transactions.amount < 0)", "integer"),
+        new("SUM", RelatedRows, "SUM(link.column [WHERE condition])", "Adds up a column of the related rows (0 when there are none), optionally only those meeting the condition. In dashboard measures: over the rows of the group, e.g. SUM(amount WHERE amount < 0).", "SUM(transactions.amount)", "the type of column"),
+        new("COUNT", RelatedRows, "COUNT(link [WHERE condition])", "The number of related rows, or of their non-empty values with COUNT(link.column). In dashboard measures: COUNT() counts the group's rows.", "COUNT(transactions, transactions.amount < 0)", "integer"),
         new("AVG", RelatedRows, "AVG(link.column, [condition])", "The average of a column of the related rows; empty when there are none.", "AVG(transactions.amount)", "float or currency"),
         new("MIN", RelatedRows, "MIN(link.column, [condition])", "The smallest number or earliest date among the related rows.", "MIN(transactions.booked_on)", "the type of column"),
         new("MAX", RelatedRows, "MAX(link.column, [condition])", "The largest number or latest date among the related rows.", "MAX(transactions.booked_on)", "the type of column"),
+        new("RUNNING_SUM", Measures, "RUNNING_SUM(measure)", "Dashboards and queries: the measure added up over the date group, e.g. a balance from monthly sums. Wraps the whole formula.", "RUNNING_SUM(SUM(amount))", "the type of measure"),
+        new("BUCKET_START", Measures, "BUCKET_START()", "In values at the end of each period: the first day of the period.", "SUM(amount WHERE booked_on >= BUCKET_START() AND booked_on <= BUCKET_END())", "date"),
+        new("BUCKET_END", Measures, "BUCKET_END()", "In values at the end of each period: the last day of the period.", "SUM(amount WHERE booked_on <= BUCKET_END())", "date"),
+        new("LOOKUP_ASOF", "Lookup", "LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)", "The value of the latest row on or before the date, e.g. a price at a month end. Table and column names are text.", "LOOKUP_ASOF(\"prices\", \"ticker\", ticker, \"date\", TODAY(), \"price\")", "the type of value_column"),
         new("SUMIF", RelatedRows, "SUMIF(link.column, condition)", "SUM with a condition.", "SUMIF(transactions.amount, transactions.amount < 0)", "the type of column"),
         new("COUNTIF", RelatedRows, "COUNTIF(link, condition)", "COUNT with a condition.", "COUNTIF(transactions, transactions.amount < 0)", "integer"),
         new("AVGIF", RelatedRows, "AVGIF(link.column, condition)", "AVG with a condition.", "AVGIF(transactions.amount, transactions.amount < 0)", "float or currency"),
     ];
 
     public const string RelatedRows = "Related rows";
+    public const string Measures = "Measures";
 
     public static readonly IReadOnlyDictionary<string, string> Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {

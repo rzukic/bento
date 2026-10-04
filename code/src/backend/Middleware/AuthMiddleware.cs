@@ -97,6 +97,7 @@ public sealed class AuthMiddleware
         var path = request.Path.Value ?? "";
         var runsQuery = HttpMethods.IsPost(request.Method) &&
             (path.Equals("/" + ApiRoutes.Query, StringComparison.OrdinalIgnoreCase) ||
+             path.Equals("/" + ApiRoutes.Query + "/variables", StringComparison.OrdinalIgnoreCase) ||
              (path.StartsWith("/" + ApiRoutes.SavedQueries + "/", StringComparison.OrdinalIgnoreCase) && path.EndsWith("/run", StringComparison.OrdinalIgnoreCase)) ||
              path.Equals("/" + ApiRoutes.Formulas + "/validate", StringComparison.OrdinalIgnoreCase) ||
              path.Equals("/" + ApiRoutes.Formulas + "/preview", StringComparison.OrdinalIgnoreCase));

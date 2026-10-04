@@ -7,6 +7,7 @@ import { useAppStore } from "../../../stores/appStore";
 import { EChart } from "../charts/EChart";
 import { buildChartOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
 import type { ResolvedRange } from "../dateRange";
+import { variableValues, type VariableResults } from "../formulaQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { toChartModel, toKpiModel } from "../widgetData";
 
@@ -36,15 +37,22 @@ export function WidgetContent({
   range,
   refreshToken,
   tokens,
+  variables,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
   refreshToken: number;
   tokens: ChartTokens;
+  /** The dashboard's variables, for KPI cards showing one and for widget formulas. */
+  variables?: VariableResults;
 }) {
-  const state = useWidgetResult(widget, range, refreshToken);
+  const values = useMemo(() => variableValues(variables), [variables]);
+  const state = useWidgetResult(widget, range, refreshToken, values);
 
   if (widget.type === "text") return <TextWidget text={widget.display?.text ?? ""} />;
+  if (widget.type === "kpi" && widget.data?.variable) {
+    return <VariableKpi widget={widget} name={widget.data.variable} variables={variables} />;
+  }
   if (!widget.data?.query && widget.data?.savedQueryId === undefined) {
     return <p className="widget-note">Choose what this widget shows.</p>;
   }
@@ -112,6 +120,30 @@ function KpiWidget({ result, widget }: { result: QueryResult; widget: DashboardW
       ) : model.label ? (
         <span className="widget-kpi__since">{formatBucketLabel(model.label, bucket)}</span>
       ) : null}
+    </div>
+  );
+}
+
+/** A KPI card showing a dashboard variable (runway, savings rate, …). */
+function VariableKpi({ widget, name, variables }: { widget: DashboardWidget; name: string; variables?: VariableResults }) {
+  if (!variables) return <div className="widget-loading" aria-label="Loading" />;
+  const result = variables[name];
+  if (!result) return <p className="widget-note">The variable "{name}" does not exist.</p>;
+  if (result.error) {
+    return (
+      <p className="widget-note widget-note--error" role="alert">
+        <Icon name="activity" size={13} /> {name}: {result.error}
+      </p>
+    );
+  }
+  const number = toNumber(result.value);
+  const format = overrideFormat(widget) ?? formatKindForType(result.type ?? undefined);
+  return (
+    <div className="widget-kpi">
+      <span className={number !== null && number < 0 && format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value"}>
+        {number !== null ? formatNumber(number, format) : result.value === null ? "—" : String(result.value)}
+      </span>
+      <span className="widget-kpi__since">{name}</span>
     </div>
   );
 }

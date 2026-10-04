@@ -61,6 +61,8 @@ public sealed class FormulaSchema
 
     public TableDef? Table(string name) => _tables.GetValueOrDefault(name);
 
+    public IEnumerable<string> TableNames => _tables.Keys;
+
     public FormulaNavigation? FindNavigation(TableDef table, string name) =>
         Navigations(table).FirstOrDefault(n => n.Names.Contains(name, StringComparer.OrdinalIgnoreCase));
 

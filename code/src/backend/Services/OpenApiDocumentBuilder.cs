@@ -278,9 +278,23 @@ public sealed class OpenApiDocumentBuilder
         paths["/query"] = new JsonObject
         {
             ["post"] = Operation("Query", "Run an aggregation query", "read",
-                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct; `running` and `carryIn` for running totals.",
+                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
                 body: Ref("AggregationQuery"),
                 responses: Responses(200, "Rows and column metadata.", Ref("QueryResult")))
+        };
+        paths["/query/variables"] = new JsonObject
+        {
+            ["post"] = Operation("Query", "Evaluate dashboard variables", "read",
+                "Each variable is a measure formula over a `source` table (with an optional `filter`) or a formula over other variables; they are evaluated in dependency order. A broken variable gets an `error`, the others still get values.",
+                body: Obj(new JsonObject
+                {
+                    ["variables"] = new JsonObject
+                    {
+                        ["type"] = "array",
+                        ["items"] = Obj(new JsonObject { ["name"] = Str(example: "burn_rate"), ["source"] = Str(), ["formula"] = Str(example: "spent / 3"), ["filter"] = anyObject.DeepClone() })
+                    }
+                }),
+                responses: Responses(200, "Name, type, value or error of each variable.", anyObject.DeepClone()))
         };
         paths["/queries"] = new JsonObject
         {
@@ -415,12 +429,26 @@ public sealed class OpenApiDocumentBuilder
                     ["name"] = Str(),
                     ["fn"] = Str(["count", "sum", "avg", "min", "max", "count_distinct"]),
                     ["column"] = Str(),
+                    ["formula"] = Str(example: "SUM(amount WHERE amount > 0) / COUNT()"),
                     ["running"] = new JsonObject { ["type"] = "boolean" },
                     ["carryIn"] = new JsonObject { ["type"] = "boolean" }
                 })
             },
             ["sort"] = new JsonObject { ["type"] = "array", ["items"] = Str() },
-            ["limit"] = Int(1000)
+            ["limit"] = Int(1000),
+            ["asOf"] = Obj(new JsonObject
+            {
+                ["bucket"] = Str(["day", "week", "month", "quarter", "year"]),
+                ["from"] = Str(example: "2026-01-01"),
+                ["to"] = Str(example: "2026-12-31"),
+                ["as"] = Str(example: "month")
+            }),
+            ["variables"] = new JsonObject
+            {
+                ["type"] = "object",
+                ["additionalProperties"] = true,
+                ["description"] = "Dashboard variables used in measure formulas: { name: number | text | boolean }"
+            }
         },
         ["example"] = new JsonObject
         {

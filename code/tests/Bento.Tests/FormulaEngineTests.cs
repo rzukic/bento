@@ -30,6 +30,7 @@ public sealed class FormulaEngineTests
             new() { Name = "iban", Type = ColumnType.Text },
             new() { Name = "reference", Type = ColumnType.Text },
             new() { Name = "email", Type = ColumnType.Text },
+            new() { Name = "ticker", Type = ColumnType.Text },
             new() { Name = "paid", Type = ColumnType.Boolean },
             new() { Name = "status", Type = ColumnType.Enum, Values = ["open", "done"] },
             new() { Name = "meta", Type = ColumnType.Json },
@@ -65,8 +66,20 @@ public sealed class FormulaEngineTests
         ]
     };
 
+    private static readonly TableDef Prices = new()
+    {
+        Name = "prices",
+        Columns =
+        [
+            new() { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new() { Name = "ticker", Type = ColumnType.Text },
+            new() { Name = "date", Type = ColumnType.Date },
+            new() { Name = "price", Type = ColumnType.Currency }
+        ]
+    };
+
     private static readonly FormulaSchema Schema = new(
-        [Transactions, Categories, Accounts],
+        [Transactions, Categories, Accounts, Prices],
         [
             new RelationDef { Name = "category_transactions", Type = RelationType.OneToMany, From = "categories", To = "transactions", Column = "category_id" },
             new RelationDef { Name = "account_transactions", Type = RelationType.OneToMany, From = "accounts", To = "transactions", Column = "account_id" }
@@ -222,6 +235,86 @@ public sealed class FormulaEngineTests
         Assert.Equal(message, check.Errors[0].Message);
     }
 
+    private static MeasureCheck Measure(string formula, TableDef? table = null, FormulaContext? context = null) =>
+        FormulaCompiler.CompileMeasure(formula, table ?? Transactions, Schema, DatabaseProvider.Sqlite, context: context);
+
+    [Theory]
+    [InlineData("SUM(amount WHERE amount > 0)", "currency", false)]
+    [InlineData("SUMIF(amount, amount < 0)", "currency", false)]
+    [InlineData("COUNT()", "integer", false)]
+    [InlineData("COUNT(WHERE paid)", "integer", false)]
+    [InlineData("COUNTIF(paid)", "integer", false)]
+    [InlineData("COUNT(note WHERE paid)", "integer", false)]
+    [InlineData("(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)", "float", false)]
+    [InlineData("ROUND(AVG(amount), 2)", "currency", false)]
+    [InlineData("MAX(booked_on)", "date", false)]
+    [InlineData("SUM(net) * 2", "currency", false)]
+    [InlineData("SUM(account.opening_balance)", "currency", false)]
+    [InlineData("RUNNING_SUM(SUM(amount))", "currency", true)]
+    [InlineData("SUM(amount) / months", "currency", false)]
+    public void Measures_AggregateTheGroup(string formula, string type, bool running)
+    {
+        var (check, isRunning) = Measure(formula, context: new FormulaContext
+        {
+            Variables = new Dictionary<string, FormulaValue> { ["months"] = new(FormulaType.Integer, 3L) }
+        });
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+        Assert.Equal(type, FormulaTypes.Name(check.Result!.Type));
+        Assert.Equal(running, isRunning);
+    }
+
+    [Fact]
+    public void Measures_CanNestRelatedRowAggregates()
+    {
+        var (check, _) = Measure("SUM(opening_balance + SUM(transactions.amount WHERE transactions.amount < 0))", Accounts);
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+        Assert.Equal("currency", FormulaTypes.Name(check.Result!.Type));
+    }
+
+    [Theory]
+    [InlineData("amount * 2", "'amount' differs from row to row; use it inside SUM(…), AVG(…), MIN(…), MAX(…) or COUNT(…).")]
+    [InlineData("SUM(amount) + quantity", "'quantity' differs from row to row; use it inside SUM(…), AVG(…), MIN(…), MAX(…) or COUNT(…).")]
+    [InlineData("SUM()", "Write SUM(column) or SUM(column WHERE condition), e.g. SUM(amount WHERE amount < 0).")]
+    [InlineData("SUM(amount WHERE note)", "The condition of SUM needs a condition (yes/no), not text — compare it, e.g. amount < 0.")]
+    [InlineData("UPPER(note WHERE paid)", "WHERE only works inside SUM, COUNT, AVG, MIN or MAX, not in UPPER.")]
+    [InlineData("SUM(amount) + RUNNING_SUM(SUM(amount))", "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).")]
+    [InlineData("RUNNING_SUM(MAX(booked_on))", "RUNNING_SUM needs a number, not a date.")]
+    [InlineData("SUM(amount WHERE booked_on <= BUCKET_END())", "BUCKET_END() only works in queries by period end (\"Value at the end of each period\").")]
+    [InlineData("SUM(amount WHERE)", "Write a condition after WHERE.")]
+    public void MeasureErrors(string formula, string message)
+    {
+        var (check, _) = Measure(formula);
+        Assert.False(check.IsValid);
+        Assert.Equal(message, check.Errors[0].Message);
+    }
+
+    [Fact]
+    public void Measures_ExplainHowToSumRelatedRows()
+    {
+        var (check, _) = Measure("SUM(transactions.amount)", Accounts);
+        Assert.Equal("In a measure, SUM(…) adds up the rows of the group; for the related rows of each row nest it: SUM(SUM(transactions.amount)).", check.Errors[0].Message);
+    }
+
+    [Theory]
+    [InlineData("= LOOKUP_ASOF(\"prices\", \"ticker\", note, \"date\", booked_on, \"price\")", null)]
+    [InlineData("= LOOKUP_ASOF(\"pricez\", \"ticker\", note, \"date\", booked_on, \"price\")", "Table 'pricez' not found — did you mean 'prices'?")]
+    [InlineData("= LOOKUP_ASOF(\"prices\", \"ticker\", note, \"ticker\", booked_on, \"price\")", "'ticker' is not a date column.")]
+    [InlineData("= LOOKUP_ASOF(\"prices\", ticker, note, \"date\", booked_on, \"price\")", "LOOKUP_ASOF takes table and column names as text, e.g. \"prices\".")]
+    [InlineData("= LOOKUP_ASOF(\"prices\", \"ticker\", note, \"date\", booked_on, \"prise\")", "Column 'prise' not found in prices — did you mean 'price'?")]
+    public void LookupAsOf(string formula, string? error)
+    {
+        var check = Check(formula);
+        if (error is null)
+        {
+            Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+            Assert.Equal("currency", FormulaTypes.Name(check.Result!.Type));
+        }
+        else
+        {
+            Assert.Equal(error, check.Errors[0].Message);
+        }
+    }
+
     [Fact]
     public void AColumnUsingItself_IsACycle()
     {
@@ -270,8 +363,10 @@ public sealed class FormulaEngineTests
     {
         foreach (var function in FormulaFunctions.Catalog)
         {
-            // Aggregates run over an account's transactions.
-            var check = Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null);
+            // Aggregates run over an account's transactions; measure functions in a query by period end.
+            var check = function.Category == FormulaFunctions.Measures
+                ? FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check
+                : Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null);
             Assert.True(check.IsValid, $"{function.Name}: {function.Example} → {string.Join("; ", check.Errors.Select(e => e.Message))}");
             Assert.Contains(function.Name, function.Example, StringComparison.Ordinal);
         }

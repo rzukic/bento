@@ -31,7 +31,11 @@ public sealed record UnaryExpression(string Operator, FormulaNode Operand, int S
 
 public sealed record BinaryExpression(string Operator, FormulaNode Left, FormulaNode Right, int OperatorStart, int Start, int End) : FormulaNode(Start, End);
 
-public sealed record FunctionCall(string Name, IReadOnlyList<FormulaNode> Arguments, int NameEnd, int Start, int End) : FormulaNode(Start, End);
+public sealed record FunctionCall(string Name, IReadOnlyList<FormulaNode> Arguments, int NameEnd, int Start, int End) : FormulaNode(Start, End)
+{
+    /// <summary>The last argument came after <c>WHERE</c>: <c>SUM(amount WHERE amount &gt; 0)</c>.</summary>
+    public bool HasWhere { get; init; }
+}
 
 // ── Lexer ────────────────────────────────────────────────────────────────
 
@@ -396,13 +400,25 @@ public sealed class FormulaParser
     {
         var open = Next();
         var arguments = new List<FormulaNode>();
+        var hasWhere = false;
         if (Peek.Kind != TokenKind.RightParen)
         {
             while (true)
             {
                 if (Peek.Kind is TokenKind.Comma or TokenKind.RightParen)
                     throw FormulaLexer.Error("An argument is missing here.", Peek.Start, Peek.End);
-                arguments.Add(ParseOr());
+                if (!IsKeyword("WHERE"))
+                    arguments.Add(ParseOr());
+                if (IsKeyword("WHERE"))
+                {
+                    // SUM(amount WHERE amount > 0), COUNT(WHERE paid): the condition ends the call.
+                    var where = Next();
+                    if (Peek.Kind is TokenKind.RightParen or TokenKind.End or TokenKind.Comma)
+                        throw FormulaLexer.Error("Write a condition after WHERE.", where.Start, where.End);
+                    arguments.Add(ParseOr());
+                    hasWhere = true;
+                    break;
+                }
                 if (Peek.Kind == TokenKind.Comma)
                 {
                     Next();
@@ -418,7 +434,7 @@ public sealed class FormulaParser
                 : FormulaLexer.Error($"Expected , or ) in {name.Text}(…), not '{Describe(Peek)}'.", Peek.Start, Peek.End);
         }
         var close = Next();
-        return new FunctionCall(name.Text, arguments, name.End, name.Start, close.End);
+        return new FunctionCall(name.Text, arguments, name.End, name.Start, close.End) { HasWhere = hasWhere };
     }
 
     private static string Describe(FormulaToken token) => token.Kind switch
@@ -427,5 +443,19 @@ public sealed class FormulaParser
         TokenKind.BracketIdentifier => "[" + token.Text + "]",
         TokenKind.End => "end of formula",
         _ => token.Text
+    };
+}
+
+/// <summary>Walks a formula's syntax tree.</summary>
+public static class FormulaNodes
+{
+    /// <summary>The plain names a formula uses (columns or variables), without dotted or bracketed ones.</summary>
+    public static IEnumerable<string> Names(FormulaNode node) => node switch
+    {
+        ColumnReference { Path.Count: 1, Bracketed: false } reference => [reference.Path[0]],
+        UnaryExpression unary => Names(unary.Operand),
+        BinaryExpression binary => Names(binary.Left).Concat(Names(binary.Right)),
+        FunctionCall call => call.Arguments.SelectMany(Names),
+        _ => []
     };
 }
