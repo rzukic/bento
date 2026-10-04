@@ -127,27 +127,42 @@ export function LensEditor({
 
   const panel = (
     <div className="lens" role="dialog" aria-label="Edit widget">
+      <div className="lens__sky" aria-hidden="true">
+        <div className="lens__pool" />
+        <svg className="lens__grain" xmlns="http://www.w3.org/2000/svg">
+          <filter id="lens-grain">
+            <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" stitchTiles="stitch" />
+            <feColorMatrix type="saturate" values="0" />
+          </filter>
+          <rect width="100%" height="100%" filter="url(#lens-grain)" />
+        </svg>
+      </div>
       <header className="lens__header">
-        <input className="lens__title" aria-label="Title" value={widget.title} onChange={(event) => set({ ...widget, title: event.target.value })} />
-        <div className="lens__types" role="radiogroup" aria-label="Shows as">
-          {TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              role="radio"
-              aria-checked={widget.type === type}
-              className={widget.type === type ? "lens__type lens__type--active" : "lens__type"}
-              onClick={() => {
-                setEditing(null);
-                if (type !== "text" && !widget.data && sources[0]) set({ ...widget, type, data: { query: defaultQuery(type, sources[0]) } });
-                else set(switchType(widget, type, table));
-              }}
-            >
-              {WIDGET_LABELS[type]}
-            </button>
-          ))}
+        <div className="lens__heading">
+          <span className="lens__kicker">Widget</span>
+          <input className="lens__title" aria-label="Title" value={widget.title} onChange={(event) => set({ ...widget, title: event.target.value })} />
         </div>
-        <Button type="button" variant="primary" onClick={onClose}>
+        <div className="lens__types">
+          <div className="lens__types-track" role="radiogroup" aria-label="Shows as">
+            {TYPES.map((type) => (
+              <button
+                key={type}
+                type="button"
+                role="radio"
+                aria-checked={widget.type === type}
+                className={widget.type === type ? "lens__type lens__type--active" : "lens__type"}
+                onClick={() => {
+                  setEditing(null);
+                  if (type !== "text" && !widget.data && sources[0]) set({ ...widget, type, data: { query: defaultQuery(type, sources[0]) } });
+                  else set(switchType(widget, type, table));
+                }}
+              >
+                {WIDGET_LABELS[type]}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Button type="button" variant="accent" onClick={onClose}>
           Done
         </Button>
       </header>
