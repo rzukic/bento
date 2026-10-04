@@ -110,4 +110,22 @@ describe("import mapping", () => {
       { source: "Buchungstag", target: "booked_on" },
     ]);
   });
+
+  it("keeps a fixed value for every row through payloads, profiles and re-reads", async () => {
+    const { applyProfile, asFixed, retainMapping, toMappingPayload } = await import("../features/data-explorer/import/importMapping");
+    const mapping = { booked_on: "Buchungstag", account_id: asFixed("Checking"), purpose: "" };
+    expect(toMappingPayload(mapping)).toEqual([
+      { source: "Buchungstag", target: "booked_on" },
+      { target: "account_id", value: "Checking" },
+    ]);
+    expect(retainMapping(mapping, ["Datum"])).toEqual({ booked_on: "", account_id: asFixed("Checking"), purpose: "" });
+    const columns = [
+      { name: "booked_on", type: "date" },
+      { name: "account_id", type: "reference", references: "accounts" },
+    ] as never;
+    expect(applyProfile({ mapping: [{ source: "Buchungstag", target: "booked_on" }, { target: "account_id", value: "Checking" }], keyColumns: [] }, ["Buchungstag"], columns).mapping).toEqual({
+      booked_on: "Buchungstag",
+      account_id: asFixed("Checking"),
+    });
+  });
 });

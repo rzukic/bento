@@ -38,7 +38,8 @@ export type ImportAnalysis = {
   };
 };
 
-export type ImportColumnMapping = { source: string; target: string };
+/** A file column into a table column — or, with `value`, the same value for every row (e.g. the account of a bank export). */
+export type ImportColumnMapping = { source?: string; target: string; value?: string };
 
 export type ImportRunPayload = {
   content: string;

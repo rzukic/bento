@@ -28,11 +28,17 @@ import { TextField } from "../../../components/ui/TextField";
 import { useExplorerStore } from "../../../stores/explorerStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import type { ModelColumn } from "../../../types/api";
+import { fetchTableRows } from "../../../api/data";
+import { getDisplayColumnForTable } from "../components/editors/referenceMetadata";
 import {
   applyProfile,
   getImportableColumns,
   isRequiredColumn,
   retainMapping,
+  FIXED,
+  asFixed,
+  fixedValue,
+  isFixed,
   suggestKeyColumns,
   suggestMapping,
   toMappingPayload,
@@ -417,7 +423,7 @@ export function ImportPage() {
                     column={column}
                     headers={headers}
                     header={mapping[column.name] ?? ""}
-                    sample={samplesByHeader[mapping[column.name] ?? ""]?.[0]}
+                    sample={isFixed(mapping[column.name]) ? fixedValue(mapping[column.name]) : samplesByHeader[mapping[column.name] ?? ""]?.[0]}
                     isKey={keyColumns.includes(column.name)}
                     onHeaderChange={(header) => {
                       invalidate();
@@ -604,6 +610,7 @@ function MappingRow({
 }) {
   const label = column.displayName ?? column.name;
   const required = isRequiredColumn(column);
+  const fixed = isFixed(header);
   return (
     <tr className={header ? "import-map__row import-map__row--mapped" : "import-map__row"}>
       <th scope="row" className="import-map__column">
@@ -617,8 +624,8 @@ function MappingRow({
         <select
           className="field__control field__control--compact import-map__select"
           aria-label={`File column for ${label}`}
-          value={header}
-          onChange={(event) => onHeaderChange(event.target.value)}
+          value={fixed ? FIXED : header}
+          onChange={(event) => onHeaderChange(event.target.value === FIXED ? asFixed(fixedValue(header)) : event.target.value)}
         >
           <option value="">Don't import</option>
           {headers.map((h) => (
@@ -626,9 +633,11 @@ function MappingRow({
               {h}
             </option>
           ))}
+          <option value={FIXED}>Same value for every row…</option>
         </select>
+        {fixed ? <FixedValue column={column} label={label} value={fixedValue(header)} onChange={(value) => onHeaderChange(asFixed(value))} /> : null}
       </td>
-      <td className="import-map__sample">{header ? sample ?? <span className="import-review__empty">empty</span> : null}</td>
+      <td className="import-map__sample">{header ? sample || <span className="import-review__empty">empty</span> : null}</td>
       <td className="import-map__key">
         <input
           type="checkbox"
@@ -639,6 +648,58 @@ function MappingRow({
         />
       </td>
     </tr>
+  );
+}
+
+/**
+ * The value every imported row gets — for a link a record by its name (the
+ * account a bank export belongs to), otherwise typed in.
+ */
+function FixedValue({ column, label, value, onChange }: { column: ModelColumn; label: string; value: string; onChange: (value: string) => void }) {
+  const snapshot = useSchemaStore((state) => state.snapshot);
+  const target = column.type === "reference" ? (snapshot?.tables.find((t) => t.name === column.references) ?? null) : null;
+  const [options, setOptions] = useState<string[]>([]);
+  useEffect(() => {
+    if (!target) return;
+    let cancelled = false;
+    const labelColumn = getDisplayColumnForTable(target);
+    fetchTableRows(target.name, { page: 1, perPage: 200, sort: [], search: "", filters: [] })
+      .then((response) => {
+        if (cancelled) return;
+        const labels = response.data.map((row) => String(row[labelColumn] ?? row.id ?? "")).filter(Boolean);
+        setOptions([...new Set(labels)]);
+      })
+      .catch(() => !cancelled && setOptions([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [target]);
+
+  if (target) {
+    return (
+      <select
+        className="field__control field__control--compact import-map__fixed"
+        aria-label={`Value of ${label} for every row`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
+        <option value="">Choose…</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+  return (
+    <input
+      className="field__control field__control--compact import-map__fixed"
+      aria-label={`Value of ${label} for every row`}
+      placeholder="Value for every row"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    />
   );
 }
 

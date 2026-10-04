@@ -524,3 +524,8 @@
     color: var(--warning);
     font-size: var(--fs-sm);
 }
+
+/* Step 3.9 follow-up: a fixed value for every row under the column choice. */
+.import-map__fixed {
+    margin-top: 0.375rem;
+}

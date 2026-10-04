@@ -24,7 +24,7 @@ Change names, types and what is stored how, then choose **Create table and conti
    - how numbers and dates are written: `-1.234,56` and `31.12.2026`, or `-1,234.56` and `2026-12-31`
 
    Change anything that looks wrong; the file is read again right away.
-4. Under **Columns**, choose the file column for each table column, or **Don't import**. Bento suggests a mapping from the column names and, for bank exports, from what the headers mean (Buchungstag, Betrag, Verwendungszweck, Auftraggeber / Begünstigter, Kategorie). Required columns are marked.
+4. Under **Columns**, choose the file column for each table column, or **Don't import**. Bento suggests a mapping from the column names and, for bank exports, from what the headers mean (Buchungstag, Betrag, Verwendungszweck, Auftraggeber / Begünstigter, Kategorie). Required columns are marked. **Same value for every row…** fills a column without a file column — typically the **account** a bank export belongs to (choose the record) or a note (type it).
 5. Choose **Check rows**. Nothing is written yet. Every row is listed as:
    - **New**: will be imported
    - **Already there**: the table has this row already (see below)
@@ -45,7 +45,7 @@ A column that links to another table (e.g. **Category**) takes the record's name
 
 ## Profiles
 
-Save the settings, mapping and key columns as a **profile** (e.g. "DKB Girokonto"). Next month, choose the profile before or after choosing the file and go straight to **Check rows**. Profiles belong to a table and are shared by everyone who can import into it.
+Save the settings, mapping and key columns as a **profile** (e.g. "DKB Girokonto"); a fixed value such as the account is part of it. Next month, choose the profile before or after choosing the file and go straight to **Check rows**. Profiles belong to a table and are shared by everyone who can import into it.
 
 ## Who Can Import
 
