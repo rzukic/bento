@@ -23,6 +23,7 @@ Widgets are now built by dragging fields onto a large live chart instead of fill
 - Fields on the left, the chart with suggestions in the middle, chart-specific slots (axis, breakdown, slices, value, rows) with quick functions or formulas on the right
 - Top values with "Other" (also in the query API), date intervals, options that no longer apply are dropped
 - Key figures for the whole range or the latest period, with secondary value, trend line and goal; tables summarized with a total row or as individual rows
+- Chart tooltips list the series in the order they sit at that date (stacks top to bottom), mark the hovered line or area, show the stack's total and the period in full ("September 2026"), and stay inside the chart
 
 ### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
 

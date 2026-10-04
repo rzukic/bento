@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DashboardWidget } from "../../../api/dashboards";
 import type { QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
@@ -95,12 +95,17 @@ function ChartWidget({
   tokens: ChartTokens;
 }) {
   const model = useMemo(() => toChartModel(result, query ?? undefined, range, overrideFormat(widget)), [result, query, range, widget]);
+  // The series under the pointer, read by the tooltip when it renders.
+  const hovered = useRef<number | null>(null);
   const option = useMemo(
-    () => buildChartOption(widget.type, model, tokens, widget.display?.stacked ?? false),
+    () => buildChartOption(widget.type, model, tokens, widget.display?.stacked ?? false, () => hovered.current),
     [widget.type, widget.display?.stacked, model, tokens],
   );
+  const onHoverSeries = useCallback((index: number | null) => {
+    hovered.current = index;
+  }, []);
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} />;
+  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} />;
 }
 
 function KpiWidget({
