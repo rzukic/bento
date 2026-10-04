@@ -24,6 +24,8 @@ Widgets are now built by dragging fields onto a large live chart instead of fill
 - Top values with "Other" (also in the query API), date intervals, options that no longer apply are dropped
 - Key figures for the whole range or the latest period, with secondary value, trend line and goal; tables summarized with a total row or as individual rows
 - Drawn in the app's design language (hairlines, pills, mono labels, display type), neutral in the light theme too
+- Chart tooltips list the series in the order they sit at that date (stacks top to bottom), mark the hovered line or area, show the stack's total and the period in full ("September 2026"), and stay inside the chart
+- Legends stay on one line and page (‹ 1/2 ›) instead of wrapping into the axis; long names are cut and shown in full on hover; "Other" comes last; a breakdown starts with its top 5 values (an axis keeps 10)
 
 ### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
 
