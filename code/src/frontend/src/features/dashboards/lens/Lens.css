@@ -1,0 +1,475 @@
+/* Widget editor (Step 3.6b), modelled on Kibana Lens. */
+
+.lens {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+}
+
+.lens__header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.lens__title {
+    flex: 0 1 18rem;
+    min-width: 8rem;
+    border: 1px solid transparent;
+    border-radius: var(--r-sm);
+    background: transparent;
+    padding: 0.35rem 0.5rem;
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.lens__title:hover,
+.lens__title:focus {
+    border-color: var(--border);
+    outline: none;
+}
+
+.lens__types {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    flex: 1;
+}
+
+.lens__type {
+    border: 1px solid var(--border);
+    border-radius: var(--r-pill);
+    background: transparent;
+    padding: 0.3rem 0.75rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens__type--active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+.lens__body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 15rem minmax(0, 1fr) 21rem;
+}
+
+.lens__fields,
+.lens__config {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.lens__fields {
+    border-right: 1px solid var(--line);
+}
+
+.lens__config {
+    border-left: 1px solid var(--line);
+}
+
+.lens__field-groups {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.lens__field-group h3,
+.lens-slot h3,
+.lens-section h3 {
+    margin: 0 0 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-3);
+}
+
+.lens__field-group ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.lens__field {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.4rem;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-sm);
+    cursor: grab;
+    color: var(--text-2);
+}
+
+.lens__field:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.lens__field-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lens__field-add {
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    cursor: pointer;
+    padding: 0.1rem;
+    display: inline-flex;
+}
+
+.lens__field-add:hover {
+    color: var(--accent);
+}
+
+.lens__workspace {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    background: var(--surface-sunken);
+}
+
+.lens__preview {
+    min-height: 22rem;
+    flex: 0 0 auto;
+    height: 55vh;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg);
+    background: var(--surface);
+    padding: 1rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.lens__preview--kpi {
+    height: auto;
+    min-height: 12rem;
+    max-width: 24rem;
+}
+
+.lens__preview > * {
+    flex: 1;
+    min-height: 0;
+}
+
+.lens__caption {
+    margin: 0;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.lens__suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.lens__suggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    padding: 0.4rem 0.75rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens__suggestion:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.lens__suggestion--data {
+    margin-left: auto;
+}
+
+.lens__data {
+    overflow: auto;
+    max-height: 18rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-md);
+    background: var(--surface);
+}
+
+.lens__data table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-xs);
+}
+
+.lens__data th,
+.lens__data td {
+    padding: 0.3rem 0.6rem;
+    border-bottom: 1px solid var(--line);
+    text-align: left;
+    white-space: nowrap;
+}
+
+.lens__hint,
+.lens-field__hint {
+    margin: 0;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.lens__textarea {
+    min-height: 10rem;
+}
+
+.lens-tabs {
+    display: flex;
+    gap: 1rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.lens-tabs__tab {
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    padding: 0.35rem 0;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens-tabs__tab[aria-selected="true"] {
+    border-bottom-color: var(--accent);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.lens-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.lens-field {
+    display: grid;
+    gap: 0.3rem;
+}
+
+.lens-field__label {
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.lens-check {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: var(--fs-sm);
+}
+
+.lens-segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    overflow: hidden;
+}
+
+.lens-segmented button {
+    border: none;
+    background: transparent;
+    padding: 0.4rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens-segmented button[aria-checked="true"] {
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+.lens-slot {
+    border: 1px dashed transparent;
+    border-radius: var(--r-md);
+    padding: 0.25rem;
+    margin: -0.25rem;
+}
+
+.lens-slot--over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.lens-slot__item {
+    display: flex;
+    align-items: center;
+    border: 1px solid var(--border);
+    border-radius: var(--r-md);
+    background: var(--surface);
+    margin-bottom: 0.35rem;
+}
+
+.lens-slot__label {
+    flex: 1;
+    min-width: 0;
+    border: none;
+    background: transparent;
+    padding: 0.45rem 0.6rem;
+    text-align: left;
+    font-size: var(--fs-sm);
+    color: var(--text);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lens-slot__label:hover {
+    color: var(--accent);
+}
+
+.lens-slot__remove {
+    border: none;
+    background: transparent;
+    color: var(--text-3);
+    padding: 0.35rem 0.5rem;
+    cursor: pointer;
+}
+
+.lens-slot__add {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    border: 1px dashed var(--border-strong);
+    border-radius: var(--r-md);
+    background: transparent;
+    padding: 0.45rem 0.6rem;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    cursor: pointer;
+    text-align: left;
+}
+
+.lens-slot__add:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.lens-section {
+    display: grid;
+    gap: 0.4rem;
+}
+
+.lens-condition {
+    display: grid;
+    grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr) minmax(0, 1fr) auto;
+    gap: 0.3rem;
+    align-items: center;
+}
+
+.lens-goal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.35rem;
+}
+
+.lens-dimension {
+    display: flex;
+    flex-direction: column;
+    gap: 0.9rem;
+}
+
+.lens-dimension__header {
+    display: grid;
+    gap: 0.25rem;
+}
+
+.lens-dimension__title {
+    font-weight: 600;
+    font-size: var(--fs-md);
+}
+
+.lens-dimension__footer {
+    display: flex;
+    justify-content: space-between;
+    border-top: 1px solid var(--line);
+    padding-top: 0.75rem;
+}
+
+.lens-functions {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.3rem;
+}
+
+.lens-functions__item {
+    border: 1px solid var(--border);
+    border-radius: var(--r-sm);
+    background: transparent;
+    padding: 0.4rem 0.3rem;
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens-functions__item--active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+@media (max-width: 960px) {
+    .lens__body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        overflow-y: auto;
+    }
+
+    .lens__fields,
+    .lens__config {
+        border: none;
+        border-top: 1px solid var(--line);
+        overflow: visible;
+    }
+
+    .lens__fields {
+        order: 2;
+    }
+
+    .lens__config {
+        order: 3;
+    }
+
+    .lens__preview {
+        height: 45vh;
+        min-height: 16rem;
+    }
+}

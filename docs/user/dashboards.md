@@ -25,15 +25,28 @@ Choose **Edit**:
 
 - **Add widget**: key figure, line, area or bar chart, donut, table or text
 - Drag a widget by its title; resize it by its lower right corner; the others make room
-- The gear opens the widget's settings:
-  - **Data from**: a table or a saved query
-  - **Group by**: the axis or rows (dates per day, week, month, quarter or year) and an optional split into one series per value (e.g. spending per category per month)
-  - **Values**: sum, count, average, smallest, largest or distinct values of a column (computed columns too, e.g. a balance), or a **Formula…** over the rows of each group, such as a savings rate `(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)` — see [Formulas in dashboards](formulas.md#formulas-in-dashboards); for sums and counts over dates a **running total**, optionally **including earlier rows** (for balances)
-  - **Only rows where**: conditions such as amount < 0
-  - **Order** and **Limit** (e.g. the top 10)
-  - **Date range filters**: which date column the dashboard range applies to, or none
-  - **Display**: amounts, numbers, whole numbers or percent; stacked bars and areas; for key figures the comparison with the period before
+- The gear opens the **widget editor** (modelled on Kibana Lens):
+  - **Fields** on the left — dates, numbers, categories, text — with search. Drag a field onto the chart or onto a slot, or click its **+**: a date becomes the horizontal axis per month, a number a value (sum), a category the axis or the breakdown
+  - **The chart** in the middle, live, with the chart types above it, a sentence saying what it shows ("Sum of Betrag (EUR) by Buchungstag per month, split by Top 10 Kategorie + other"), other ways to show the same fields (**suggestions**) and **View data** for the numbers behind it
+  - **Data** on the right: the chart's slots — *Horizontal axis*, *Vertical axis* and *Breakdown* for line, area and bar charts; *Slice by* and *Size by* for donuts; *Value* and *Secondary value* for key figures; *Rows* and *Metrics* for tables. Click an item to set it up:
+    - a value: **Count, Sum, Average, Minimum, Maximum, Unique count** of a field — or a **Formula** — plus a running total when the axis is a date
+    - a date: the **interval** (day to year)
+    - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other**
+  - **Only rows where** conditions, and which date the dashboard's range applies to
+  - **Style**: number format, stacked (with a breakdown), and per type the options below
+- Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
+
+### Key Figures
+
+- **For**: *the whole range* (one number for all rows in the range, compared with the range before it) or *the latest period* (the last month, compared with the month before)
+- **Secondary value**, e.g. the number of bookings under the amount
+- **Style**: compare with the period before, **higher is better** (switch off for costs, so a rise is red), **trend line**, and a **goal** — a number or a variable — shown as progress
+
+### Tables
+
+- **Summarized**: rows per group with metrics, optionally a **total row**
+- **Individual rows**: the rows themselves — the columns you pick, sorted and limited — with the widget's conditions and the dashboard range
 
 ## Values At The End Of Each Period
 

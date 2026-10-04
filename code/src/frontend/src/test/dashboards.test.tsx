@@ -201,11 +201,12 @@ describe("Dashboards", () => {
     await user.selectOptions(screen.getByLabelText("Date range"), "this-year");
 
     expect(router.state.location.search).toBe("?range=this-year");
-    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(2));
+    // The range itself, and — for the comparison of a whole-range key figure — the year before.
+    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(3));
     const year = new Date().getFullYear();
-    expect((queryApi.runQuery.mock.calls[1][0] as AggregationQuery).filter).toEqual({
-      buchungstag: { gte: `${year}-01-01`, lt: `${year + 1}-01-01` },
-    });
+    const filters = queryApi.runQuery.mock.calls.slice(1).map((call) => (call[0] as AggregationQuery).filter);
+    expect(filters).toContainEqual({ buchungstag: { gte: `${year}-01-01`, lt: `${year + 1}-01-01` } });
+    expect(filters).toContainEqual({ buchungstag: { gte: `${year - 1}-01-01`, lt: `${year}-01-01` } });
   });
 
   it("adds, configures and saves a widget in edit mode", async () => {
@@ -220,12 +221,23 @@ describe("Dashboards", () => {
     await user.click(screen.getByRole("button", { name: "Add widget" }));
     await user.click(screen.getByRole("menuitem", { name: "Key figure" }));
 
-    const editor = await screen.findByRole("complementary", { name: "Widget settings" });
+    const editor = await screen.findByRole("dialog", { name: "Edit widget" });
     const title = within(editor).getByLabelText("Title");
     await user.clear(title);
-    await user.type(title, "Spent this year");
-    // The generated key is never offered as a value.
-    expect(within(within(editor).getByLabelText("Of")).queryByRole("option", { name: "id" })).not.toBeInTheDocument();
+    await user.type(title, "Spending by category");
+
+    // The value slot opens its settings: quick functions and the fields that fit.
+    const settings = within(editor).getByRole("complementary", { name: "Widget settings" });
+    await user.click(within(settings).getByRole("button", { name: "Edit Value: Sum of Betrag (EUR)" }));
+    // The generated key is never offered as a field.
+    expect(within(within(settings).getByLabelText("Field")).queryByRole("option", { name: "id" })).not.toBeInTheDocument();
+    await user.click(within(settings).getByRole("button", { name: "Average" }));
+    await user.click(within(settings).getByRole("button", { name: "Done" }));
+
+    // Another chart type keeps the fields; a category from the field list becomes the axis with its top values.
+    await user.click(within(editor).getByRole("radio", { name: "Bar chart" }));
+    await user.click(within(editor).getByRole("button", { name: "Add Kategorie" }));
+    expect(within(editor).getByText(/Average of Betrag \(EUR\) by Top 10 Kategorie \+ other/)).toBeInTheDocument();
     await user.click(within(editor).getByRole("button", { name: "Done" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
@@ -233,10 +245,16 @@ describe("Dashboards", () => {
     const saved = dashboardsApi.updateDashboard.mock.calls[0][1] as { dashboard: DashboardDocument };
     expect(saved.dashboard.widgets).toHaveLength(1);
     expect(saved.dashboard.widgets[0]).toMatchObject({
-      type: "kpi",
-      title: "Spent this year",
+      type: "bar",
+      title: "Spending by category",
       position: { x: 0, y: 0, w: 3, h: 2 },
-      data: { query: { source: "girokonto", measures: [{ fn: "sum", column: "betrag_eur" }] } },
+      data: {
+        query: {
+          source: "girokonto",
+          groupBy: [{ column: "kategorie_id", top: 10, other: true }],
+          measures: [{ fn: "avg", column: "betrag_eur" }],
+        },
+      },
     });
   });
 });

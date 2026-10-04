@@ -1,15 +1,18 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { DashboardWidget } from "../../../api/dashboards";
-import type { QueryResult } from "../../../api/query";
+import type { QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
 import { useAppStore } from "../../../stores/appStore";
 import { EChart } from "../charts/EChart";
 import { buildChartOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
 import type { ResolvedRange } from "../dateRange";
-import { variableValues, type VariableResults } from "../formulaQueries";
+import { runnableQuery, variableValues, type VariableResults } from "../formulaQueries";
+import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
-import { toChartModel, toKpiModel } from "../widgetData";
+import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
+import { renderCellValue } from "../../data-explorer/components/cellValue";
+import { useSchemaStore } from "../../../stores/schemaStore";
 
 /** Re-reads the chart colors whenever the light/dark theme changes. */
 export function useChartTokens(): ChartTokens {
@@ -53,6 +56,9 @@ export function WidgetContent({
   if (widget.type === "kpi" && widget.data?.variable) {
     return <VariableKpi widget={widget} name={widget.data.variable} variables={variables} />;
   }
+  if (widget.type === "table" && widget.data?.rows) {
+    return <RowsTable widget={widget} range={range} refreshToken={refreshToken} />;
+  }
   if (!widget.data?.query && widget.data?.savedQueryId === undefined) {
     return <p className="widget-note">Choose what this widget shows.</p>;
   }
@@ -67,9 +73,9 @@ export function WidgetContent({
 
   switch (widget.type) {
     case "kpi":
-      return <KpiWidget result={state.result} widget={widget} />;
+      return <KpiWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} variables={variables} />;
     case "table":
-      return <TableWidget result={state.result} format={overrideFormat(widget)} />;
+      return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
     default:
       return <ChartWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} />;
   }
@@ -97,30 +103,111 @@ function ChartWidget({
   return <EChart option={option} label={widget.title || "Chart"} />;
 }
 
-function KpiWidget({ result, widget }: { result: QueryResult; widget: DashboardWidget }) {
+function KpiWidget({
+  result,
+  widget,
+  range,
+  refreshToken,
+  values,
+  variables,
+}: {
+  result: QueryResult;
+  widget: DashboardWidget;
+  range: ResolvedRange;
+  refreshToken: number;
+  values: Record<string, VariableValue>;
+  variables?: VariableResults;
+}) {
+  const extra = useMemo(() => kpiExtraQueries(widget, range, values), [widget, range, values]);
+  const previousResult = useQueryRun(extra.previous, refreshToken);
+  const trendResult = useQueryRun(extra.trend, refreshToken);
   const model = toKpiModel(result, overrideFormat(widget));
   if (model.value === null) return <p className="widget-note">No data in this range.</p>;
-  const compare = widget.display?.compare !== false && model.previous !== null;
-  const delta = compare ? model.value - model.previous! : 0;
-  const percent = compare && model.previous !== 0 ? delta / Math.abs(model.previous!) : null;
+
+  const measures = result.meta.columns.filter((c) => c.role === "measure");
   const bucket = widget.data?.query?.groupBy?.find((g) => g.bucket)?.bucket;
+  const wholeRange = !bucket;
+  const previous = wholeRange
+    ? previousResult && measures[0]
+      ? toNumber(previousResult.data[0]?.[measures[0].name])
+      : null
+    : model.previous;
+  const compare = widget.display?.compare !== false && previous !== null;
+  const delta = compare ? model.value - previous! : 0;
+  const percent = compare && previous !== 0 ? delta / Math.abs(previous!) : null;
+  const good = (widget.display?.higherIsBetter ?? true) ? delta >= 0 : delta <= 0;
+
+  // Secondary value: the second measure of the same (latest) row.
+  const secondary = measures[1];
+  const lastRow = toKpiRow(result);
+  const secondaryValue = secondary && lastRow ? toNumber(lastRow[secondary.name]) : null;
+
+  // Trend: the value per period — from the rows themselves (latest period) or an extra query.
+  const trendSource = wholeRange ? trendResult : result;
+  const trendValues = widget.display?.trend && trendSource && measures[0] ? sortedValues(trendSource, measures[0].name) : [];
+
+  // Goal: a number or a variable's value.
+  const goalSetting = widget.display?.goal;
+  const goal = typeof goalSetting === "number" ? goalSetting : typeof goalSetting === "string" ? toNumber(variables?.[goalSetting]?.value) : null;
+
   return (
     <div className="widget-kpi">
       <span className={model.value < 0 && model.format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value"}>
         {formatNumber(model.value, model.format)}
       </span>
       {compare ? (
-        <span className={delta >= 0 ? "widget-kpi__delta widget-kpi__delta--up" : "widget-kpi__delta widget-kpi__delta--down"}>
+        <span className={good ? "widget-kpi__delta widget-kpi__delta--up" : "widget-kpi__delta widget-kpi__delta--down"}>
           <Icon name={delta >= 0 ? "chevron-up" : "chevron-down"} size={12} />
           {percent !== null ? formatNumber(percent, "percent") : formatNumber(delta, model.format)}
           <span className="widget-kpi__since">
-            vs. {model.label ? formatBucketLabel(previousLabel(result) ?? model.label, bucket) : "before"}
+            vs. {wholeRange ? "the range before" : model.label ? formatBucketLabel(previousLabel(result) ?? model.label, bucket) : "before"}
           </span>
         </span>
       ) : model.label ? (
         <span className="widget-kpi__since">{formatBucketLabel(model.label, bucket)}</span>
       ) : null}
+      {secondary && secondaryValue !== null ? (
+        <span className="widget-kpi__secondary">
+          {secondary.name}: {formatNumber(secondaryValue, formatKindForType(secondary.type))}
+        </span>
+      ) : null}
+      {trendValues.length > 1 ? <Sparkline values={trendValues} /> : null}
+      {goal !== null && goal !== 0 ? (
+        <span className="widget-kpi__goal" title={`Goal ${formatNumber(goal, model.format)}`}>
+          <span className="widget-kpi__goal-bar">
+            <span style={{ width: `${Math.max(0, Math.min(100, (model.value / goal) * 100))}%` }} />
+          </span>
+          {formatNumber(model.value / goal, "percent")} of {formatNumber(goal, model.format)}
+        </span>
+      ) : null}
     </div>
+  );
+}
+
+/** The row a key figure shows: the latest period, or the only row. */
+function toKpiRow(result: QueryResult): QueryResult["data"][number] | null {
+  const group = result.meta.columns.find((c) => c.role === "group");
+  if (result.data.length === 0) return null;
+  if (!group) return result.data[0];
+  return [...result.data].sort((a, b) => String(a[group.name]).localeCompare(String(b[group.name]))).at(-1) ?? null;
+}
+
+function sortedValues(result: QueryResult, measure: string): number[] {
+  const group = result.meta.columns.find((c) => c.role === "group");
+  const rows = group ? [...result.data].sort((a, b) => String(a[group.name]).localeCompare(String(b[group.name]))) : result.data;
+  return rows.map((row) => toNumber(row[measure])).filter((v): v is number => v !== null);
+}
+
+/** A small line of the values, scaled to fit. */
+function Sparkline({ values }: { values: number[] }) {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min || 1;
+  const points = values.map((v, i) => `${(i / (values.length - 1)) * 100},${28 - ((v - min) / span) * 26}`).join(" ");
+  return (
+    <svg className="widget-kpi__trend" viewBox="0 0 100 30" preserveAspectRatio="none" role="img" aria-label="Trend">
+      <polyline points={points} fill="none" stroke="currentColor" strokeWidth="1.5" vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -155,11 +242,43 @@ function previousLabel(result: QueryResult): string | null {
   return values[values.length - 2] ?? null;
 }
 
-function TableWidget({ result, format }: { result: QueryResult; format?: NumberFormatKind }) {
-  // A linked record shows by its name; the id column then stays hidden.
+function TableWidget({
+  result,
+  widget,
+  range,
+  refreshToken,
+  values,
+}: {
+  result: QueryResult;
+  widget: DashboardWidget;
+  range: ResolvedRange;
+  refreshToken: number;
+  values: Record<string, VariableValue>;
+}) {
+  const format = overrideFormat(widget);
+  // The total row: the same query without groups, so every measure is exact.
+  const totalQuery = useMemo(() => {
+    const query = widget.data?.query;
+    if (!widget.display?.summary || !query || !widget.data || (query.groupBy ?? []).length === 0) return null;
+    return runnableQuery({ ...query, groupBy: [], sort: undefined, limit: undefined }, { ...widget.data, asOf: undefined }, range, values);
+  }, [widget, range, values]);
+  const total = useQueryRun(totalQuery, refreshToken);
+
+  // A linked record shows by its name; the id column then stays hidden. "Other" flags never show.
   const labelled = new Set(result.meta.columns.filter((c) => c.role === "label").map((c) => c.labelOf));
-  const columns = result.meta.columns.filter((c) => !(c.role === "group" && labelled.has(c.name)));
+  const columns = result.meta.columns.filter((c) => c.role !== "other" && !(c.role === "group" && labelled.has(c.name)));
   if (result.data.length === 0) return <p className="widget-note">No data in this range.</p>;
+  const cell = (row: QueryResult["data"][number], column: QueryResult["meta"]["columns"][number]) => {
+    const value = row[column.name];
+    const number = column.role === "measure" ? toNumber(value) : null;
+    if (number !== null) return formatNumber(number, format ?? formatKindForType(column.type));
+    const group = column.role === "label" ? column.labelOf! : column.name;
+    if (column.role === "group" || column.role === "label") {
+      const shown = labelOf(row, group, column.role === "label" ? column.name : undefined, otherKeyOf(result, group));
+      return shown === "(none)" ? "—" : shown;
+    }
+    return value === null || value === "" ? "—" : String(value);
+  };
   return (
     <div className="widget-table">
       <table>
@@ -175,23 +294,73 @@ function TableWidget({ result, format }: { result: QueryResult; format?: NumberF
         <tbody>
           {result.data.map((row, index) => (
             <tr key={index}>
-              {columns.map((column) => {
-                const value = row[column.name];
-                const number = column.role === "measure" ? toNumber(value) : null;
+              {columns.map((column) => (
+                <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
+                  {cell(row, column)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+        {total && total.data[0] ? (
+          <tfoot>
+            <tr>
+              {columns.map((column, index) => {
+                const number = column.role === "measure" ? toNumber(total.data[0][column.name]) : null;
                 return (
                   <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                    {number !== null
-                      ? formatNumber(number, format ?? formatKindForType(column.type))
-                      : value === null || value === ""
-                        ? "—"
-                        : String(value)}
+                    {number !== null ? formatNumber(number, format ?? formatKindForType(column.type)) : index === 0 ? "Total" : ""}
                   </td>
                 );
               })}
             </tr>
+          </tfoot>
+        ) : null}
+      </table>
+    </div>
+  );
+}
+
+/** The rows as they are: the widget's columns, sorted and limited, with the explorer's formatting. */
+function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; range: ResolvedRange; refreshToken: number }) {
+  const state = useRows(widget, range, refreshToken);
+  const snapshot = useSchemaStore((s) => s.snapshot);
+  const table = snapshot?.tables.find((t) => t.name === widget.data?.query?.source);
+  const columns = (widget.data?.rows?.columns ?? []).map((name) => table?.columns.find((c) => c.name === name) ?? { name, type: "text" });
+  if (state.status === "error") {
+    return (
+      <p className="widget-note widget-note--error" role="alert">
+        <Icon name="activity" size={13} /> {state.error}
+      </p>
+    );
+  }
+  if (state.status === "loading") return <div className="widget-loading" aria-label="Loading" />;
+  if (state.rows.length === 0) return <p className="widget-note">No rows in this range.</p>;
+  return (
+    <div className="widget-table">
+      <table>
+        <thead>
+          <tr>
+            {columns.map((column) => (
+              <th key={column.name}>{column.displayName || column.name}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {state.rows.map((row, index) => (
+            <tr key={index}>
+              {columns.map((column) => (
+                <td key={column.name}>{renderCellValue(column, row[column.name])}</td>
+              ))}
+            </tr>
           ))}
         </tbody>
       </table>
+      {state.total > state.rows.length ? (
+        <p className="widget-note">
+          {state.rows.length} of {state.total} rows
+        </p>
+      ) : null}
     </div>
   );
 }

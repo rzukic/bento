@@ -44,7 +44,13 @@ public sealed class AggregationQueryService
 
     // ── Resolved query ───────────────────────────────────────────────────
 
-    private sealed record Group(ColumnDef Column, string? Bucket, string Output, string Expression, string? LabelOutput, string? LabelExpression, string? Join);
+    /// <param name="Top">Top values: only the first N values by the first measure (<paramref name="Ascending"/> for smallest first).</param>
+    /// <param name="OtherOutput">Top values with "Other": the flag column marking the remaining values' group.</param>
+    private sealed record Group(
+        ColumnDef Column, string? Bucket, string Output, string Expression, string? LabelOutput, string? LabelExpression, string? Join,
+        int? Top = null, bool Ascending = false, string? OtherOutput = null);
+
+    public const int MaxTop = 1000;
 
     /// <param name="Fn">count, sum, … or "formula" (then <paramref name="Type"/> is the formula's result).</param>
     private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null);
@@ -160,7 +166,31 @@ public sealed class AggregationQueryService
             }
 
             var expression = bucket is null ? $"t.{Q(column.Name)}" : BucketExpression(column, bucket, computed.ContainsKey(column.Name));
-            groups.Add(new Group(column, bucket, output, expression, labelOutput, labelExpression, join));
+
+            int? top = null;
+            string? otherOutput = null;
+            var ascending = false;
+            if (spec.Top is { } n)
+            {
+                if (bucket is not null)
+                    throw Invalid($"{path}.top", "Top values work on columns, not on date periods.");
+                if (calendar is not null)
+                    throw Invalid($"{path}.top", "Top values cannot be combined with values at the end of each period.");
+                if (n < 1 || n > MaxTop)
+                    throw Invalid($"{path}.top", $"top must be between 1 and {MaxTop}.");
+                var rank = spec.Rank?.Trim().ToLowerInvariant();
+                if (rank is not (null or "" or "asc" or "desc"))
+                    throw Invalid($"{path}.rank", "rank is \"desc\" (largest first) or \"asc\" (smallest first).");
+                top = n;
+                ascending = rank == "asc";
+                if (spec.Other)
+                    otherOutput = Output($"{output}_other", outputs, $"{path}.as");
+            }
+            else if (spec.Other)
+            {
+                throw Invalid($"{path}.other", "\"other\" needs top: the values after the top ones form the other group.");
+            }
+            groups.Add(new Group(column, bucket, output, expression, labelOutput, labelExpression, join, top, ascending, otherOutput));
         }
 
         var measures = new List<Measure>();
@@ -209,6 +239,8 @@ public sealed class AggregationQueryService
 
         if (groups.Count == 0 && measures.Count == 0)
             throw Invalid("measures", "Add a measure or a group.");
+        if (groups.Any(g => g.Top is not null) && measures.Any(m => m.CarryIn))
+            throw Invalid("measures", "Running totals that include earlier rows cannot be combined with top values.");
 
         var sort = new List<(string, bool)>();
         foreach (var (entry, index) in (request.Sort ?? []).Select((s, i) => (s, i)))
@@ -545,14 +577,42 @@ public sealed class AggregationQueryService
 
         var select = new List<string>();
         var groupBy = new List<string>();
+        var where = new List<string>();
         foreach (var group in plan.Groups)
         {
-            select.Add($"{group.Expression} AS {Q(group.Output)}");
-            groupBy.Add(group.Expression);
-            if (group.LabelExpression is not null)
+            var expression = group.Expression;
+            var label = group.LabelExpression;
+            if (group.Top is { } top)
             {
-                select.Add($"{group.LabelExpression} AS {Q(group.LabelOutput!)}");
-                groupBy.Add(group.LabelExpression);
+                // The first N values by the first measure over all filtered rows; empty values stay.
+                var rank = plan.Measures.Count > 0 ? plan.Measures[0].Expression : "COUNT(*)";
+                var direction = group.Ascending ? "ASC" : "DESC";
+                var topValues =
+                    $"SELECT t.{Q(group.Column.Name)} FROM ({inner}) t WHERE t.{Q(group.Column.Name)} IS NOT NULL " +
+                    $"GROUP BY t.{Q(group.Column.Name)} " +
+                    $"ORDER BY CASE WHEN {rank} IS NULL THEN 1 ELSE 0 END, {rank} {direction}, t.{Q(group.Column.Name)} LIMIT {top}";
+                var kept = $"(t.{Q(group.Column.Name)} IS NULL OR t.{Q(group.Column.Name)} IN ({topValues}))";
+                if (group.OtherOutput is null)
+                {
+                    where.Add(kept);
+                }
+                else
+                {
+                    expression = $"CASE WHEN {kept} THEN {expression} END";
+                    if (label is not null)
+                        label = $"CASE WHEN {kept} THEN {label} END";
+                    var flag = $"CASE WHEN {kept} THEN 0 ELSE 1 END";
+                    select.Add($"{flag} AS {Q(group.OtherOutput)}");
+                    groupBy.Add(flag);
+                }
+            }
+
+            select.Add($"{expression} AS {Q(group.Output)}");
+            groupBy.Add(expression);
+            if (label is not null)
+            {
+                select.Add($"{label} AS {Q(group.LabelOutput!)}");
+                groupBy.Add(label);
             }
         }
         for (var i = 0; i < plan.Measures.Count; i++)
@@ -573,6 +633,8 @@ public sealed class AggregationQueryService
         grouped.Append('(').Append(inner).Append(") t");
         foreach (var join in plan.Groups.Select(g => g.Join).Where(j => j is not null))
             grouped.Append(' ').Append(join);
+        if (where.Count > 0)
+            grouped.Append(" WHERE ").Append(string.Join(" AND ", where));
         if (groupBy.Count > 0)
             grouped.Append(" GROUP BY ").Append(string.Join(", ", groupBy));
 
@@ -582,7 +644,9 @@ public sealed class AggregationQueryService
         if (plan.Measures.Any(m => m.Running))
         {
             var bucket = plan.Groups.Single(g => g.Bucket is not null);
-            var partitions = plan.Groups.Where(g => g.Bucket is null).Select(g => $"g.{Q(g.Output)}").ToList();
+            var partitions = plan.Groups.Where(g => g.Bucket is null)
+                .SelectMany(g => g.OtherOutput is null ? [$"g.{Q(g.Output)}"] : new[] { $"g.{Q(g.Output)}", $"g.{Q(g.OtherOutput)}" })
+                .ToList();
             var over = (partitions.Count > 0 ? $"PARTITION BY {string.Join(", ", partitions)} " : "")
                 + $"ORDER BY g.{Q(bucket.Output)} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW";
             for (var i = 0; i < plan.Measures.Count; i++)
@@ -660,6 +724,8 @@ public sealed class AggregationQueryService
                     : ResultValues.Shape(row[group.Output], group.Column.Type);
             if (group.LabelOutput is not null)
                 shaped[group.LabelOutput] = row[group.LabelOutput] is null ? null : Convert.ToString(row[group.LabelOutput], CultureInfo.InvariantCulture);
+            if (group.OtherOutput is not null)
+                shaped[group.OtherOutput] = Convert.ToInt64(row[group.OtherOutput], CultureInfo.InvariantCulture) == 1;
         }
 
         var partitions = plan.Groups.Where(g => g.Bucket is null).ToList();
@@ -705,6 +771,8 @@ public sealed class AggregationQueryService
             columns.Add(new QueryResultColumn(group.Output, group.Bucket is not null ? "date" : TypeName(group.Column.Type), "group"));
             if (group.LabelOutput is not null)
                 columns.Add(new QueryResultColumn(group.LabelOutput, "text", "label", group.Output));
+            if (group.OtherOutput is not null)
+                columns.Add(new QueryResultColumn(group.OtherOutput, "boolean", "other", group.Output));
         }
         foreach (var measure in plan.Measures)
         {

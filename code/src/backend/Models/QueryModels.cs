@@ -50,6 +50,15 @@ public sealed record QueryGroupBy
     public string? Bucket { get; init; }
     /// <summary>Output name; defaults to the column name.</summary>
     public string? As { get; init; }
+    /// <summary>
+    /// Only the N values ranked first by the first measure (Step 3.6b, "top
+    /// values"); empty values are kept as their own group.
+    /// </summary>
+    public int? Top { get; init; }
+    /// <summary>With <see cref="Top"/>: the remaining values as one group, flagged in <c>&lt;as&gt;_other</c>.</summary>
+    public bool Other { get; init; }
+    /// <summary>With <see cref="Top"/>: "desc" (largest first, default) or "asc" (smallest first, e.g. spending).</summary>
+    public string? Rank { get; init; }
 }
 
 public sealed record QueryMeasure

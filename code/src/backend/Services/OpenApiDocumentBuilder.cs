@@ -419,7 +419,15 @@ public sealed class OpenApiDocumentBuilder
             ["groupBy"] = new JsonObject
             {
                 ["type"] = "array",
-                ["items"] = Obj(new JsonObject { ["column"] = Str(), ["bucket"] = Str(["day", "week", "month", "quarter", "year"]), ["as"] = Str() })
+                ["items"] = Obj(new JsonObject
+                {
+                    ["column"] = Str(),
+                    ["bucket"] = Str(["day", "week", "month", "quarter", "year"]),
+                    ["as"] = Str(),
+                    ["top"] = Int(10),
+                    ["other"] = new JsonObject { ["type"] = "boolean", ["description"] = "With top: the remaining values as one group, flagged in <as>_other." },
+                    ["rank"] = Str(["desc", "asc"])
+                })
             },
             ["measures"] = new JsonObject
             {

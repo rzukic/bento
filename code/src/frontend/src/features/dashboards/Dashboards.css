@@ -696,3 +696,41 @@
     font-size: var(--fs-sm);
     color: var(--text);
 }
+
+/* Key figure extras (Step 3.6b) */
+.widget-kpi__secondary {
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.widget-kpi__trend {
+    width: 100%;
+    height: 28px;
+    color: var(--accent);
+}
+
+.widget-kpi__goal {
+    display: grid;
+    gap: 0.25rem;
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.widget-kpi__goal-bar {
+    display: block;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--line);
+    overflow: hidden;
+}
+
+.widget-kpi__goal-bar > span {
+    display: block;
+    height: 100%;
+    background: var(--accent);
+}
+
+.widget-table tfoot td {
+    font-weight: 600;
+    border-top: 1px solid var(--line-2);
+}
