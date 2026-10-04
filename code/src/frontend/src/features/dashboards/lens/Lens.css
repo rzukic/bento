@@ -1,0 +1,822 @@
+/* Widget editor (Step 3.6b), modelled on Kibana Lens and drawn in the
+   Step 2.8 language: hairlines instead of boxes, pills for actions, mono
+   labels, display type for titles, one accent for position and the main
+   action. Only tokens — both themes follow. */
+
+.lens {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+}
+
+/* The same confined pool and grain the shell carries. Decorative only. */
+.lens__sky {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.lens__pool {
+    position: absolute;
+    width: 44vw;
+    height: 44vw;
+    right: -14vw;
+    top: -32vw;
+    border-radius: 50%;
+    filter: blur(90px);
+    mix-blend-mode: var(--pool-blend);
+    opacity: var(--pool-opacity);
+    background: radial-gradient(circle, #1d4ed8 0%, rgba(29, 78, 216, 0) 60%);
+}
+
+.lens__grain {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    opacity: var(--grain-opacity);
+    mix-blend-mode: var(--grain-blend);
+}
+
+.lens__header,
+.lens__body {
+    position: relative;
+}
+
+/* Header: kicker + display title, the type switch, Done */
+
+.lens__header {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 1.125rem 2rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.lens__heading {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 0 1 20rem;
+    min-width: 8rem;
+}
+
+.lens__kicker,
+.lens__field-group h3,
+.lens-slot h3,
+.lens-section h3,
+.lens-field__label {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--text-4);
+}
+
+.lens__title {
+    width: 100%;
+    min-width: 0;
+    height: 2.25rem;
+    padding: 0;
+    border: 0;
+    border-bottom: 1px solid transparent;
+    background: transparent;
+    font-family: var(--font-display);
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text);
+    transition: border-color var(--dur) var(--ease);
+}
+
+.lens__title:hover {
+    border-bottom-color: var(--line-2);
+}
+
+.lens__title:focus {
+    outline: none;
+    border-bottom-color: var(--accent);
+    box-shadow: 0 1px 0 var(--accent);
+}
+
+.lens__types {
+    min-width: 0;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2px;
+    flex: 1;
+}
+
+.lens__types-track {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--bg) 60%, transparent);
+    backdrop-filter: blur(10px);
+}
+
+.lens__type {
+    flex: none;
+    height: 2rem;
+    padding: 0 0.75rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-3);
+    cursor: pointer;
+    transition:
+        background var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.lens__type:hover {
+    color: var(--text);
+}
+
+.lens__type--active,
+.lens__type--active:hover {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+/* Body: fields | workspace | settings */
+
+.lens__body {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 16rem minmax(0, 1fr) 22rem;
+}
+
+.lens__fields,
+.lens__config {
+    min-height: 0;
+    overflow-y: auto;
+    padding: 1.5rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    background: color-mix(in srgb, var(--bg) 70%, transparent);
+    backdrop-filter: blur(12px);
+}
+
+.lens__fields > *,
+.lens__config > * {
+    flex-shrink: 0;
+}
+
+.lens__fields {
+    border-right: 1px solid var(--line);
+}
+
+.lens__config {
+    border-left: 1px solid var(--line);
+}
+
+.lens .field__control--compact {
+    height: 2.25rem;
+    padding: 0 0.75rem;
+    font-size: var(--fs-sm);
+}
+
+.lens input[type="checkbox"] {
+    accent-color: var(--accent);
+}
+
+.lens__field-groups {
+    display: grid;
+    gap: 1.25rem;
+}
+
+.lens__field-group h3 {
+    padding: 0 0.625rem 0.375rem;
+}
+
+.lens__field-group ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 2px;
+}
+
+.lens__field {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    height: 2.125rem;
+    padding: 0 0.375rem 0 0.625rem;
+    border-radius: 8px;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    cursor: grab;
+    transition:
+        background var(--dur-fast) var(--ease),
+        color var(--dur-fast) var(--ease);
+}
+
+.lens__field > svg {
+    flex: none;
+    color: var(--text-4);
+}
+
+.lens__field:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.lens__field-name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lens__field-add {
+    display: inline-grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-4);
+    cursor: pointer;
+    opacity: 0;
+    transition:
+        opacity var(--dur-fast) var(--ease),
+        background var(--dur-fast) var(--ease);
+}
+
+.lens__field:hover .lens__field-add,
+.lens__field-add:focus-visible {
+    opacity: 1;
+}
+
+.lens__field-add:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+/* Workspace: the preview card, its caption, suggestions, data */
+
+.lens__workspace {
+    min-width: 0;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 2rem 2.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.lens__preview {
+    min-height: 22rem;
+    flex: 0 0 auto;
+    height: 55vh;
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    background: color-mix(in srgb, var(--surface-raised) 60%, transparent);
+    padding: 1.25rem 1.5rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.lens__preview--kpi {
+    height: auto;
+    min-height: 12rem;
+    max-width: 26rem;
+}
+
+.lens__preview > * {
+    flex: 1;
+    min-height: 0;
+}
+
+.lens__caption {
+    margin: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    color: var(--text-3);
+}
+
+.lens__suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lens__suggestion {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    height: 2rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    cursor: pointer;
+    transition:
+        border-color var(--dur) var(--ease),
+        color var(--dur) var(--ease),
+        background var(--dur) var(--ease);
+}
+
+.lens__suggestion:hover {
+    border-color: color-mix(in srgb, var(--text) 28%, transparent);
+    color: var(--text);
+}
+
+.lens__suggestion[aria-expanded="true"] {
+    background: var(--hover);
+    border-color: transparent;
+    color: var(--text);
+}
+
+.lens__suggestion--data {
+    margin-left: auto;
+}
+
+.lens__data {
+    overflow: auto;
+    max-height: 20rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-xl);
+    background: color-mix(in srgb, var(--surface) 70%, transparent);
+}
+
+.lens__data table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: var(--fs-sm);
+}
+
+.lens__data th {
+    position: sticky;
+    top: 0;
+    height: 2.5rem;
+    padding: 0 0.875rem;
+    border-bottom: 1px solid var(--line-2);
+    background: var(--surface);
+    text-align: left;
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-4);
+    white-space: nowrap;
+}
+
+.lens__data td {
+    height: 2.25rem;
+    padding: 0 0.875rem;
+    border-bottom: 1px solid var(--line);
+    font-family: var(--font-mono);
+    font-size: 0.78125rem;
+    white-space: nowrap;
+}
+
+.lens__data tbody tr:last-child td {
+    border-bottom: 0;
+}
+
+.lens__data tbody tr:hover td {
+    background: var(--hover);
+}
+
+.lens__hint,
+.lens-field__hint {
+    margin: 0;
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+    color: var(--text-4);
+}
+
+.lens__textarea {
+    min-height: 10rem;
+    height: auto;
+    padding: 0.625rem 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    line-height: 1.55;
+}
+
+/* Settings panel */
+
+.lens-tabs {
+    display: flex;
+    gap: 1.25rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.lens-tabs__tab {
+    height: 2.25rem;
+    padding: 0 0.125rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: transparent;
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--text-4);
+    cursor: pointer;
+    transition:
+        color var(--dur) var(--ease),
+        border-color var(--dur) var(--ease);
+}
+
+.lens-tabs__tab:hover {
+    color: var(--text-2);
+}
+
+.lens-tabs__tab[aria-selected="true"] {
+    border-bottom-color: var(--accent);
+    color: var(--text);
+}
+
+.lens-settings {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.lens-field {
+    display: grid;
+    gap: 0.45rem;
+}
+
+.lens-check {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-height: 1.75rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+    cursor: pointer;
+}
+
+.lens-check:hover {
+    color: var(--text);
+}
+
+.lens-check input {
+    width: 0.95rem;
+    height: 0.95rem;
+    margin: 0;
+}
+
+.lens-segmented {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px;
+    padding: 3px;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+}
+
+.lens-segmented button {
+    height: 1.875rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-3);
+    cursor: pointer;
+    transition:
+        background var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.lens-segmented button:hover {
+    color: var(--text);
+}
+
+.lens-segmented button[aria-checked="true"] {
+    background: var(--text);
+    color: var(--bg);
+    font-weight: 600;
+}
+
+/* Slots: drop targets holding the widget's values, groups and columns */
+
+.lens-slot {
+    display: grid;
+    gap: 0.375rem;
+    padding: 0.5rem;
+    margin: -0.5rem;
+    border: 1px dashed transparent;
+    border-radius: var(--r-xl);
+    transition:
+        border-color var(--dur) var(--ease),
+        background var(--dur) var(--ease);
+}
+
+.lens-slot h3 {
+    padding-bottom: 0.125rem;
+}
+
+.lens-slot--over {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+}
+
+.lens-slot__item {
+    display: flex;
+    align-items: center;
+    height: 2.375rem;
+    border: 1px solid transparent;
+    border-radius: var(--r-lg);
+    background: var(--hover);
+    transition: border-color var(--dur-fast) var(--ease);
+}
+
+.lens-slot__item:hover {
+    border-color: var(--line-2);
+}
+
+.lens-slot__label {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0 0.75rem;
+    text-align: left;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.lens-slot__remove {
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    width: 1.625rem;
+    height: 1.625rem;
+    margin-right: 0.375rem;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--text-4);
+    cursor: pointer;
+}
+
+.lens-slot__remove:hover {
+    background: var(--hover);
+    color: var(--text);
+}
+
+.lens-slot__add {
+    width: 100%;
+    height: 2.375rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 1px dashed var(--line-2);
+    border-radius: var(--r-lg);
+    background: transparent;
+    padding: 0 0.75rem;
+    font-size: var(--fs-sm);
+    color: var(--text-3);
+    cursor: pointer;
+    text-align: left;
+    transition:
+        border-color var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.lens-slot__add:hover {
+    border-color: color-mix(in srgb, var(--text) 28%, transparent);
+    color: var(--text);
+}
+
+.lens-section {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.lens-condition {
+    display: grid;
+    grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr) auto;
+    gap: 0.375rem;
+    align-items: center;
+}
+
+/* The field gets the whole first row, operator and value share the second. */
+.lens-condition > :first-child {
+    grid-column: 1 / -1;
+}
+
+.lens-condition > :last-child {
+    grid-column: -2;
+}
+
+.lens-section > .btn {
+    justify-self: start;
+    margin-left: -0.75rem;
+}
+
+.lens-condition + .lens-condition {
+    padding-top: 0.625rem;
+    border-top: 1px solid var(--line);
+}
+
+/* Reference line: kind and value on the first row, label and remove on the second. */
+.lens-reference {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+    gap: 0.375rem;
+    align-items: center;
+}
+
+.lens-reference > :nth-child(3) {
+    grid-column: 1 / 3;
+}
+
+.lens-reference + .lens-reference {
+    padding-top: 0.625rem;
+    border-top: 1px solid var(--line);
+}
+
+.lens-goal {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.375rem;
+}
+
+/* One item's settings (Lens' dimension flyout) */
+
+.lens-dimension {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.lens-dimension__header {
+    display: grid;
+    justify-items: start;
+    gap: 0.5rem;
+    padding-bottom: 0.875rem;
+    border-bottom: 1px solid var(--line);
+}
+
+.lens-dimension__header .btn {
+    margin-left: -0.75rem;
+    font-family: var(--font-mono);
+    font-weight: 500;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    font-size: 0.6875rem;
+    color: var(--text-4);
+}
+
+.lens-dimension__title {
+    font-family: var(--font-display);
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.2;
+}
+
+.lens-dimension__footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--line);
+    padding-top: 1rem;
+}
+
+.lens-functions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.375rem;
+}
+
+.lens-functions__item {
+    height: 2rem;
+    padding: 0 0.875rem;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: transparent;
+    font-size: var(--fs-sm);
+    font-weight: 500;
+    color: var(--text-2);
+    cursor: pointer;
+    transition:
+        border-color var(--dur) var(--ease),
+        background var(--dur) var(--ease),
+        color var(--dur) var(--ease);
+}
+
+.lens-functions__item:hover {
+    border-color: color-mix(in srgb, var(--text) 28%, transparent);
+    color: var(--text);
+}
+
+.lens-functions__item--active,
+.lens-functions__item--active:hover {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .lens * {
+        transition: none !important;
+    }
+}
+
+@media (max-width: 960px) {
+    .lens__header {
+        flex-wrap: wrap;
+        gap: 0.75rem 1rem;
+        padding: 0.875rem 1rem;
+    }
+
+    .lens__heading {
+        flex: 1 1 12rem;
+    }
+
+    .lens__types {
+        order: 3;
+        flex-basis: 100%;
+        justify-content: flex-start;
+        overflow-x: auto;
+    }
+
+    .lens__types-track {
+        flex-wrap: nowrap;
+    }
+
+    .lens__type {
+        white-space: nowrap;
+    }
+
+    .lens__body {
+        grid-template-columns: minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        overflow-y: auto;
+    }
+
+    .lens__workspace {
+        padding: 1rem;
+    }
+
+    .lens__fields,
+    .lens__config {
+        border: none;
+        border-top: 1px solid var(--line);
+        overflow: visible;
+        padding: 1.25rem 1rem;
+    }
+
+    .lens__fields {
+        order: 2;
+    }
+
+    .lens__config {
+        order: 3;
+    }
+
+    .lens__preview {
+        height: 45vh;
+        min-height: 16rem;
+    }
+
+    .lens__field-add {
+        opacity: 1;
+    }
+}

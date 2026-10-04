@@ -1,3 +1,4 @@
+using System.Data;
 using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -5,6 +6,7 @@ using Dapper;
 using Bento.Api.Db;
 using Bento.Api.Db.Schema;
 using Bento.Api.Exceptions;
+using Bento.Api.Formula;
 using SqlKata;
 using SqlKata.Execution;
 
@@ -28,18 +30,24 @@ public sealed class CrudService
     private readonly DatabaseConfig _dbConfig;
     private readonly RequestBodyValidator _validator;
     private readonly SchemaCache _schemaCache;
+    private readonly ComputedColumns _computed;
 
     public CrudService(
         QueryService queryService,
         DatabaseConfig dbConfig,
         RequestBodyValidator validator,
-        SchemaCache schemaCache)
+        SchemaCache schemaCache,
+        ComputedColumns computed)
     {
         _queryService = queryService;
         _dbConfig = dbConfig;
         _validator = validator;
         _schemaCache = schemaCache;
+        _computed = computed;
     }
+
+    /// <summary>A query for whole rows: the stored columns and the computed ones.</summary>
+    private Query ReadQuery(QueryScope scope, TableDef table) => _computed.Select(scope.Db.Query(table.Name), table);
 
     public async Task<ListResult> ListAsync(
         TableDef table,
@@ -50,21 +58,20 @@ public sealed class CrudService
 
         // Build the base query with filters
         var baseQuery = scope.Db.Query(table.Name);
-        ApplyFiltersStatic(baseQuery, parameters.Filters, table, _dbConfig.Provider);
+        var computed = _computed.For(table);
+        ApplyFiltersStatic(baseQuery, parameters.Filters, table, _dbConfig.Provider, computed);
         ApplySearchStatic(baseQuery, parameters.Search, table, _dbConfig.Provider, _schemaCache.GetTable);
 
         // Count total matching rows
         var total = await baseQuery.Clone().CountAsync<long>();
 
         // Apply sorting
-        baseQuery = ApplySortingStatic(baseQuery, parameters.Sorts, table, _dbConfig.Provider);
+        baseQuery = ApplySortingStatic(baseQuery, parameters.Sorts, table, _dbConfig.Provider, computed);
 
-        // Apply field selection
-        if (parameters.Fields is { Count: > 0 })
-        {
-            var selectedColumns = BuildSelectedColumns(parameters.Fields, additionalSelectColumns);
-            baseQuery = baseQuery.Select(selectedColumns.ToArray());
-        }
+        // Apply field selection (computed columns by their formula)
+        baseQuery = parameters.Fields is { Count: > 0 }
+            ? _computed.Select(baseQuery, table, BuildSelectedColumns(parameters.Fields, additionalSelectColumns).ToList())
+            : _computed.Select(baseQuery, table);
 
         // Apply pagination
         baseQuery = baseQuery.ForPage(parameters.Page, parameters.PerPage);
@@ -113,7 +120,7 @@ public sealed class CrudService
     {
         var keyValues = GetKeyValues(table, id);
         await using var scope = await _queryService.UseDataAsync();
-        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues)
+        var row = await ApplyKeyFilter(ReadQuery(scope, table), keyValues)
             .FirstOrDefaultAsync();
 
         if (row is null)
@@ -146,8 +153,8 @@ public sealed class CrudService
             var primaryKey = primaryKeyColumns[0];
             var id = await InsertAndGetIdAsync(scope, table.Name, primaryKey, data);
 
-            row = await scope.Db.Query(table.Name)
-                .Where(primaryKey.Name, id)
+            row = await ReadQuery(scope, table)
+                .Where($"{table.Name}.{primaryKey.Name}", id)
                 .FirstOrDefaultAsync();
         }
         else
@@ -178,7 +185,7 @@ public sealed class CrudService
 
             await InsertAsync(scope, table.Name, data);
 
-            var query = scope.Db.Query(table.Name);
+            var query = ReadQuery(scope, table);
             foreach (var primaryKey in primaryKeyColumns)
             {
                 if (!data.TryGetValue(primaryKey.Name, out var value))
@@ -187,7 +194,7 @@ public sealed class CrudService
                         $"Insert for table '{table.Name}' did not include composite primary key column '{primaryKey.Name}'.");
                 }
 
-                query = query.Where(primaryKey.Name, value);
+                query = query.Where($"{table.Name}.{primaryKey.Name}", value);
             }
 
             row = await query.FirstOrDefaultAsync();
@@ -219,7 +226,7 @@ public sealed class CrudService
         await EnsureKeyFreeAsync(scope, table, keyValues, data);
         await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
 
-        var row = await ApplyKeyFilter(scope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
+        var row = await ApplyKeyFilter(ReadQuery(scope, table), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
         return ToResponseRow(table, row!);
@@ -243,7 +250,7 @@ public sealed class CrudService
         }
 
         await using var readScope = await _queryService.UseDataAsync();
-        var row = await ApplyKeyFilter(readScope.Db.Query(table.Name), KeyValuesAfterWrite(keyValues, data))
+        var row = await ApplyKeyFilter(ReadQuery(readScope, table), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
         return ToResponseRow(table, row!);
@@ -566,12 +573,13 @@ public sealed class CrudService
     private async Task InsertAsync(
         QueryScope scope,
         string tableName,
-        Dictionary<string, object?> data)
+        Dictionary<string, object?> data,
+        IDbTransaction? transaction = null)
     {
         if (data.Count == 0)
         {
             var defaultValuesSql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES;";
-            await scope.Db.Connection.ExecuteAsync(defaultValuesSql);
+            await scope.Db.Connection.ExecuteAsync(defaultValuesSql, transaction: transaction);
             return;
         }
 
@@ -585,7 +593,41 @@ public sealed class CrudService
         var quotedColumns = string.Join(", ", columns.Select(c => $"\"{c}\""));
         var quotedParams = string.Join(", ", columns.Select((_, i) => $"@p{i}"));
         var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
-        await scope.Db.Connection.ExecuteAsync(sql, parameters);
+        await scope.Db.Connection.ExecuteAsync(sql, parameters, transaction);
+    }
+
+    /// <summary>
+    /// Inserts already validated rows (CRUD request bodies) in one transaction:
+    /// either every row is written or none is. Used by the file import.
+    /// </summary>
+    public async Task<int> InsertManyAsync(TableDef table, IReadOnlyList<JsonElement> bodies)
+    {
+        if (bodies.Count == 0)
+            return 0;
+
+        var columns = GetWritableColumns(table);
+        var primaryKeyColumns = GetPrimaryKeyColumns(table);
+        var generatedUuidKey = primaryKeyColumns.Count == 1 && primaryKeyColumns[0].Type == ColumnType.Uuid
+            ? primaryKeyColumns[0]
+            : null;
+
+        await using var scope = await _queryService.UseDataAsync();
+        var connection = scope.Db.Connection;
+        if (connection.State != ConnectionState.Open)
+            connection.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var body in bodies)
+        {
+            var data = ExtractColumnValues(body, columns);
+            if (generatedUuidKey is not null && (!data.TryGetValue(generatedUuidKey.Name, out var key) || key is null))
+            {
+                var generated = Guid.NewGuid();
+                data[generatedUuidKey.Name] = _dbConfig.Provider == DatabaseProvider.Postgres ? generated : generated.ToString();
+            }
+            await InsertAsync(scope, table.Name, data, transaction);
+        }
+        transaction.Commit();
+        return bodies.Count;
     }
 
     private static List<ColumnDef> GetPrimaryKeyColumns(TableDef table)
@@ -780,7 +822,7 @@ public sealed class CrudService
     /// (column and optional secondary), otherwise the first text column,
     /// otherwise the first non-key column. Search matches what people see.
     /// </summary>
-    private static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
+    internal static IReadOnlyList<string> GetRecordLabelColumns(TableDef table)
     {
         var physical = table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type)).ToList();
         bool Exists(string? name) =>
@@ -851,7 +893,8 @@ public sealed class CrudService
         Query query,
         IReadOnlyList<SortClause> sorts,
         TableDef table,
-        DatabaseProvider provider)
+        DatabaseProvider provider,
+        IReadOnlyDictionary<string, ComputedColumn>? computed = null)
     {
         if (sorts.Count == 0)
             return query;
@@ -860,6 +903,12 @@ public sealed class CrudService
 
         foreach (var sort in sorts)
         {
+            if (computed is not null && computed.TryGetValue(sort.Column, out var formula))
+            {
+                query = query.OrderByRaw($"{formula.Sql} {(sort.Descending ? "DESC" : "ASC")}");
+                continue;
+            }
+
             if (!columnLookup.TryGetValue(sort.Column, out var column))
             {
                 query = sort.Descending ? query.OrderByDesc(sort.Column) : query.OrderBy(sort.Column);
@@ -920,11 +969,18 @@ public sealed class CrudService
         SqlKata.Query query,
         IReadOnlyList<FilterClause> filters,
         TableDef? table = null,
-        DatabaseProvider? provider = null)
+        DatabaseProvider? provider = null,
+        IReadOnlyDictionary<string, ComputedColumn>? computed = null)
     {
         var columnsByName = table?.Columns.ToDictionary(c => c.Name, StringComparer.OrdinalIgnoreCase);
         foreach (var filter in filters)
         {
+            if (computed is not null && computed.TryGetValue(filter.Column, out var formula))
+            {
+                ApplyComputedFilter(query, filter, formula, provider ?? DatabaseProvider.Sqlite);
+                continue;
+            }
+
             ColumnDef? column = null;
             columnsByName?.TryGetValue(filter.Column, out column);
             var value = CoerceFilterValue(filter.Value, column, provider);
@@ -968,6 +1024,45 @@ public sealed class CrudService
         }
     }
 
+    /// <summary>The list filter operators on a computed column's formula.</summary>
+    private static void ApplyComputedFilter(SqlKata.Query query, FilterClause filter, ComputedColumn column, DatabaseProvider provider)
+    {
+        var value = ComputedColumns.FilterValue(filter.Value, column, provider);
+        var compared = ComputedColumns.ComparableSql(column, provider);
+        switch (filter.Operator)
+        {
+            case "eq":
+                query.WhereRaw($"{compared} = ?", value);
+                break;
+            case "neq":
+                query.WhereRaw($"NOT ({compared} = ?)", value);
+                break;
+            case "gt" or "gte" or "lt" or "lte":
+                var op = filter.Operator switch { "gt" => ">", "gte" => ">=", "lt" => "<", _ => "<=" };
+                query.WhereRaw($"{compared} {op} ?", value);
+                break;
+            case "like":
+                query.WhereRaw($"LOWER(CAST({column.Sql} AS TEXT)) LIKE ?", (filter.Value ?? "").ToLowerInvariant());
+                break;
+            case "in":
+                var values = (filter.Value ?? "")
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Select(v => ComputedColumns.FilterValue(v, column, provider))
+                    .ToArray();
+                if (values.Length == 0)
+                    query.WhereRaw("1 = 0");
+                else
+                    query.WhereRaw($"{compared} IN ({string.Join(", ", values.Select(_ => "?"))})", values!);
+                break;
+            case "null":
+                query.WhereRaw($"{column.Sql} IS NULL");
+                break;
+            case "notnull":
+                query.WhereRaw($"{column.Sql} IS NOT NULL");
+                break;
+        }
+    }
+
     private static object? CoerceFilterValue(string? value, ColumnDef? column, DatabaseProvider? provider)
     {
         if (value is null || column is null)
@@ -978,6 +1073,13 @@ public sealed class CrudService
             ColumnType.Uuid when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var guid) => guid,
             ColumnType.Reference when provider == DatabaseProvider.Postgres && Guid.TryParse(value, out var refGuid) => refGuid,
             ColumnType.Integer or ColumnType.Reference when long.TryParse(value, out var n) => n,
+            // Postgres compares NUMERIC / DOUBLE PRECISION / BOOLEAN columns only
+            // with typed parameters ("operator does not exist: numeric < text").
+            ColumnType.Float or ColumnType.Currency
+                when decimal.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var number)
+                => provider == DatabaseProvider.Postgres ? number : (double)number,
+            ColumnType.Boolean when value.Trim().ToLowerInvariant() is "true" or "1" => true,
+            ColumnType.Boolean when value.Trim().ToLowerInvariant() is "false" or "0" => false,
             ColumnType.Date or ColumnType.DateTime when provider is not null
                 => CoerceTemporalForProvider(value, column.Type, provider.Value),
             _ => value
@@ -996,6 +1098,7 @@ public sealed class CrudService
     {
         var dict = ToDictionary(row);
         NormalizeSqliteTimestamps(table, dict, _dbConfig.Provider);
+        _computed.Shape(table, dict);
         return dict;
     }
 

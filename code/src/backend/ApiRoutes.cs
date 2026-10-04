@@ -8,10 +8,16 @@ public static class ApiRoutes
     public const string Admin = Prefix + "/admin";
     public const string Data = Prefix + "/data";
     public const string Query = Prefix + "/query";
+    public const string SavedQueries = Prefix + "/queries";
+    public const string Formulas = Prefix + "/formulas";
+    public const string Dashboards = Prefix + "/dashboards";
     public const string Views = Prefix + "/views";
+    public const string Import = Prefix + "/import";
     public const string ExplorerPreferences = Prefix + "/explorer/preferences";
     public const string Setup = Prefix + "/setup";
     public const string SetupStatus = Setup + "/status";
     public const string AdminHealth = Admin + "/health";
+    public const string ApiKeys = Admin + "/api-keys";
+    public const string OpenApi = Prefix + "/openapi.json";
     public const string AdminHealthDetails = AdminHealth + "/details";
 }

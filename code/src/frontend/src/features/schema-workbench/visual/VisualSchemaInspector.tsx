@@ -43,6 +43,7 @@ import {
 } from "./visualDraftHelpers";
 import { VisualRelationCreator } from "./VisualRelationCreator";
 import { VisualRelationInspector } from "./VisualRelationInspector";
+import { FormulaField } from "../../formulas/FormulaField";
 
 const visualColumnTypes: SchemaColumnType[] = [
   "text",
@@ -727,6 +728,18 @@ function VisualColumnInspector({
           )
         }
       />
+      {column.type === "computed" ? (
+        <div className="schema-workbench__formula">
+          <span className="formula-field__label">Formula</span>
+          <FormulaField
+            table={table.name}
+            column={column.name}
+            model={document}
+            value={typeof column.formula === "string" ? column.formula : ""}
+            onChange={(formula) => onChange({ formula })}
+          />
+        </div>
+      ) : null}
       {column.type === "reference" ? (
         <SelectField
           underline
@@ -858,6 +871,12 @@ function normalizeVisualColumnType(
     delete nextColumn.values;
   } else if (!Array.isArray(nextColumn.values)) {
     nextColumn.values = [];
+  }
+
+  if (nextType !== "computed") {
+    delete nextColumn.formula;
+  } else if (typeof nextColumn.formula !== "string") {
+    nextColumn.formula = "";
   }
 
   if (nextType !== "reference") {

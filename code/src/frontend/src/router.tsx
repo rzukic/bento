@@ -1,11 +1,21 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react-router-dom";
 import { App } from "./App";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { ShellLayout } from "./components/layout/ShellLayout";
-import { DataExplorerPage, TableDetailPage } from "./features/data-explorer";
+import { DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
 import { AiPage } from "./routes/AiPage";
-import { DashboardsPage } from "./routes/DashboardsPage";
+import { Spinner } from "./components/ui/Spinner";
+
+// Dashboards carry the chart library; it loads when a dashboard opens.
+const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
+const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
+const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+
+function Lazy({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>;
+}
 import { FormsPage } from "./routes/FormsPage";
 import { HomePage } from "./routes/HomePage";
 import { LoginPage } from "./routes/LoginPage";
@@ -55,6 +65,24 @@ const shellRoutes: RouteObject[] = [
     } satisfies AppRouteHandle
   },
   {
+    path: "data/new/csv",
+    element: <NewTableFromCsvPage />,
+    handle: {
+      title: "New table from CSV",
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Data Explorer", to: "/data" }
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "data/:tableId/import",
+    element: <ImportPage />,
+    handle: {
+      title: ({ tableId }) => `Import into ${tableId ?? "table"}`,
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Data Explorer", to: "/data" }
+    } satisfies AppRouteHandle
+  },
+  {
     path: "model",
     element: <ModelPage />,
     handle: {
@@ -67,11 +95,43 @@ const shellRoutes: RouteObject[] = [
   },
   {
     path: "dashboards",
-    element: <DashboardsPage />,
+    element: (
+      <Lazy>
+        <DashboardsListPage />
+      </Lazy>
+    ),
     handle: {
       title: "Dashboards",
+      hidePageHeader: true,
       navLabel: "Dashboards",
-      navGroup: "Coming soon"
+      navGroup: "Workspace"
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "dashboards/:dashboardId",
+    element: (
+      <Lazy>
+        <DashboardPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Dashboard",
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Dashboards", to: "/dashboards" }
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "connections",
+    element: (
+      <Lazy>
+        <ConnectionsPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Connections",
+      hidePageHeader: true,
+      navLabel: "Connections",
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {

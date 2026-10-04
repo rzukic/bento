@@ -13,6 +13,13 @@ public static class ModelJsonSerializer
         return model ?? throw new JsonException("Failed to deserialize Model JSON.");
     }
 
+    /// <summary>A Model JSON <c>columns</c> array on its own (draft columns sent with a formula).</summary>
+    public static List<ColumnDef> ParseColumns(JsonElement columns)
+    {
+        return columns.Deserialize<List<ColumnDef>>(JsonOptions)
+            ?? throw new JsonException("Failed to deserialize the columns.");
+    }
+
     public static string Serialize(ModelJson model)
     {
         return JsonSerializer.Serialize(model, JsonOptions);

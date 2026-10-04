@@ -106,13 +106,22 @@ export function DataExplorerPage() {
           }
           actions={
             canDesignSchema ? (
-              <Button
-                variant="primary"
-                leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
-                onClick={() => navigate("/model")}
-              >
-                Open schema designer
-              </Button>
+              <>
+                <Button
+                  variant="primary"
+                  leadingIcon={<Icon name="plus" size={14} strokeWidth={2.25} />}
+                  onClick={() => navigate("/model")}
+                >
+                  Open schema designer
+                </Button>
+                <Button
+                  variant="ghost"
+                  leadingIcon={<Icon name="upload" size={14} />}
+                  onClick={() => navigate("/data/new/csv")}
+                >
+                  Create from a CSV file
+                </Button>
+              </>
             ) : undefined
           }
         />
@@ -120,8 +129,23 @@ export function DataExplorerPage() {
     );
   }
 
+  const canCreateTables = user === null || user.role === "admin";
+
   return (
     <div className="explorer-landing">
+      {canCreateTables ? (
+        <div className="explorer-landing__actions">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            leadingIcon={<Icon name="upload" size={13} />}
+            onClick={() => navigate("/data/new/csv")}
+          >
+            New table from CSV
+          </Button>
+        </div>
+      ) : null}
       <section className="table-list-section" aria-label="Tables">
         <ul className="table-list" role="list">
           {dataTables.map((table) => (

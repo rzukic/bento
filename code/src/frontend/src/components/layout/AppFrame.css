@@ -271,34 +271,70 @@
 }
 
 /* Collapsed sidebar */
-.shell--collapsed .shell__brand-text,
-.shell--collapsed .shell__nav-label,
-.shell--collapsed .shell__nav-section-title,
-.shell--collapsed .shell__user-text,
-.shell--collapsed .shell__user-menu {
+.shell--collapsed:not(.shell--peek) .shell__brand-text,
+.shell--collapsed:not(.shell--peek) .shell__nav-label,
+.shell--collapsed:not(.shell--peek) .shell__nav-section-title,
+.shell--collapsed:not(.shell--peek) .shell__user-text,
+.shell--collapsed:not(.shell--peek) .shell__user-menu {
   display: none;
 }
 
-.shell--collapsed .shell__sidebar {
+.shell--collapsed:not(.shell--peek) .shell__sidebar {
   padding: 1.25rem 0.5rem 0.75rem;
 }
 
-.shell--collapsed .shell__brand,
-.shell--collapsed .shell__user {
+.shell--collapsed:not(.shell--peek) .shell__brand,
+.shell--collapsed:not(.shell--peek) .shell__user {
   justify-content: center;
 }
 
-.shell--collapsed .shell__nav-link {
+.shell--collapsed:not(.shell--peek) .shell__nav-link {
   justify-content: center;
   padding: 0;
 }
 
-.shell--collapsed .shell__nav-link--active::after {
+.shell--collapsed:not(.shell--peek) .shell__nav-link--active::after {
   position: absolute;
   right: 4px;
   top: 4px;
   margin: 0;
   box-shadow: none;
+}
+
+/* Collapsed and hovered (or focused): the full sidebar opens over the page.
+   The grid keeps its 60px column, so nothing beside it moves. */
+@media (min-width: 901px) {
+  /* Keeping a hovered sidebar open changes nothing visible on it: the page
+     beside it moves over at once instead of sliding. */
+  .shell.shell--peek,
+  .shell.shell--instant {
+    transition: none;
+  }
+
+  .shell--peek .shell__main {
+    grid-column: 2;
+  }
+
+  .shell--peek .shell__sidebar {
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 20;
+    width: 240px;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    box-shadow: var(--popover-shadow);
+    animation: shell-peek var(--dur) var(--ease);
+  }
+}
+
+@keyframes shell-peek {
+  from {
+    width: 60px;
+  }
+  to {
+    width: 240px;
+  }
 }
 
 /* -------------------------------------------------------------------------
@@ -534,34 +570,38 @@
   color: var(--text);
 }
 
-.shell--collapsed .shell__sidebar-toggle {
+.shell--collapsed:not(.shell--peek) .shell__sidebar-toggle {
   display: none;
 }
 
-.shell--collapsed .shell__brand-mark {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark {
   cursor: pointer;
 }
 
-.shell--collapsed .shell__brand-mark:hover,
-.shell--collapsed .shell__brand-mark:focus-visible {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible {
   background: var(--hover);
   color: var(--text);
   outline: none;
 }
 
-.shell--collapsed .shell__brand-mark:hover .shell__brand-logo,
-.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-logo {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover .shell__brand-logo,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible .shell__brand-logo {
   visibility: hidden;
 }
 
-.shell--collapsed .shell__brand-mark:hover .shell__brand-expand,
-.shell--collapsed .shell__brand-mark:focus-visible .shell__brand-expand {
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:hover .shell__brand-expand,
+.shell--collapsed:not(.shell--peek) .shell__brand-mark:focus-visible .shell__brand-expand {
   visibility: visible;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .shell {
     transition: none;
+  }
+
+  .shell--peek .shell__sidebar {
+    animation: none;
   }
 }
 

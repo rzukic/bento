@@ -965,6 +965,18 @@ export function TableDetailPage() {
             }}
             toolbarActions={
               <>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="data-controls__menu-button"
+                  aria-label="Import CSV"
+                  onClick={() => navigate(`/data/${encodeURIComponent(resolvedTable.name)}/import`)}
+                >
+                  <span className="data-controls__menu-button-content">
+                    <Icon name="upload" size={14} />
+                    <span className="data-controls__menu-button-label">Import</span>
+                  </span>
+                </Button>
                 <div className="data-controls__export" ref={exportMenuRef}>
                   <Button
                     type="button"

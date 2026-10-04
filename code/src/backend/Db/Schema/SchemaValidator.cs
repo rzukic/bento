@@ -16,6 +16,7 @@ public class SchemaValidator
         var normalizedTables = new List<TableDef>();
         var explicitManyToManyJunctionTables = GetExplicitManyToManyJunctionTables(model);
 
+        Formula.FormulaSchema? formulaSchema = null;
         var tableLookup = new Dictionary<string, TableDef>(StringComparer.OrdinalIgnoreCase);
         var duplicateTableNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -75,6 +76,23 @@ public class SchemaValidator
 
                 if (column.Type == ColumnType.Computed && column.Formula is null)
                     errors.Add(new("computed_formula_required", $"Computed column '{table.Name}.{column.Name}' must define a 'formula' field.", $"{columnPath}.formula"));
+                else if (column.Type == ColumnType.Computed)
+                {
+                    // Computed columns are evaluated live in every query, so a formula
+                    // that does not check (or a cycle) blocks applying the schema.
+                    var declared = Formula.FormulaTypes.FromName(column.ResultType);
+                    if (column.ResultType is not null && declared is null)
+                        errors.Add(new("computed_result_type_invalid",
+                            $"Computed column '{table.Name}.{column.Name}' has an unknown resultType '{column.ResultType}'; use text, integer, float, currency, boolean, date or datetime.",
+                            $"{columnPath}.resultType"));
+                    formulaSchema ??= Formula.FormulaSchema.From(model);
+                    var check = Formula.FormulaCompiler.Compile(column.Formula!, table, formulaSchema, DatabaseProvider.Sqlite,
+                        expected: declared, column: column.Name);
+                    if (check.Errors.Count > 0)
+                        errors.Add(new("computed_formula_invalid", $"Formula of '{table.Name}.{column.Name}': {check.Errors[0].Message}", $"{columnPath}.formula"));
+                    else if (column.ResultType is null)
+                        column = column with { ResultType = Formula.FormulaTypes.Name(check.Result!.Type) };
+                }
 
                 if (column.PrimaryKey)
                     primaryKeyColumns.Add((column, columnIndex));

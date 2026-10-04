@@ -188,6 +188,54 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
             ON _system.user_table_explorer_preferences(table_name);
             """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.import_profiles (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
+            ON _system.import_profiles(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.saved_queries (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                source_table    VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                owner_user_id   INTEGER,
+                is_shared       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
+            ON _system.saved_queries(source_table);
+            """);
+
+        // Dashboards (Step 3.3): the table predates owners and sharing.
+        await conn.ExecuteAsync("""
+            ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
+            ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS is_shared BOOLEAN NOT NULL DEFAULT FALSE;
+            """);
+
+        // API keys (Part 3 R3.3): the table predates prefixes, last use and revocation.
+        await conn.ExecuteAsync("""
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS prefix VARCHAR(32);
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+            ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -342,5 +390,58 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_user_table_explorer_preferences_table_name
             ON user_table_explorer_preferences(table_name);
             """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS import_profiles (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_import_profiles_table_name
+            ON import_profiles(table_name);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS saved_queries (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                source_table    TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                owner_user_id   INTEGER,
+                is_shared       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
+            ON saved_queries(source_table);
+            """);
+
+        // Dashboards (Step 3.3): the table predates owners and sharing; SQLite
+        // has no ADD COLUMN IF NOT EXISTS.
+        var dashboardColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('dashboards');"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!dashboardColumns.Contains("owner_user_id"))
+            await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN owner_user_id INTEGER;");
+        if (!dashboardColumns.Contains("is_shared"))
+            await conn.ExecuteAsync("ALTER TABLE dashboards ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0;");
+
+        // API keys (Part 3 R3.3): prefixes, last use and revocation came later.
+        var apiKeyColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('api_keys');"))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var (column, type) in new[] { ("prefix", "TEXT"), ("last_used_at", "TEXT"), ("revoked_at", "TEXT") })
+        {
+            if (!apiKeyColumns.Contains(column))
+                await conn.ExecuteAsync($"ALTER TABLE api_keys ADD COLUMN {column} {type};");
+        }
     }
 }

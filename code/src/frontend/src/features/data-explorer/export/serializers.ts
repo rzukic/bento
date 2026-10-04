@@ -1,4 +1,5 @@
 import type { ModelColumn, ModelTable } from "../../../types/api";
+import { valueTypeOf } from "../../../lib/columns";
 
 export type ExportFormat = "csv" | "json";
 export type ReferenceDisplayMap = Record<string, Record<string, string>>;
@@ -101,7 +102,7 @@ function formatCsvValue(
     return referenceDisplayById[String(value)] ?? String(value);
   }
 
-  if (column.type === "boolean") {
+  if (valueTypeOf(column) === "boolean") {
     const booleanValue = normalizeBooleanValue(value);
     if (booleanValue !== null) {
       return booleanValue ? "TRUE" : "FALSE";
@@ -124,7 +125,7 @@ function formatJsonValue(column: ModelColumn, value: unknown): unknown {
     return null;
   }
 
-  if (column.type === "boolean") {
+  if (valueTypeOf(column) === "boolean") {
     return normalizeBooleanValue(value) ?? value;
   }
 

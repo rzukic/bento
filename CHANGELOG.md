@@ -16,6 +16,218 @@ _None._
 
 ---
 
+## Phase 3 — Visualization
+
+### 2026-10-04 — The Collapsed Sidebar Opens On Hover
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+
+A collapsed sidebar opens over the page while the pointer is on it (after a short pause, so passing by does not open it) or the keyboard focus is in it; leaving or Escape closes it. The page beside it does not move, and the collapse stays as chosen. Desktop only; the narrow layout is unchanged. While it is open this way, **Keep sidebar open** sits where the collapse button is when the sidebar is open, and keeps it open without sliding.
+
+### 2026-10-04 — Import: The Same Value For Every Row
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md) (follow-up from the v0.3.0 demo run)
+
+A bank export belongs to one account, but has no account column. The import's column choice now offers **Same value for every row…** — a record for a link (the account), or typed text — and a profile keeps it. API: a mapping entry takes `value` instead of `source`.
+
+### 2026-10-04 — Wealth & Cash Flow Template
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md)
+
+One click sets up personal finance: accounts, categories, transactions, depot trades, prices and dividends, a cash-flow and a wealth dashboard.
+
+**Highlights:**
+- Net worth at each month end (cash + depot × price), depot value, unrealised gain, allocation, positions, dividends
+- Cash flow with an account filter; optional example rows; existing tables untouched (a prefix when names are taken)
+- Fix: the cash-flow starter splits by a column named like a category before other links (it used the template's account)
+
+### 2026-10-04 — Dashboard Filter Bar
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.8 — Dashboard Filter Bar](working-steps/3.8-filter-bar.md)
+
+Menus above the widgets — an account, a category — narrow the whole dashboard.
+
+**Highlights:**
+- Filters on a column, values from the data (record labels), several at once, reset; the choice is in the address
+- Applied to every widget, variable and drill-down whose table has the column
+
+### 2026-10-04 — Gaps From The Finanzfluss Copilot Comparison
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.7b — Copilot Gaps](working-steps/3.7b-copilot-gaps.md)
+
+A comparison with the Finanzfluss Copilot dashboard ([report](../docs/research/finanzfluss-copilot-comparison.md)); the easy gaps nothing planned are built, the rest is in the plan's backlog.
+
+**Highlights:**
+- Ranges: last 7 days, last 3 years, last 5 years
+- A colour per value (green income, red expenses), donut totals and shares, Sankey labels in %
+- Backlog: dashboard filter bar, finance template, budget widget, viewer interval switch, second axis, time-series functions for returns
+
+### 2026-10-04 — Sankey & Drill-Down
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.7 — Sankey & Drill-Down](working-steps/3.7-sankey-drilldown.md)
+
+See where the money goes, and click any chart to see the rows behind it.
+
+**Highlights:**
+- **Sankey** widget: income → expenses by category with what is saved, or flows between up to three levels (category → subcategory → payee); a **Money flow** Sankey in the generated cash-flow dashboard
+- **Drill-down**: a bar, point, slice, Sankey flow or key figure opens the Data Explorer with the widget's conditions, the dashboard range and the clicked values — running totals list every row up to the period's end
+- Query API: `rank: "abs"` ranks top values by amount, income and expenses alike
+
+### 2026-10-04 — Chart Extras: Comparisons, Moving Averages, Percentiles
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.6c — Chart Extras](working-steps/3.6c-chart-extras.md)
+
+Charts by date can now compare with last year, smooth a line or show its change, and every value can be a median or a percentile.
+
+**Highlights:**
+- **Compare with** the period before or the same period a year earlier (dashed lines, lighter bars)
+- **Show as** the change from the period before or a moving average
+- **Median** and **percentiles** as quick functions, in the query API (`median`, `percentile`) and in formulas (`MEDIAN`, `PERCENTILE`) — the same numbers on SQLite and Postgres
+- A **total line** over stacked charts (the net of income and expenses), **reference lines** at a number or a variable, **colour by sign**
+- **Annotations**: events on every chart by date — a day as a line ("Salary raise"), a period as a shaded span ("Vacation") — named in the tooltip
+- New dashboard variables start on the dashboard's table and date column; the formula editor's accessible name follows renames; a chart that cannot be drawn no longer takes the page down
+
+### 2026-10-04 — A Widget Editor Like Kibana Lens
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.6b — Widget Editor Like Kibana Lens](working-steps/3.6b-widget-editor.md)
+
+Widgets are now built by dragging fields onto a large live chart instead of filling in a form.
+
+**Highlights:**
+- Fields on the left, the chart with suggestions in the middle, chart-specific slots (axis, breakdown, slices, value, rows) with quick functions or formulas on the right
+- Top values with "Other" (also in the query API), date intervals, options that no longer apply are dropped
+- Key figures for the whole range or the latest period, with secondary value, trend line and goal; tables summarized with a total row or as individual rows
+- Drawn in the app's design language (hairlines, pills, mono labels, display type), neutral in the light theme too
+- Chart tooltips list the series in the order they sit at that date (stacks top to bottom), mark the hovered line or area, show the stack's total and the period in full ("September 2026"), and stay inside the chart
+- Legends stay on one line and page (‹ 1/2 ›) instead of wrapping into the axis; long names are cut and shown in full on hover; "Other" comes last; a breakdown starts with its top 5 values (an axis keeps 10)
+
+### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.6 — Formulas In Widgets & Time Series](working-steps/3.6-formula-measures.md)
+
+Widget values and dashboard variables can be formulas over many rows, and charts can show values at the end of each period.
+
+**Highlights:**
+- Formula values: `SUM(amount WHERE amount > 0)`, a savings rate per month with its trend against last month, `RUNNING_SUM(…)`
+- "Value at the end of each period": balances and net worth per month with `BUCKET_END()` and `LOOKUP_ASOF` for prices at that time
+- Dashboard variables such as `burn_rate` and `runway`, shown in key figures and usable in widget formulas
+- `POST /api/v1/query` measures with `formula`, `asOf` and `variables`; `POST /api/v1/query/variables`
+
+### 2026-10-04 — Computed Columns With Live Values
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.5 — Computed Columns](working-steps/3.5-computed-columns.md)
+
+Computed columns now have values everywhere a table is read — computed by the database on every query, never stored.
+
+**Highlights:**
+- `= opening_balance + SUM(transactions.amount)`: sums, counts, averages, minimum and maximum over related rows (1:N and N:M), with conditions; values of linked records (`account.name`)
+- Computed columns can use other computed columns; circular references are rejected with their path
+- Filter, sort, select, export and chart computed columns like stored ones, formatted by their result type
+- The formula editor checks against the whole draft and suggests links and the linked table's columns
+
+### 2026-10-04 — Formulas: Checked As You Type, Same On SQLite And Postgres
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.4 — Formula Engine (Core)](working-steps/3.4-formula-engine.md)
+
+Spreadsheet-style formulas such as `= IF(amount < 0, "expense", "income")`, parsed and type-checked on the server and compiled to SQL for both databases.
+
+**Highlights:**
+- 34 functions (logic, math, text, dates) with Excel and programmer operators; clear errors with positions and "did you mean"
+- A conformance suite of 66 formulas gives identical values on SQLite and Postgres (float noise, umlauts, month ends, UTC date-times)
+- `POST /api/v1/formulas/validate` and `/preview`, `GET /api/v1/formulas/functions`
+- Formula editor for computed columns in the schema designer: suggestions, underlined errors, result type and a preview of the values
+
+### 2026-10-04 — Connections: API Explorer And API Keys
+
+> **Phase**: Phase 3 — Visualization (API keys pulled forward from Phase 5)
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.3b — Connections](working-steps/3.3b-connections.md)
+
+A workspace section for using Bento from scripts and tools: the installation's API, generated from its schema and testable in place, and API keys.
+
+**Highlights:**
+- `GET /api/v1/openapi.json`: OpenAPI 3.0 with CRUD per table (fields, required, examples), query, saved queries, dashboards, import, schema, auth; which key scope may call what
+- Swagger-style explorer: grouped endpoints, parameters and fields, "Send" as yourself or with a key, response and curl, OpenAPI download
+- API keys: read or read-write, optional expiry, shown once and stored as SHA-256, last use, revocation; never above their user, never on admin routes
+
+### 2026-10-04 — Build Dashboards From Your Tables
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.3 — Dashboards & Charts](working-steps/3.3-dashboards.md)
+
+Dashboards with key figures, line, area, bar and donut charts, tables and text, on a 12-column grid that follows one date range.
+
+**Highlights:**
+- "Monthly cash flow" starter for tables with a date and an amount: balance, net, spending by category, top payees
+- Edit mode with drag, resize and a settings panel per widget (table or saved query, groups, values incl. running totals, conditions, order)
+- Date range in the URL, every month of the range on the axis, refresh on return and by interval; private or shared dashboards
+- Amounts as currency in the browser's language, also in the Data Explorer grid
+
+### 2026-10-03 — Aggregate Data With The Query API
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.2 — Query API & Saved Queries](working-steps/3.2-query-api.md)
+
+The data layer for dashboards: sums, counts and averages of any table, grouped by columns, linked records or date buckets, with running totals — identical on SQLite and Postgres.
+
+**Highlights:**
+- `POST /api/v1/query`: list-endpoint filters, groups (day/week/month/quarter/year buckets, linked records with their names), measures, sort, limit
+- Running totals per group, optionally starting from the rows before the date range (balances)
+- Saved queries, private or shared, with extra filters at run time; they follow table and column renames
+- Fixes Postgres number and yes/no filters on the list endpoint (they were sent as text and failed)
+
+### 2026-10-03 — Create Tables From CSV Files
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.1b — New Table From CSV](working-steps/3.1b-table-from-csv.md)
+
+Drop the first bank export and get the table for it: Bento proposes columns, types and a category table, creates them through the schema checks and continues into the import.
+
+**Highlights:**
+- Clean column names from headers (display names keep the original), detected types, amounts as currency, required where nothing is empty
+- Category-like columns as a new table of values or a link to an existing table; filled with the distinct values before the import
+- Hand-off into the import page with mapping and key columns set and the rows already checked
+
+### 2026-10-03 — Import Bank Exports From CSV
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
+> **Working step**: [Step 3.1 — CSV Import](working-steps/3.1-csv-import.md)
+
+The first step of the finance-driven Phase 3: CSV files, bank exports included, import into a table, and re-importing an overlapping export adds nothing twice.
+
+**Highlights:**
+- Detects encoding, separator, header below account lines, decimal comma and date format; suggests the mapping, also from German bank headers
+- Duplicate skip by key columns (counted per key), references by record name, per-row problems with file line, one transaction
+- Mapping profiles per table; Import page reachable from the table toolbar
+- Fixes Postgres `date` columns: creating such a row through the API returned 500
+
+---
+
 ## Phase 2 — Data Management
 
 ### 2026-10-03 — Rename the Product to Bento
@@ -538,6 +750,19 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-04 — Ship v0.3.0 MVP 3: Finance Cockpit
+
+> **Version**: [v0.3.0 — MVP 3: Finance Cockpit](releases/v0.3.0.md)
+> **Phase**: Phase 3 — Visualization
+
+Your own data as live dashboards: import bank and broker CSV exports, aggregate them, and see cash flow, spending and net worth over time, with formulas for computed columns and calculated values.
+
+**Highlights:**
+- CSV import of bank exports as they come; a query API with saved queries
+- Dashboards with a Lens-style editor: key figures, charts, donuts, tables and Sankey flows; comparisons, moving averages, reference lines, annotations; a filter bar and click-through to the rows
+- Excel-like formulas for computed columns and widget values, the same on SQLite and Postgres (`SUM … WHERE`, `RUNNING_SUM`, `BUCKET_END()`, `LOOKUP_ASOF`, `MEDIAN`, `PERCENTILE`)
+- A one-click wealth & cash flow template; API explorer and API keys
 
 ### 2026-10-03 — Ship v0.2.1: Bento
 

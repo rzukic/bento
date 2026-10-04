@@ -1,4 +1,5 @@
 import { createPortal } from "react-dom";
+import { valueTypeOf } from "../../../lib/columns";
 import React, {
   useEffect,
   useLayoutEffect,
@@ -174,7 +175,7 @@ function normalizeColumnType(type: string | undefined): string {
 
 function getColumnFilterOptions(column: ModelColumn | undefined) {
   if (!column) return defaultFilterOperatorOptions;
-  const normalizedType = normalizeColumnType(column.type);
+  const normalizedType = normalizeColumnType(valueTypeOf(column));
   const supportsOneOf =
     normalizedType === "enum" ||
     normalizedType === "relation" ||
@@ -249,7 +250,7 @@ function getColumnFilterOptions(column: ModelColumn | undefined) {
 
 function getFilterValueLabel(column: ModelColumn | undefined, op: FilterOp) {
   if (op === "in") return "Values";
-  const normalizedType = normalizeColumnType(column?.type);
+  const normalizedType = normalizeColumnType(column ? valueTypeOf(column) : undefined);
   if (normalizedType === "enum") return "Select value";
   if (normalizedType === "boolean") return "Choose value";
   if (normalizedType === "date") return "Choose date";
@@ -262,7 +263,7 @@ function getFilterValuePlaceholder(
   op: FilterOp,
 ) {
   if (op === "in") return "Comma-separated values";
-  const normalizedType = normalizeColumnType(column?.type);
+  const normalizedType = normalizeColumnType(column ? valueTypeOf(column) : undefined);
   if (normalizedType === "enum") return undefined;
   if (normalizedType === "boolean") return undefined;
   if (normalizedType === "date") return undefined;
@@ -312,7 +313,7 @@ function getSortDirectionOptions(
     ];
   }
 
-  const normalizedType = normalizeColumnType(column.type);
+  const normalizedType = normalizeColumnType(valueTypeOf(column));
 
   if (normalizedType === "date" || normalizedType === "datetime") {
     const noun = normalizedType === "datetime" ? "time" : "date";
@@ -359,7 +360,7 @@ function formatFilterChipValue(
 ): string {
   const trimmed = (value ?? "").trim();
   if (!trimmed) return "—";
-  if (normalizeColumnType(column?.type) === "boolean") {
+  if (normalizeColumnType(column ? valueTypeOf(column) : undefined) === "boolean") {
     if (trimmed.toLowerCase() === "true") return "Yes";
     if (trimmed.toLowerCase() === "false") return "No";
   }
@@ -373,7 +374,7 @@ function formatFilterChip(
   const column = columns.find((item) => item.name === filter.column);
   const name = column?.displayName ?? filter.column;
   const value = formatFilterChipValue(column, filter.value);
-  const isTemporal = temporalColumnTypes.has(normalizeColumnType(column?.type));
+  const isTemporal = temporalColumnTypes.has(normalizeColumnType(column ? valueTypeOf(column) : undefined));
 
   switch (filter.op) {
     case "eq":

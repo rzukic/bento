@@ -311,16 +311,21 @@ public class MigrationRunner
 
         foreach (var rename in tableRenames)
         {
-            await conn.ExecuteAsync(
-                $"UPDATE {GetPreferencesTableName()} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
-                new
-                {
-                    OldTableName = rename.Key,
-                    NewTableName = rename.Value,
-                    Now = UtcNowIso()
-                },
-                transaction);
+            foreach (var tableName in new[] { GetPreferencesTableName(), GetImportProfilesTableName() })
+            {
+                await conn.ExecuteAsync(
+                    $"UPDATE {tableName} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
+                    new
+                    {
+                        OldTableName = rename.Key,
+                        NewTableName = rename.Value,
+                        Now = UtcNowIso()
+                    },
+                    transaction);
+            }
         }
+
+        await MigrateSavedQueryReferencesAsync(conn, transaction, tableRenames, columnRenames);
 
         var views = await conn.QueryAsync<SystemViewReferenceRow>(
             $"SELECT id AS Id, table_name AS TableName, config AS Config FROM {GetViewsTableName()};",
@@ -501,6 +506,131 @@ public class MigrationRunner
         _systemPool.Provider == DatabaseProvider.Postgres
             ? "_system.user_table_explorer_preferences"
             : "user_table_explorer_preferences";
+
+    /// <summary>
+    /// Saved queries and dashboard widgets name tables and columns in their
+    /// JSON: renames rewrite <c>source</c>, filter keys, group and measure
+    /// columns, and a widget's <c>dateColumn</c>.
+    /// </summary>
+    private async Task MigrateSavedQueryReferencesAsync(
+        IDbConnection conn,
+        IDbTransaction transaction,
+        IReadOnlyDictionary<string, string> tableRenames,
+        IReadOnlyList<SchemaChange> columnRenames)
+    {
+        var postgres = _systemPool.Provider == DatabaseProvider.Postgres;
+        var queriesTable = postgres ? "_system.saved_queries" : "saved_queries";
+        var dashboardsTable = postgres ? "_system.dashboards" : "dashboards";
+        var jsonParam = SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config");
+        var nowParam = SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
+
+        Dictionary<string, string> ColumnsOf(string table) => columnRenames
+            .Where(change => string.Equals(change.TableName, table, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(change => change.PreviousColumnName!, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last().ColumnName!, StringComparer.OrdinalIgnoreCase);
+
+        string Renamed(string table) => tableRenames.TryGetValue(table, out var renamed) ? renamed : table;
+
+        // Returns true when the query changed.
+        bool Rewrite(JsonObject query)
+        {
+            if (query["source"]?.GetValue<string>() is not { } oldSource)
+                return false;
+            var source = Renamed(oldSource);
+            var columns = ColumnsOf(source);
+            if (source == oldSource && columns.Count == 0)
+                return false;
+
+            query["source"] = source;
+            string Rename(string name) => columns.TryGetValue(name, out var renamed) ? renamed : name;
+            if (query["filter"] is JsonObject filter)
+            {
+                foreach (var key in filter.Select(pair => pair.Key).ToList())
+                {
+                    var renamed = Rename(key);
+                    if (renamed == key)
+                        continue;
+                    var value = filter[key];
+                    filter.Remove(key);
+                    filter[renamed] = value;
+                }
+            }
+            foreach (var listName in new[] { "groupBy", "measures" })
+            {
+                if (query[listName] is not JsonArray list)
+                    continue;
+                foreach (var item in list.OfType<JsonObject>())
+                {
+                    if (item["column"]?.GetValue<string>() is { } column)
+                        item["column"] = Rename(column);
+                }
+            }
+            return true;
+        }
+
+        var savedSources = new Dictionary<long, string>();
+        var rows = await conn.QueryAsync<SavedQueryReferenceRow>(
+            $"SELECT id AS Id, source_table AS SourceTable, config AS Config FROM {queriesTable};",
+            transaction: transaction);
+        foreach (var row in rows)
+        {
+            savedSources[row.Id] = Renamed(row.SourceTable);
+            if (JsonNode.Parse(row.Config) is not JsonObject config || !Rewrite(config))
+                continue;
+            await conn.ExecuteAsync(
+                $"UPDATE {queriesTable} SET source_table = @Source, config = {jsonParam}, updated_at = {nowParam} WHERE id = @Id;",
+                new { Id = row.Id, Source = config["source"]!.GetValue<string>(), Config = config.ToJsonString(), Now = UtcNowIso() },
+                transaction);
+        }
+
+        var dashboards = await conn.QueryAsync<SavedQueryReferenceRow>(
+            $"SELECT id AS Id, name AS SourceTable, dashboard_json AS Config FROM {dashboardsTable};",
+            transaction: transaction);
+        foreach (var dashboard in dashboards)
+        {
+            if (JsonNode.Parse(dashboard.Config) is not JsonObject json || json["widgets"] is not JsonArray widgets)
+                continue;
+            var changed = false;
+            foreach (var data in widgets.OfType<JsonObject>().Select(w => w["data"]).OfType<JsonObject>())
+            {
+                string? source = null;
+                if (data["query"] is JsonObject query)
+                {
+                    var before = query["source"]?.GetValue<string>();
+                    changed |= Rewrite(query);
+                    // Columns are renamed against the table as it is now called.
+                    source = before is null ? null : Renamed(before);
+                }
+                else if (data["savedQueryId"] is JsonValue savedId && savedId.TryGetValue<long>(out var id))
+                {
+                    source = savedSources.GetValueOrDefault(id);
+                }
+
+                if (source is not null && data["dateColumn"]?.GetValue<string>() is { } dateColumn &&
+                    ColumnsOf(source).TryGetValue(dateColumn, out var renamedDate))
+                {
+                    data["dateColumn"] = renamedDate;
+                    changed = true;
+                }
+            }
+            if (!changed)
+                continue;
+            await conn.ExecuteAsync(
+                $"UPDATE {dashboardsTable} SET dashboard_json = {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, updated_at = {nowParam} WHERE id = @Id;",
+                new { Id = dashboard.Id, Config = json.ToJsonString(), Now = UtcNowIso() },
+                transaction);
+        }
+    }
+
+    private sealed class SavedQueryReferenceRow
+    {
+        public long Id { get; init; }
+        public string SourceTable { get; init; } = "";
+        public string Config { get; init; } = "{}";
+    }
+
+    private string GetImportProfilesTableName() =>
+        _systemPool.Provider == DatabaseProvider.Postgres ? "_system.import_profiles" : "import_profiles";
 
     private static string UtcNowIso() =>
         DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);

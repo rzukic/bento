@@ -64,6 +64,7 @@ public class DataPool : IDataPool, IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;";
             cmd.ExecuteNonQuery();
+            Formula.SqliteFormulaFunctions.Register(conn);
 
             return conn;
         }

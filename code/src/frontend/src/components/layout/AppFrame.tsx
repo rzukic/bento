@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAppStore } from "../../stores/appStore";
@@ -40,13 +40,14 @@ const navSections: NavSection[] = [
       { to: "/", label: "Home", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
       { to: "/model", label: "Schema", icon: "schema" },
+      { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
+      { to: "/connections", label: "Connections", icon: "link" },
     ],
   },
   {
     title: "Coming soon",
     dimmed: true,
     items: [
-      { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
       { to: "/ai", label: "AI", icon: "sparkles" },
     ],
@@ -62,6 +63,42 @@ export function AppFrame({ children }: AppFrameProps) {
   const navigate = useNavigate();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
+
+  // Collapsed, the sidebar opens over the page while the pointer (or the
+  // keyboard focus) is on it — a short delay keeps passing by from opening it.
+  const [peek, setPeek] = useState(false);
+  const peekTimer = useRef<number | undefined>(undefined);
+  const canPeek = useCallback(
+    () => !sidebarOpen && (typeof window.matchMedia !== "function" || window.matchMedia("(min-width: 901px)").matches),
+    [sidebarOpen],
+  );
+  const schedulePeek = useCallback(
+    (next: boolean, delay: number) => {
+      window.clearTimeout(peekTimer.current);
+      if (next && !canPeek()) return;
+      peekTimer.current = window.setTimeout(() => setPeek(next), delay);
+    },
+    [canPeek],
+  );
+  // Kept open while hovered: it is open already, so the page beside it moves
+  // over at once instead of sliding (before the browser paints the change).
+  const [instant, setInstant] = useState(false);
+  const instantTimer = useRef<number | undefined>(undefined);
+  useLayoutEffect(() => {
+    if (!sidebarOpen || !peek) return;
+    window.clearTimeout(peekTimer.current);
+    window.clearTimeout(instantTimer.current);
+    setInstant(true);
+    setPeek(false);
+    instantTimer.current = window.setTimeout(() => setInstant(false), 400);
+  }, [sidebarOpen, peek]);
+  useEffect(
+    () => () => {
+      window.clearTimeout(peekTimer.current);
+      window.clearTimeout(instantTimer.current);
+    },
+    [],
+  );
 
   // ⌘\ (Ctrl+\ elsewhere) toggles the sidebar from anywhere.
   useEffect(() => {
@@ -138,7 +175,7 @@ export function AppFrame({ children }: AppFrameProps) {
   useDocumentTitle(`${currentTitle} · Bento`);
 
   return (
-    <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"}`}>
+    <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"} ${peek ? "shell--peek" : ""} ${instant ? "shell--instant" : ""}`}>
       <div className="shell__sky" aria-hidden="true">
         <div className="shell__pool shell__pool--1" />
         <div className="shell__pool shell__pool--2" />
@@ -150,18 +187,30 @@ export function AppFrame({ children }: AppFrameProps) {
           <rect width="100%" height="100%" filter="url(#shell-grain)" />
         </svg>
       </div>
-      <aside className="shell__sidebar" aria-label="Primary sidebar">
+      <aside
+        className="shell__sidebar"
+        aria-label="Primary sidebar"
+        onMouseEnter={() => schedulePeek(true, 150)}
+        onMouseLeave={() => schedulePeek(false, 250)}
+        onFocus={() => schedulePeek(true, 0)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) schedulePeek(false, 0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape" && peek) schedulePeek(false, 0);
+        }}
+      >
         <div className="shell__brand">
           {/* Collapsed, the mark doubles as the expand control: it turns
               into the sidebar icon on hover. */}
           <button
             type="button"
             className="shell__brand-mark"
-            onClick={sidebarOpen ? undefined : toggleSidebar}
-            tabIndex={sidebarOpen ? -1 : 0}
-            aria-hidden={sidebarOpen ? true : undefined}
-            aria-label={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
-            title={sidebarOpen ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+            onClick={sidebarOpen || peek ? undefined : toggleSidebar}
+            tabIndex={sidebarOpen || peek ? -1 : 0}
+            aria-hidden={sidebarOpen || peek ? true : undefined}
+            aria-label={sidebarOpen || peek ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
+            title={sidebarOpen || peek ? undefined : `Expand sidebar (${sidebarShortcutLabel})`}
           >
             <span className="shell__brand-logo">
               <SushiMascot width={32} />
@@ -173,12 +222,13 @@ export function AppFrame({ children }: AppFrameProps) {
           <div className="shell__brand-text">
             <span className="shell__brand-name">Bento</span>
           </div>
+          {/* Open: collapses it. Opened by hover: keeps it open, in the same spot. */}
           <button
             type="button"
             className="shell__sidebar-toggle"
             onClick={toggleSidebar}
-            aria-label={`Collapse sidebar (${sidebarShortcutLabel})`}
-            title={`Collapse sidebar (${sidebarShortcutLabel})`}
+            aria-label={sidebarOpen ? `Collapse sidebar (${sidebarShortcutLabel})` : `Keep sidebar open (${sidebarShortcutLabel})`}
+            title={sidebarOpen ? `Collapse sidebar (${sidebarShortcutLabel})` : `Keep sidebar open (${sidebarShortcutLabel})`}
           >
             <Icon name="panel-left" size={16} />
           </button>

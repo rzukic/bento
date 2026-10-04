@@ -84,6 +84,14 @@ public sealed record ColumnDef
     [JsonPropertyName("formula")]
     public string? Formula { get; init; }
 
+    /// <summary>
+    /// Computed columns: what the formula gives (text, integer, float,
+    /// currency, boolean, date, datetime). Filled in from the formula when the
+    /// schema is applied; a declared type is checked against it.
+    /// </summary>
+    [JsonPropertyName("resultType")]
+    public string? ResultType { get; init; }
+
     [JsonPropertyName("relationName")]
     public string? RelationName { get; init; }
 

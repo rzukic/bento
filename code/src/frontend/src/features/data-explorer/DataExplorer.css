@@ -6118,3 +6118,20 @@
 .data-controls__column-toggle input[type="checkbox"] {
     accent-color: var(--text);
 }
+
+/* "New table from CSV" sits above the list, right-aligned. */
+.explorer-landing__actions {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: -1.25rem;
+}
+
+/* Amounts (currency columns) read as numbers: tabular, negatives tinted. */
+.data-grid__amount {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.data-grid__amount--negative {
+    color: var(--danger);
+}

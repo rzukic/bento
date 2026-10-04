@@ -139,7 +139,7 @@ public class MigrationGeneratorTests
                   "name": "products",
                   "columns": [
                     { "name": "id", "type": "integer", "primaryKey": true, "nullable": false },
-                    { "name": "price", "type": "computed", "formula": "net * tax" }
+                    { "name": "price", "type": "computed", "formula": "id * 2" }
                   ],
                   "indexes": []
                 }
