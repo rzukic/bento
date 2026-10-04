@@ -89,6 +89,13 @@ function Select({ label, value, onChange, children, className }: { label: string
   );
 }
 
+/** A measure without its running total: the flag dropped, RUNNING_SUM(…) unwrapped. */
+export function withoutTimeSeries(measure: QueryMeasure): QueryMeasure {
+  const { running: _running, carryIn: _carryIn, ...rest } = measure;
+  const wrapped = rest.formula?.match(/^\s*=?\s*RUNNING_SUM\s*\(([\s\S]*)\)\s*$/i);
+  return wrapped ? { ...rest, formula: wrapped[1].trim() } : rest;
+}
+
 /** A plain measure as the formula it stands for (formulas are needed by period end). */
 function measureAsFormula(measure: QueryMeasure, dateColumn: string | null): string {
   if (measure.formula) return measure.formula;
@@ -163,7 +170,17 @@ export function WidgetEditor({
     // Keep the order unless it named a group that is gone.
     const outputsAfter = new Set([...next.map((g) => g.as ?? g.column), ...measures.map((m) => m.name)]);
     const sort = query.sort?.filter((s) => outputsAfter.has(s.replace(/^-/, "")));
-    setQuery({ ...query, groupBy: next, sort: sort && sort.length > 0 ? sort : undefined });
+    // Running totals and values by period end need a date group.
+    const stillByDate = next.some((g) => g.bucket);
+    const nextMeasures = stillByDate ? measures : measures.map(withoutTimeSeries);
+    set({
+      data: {
+        ...widget.data,
+        asOf: stillByDate ? widget.data?.asOf : undefined,
+        query: { ...query, groupBy: next, measures: nextMeasures, sort: sort && sort.length > 0 ? sort : undefined },
+        savedQueryId: undefined,
+      },
+    });
   };
 
   const updateMeasure = (index: number, patch: Partial<QueryMeasure>) => {
