@@ -53,7 +53,8 @@ public sealed class AggregationQueryService
     public const int MaxTop = 1000;
 
     /// <param name="Fn">count, sum, … or "formula" (then <paramref name="Type"/> is the formula's result).</param>
-    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null);
+    /// <param name="Custom">A CUSTOM(…) formula (Step 4.1): its arguments are selected as hidden columns and the function runs on each result row.</param>
+    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null);
 
     /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
     private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods);
@@ -96,8 +97,11 @@ public sealed class AggregationQueryService
         if (carryIns.Count > 0)
             offsets = await LoadCarryInAsync(plan, carryIns, scope);
 
+        var warnings = RunCustomMeasures(plan, rows);
         var data = rows.Select(row => Shape(plan, row, offsets)).ToList();
-        return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated));
+        if (plan.Measures.Any(m => m.Custom is not null) && plan.Sort.Any(s => plan.Measures.Any(m => m.Custom is not null && m.Output == s.Output)))
+            data = SortInMemory(plan, data);
+        return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated, warnings.Count > 0 ? warnings : null));
     }
 
     private Plan Resolve(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables)
@@ -132,7 +136,8 @@ public sealed class AggregationQueryService
         var context = new FormulaContext
         {
             BucketAlias = calendar is null ? null : "b",
-            Variables = variables ?? ResolveVariables(request.Variables)
+            Variables = variables ?? ResolveVariables(request.Variables),
+            Functions = _computed.Functions
         };
         var joinIndex = 0;
         foreach (var (spec, index) in (request.GroupBy ?? []).Select((g, i) => (g, i)))
@@ -249,6 +254,8 @@ public sealed class AggregationQueryService
             throw Invalid("measures", "Add a measure or a group.");
         if (groups.Any(g => g.Top is not null) && measures.Any(m => m.CarryIn))
             throw Invalid("measures", "Running totals that include earlier rows cannot be combined with top values.");
+        if (groups.Any(g => g.Top is not null) && measures.FirstOrDefault()?.Custom is not null)
+            throw Invalid("measures[0].formula", "Top values are ranked by the first measure, which cannot be a CUSTOM(…) value; put another measure first.");
 
         var sort = new List<(string, bool)>();
         foreach (var (entry, index) in (request.Sort ?? []).Select((s, i) => (s, i)))
@@ -285,6 +292,9 @@ public sealed class AggregationQueryService
         }
 
         running |= spec.Running;
+        var custom = check.Result!.Custom;
+        if (custom is not null && (running || spec.CarryIn))
+            throw Invalid($"{path}.running", "A CUSTOM(…) value cannot be a running total; add up its inputs instead.");
         if (running && groups.Count(g => g.Bucket is not null) != 1)
             throw Invalid($"{path}.running", "Running totals need exactly one date group (day, week, month, quarter or year).");
         if (spec.CarryIn && !running)
@@ -293,7 +303,7 @@ public sealed class AggregationQueryService
             throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
 
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type);
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom);
     }
 
     private const int MaxPeriods = 1000;
@@ -457,16 +467,33 @@ public sealed class AggregationQueryService
                     Measures = [new QueryMeasure { Name = "value", Formula = definition.Formula }]
                 }, null, values);
                 var column = result.Meta.Columns.Single();
+                if (result.Meta.Warnings is [var warning, ..])
+                    return new QueryVariableResult(name, null, null, warning);
                 return new QueryVariableResult(name, column.Type, result.Data.FirstOrDefault()?["value"], null);
             }
 
             var table = new TableDef { Name = "__variables", DisplayName = "the dashboard variables" };
             var check = FormulaCompiler.Compile(definition.Formula ?? "", table, FormulaSchema.From(_schemaCache.Current), _dbConfig.Provider,
-                context: new FormulaContext { Variables = values });
+                context: new FormulaContext { Variables = values, Functions = _computed.Functions });
             if (!check.IsValid)
                 return new QueryVariableResult(name, null, null, check.Errors[0].Message);
 
             await using var scope = await _queryService.UseDataAsync();
+            if (check.Result!.Custom is { } custom)
+            {
+                var row = custom.Arguments.Count == 0
+                    ? new Dictionary<string, object?>()
+                    : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(
+                        $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}"));
+                var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
+                using (function)
+                {
+                    var result = function?.Call(custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__a{k}"], a.Type)).ToList());
+                    return result is { Ok: true }
+                        ? new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(result.Value, check.Result.Type), null)
+                        : new QueryVariableResult(name, null, null, result?.Error ?? syntax);
+                }
+            }
             var raw = await scope.Db.Connection.ExecuteScalarAsync($"SELECT {check.Result!.Sql} AS {Q("value")}");
             return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
         }
@@ -629,6 +656,8 @@ public sealed class AggregationQueryService
         {
             var measure = plan.Measures[i];
             select.Add($"{measure.Expression} AS {Q(measure.Running ? $"__r{i}" : measure.Output)}");
+            if (measure.Custom is { } custom)
+                select.AddRange(custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__f{i}_{k}")}"));
         }
 
         // The period's days are fixed per label; grouping by them lets measures use BUCKET_END() anywhere.
@@ -721,6 +750,66 @@ public sealed class AggregationQueryService
         string.Join("\u001F", partitions.Select(g => Convert.ToString(row.TryGetValue(g.Output, out var v) ? v : null, CultureInfo.InvariantCulture)));
 
     // ── Results ──────────────────────────────────────────────────────────
+
+    /// <summary>Runs each CUSTOM measure's function on every result row; failures leave the value empty and add a warning.</summary>
+    private static List<string> RunCustomMeasures(Plan plan, List<IDictionary<string, object?>> rows)
+    {
+        var warnings = new List<string>();
+        for (var i = 0; i < plan.Measures.Count; i++)
+        {
+            if (plan.Measures[i] is not { Custom: { } custom } measure)
+                continue;
+            var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
+            using (function)
+            {
+                var failed = 0;
+                string? first = null;
+                foreach (var row in rows)
+                {
+                    var arguments = custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__f{i}_{k}"], a.Type)).ToList();
+                    var result = function?.Call(arguments);
+                    row[measure.Output] = result is { Ok: true } ? result.Value : null;
+                    if (result is not { Ok: true })
+                    {
+                        failed++;
+                        first ??= result?.Error ?? syntax;
+                    }
+                }
+                if (failed > 0)
+                    warnings.Add($"{measure.Output}: {custom.Function.Name} failed on {failed} of {rows.Count} rows — {first}");
+            }
+        }
+        return warnings;
+    }
+
+    /// <summary>The query's order when it sorts by a CUSTOM value, which exists only after the function ran.</summary>
+    private static List<IDictionary<string, object?>> SortInMemory(Plan plan, List<IDictionary<string, object?>> data)
+    {
+        IOrderedEnumerable<IDictionary<string, object?>>? ordered = null;
+        foreach (var (output, descending) in plan.Sort)
+        {
+            Func<IDictionary<string, object?>, object?> key = row => row.TryGetValue(output, out var v) ? v : null;
+            ordered = ordered is null
+                ? descending ? data.OrderByDescending(key, SortComparer.Instance) : data.OrderBy(key, SortComparer.Instance)
+                : descending ? ordered.ThenByDescending(key, SortComparer.Instance) : ordered.ThenBy(key, SortComparer.Instance);
+        }
+        return ordered?.ToList() ?? data;
+    }
+
+    /// <summary>Empty first, then numbers, text (ordinal), yes/no — like the databases' ascending order.</summary>
+    private sealed class SortComparer : IComparer<object?>
+    {
+        public static readonly SortComparer Instance = new();
+
+        public int Compare(object? x, object? y)
+        {
+            if (x is null || y is null)
+                return x is null ? (y is null ? 0 : -1) : 1;
+            if (ResultValues.ToDecimal(x) is { } a && ResultValues.ToDecimal(y) is { } b && x is not string && y is not string)
+                return a.CompareTo(b);
+            return string.CompareOrdinal(Convert.ToString(x, CultureInfo.InvariantCulture), Convert.ToString(y, CultureInfo.InvariantCulture));
+        }
+    }
 
     private static IDictionary<string, object?> Shape(Plan plan, IDictionary<string, object?> row, Dictionary<string, Dictionary<string, decimal>>? offsets)
     {

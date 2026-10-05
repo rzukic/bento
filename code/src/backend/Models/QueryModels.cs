@@ -91,7 +91,8 @@ public sealed record AggregationQueryResponse(
     IReadOnlyList<IDictionary<string, object?>> Data,
     QueryResultMeta Meta);
 
-public sealed record QueryResultMeta(IReadOnlyList<QueryResultColumn> Columns, bool Truncated);
+/// <param name="Warnings">Problems that left some values empty, e.g. a CUSTOM function that failed on some rows.</param>
+public sealed record QueryResultMeta(IReadOnlyList<QueryResultColumn> Columns, bool Truncated, IReadOnlyList<string>? Warnings = null);
 
 // ── Saved queries ──
 

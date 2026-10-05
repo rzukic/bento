@@ -46,6 +46,9 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
     public HttpClient Client { get; }
     public DatabaseProvider Provider => _provider;
 
+    /// <summary>A service of the running app (e.g. to run a background job now).</summary>
+    public T GetService<T>() where T : notnull => _app.Services.GetRequiredService<T>();
+
     public string SystemDatabasePath =>
         _provider == DatabaseProvider.Sqlite
             ? Path.Combine(_dataRootPath, "system.db")

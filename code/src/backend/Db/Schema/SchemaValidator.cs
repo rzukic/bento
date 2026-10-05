@@ -2,6 +2,13 @@ namespace Bento.Api.Db.Schema;
 
 public class SchemaValidator
 {
+    private readonly Formula.ICustomFunctionCatalog? _functions;
+
+    public SchemaValidator(Formula.ICustomFunctionCatalog? functions = null)
+    {
+        _functions = functions;
+    }
+
     private static readonly HashSet<string> ReservedWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "select", "from", "where", "group", "order", "by", "table", "column", "index",
@@ -87,7 +94,7 @@ public class SchemaValidator
                             $"{columnPath}.resultType"));
                     formulaSchema ??= Formula.FormulaSchema.From(model);
                     var check = Formula.FormulaCompiler.Compile(column.Formula!, table, formulaSchema, DatabaseProvider.Sqlite,
-                        expected: declared, column: column.Name);
+                        expected: declared, column: column.Name, context: new Formula.FormulaContext { Functions = _functions });
                     if (check.Errors.Count > 0)
                         errors.Add(new("computed_formula_invalid", $"Formula of '{table.Name}.{column.Name}': {check.Errors[0].Message}", $"{columnPath}.formula"));
                     else if (column.ResultType is null)

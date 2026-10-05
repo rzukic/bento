@@ -85,6 +85,16 @@ public sealed class FormulaEngineTests
             new RelationDef { Name = "account_transactions", Type = RelationType.OneToMany, From = "accounts", To = "transactions", Column = "account_id" }
         ]);
 
+    private static readonly TableDef Assets = new()
+    {
+        Name = "assets",
+        Columns =
+        [
+            new ColumnDef { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new ColumnDef { Name = "volatility", Type = ColumnType.Float }
+        ]
+    };
+
     private static FormulaCheck Check(string formula, DatabaseProvider provider = DatabaseProvider.Sqlite, FormulaType? expected = null, TableDef? table = null, string? column = null) =>
         FormulaCompiler.Compile(formula, table ?? Transactions, Schema, provider, expected: expected, column: column);
 
@@ -364,9 +374,16 @@ public sealed class FormulaEngineTests
         foreach (var function in FormulaFunctions.Catalog)
         {
             // Aggregates run over an account's transactions; measure functions in a query by period end.
-            var check = function.Category == FormulaFunctions.Measures
-                ? FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check
-                : Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null);
+            var check = function.Category switch
+            {
+                FormulaFunctions.Measures => FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check,
+                // CUSTOM calls a function the user wrote (Step 4.1).
+                "Custom" => FormulaCompiler.Compile(function.Example, Assets, new FormulaSchema([Assets]), provider, context: new FormulaContext
+                {
+                    Functions = new StaticFunctionCatalog([new CustomFunctionDef("risk_class", null, [new CustomFunctionArgument("volatility", "float")], "text", "return \"low\";", 1)])
+                }),
+                _ => Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null)
+            };
             Assert.True(check.IsValid, $"{function.Name}: {function.Example} → {string.Join("; ", check.Errors.Select(e => e.Message))}");
             Assert.Contains(function.Name, function.Example, StringComparison.Ordinal);
         }

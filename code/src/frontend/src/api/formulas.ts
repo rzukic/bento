@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import { listFunctions } from "./functions";
 
 /** A problem in a formula; start/end are character offsets (end exclusive). */
 export type FormulaError = { message: string; start: number; end: number };
@@ -33,6 +34,8 @@ export type FormulaFunction = {
   description: string;
   example: string;
   returns: string;
+  /** What completion inserts, when it is not "NAME(" (custom functions: CUSTOM("name", ). */
+  apply?: string;
 };
 
 export type FormulaRequest = {
@@ -68,8 +71,12 @@ export async function previewFormula(request: FormulaRequest): Promise<FormulaPr
 
 let functionsPromise: Promise<FormulaFunction[]> | null = null;
 
-/** GET /api/v1/formulas/functions, loaded once per session. */
-export function loadFormulaFunctions(): Promise<FormulaFunction[]> {
+/**
+ * GET /api/v1/formulas/functions (loaded once per session) and the custom
+ * functions (Step 4.1, loaded each time: they change while the app is open),
+ * which complete to CUSTOM("name", .
+ */
+export async function loadFormulaFunctions(): Promise<FormulaFunction[]> {
   functionsPromise ??= apiClient
     .get<DataEnvelope<FormulaFunction[]>>("/formulas/functions")
     .then((response) => response.data)
@@ -77,5 +84,20 @@ export function loadFormulaFunctions(): Promise<FormulaFunction[]> {
       functionsPromise = null;
       throw error;
     });
-  return functionsPromise;
+  const [builtIn, custom] = await Promise.all([functionsPromise, listFunctions().catch(() => [])]);
+  return [
+    ...builtIn,
+    ...custom.map((fn) => {
+      const args = fn.arguments.map((a) => a.name);
+      return {
+        name: fn.name,
+        category: "Custom",
+        signature: `CUSTOM("${fn.name}"${args.map((a) => `, ${a}`).join("")})`,
+        description: fn.description || "Your own function (see Functions).",
+        example: `CUSTOM("${fn.name}"${args.map((a) => `, ${a}`).join("")})`,
+        returns: fn.resultType,
+        apply: `CUSTOM("${fn.name}"${args.length > 0 ? ", " : ")"}`,
+      } satisfies FormulaFunction;
+    }),
+  ];
 }

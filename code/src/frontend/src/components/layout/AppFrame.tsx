@@ -40,6 +40,7 @@ const navSections: NavSection[] = [
       { to: "/", label: "Home", icon: "home" },
       { to: "/data", label: "Data", icon: "database" },
       { to: "/model", label: "Schema", icon: "schema" },
+      { to: "/functions", label: "Functions", icon: "braces" },
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/connections", label: "Connections", icon: "link" },
     ],

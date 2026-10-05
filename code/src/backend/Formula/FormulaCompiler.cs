@@ -5,7 +5,17 @@ using Bento.Api.Db.Schema;
 namespace Bento.Api.Formula;
 
 /// <summary>A formula translated into a SQL expression over one row of its table.</summary>
-public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns);
+/// <param name="Custom">
+/// Set when the formula is a <c>CUSTOM(…)</c> call (Step 4.1): its arguments
+/// as SQL, for the caller to run the function on. In a computed column the
+/// SQL reads the stored value; elsewhere it is <c>NULL</c>.
+/// </param>
+public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null);
+
+/// <summary>A <c>CUSTOM("name", …)</c> call: the function and its arguments as SQL over the row (or the group).</summary>
+public sealed record CustomCall(CustomFunctionDef Function, IReadOnlyList<CustomArgument> Arguments);
+
+public sealed record CustomArgument(string Sql, FormulaType Type);
 
 public sealed record FormulaCheck(CompiledFormula? Result, IReadOnlyList<FormulaError> Errors)
 {
@@ -30,6 +40,9 @@ public sealed record FormulaContext
 
     /// <summary>Dashboard variables by name, used where no column has that name.</summary>
     public IReadOnlyDictionary<string, FormulaValue>? Variables { get; init; }
+
+    /// <summary>The custom functions <c>CUSTOM("name", …)</c> may call (Step 4.1).</summary>
+    public ICustomFunctionCatalog? Functions { get; init; }
 }
 
 /// <summary>A compiled measure: <c>RUNNING_SUM(…)</c> around the whole formula makes it a running total.</summary>
@@ -121,7 +134,7 @@ public sealed class FormulaCompiler
         var shared = new Shared(schema, provider == DatabaseProvider.Postgres, context ?? new FormulaContext());
         if (column is not null)
             shared.Chain.Add($"{table.Name}.{column}");
-        return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected);
+        return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected, column);
     }
 
     /// <summary>
@@ -151,13 +164,16 @@ public sealed class FormulaCompiler
 
         var running = root is FunctionCall { Arguments.Count: 1, HasWhere: false } call &&
                       string.Equals(call.Name, "RUNNING_SUM", StringComparison.OrdinalIgnoreCase);
-        var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null);
+        var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null, null);
+        if (running && check.Result?.Custom is not null)
+            check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a CUSTOM(…) value yet; add up its inputs instead.", root.Start, root.End)]);
         if (running && check.Result is { } result && !FormulaTypes.IsNumeric(result.Type))
             check = new FormulaCheck(null, [new FormulaError($"RUNNING_SUM needs a number, not {FormulaTypes.Describe(result.Type)}.", root.Start, root.End)]);
         return new MeasureCheck(check, running);
     }
 
-    private FormulaCheck Run(string? formula, FormulaType? expected)
+    /// <param name="stored">The computed column the formula belongs to: there, CUSTOM(…) reads the stored value.</param>
+    private FormulaCheck Run(string? formula, FormulaType? expected, string? stored = null)
     {
         FormulaNode root;
         try
@@ -168,11 +184,14 @@ public sealed class FormulaCompiler
         {
             return new FormulaCheck(null, [e.Error]);
         }
-        return RunNode(root, (formula ?? "").Length, expected);
+        return RunNode(root, (formula ?? "").Length, expected, stored);
     }
 
-    private FormulaCheck RunNode(FormulaNode root, int length, FormulaType? expected)
+    private FormulaCheck RunNode(FormulaNode root, int length, FormulaType? expected, string? stored)
     {
+        if (root is FunctionCall call && IsCustom(call.Name))
+            return RunCustom(call, length, expected, stored);
+
         var expr = Bind(root);
         if (expr is null || _errors.Count > 0)
             return new FormulaCheck(null, _errors);
@@ -199,6 +218,92 @@ public sealed class FormulaCompiler
         actual == FormulaType.Null ||
         (expected is FormulaType.Number or FormulaType.Currency && FormulaTypes.IsNumeric(actual)) ||
         (expected == FormulaType.DateTime && actual == FormulaType.Date);
+
+    // ── Custom functions (Step 4.1) ──────────────────────────────────────
+
+    private static bool IsCustom(string name) => string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The name of the table that keeps computed columns' CUSTOM values (in the data database).</summary>
+    public const string StoredValuesTable = "_bento_function_values";
+
+    /// <summary>
+    /// <c>CUSTOM("name", arg, …)</c> as the whole formula. The function runs
+    /// in the sandbox, not in SQL: a computed column reads the value stored by
+    /// the background recalculation (Tier 3); measures and variables run the
+    /// function on each result row. The arguments are checked and compiled
+    /// here, so callers only call the function.
+    /// </summary>
+    private FormulaCheck RunCustom(FunctionCall call, int length, FormulaType? expected, string? stored)
+    {
+        if (call.HasWhere)
+            return new FormulaCheck(null, [new FormulaError("WHERE does not work in CUSTOM; put the condition into an argument, e.g. SUM(amount WHERE amount > 0).", call.Start, call.End)]);
+        if (call.Arguments.Count == 0 || call.Arguments[0] is not StringLiteral nameLiteral)
+            return new FormulaCheck(null, [new FormulaError("CUSTOM needs the function's name as text first: CUSTOM(\"risk_class\", volatility).",
+                call.Arguments.Count > 0 ? call.Arguments[0].Start : call.Start, call.Arguments.Count > 0 ? call.Arguments[0].End : call.End)]);
+
+        var functions = _shared.Context.Functions?.Functions ?? StaticFunctionCatalog.Empty.Functions;
+        if (!functions.TryGetValue(nameLiteral.Value.Trim(), out var function))
+        {
+            var suggestion = Suggest(nameLiteral.Value, functions.Keys);
+            return new FormulaCheck(null, [new FormulaError(
+                functions.Count == 0
+                    ? $"There is no custom function '{nameLiteral.Value}'; create one under Functions first."
+                    : $"There is no custom function '{nameLiteral.Value}'" + (suggestion is null ? "." : $" — did you mean '{suggestion}'?"),
+                nameLiteral.Start, nameLiteral.End)]);
+        }
+
+        var given = call.Arguments.Count - 1;
+        if (given != function.Arguments.Count)
+            return new FormulaCheck(null, [new FormulaError(
+                $"{function.Name} takes {Count(function.Arguments.Count, "argument")} ({string.Join(", ", function.Arguments.Select(a => a.Name))}), not {given}.",
+                call.Start, call.End)]);
+
+        var arguments = new List<CustomArgument>();
+        foreach (var (node, index) in call.Arguments.Skip(1).Select((n, i) => (n, i)))
+        {
+            var bound = Bind(node);
+            if (bound is null)
+                continue;
+            var declared = function.Arguments[index];
+            if (bound.IsRows)
+                Fail(node, $"'{declared.Name}' gets one value; count the rows with COUNT(…).");
+            else if (!CustomFunctionRules.Accepts(declared.Type, bound.Type))
+                Fail(node, $"'{declared.Name}' of {function.Name} takes {DescribeArgument(declared.Type)}, not {FormulaTypes.Describe(bound.Type)}.");
+            else
+                arguments.Add(new CustomArgument(bound.Sql, bound.Type));
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+
+        var type = function.Result;
+        var expr = new Expr("NULL", type, call);
+        if (stored is not null)
+        {
+            var table = _scope.Table;
+            var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
+            if (key is null)
+                return new FormulaCheck(null, [new FormulaError($"CUSTOM in a computed column needs a primary key on {table.DisplayName ?? table.Name}.", call.Start, call.End)]);
+            var value = $"(SELECT v.value FROM {Q(StoredValuesTable)} v WHERE v.table_name = {Str(table.Name)} AND v.column_name = {Str(stored)} " +
+                        $"AND v.row_key = CAST({_scope.Alias}.{Q(key.Name)} AS TEXT))";
+            expr = expr with { Sql = CustomFunctionValues.ReadSql(value, type, _pg) };
+        }
+
+        var sql = expr.Sql;
+        if (expected is { } target && target != type)
+        {
+            if (!Fits(type, target))
+                return new FormulaCheck(null, [new FormulaError(
+                    $"{function.Name} gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, length)]);
+            sql = Convert(expr, target);
+            type = target;
+        }
+        return new FormulaCheck(new CompiledFormula(sql, type, _columns, new CustomCall(function, arguments)), []);
+    }
+
+    private static string DescribeArgument(string type) =>
+        type == "any" ? "any value" : FormulaTypes.FromName(type) is { } known ? FormulaTypes.Describe(known) : type;
+
+    private static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
 
     // ── Binding ──────────────────────────────────────────────────────────
 
@@ -290,7 +395,7 @@ public sealed class FormulaCompiler
 
         _shared.Chain.Add(key);
         // A computed column is a row formula, also inside a measure.
-        var check = new FormulaCompiler(_shared, _scope) { _inGroup = true }.Run(column.Formula, FormulaTypes.FromName(column.ResultType));
+        var check = new FormulaCompiler(_shared, _scope) { _inGroup = true }.Run(column.Formula, FormulaTypes.FromName(column.ResultType), column.Name);
         _shared.Chain.RemoveAt(_shared.Chain.Count - 1);
 
         if (!check.IsValid)
@@ -523,6 +628,8 @@ public sealed class FormulaCompiler
         }
 
         var name = info.Name;
+        if (name == "CUSTOM")
+            return Fail(call, "CUSTOM(…) must be the whole formula. Use its result in another computed column or dashboard variable.");
         if (name == "PERCENTILE")
             return BindPercentile(call);
         if (info.Category == FormulaFunctions.RelatedRows)

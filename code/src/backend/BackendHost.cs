@@ -116,13 +116,20 @@ public static class BackendHost
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();
+        services.AddSingleton<CustomFunctionCatalog>();
+        services.AddSingleton<Bento.Api.Formula.ICustomFunctionCatalog>(sp => sp.GetRequiredService<CustomFunctionCatalog>());
+        services.AddSingleton<CustomFunctionService>();
+        services.AddSingleton<Bento.Api.Workers.StoredCustomValues>();
+        services.AddSingleton<ICustomValueRecalculation>(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddSingleton<ApiKeyService>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();
+        services.AddHostedService<CustomFunctionCatalogInitializer>();
         services.AddHostedService<SchemaAutoMigrationService>();
         services.AddHostedService<SchemaCacheInitializer>();
+        services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
     }
 
     public static void ConfigureMiddleware(WebApplication app)

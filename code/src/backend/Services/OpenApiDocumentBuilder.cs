@@ -86,6 +86,7 @@ public sealed class OpenApiDocumentBuilder
             ("Query", "Aggregate a table without SQL: groups, date buckets, sums, running totals."),
             ("Saved queries", "Named aggregation queries, private or shared."),
             ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
+            ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
             ("Schema", "The data model (Model JSON)."),
@@ -350,6 +351,24 @@ public sealed class OpenApiDocumentBuilder
         {
             ["get"] = Operation("Formulas", "List formula functions", "read", "Name, signature, description and example of each function.",
                 responses: Responses(200, "The function catalog.", anyObject.DeepClone()))
+        };
+        paths["/functions"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "List custom functions", "read",
+                "Your own JavaScript functions, called from formulas with `CUSTOM(\"name\", …)`: arguments, result type, code, version and where each is used. Admins create and change them in the app.",
+                responses: Responses(200, "The custom functions.", anyObject.DeepClone()))
+        };
+        paths["/functions/{name}"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "Get a custom function", "read", null,
+                parameters: new JsonArray(new JsonObject { ["name"] = "name", ["in"] = "path", ["required"] = true, ["schema"] = Str(example: "risk_class") }),
+                responses: Responses(200, "The function.", anyObject.DeepClone()))
+        };
+        paths["/functions/status"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "Stored values of computed columns", "read",
+                "Computed columns that call a function store their values and recalculate them in the background: whether a run is `pending`, when the last ran, and the columns whose function failed on some rows.",
+                responses: Responses(200, "The recalculation status.", anyObject.DeepClone()))
         };
         paths["/dashboards"] = new JsonObject
         {

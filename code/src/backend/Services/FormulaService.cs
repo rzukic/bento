@@ -31,6 +31,8 @@ public sealed class FormulaService
         _computed = computed;
     }
 
+    private ICustomFunctionCatalog Functions => _computed.Functions;
+
     public FormulaValidateResponse Validate(FormulaRequest request)
     {
         if (string.Equals(request.Mode?.Trim(), "measure", StringComparison.OrdinalIgnoreCase))
@@ -58,7 +60,8 @@ public sealed class FormulaService
             context: new FormulaContext
             {
                 BucketAlias = request.AsOf ? "b" : null,
-                Variables = AggregationQueryService.ResolveVariables(request.Variables)
+                Variables = AggregationQueryService.ResolveVariables(request.Variables),
+                Functions = Functions
             });
         return new FormulaValidateResponse(
             check.IsValid,
@@ -95,7 +98,12 @@ public sealed class FormulaService
         select.AddRange(inputs.Select((c, i) => computed.TryGetValue(c.Name, out var input)
             ? $"{input.Sql} AS \"__c{i}\""
             : $"{row}.{Q(c.Name)} AS \"__c{i}\""));
-        select.Add($"{compiled.Sql} AS \"__value\"");
+        // CUSTOM(…) runs here on each row, so a draft column previews before anything is stored.
+        var custom = compiled.Custom;
+        if (custom is null)
+            select.Add($"{compiled.Sql} AS \"__value\"");
+        else
+            select.AddRange(custom.Arguments.Select((a, i) => $"{a.Sql} AS \"__a{i}\""));
         var sql = $"SELECT {string.Join(", ", select)} FROM {row}" +
             (key is null ? "" : $" ORDER BY {row}.{Q(key.Name)}") + $" LIMIT {limit}";
 
@@ -108,6 +116,21 @@ public sealed class FormulaService
         catch (DbException e)
         {
             throw new ApiUnprocessableEntityException($"The formula could not be computed on the data: {e.Message}");
+        }
+
+        if (custom is not null)
+        {
+            var (function, error) = Formula.Sandbox.JsFunction.Create(custom.Function);
+            using (function)
+            {
+                foreach (var values in rows)
+                {
+                    var arguments = custom.Arguments.Select((a, i) => ResultValues.Shape(values[$"__a{i}"], a.Type)).ToList();
+                    var result = function?.Call(arguments);
+                    values["__value"] = result is { Ok: true } ? result.Value : null;
+                    values["__error"] = result?.Error ?? error;
+                }
+            }
         }
 
         var preview = rows.Select(row =>
@@ -126,7 +149,8 @@ public sealed class FormulaService
                 values[inputs[i].Name] = ResultValues.Shape(raw, inputs[i].Type);
             }
             var id = key is null ? null : ResultValues.Shape(row["__id"], key.Type);
-            return new FormulaPreviewRow(id, ResultValues.Shape(row["__value"], compiled.Type), values);
+            return new FormulaPreviewRow(id, ResultValues.Shape(row["__value"], compiled.Type), values,
+                row.TryGetValue("__error", out var problem) ? problem as string : null);
         }).ToList();
 
         return new FormulaPreviewResponse(FormulaTypes.Name(compiled.Type), compiled.Columns, preview);
@@ -162,7 +186,8 @@ public sealed class FormulaService
             ? FormulaSchema.From(draftModel)
             : draft ? FormulaSchema.WithTable(_schemaCache.Current, table) : FormulaSchema.From(_schemaCache.Current);
         var check = FormulaCompiler.Compile(request.Formula, table, schema, _dbConfig.Provider,
-            alias: Q(table.Name), expected: expected, column: string.IsNullOrWhiteSpace(request.Column) ? null : request.Column.Trim());
+            alias: Q(table.Name), expected: expected, column: string.IsNullOrWhiteSpace(request.Column) ? null : request.Column.Trim(),
+            context: new FormulaContext { Functions = Functions });
         return (table, check);
     }
 

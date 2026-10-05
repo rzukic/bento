@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
+using Bento.Api.Db.Schema;
 using Bento.Api.Exceptions;
 using Bento.Api.Services;
 
@@ -19,12 +20,14 @@ public sealed class DataController : ControllerBase
     private readonly SchemaCache _schemaCache;
     private readonly CrudService _crudService;
     private readonly IncludeService _includeService;
+    private readonly ICustomValueRecalculation? _recalculation;
 
-    public DataController(SchemaCache schemaCache, CrudService crudService, IncludeService includeService)
+    public DataController(SchemaCache schemaCache, CrudService crudService, IncludeService includeService, ICustomValueRecalculation? recalculation = null)
     {
         _schemaCache = schemaCache;
         _crudService = crudService;
         _includeService = includeService;
+        _recalculation = recalculation;
     }
 
     /// <summary>
@@ -88,7 +91,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Create(string table, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.CreateAsync(tableDef, body);
+        var row = await FreshAsync(tableDef, await _crudService.CreateAsync(tableDef, body));
         return StatusCode(StatusCodes.Status201Created, new { data = row });
     }
 
@@ -100,7 +103,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Update(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.UpdateAsync(tableDef, id, body);
+        var row = await FreshAsync(tableDef, await _crudService.UpdateAsync(tableDef, id, body));
         return Ok(new { data = row });
     }
 
@@ -112,7 +115,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Patch(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.PatchAsync(tableDef, id, body);
+        var row = await FreshAsync(tableDef, await _crudService.PatchAsync(tableDef, id, body));
         return Ok(new { data = row });
     }
 
@@ -125,7 +128,22 @@ public sealed class DataController : ControllerBase
     {
         var tableDef = ResolveTable(table);
         await _crudService.DeleteAsync(tableDef, id);
+        _recalculation?.Request();
         return NoContent();
+    }
+
+    /// <summary>
+    /// The written row with its CUSTOM values recalculated (Step 4.1); other
+    /// tables' stored values follow in the background.
+    /// </summary>
+    private async Task<IDictionary<string, object?>> FreshAsync(TableDef table, IDictionary<string, object?> row)
+    {
+        if (_recalculation is null || !await _recalculation.RecalculateNowAsync(table))
+            return row;
+        var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null || !row.TryGetValue(key.Name, out var id) || id is null)
+            return row;
+        return await _crudService.GetByIdAsync(table, System.Convert.ToString(id, System.Globalization.CultureInfo.InvariantCulture)!);
     }
 
     /// <summary>
