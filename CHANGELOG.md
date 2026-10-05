@@ -12,7 +12,11 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
-_None._
+### 2026-10-05 — Setup: A Bento Box Of Sushi
+
+> **Phase**: Phase 3 — Visualization
+
+The setup's welcome and done steps show a pixel-art bento box with eight sushi mascots, celebrating once the workspace is ready. A buddy mascot comments on the steps in between and keeps its eyes shut while a password is typed. Motion respects reduced-motion settings; the box shrinks on narrow screens.
 
 ---
 
