@@ -43,6 +43,6 @@ public sealed record FormulaValidateResponse(
     IReadOnlyList<string> Columns,
     bool Running = false);
 
-public sealed record FormulaPreviewRow(object? Id, object? Value, IDictionary<string, object?> Inputs);
+public sealed record FormulaPreviewRow(object? Id, object? Value, IDictionary<string, object?> Inputs, string? Error = null);
 
 public sealed record FormulaPreviewResponse(string Type, IReadOnlyList<string> Columns, IReadOnlyList<FormulaPreviewRow> Rows);

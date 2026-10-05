@@ -13,7 +13,7 @@ If you want to get Bento running and try the current product without reading the
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
 - [Connections](connections.md) — the API of your installation with try-it, OpenAPI download, and API keys for scripts
 - [Dashboards](dashboards.md) — key figures and charts for any date range; a ready "Monthly cash flow" from a bank table; formula values, values at each period end, variables such as runway
-- [Formulas](formulas.md) — computed columns with spreadsheet-style formulas, links to other tables and sums over related rows, live in the explorer
+- [Formulas](formulas.md) — computed columns with spreadsheet-style formulas, links to other tables and sums over related rows, live in the explorer; your own JavaScript functions with `CUSTOM(…)`
 - [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 

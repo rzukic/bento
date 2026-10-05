@@ -12,7 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
-_None._
+### 2026-10-05 — Your Own Functions In JavaScript
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.1 — Custom JS Functions](working-steps/4.1-custom-functions.md)
+
+Write a function once in JavaScript under **Functions** and call it from any formula with `CUSTOM("name", …)`.
+
+**Highlights:**
+- Editor with typed arguments, result type, code highlighting, a test run with `console.log`, versions, and where the function is used
+- Computed columns store `CUSTOM` values and recalculate them in the background when rows, the function or the schema change; an edited row answers with its new value; stored values filter, sort and sum like other columns
+- In dashboards the arguments are measures (`CUSTOM("score", SUM(amount))`) and the function runs on each result; variables too
+- Sandboxed (Jint): no files, network or `eval`; 100 ms, 16 MB and a recursion limit per call; failures leave the value empty and are listed
+- API: `/api/v1/functions` (list, get, versions, status; admins create, change, test and delete)
 
 ---
 

@@ -69,6 +69,7 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Lookup | `LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)` |
 | Dashboards | `RUNNING_SUM(measure)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
+| Custom | `CUSTOM("name", argument, …)` — your own JavaScript (see [below](#your-own-functions)) |
 
 A few details:
 
@@ -102,8 +103,42 @@ Outside an aggregate a measure cannot use a single row's value: `amount * 2` is 
 
 `WHERE` also works in aggregates over related rows: `SUM(transactions.amount WHERE transactions.amount < 0)`.
 
+## Your Own Functions
+
+When a formula would get long — a rule with many cases, a calculation in steps, parsing text — write it once in JavaScript under **Functions** (sidebar) and call it from any formula with `CUSTOM("name", …)`. Admins write and change functions; everyone sees them.
+
+A function has a name (small letters, digits and `_`; it cannot change later), arguments with a type, the type it gives, and its code — the body of a JavaScript function whose parameters are the arguments:
+
+```js
+// risk_class(volatility: Number) → Text
+if (volatility === null) return null;
+if (volatility > 0.3) return "high";
+return volatility > 0.15 ? "medium" : "low";
+```
+
+- Numbers arrive as numbers, text as strings, yes/no as `true`/`false`, dates as `"yyyy-MM-dd"` and date-times as ISO text in UTC (`"2026-10-05T14:30:00Z"`); empty values as `null`. An argument typed **Any value** gets the value as it is.
+- Return a value of the declared type: a number, text, `true`/`false`, a `Date` or `"yyyy-MM-dd"` for dates. `null` or `undefined` gives an empty value; anything else is an error ("The function returned text, not a number").
+- **Try it** runs the code with values you type, shows the result, `console.log` output and how long it took — nothing is saved.
+- Each save with new code is a version; **History** lists them and loads an older one into the editor.
+
+**Where `CUSTOM` works.** It is always the whole formula; build on its result elsewhere.
+
+| Where | Write | What happens |
+|---|---|---|
+| Computed column | `CUSTOM("risk_class", volatility)` | The value is **stored** and recalculated in the background when the row, the function or the schema changes (and once a minute). Editing a row in the explorer shows the new value at once; after an import it follows within moments. Stored values filter, sort and sum like any column, and other formulas can use them: `UPPER(risk) & "!"`, `COUNT(WHERE risk = "high")`. |
+| Dashboard measure | `CUSTOM("score", SUM(amount), COUNT())` | The arguments are measures over each group; the function runs on every result row. |
+| Dashboard variable | `CUSTOM("months_left", cash, burn_rate)` | Runs once with the other variables' values. |
+
+When the function fails on a row (it throws, runs too long, returns the wrong type), that value stays empty. The Functions page lists the computed columns with failed rows and the first error; in dashboards the widget names the failure.
+
+**Safety.** Functions run sandboxed on the server: no files, no network, no access to Bento itself, no `eval`. Each call stops after 100 ms, 16 MB of memory or very deep recursion. Calling APIs (for example for live prices) is planned next.
+
+A function used by a computed column cannot be deleted, and a change to its arguments or result type that would break such a column is refused with the column named.
+
 ## Not Yet
 
 - formulas in saved queries are not updated when a column they use is renamed (stored columns in saved queries are)
 - aggregates over related rows of related rows (add a computed column on the related table and sum that)
 - the app's text search does not look into computed columns
+- `CUSTOM(…)` inside a larger formula, or summed with `RUNNING_SUM`; top values ranked by a `CUSTOM` measure
+- functions in TypeScript; functions that call APIs (planned next)

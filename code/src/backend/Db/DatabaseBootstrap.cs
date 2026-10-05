@@ -224,6 +224,34 @@ public class DatabaseBootstrap : IHostedService
             ON _system.saved_queries(source_table);
             """);
 
+        // Custom functions (Step 4.1): the current version, and every saved version.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.functions (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(63) NOT NULL UNIQUE,
+                description     TEXT,
+                arguments       JSONB NOT NULL DEFAULT '[]',
+                result_type     VARCHAR(20) NOT NULL,
+                code            TEXT NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.function_versions (
+                id              SERIAL PRIMARY KEY,
+                function_name   VARCHAR(63) NOT NULL,
+                version         INTEGER NOT NULL,
+                arguments       JSONB NOT NULL DEFAULT '[]',
+                result_type     VARCHAR(20) NOT NULL,
+                code            TEXT NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                UNIQUE (function_name, version)
+            );
+            """);
+
         // Dashboards (Step 3.3): the table predates owners and sharing.
         await conn.ExecuteAsync("""
             ALTER TABLE _system.dashboards ADD COLUMN IF NOT EXISTS owner_user_id INTEGER;
@@ -424,6 +452,34 @@ public class DatabaseBootstrap : IHostedService
         await conn.ExecuteAsync("""
             CREATE INDEX IF NOT EXISTS idx_saved_queries_source_table
             ON saved_queries(source_table);
+            """);
+
+        // Custom functions (Step 4.1): the current version, and every saved version.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS functions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL UNIQUE,
+                description     TEXT,
+                arguments       TEXT NOT NULL DEFAULT '[]',
+                result_type     TEXT NOT NULL,
+                code            TEXT NOT NULL,
+                version         INTEGER NOT NULL DEFAULT 1,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS function_versions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                function_name   TEXT NOT NULL,
+                version         INTEGER NOT NULL,
+                arguments       TEXT NOT NULL DEFAULT '[]',
+                result_type     TEXT NOT NULL,
+                code            TEXT NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE (function_name, version)
+            );
             """);
 
         // Dashboards (Step 3.3): the table predates owners and sharing; SQLite
