@@ -12,15 +12,23 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+_None._
+
+---
+
+## Phase 3 — Visualization
+
 ### 2026-10-04 — The Collapsed Sidebar Opens On Hover
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 
 A collapsed sidebar opens over the page while the pointer is on it (after a short pause, so passing by does not open it) or the keyboard focus is in it; leaving or Escape closes it. The page beside it does not move, and the collapse stays as chosen. Desktop only; the narrow layout is unchanged. While it is open this way, **Keep sidebar open** sits where the collapse button is when the sidebar is open, and keeps it open without sliding.
 
 ### 2026-10-04 — Import: The Same Value For Every Row
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md) (follow-up from the v0.3.0 demo run)
 
 A bank export belongs to one account, but has no account column. The import's column choice now offers **Same value for every row…** — a record for a link (the account), or typed text — and a profile keeps it. API: a mapping entry takes `value` instead of `source`.
@@ -28,6 +36,7 @@ A bank export belongs to one account, but has no account column. The import's co
 ### 2026-10-04 — Wealth & Cash Flow Template
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.9 — Wealth & Cash Flow Template](working-steps/3.9-finance-template.md)
 
 One click sets up personal finance: accounts, categories, transactions, depot trades, prices and dividends, a cash-flow and a wealth dashboard.
@@ -40,6 +49,7 @@ One click sets up personal finance: accounts, categories, transactions, depot tr
 ### 2026-10-04 — Dashboard Filter Bar
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.8 — Dashboard Filter Bar](working-steps/3.8-filter-bar.md)
 
 Menus above the widgets — an account, a category — narrow the whole dashboard.
@@ -51,6 +61,7 @@ Menus above the widgets — an account, a category — narrow the whole dashboar
 ### 2026-10-04 — Gaps From The Finanzfluss Copilot Comparison
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.7b — Copilot Gaps](working-steps/3.7b-copilot-gaps.md)
 
 A comparison with the Finanzfluss Copilot dashboard ([report](../docs/research/finanzfluss-copilot-comparison.md)); the easy gaps nothing planned are built, the rest is in the plan's backlog.
@@ -63,6 +74,7 @@ A comparison with the Finanzfluss Copilot dashboard ([report](../docs/research/f
 ### 2026-10-04 — Sankey & Drill-Down
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.7 — Sankey & Drill-Down](working-steps/3.7-sankey-drilldown.md)
 
 See where the money goes, and click any chart to see the rows behind it.
@@ -75,6 +87,7 @@ See where the money goes, and click any chart to see the rows behind it.
 ### 2026-10-04 — Chart Extras: Comparisons, Moving Averages, Percentiles
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.6c — Chart Extras](working-steps/3.6c-chart-extras.md)
 
 Charts by date can now compare with last year, smooth a line or show its change, and every value can be a median or a percentile.
@@ -90,6 +103,7 @@ Charts by date can now compare with last year, smooth a line or show its change,
 ### 2026-10-04 — A Widget Editor Like Kibana Lens
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.6b — Widget Editor Like Kibana Lens](working-steps/3.6b-widget-editor.md)
 
 Widgets are now built by dragging fields onto a large live chart instead of filling in a form.
@@ -105,6 +119,7 @@ Widgets are now built by dragging fields onto a large live chart instead of fill
 ### 2026-10-04 — Dashboard Formulas: Savings Rate, Net Worth, Variables
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.6 — Formulas In Widgets & Time Series](working-steps/3.6-formula-measures.md)
 
 Widget values and dashboard variables can be formulas over many rows, and charts can show values at the end of each period.
@@ -118,6 +133,7 @@ Widget values and dashboard variables can be formulas over many rows, and charts
 ### 2026-10-04 — Computed Columns With Live Values
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.5 — Computed Columns](working-steps/3.5-computed-columns.md)
 
 Computed columns now have values everywhere a table is read — computed by the database on every query, never stored.
@@ -131,6 +147,7 @@ Computed columns now have values everywhere a table is read — computed by the 
 ### 2026-10-04 — Formulas: Checked As You Type, Same On SQLite And Postgres
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.4 — Formula Engine (Core)](working-steps/3.4-formula-engine.md)
 
 Spreadsheet-style formulas such as `= IF(amount < 0, "expense", "income")`, parsed and type-checked on the server and compiled to SQL for both databases.
@@ -144,6 +161,7 @@ Spreadsheet-style formulas such as `= IF(amount < 0, "expense", "income")`, pars
 ### 2026-10-04 — Connections: API Explorer And API Keys
 
 > **Phase**: Phase 3 — Visualization (API keys pulled forward from Phase 5)
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.3b — Connections](working-steps/3.3b-connections.md)
 
 A workspace section for using Bento from scripts and tools: the installation's API, generated from its schema and testable in place, and API keys.
@@ -156,6 +174,7 @@ A workspace section for using Bento from scripts and tools: the installation's A
 ### 2026-10-04 — Build Dashboards From Your Tables
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.3 — Dashboards & Charts](working-steps/3.3-dashboards.md)
 
 Dashboards with key figures, line, area, bar and donut charts, tables and text, on a 12-column grid that follows one date range.
@@ -169,6 +188,7 @@ Dashboards with key figures, line, area, bar and donut charts, tables and text, 
 ### 2026-10-03 — Aggregate Data With The Query API
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.2 — Query API & Saved Queries](working-steps/3.2-query-api.md)
 
 The data layer for dashboards: sums, counts and averages of any table, grouped by columns, linked records or date buckets, with running totals — identical on SQLite and Postgres.
@@ -182,6 +202,7 @@ The data layer for dashboards: sums, counts and averages of any table, grouped b
 ### 2026-10-03 — Create Tables From CSV Files
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.1b — New Table From CSV](working-steps/3.1b-table-from-csv.md)
 
 Drop the first bank export and get the table for it: Bento proposes columns, types and a category table, creates them through the schema checks and continues into the import.
@@ -194,6 +215,7 @@ Drop the first bank export and get the table for it: Bento proposes columns, typ
 ### 2026-10-03 — Import Bank Exports From CSV
 
 > **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.0](releases/v0.3.0.md)
 > **Working step**: [Step 3.1 — CSV Import](working-steps/3.1-csv-import.md)
 
 The first step of the finance-driven Phase 3: CSV files, bank exports included, import into a table, and re-importing an overlapping export adds nothing twice.
@@ -728,6 +750,19 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-04 — Ship v0.3.0 MVP 3: Finance Cockpit
+
+> **Version**: [v0.3.0 — MVP 3: Finance Cockpit](releases/v0.3.0.md)
+> **Phase**: Phase 3 — Visualization
+
+Your own data as live dashboards: import bank and broker CSV exports, aggregate them, and see cash flow, spending and net worth over time, with formulas for computed columns and calculated values.
+
+**Highlights:**
+- CSV import of bank exports as they come; a query API with saved queries
+- Dashboards with a Lens-style editor: key figures, charts, donuts, tables and Sankey flows; comparisons, moving averages, reference lines, annotations; a filter bar and click-through to the rows
+- Excel-like formulas for computed columns and widget values, the same on SQLite and Postgres (`SUM … WHERE`, `RUNNING_SUM`, `BUCKET_END()`, `LOOKUP_ASOF`, `MEDIAN`, `PERCENTILE`)
+- A one-click wealth & cash flow template; API explorer and API keys
 
 ### 2026-10-03 — Ship v0.2.1: Bento
 
