@@ -25,6 +25,8 @@ type SushiMascotProps = {
   labelled?: boolean;
   /** Reacts to the pointer: looks at it, hops on hover, jumps on click. */
   interactive?: boolean;
+  /** A face set from outside (eyes shut while a password is typed); wins over its own. */
+  mood?: SushiExpression;
   className?: string;
 };
 
@@ -47,6 +49,7 @@ export function SushiMascot({
   bounce = false,
   labelled = false,
   interactive = true,
+  mood,
   className = "",
 }: SushiMascotProps) {
   const sessionKind = useSyncExternalStore(subscribeSushi, currentSushi, currentSushi);
@@ -59,6 +62,7 @@ export function SushiMascot({
   const box = useRef<HTMLSpanElement | null>(null);
   const hovered = useRef(false);
   const clicks = useRef<number[]>([]);
+  const heartIds = useRef(0);
   const timers = useRef<number[]>([]);
 
   const later = useCallback((fn: () => void, ms: number) => {
@@ -136,13 +140,14 @@ export function SushiMascot({
     if (!bounce) play("jump");
     later(() => setExpression((current) => (current === "excited" ? (hovered.current ? "happy" : "neutral") : current)), 650);
     if (!prefersReducedMotion()) {
-      const heart = { id: now, drift: Math.round((Math.random() - 0.5) * width * 0.8) };
+      const heart = { id: ++heartIds.current, drift: Math.round((Math.random() - 0.5) * width * 0.8) };
       setHearts((current) => [...current.slice(-4), heart]);
       later(() => setHearts((current) => current.filter((h) => h.id !== heart.id)), 1000);
     }
   };
 
-  const sprite = useMemo(() => spriteWith(shown, expression, look), [shown, expression, look]);
+  const face = mood ?? expression;
+  const sprite = useMemo(() => spriteWith(shown, face, look), [shown, face, look]);
   const cells = useMemo(
     () =>
       sprite.flatMap((row, y) =>
@@ -169,7 +174,7 @@ export function SushiMascot({
       viewBox={`0 0 ${SUSHI_COLUMNS} ${SUSHI_ROWS}`}
       shapeRendering="crispEdges"
       data-sushi={shown}
-      data-expression={expression}
+      data-expression={face}
       onAnimationEnd={() => setMotion(null)}
       {...(labelled ? { role: "img", "aria-label": SUSHI_LABELS[shown] } : { "aria-hidden": true })}
     >

@@ -18,6 +18,13 @@ _None._
 
 ## Phase 3 — Visualization
 
+### 2026-10-05 — Setup: A Bento Box Of Sushi
+
+> **Phase**: Phase 3 — Visualization
+> **Release**: [v0.3.1](releases/v0.3.1.md)
+
+The setup's welcome and done steps show a pixel-art bento box with eight sushi mascots, celebrating once the workspace is ready. A buddy mascot comments on the steps in between and keeps its eyes shut while a password is typed. Motion respects reduced-motion settings; the box shrinks on narrow screens.
+
 ### 2026-10-04 — The Collapsed Sidebar Opens On Hover
 
 > **Phase**: Phase 3 — Visualization
@@ -750,6 +757,13 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-05 — Ship v0.3.1: Setup Mascots
+
+> **Version**: [v0.3.1 — Setup Mascots](releases/v0.3.1.md)
+> **Phase**: Phase 3 — Visualization
+
+A patch release that closes MVP 3: the setup wizard greets you with a bento box of sushi mascots. Features are otherwise unchanged from v0.3.0.
 
 ### 2026-10-04 — Ship v0.3.0 MVP 3: Finance Cockpit
 

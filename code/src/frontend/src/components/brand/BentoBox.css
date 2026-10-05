@@ -1,0 +1,76 @@
+.bento-box {
+  position: relative;
+  flex: none;
+  image-rendering: pixelated;
+}
+
+.bento-box__layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* A row of mascots; everything below its compartment wall is cut off, so
+   they can rise out of the box. Upwards (jumps, hearts) nothing is cut. */
+.bento-box__row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  clip-path: inset(-400px -40px 0 -40px);
+}
+
+.bento-box__slot {
+  position: absolute;
+  top: 0;
+  line-height: 0;
+  /* After popping up, everyone bobs by a box pixel, each on its own beat. */
+  animation: bento-bob 2.4s steps(1, end) infinite;
+  animation-delay: calc(1.4s + var(--i) * 0.37s);
+}
+
+.bento-box__pop {
+  display: block;
+  animation: bento-pop 560ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+  animation-delay: calc(0.25s + var(--i) * 0.11s);
+}
+
+@keyframes bento-pop {
+  from { transform: translateY(calc(var(--u) * 13)); }
+  to { transform: translateY(0); }
+}
+
+@keyframes bento-bob {
+  0% { transform: translateY(0); }
+  50% { transform: translateY(calc(var(--u) * -1)); }
+}
+
+/* Celebrating: a jumping wave from left to right, back row then front. */
+.bento-box--celebrate .bento-box__slot {
+  animation: bento-cheer 2.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite;
+  animation-delay: calc(0.9s + var(--i) * 0.09s);
+}
+
+@keyframes bento-cheer {
+  0% { transform: translateY(0); }
+  7% { transform: translateY(calc(var(--u) * -7)); }
+  14% { transform: translateY(0); }
+  19% { transform: translateY(calc(var(--u) * -2)); }
+  24%, 100% { transform: translateY(0); }
+}
+
+/* On the dark ground the dark outline disappears; a faint light edge keeps
+   the box readable, as for the mascots. */
+:root[data-theme="dark"] .bento-box__back,
+:root[data-theme="dark"] .bento-box__front {
+  filter: drop-shadow(1px 0 0 rgba(244, 244, 245, 0.14)) drop-shadow(-1px 0 0 rgba(244, 244, 245, 0.14))
+    drop-shadow(0 1px 0 rgba(244, 244, 245, 0.14)) drop-shadow(0 -1px 0 rgba(244, 244, 245, 0.14));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bento-box__slot,
+  .bento-box__pop {
+    animation: none;
+  }
+}
