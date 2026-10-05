@@ -11,7 +11,7 @@ import type { SampleDataResponse, SetupStatus } from "../../types/setup";
 import { postSampleData } from "./api";
 import { useSetupStore } from "./setupStore";
 import "./SetupPage.css";
-import { SushiMascot } from "../../components/brand";
+import { BentoBox, SushiMascot, type SushiExpression, type SushiKind } from "../../components/brand";
 
 type StepId = "welcome" | "environment" | "admin" | "sample" | "done";
 
@@ -246,6 +246,18 @@ function ArrowIcon() {
   );
 }
 
+/** The session's mascot with a speech bubble, commenting on the step. */
+function Buddy({ say, mood, bounce = false }: { say: string; mood?: SushiExpression; bounce?: boolean }) {
+  return (
+    <div className="setup__buddy" aria-hidden="true">
+      <span key={say} className="setup__bubble">
+        {say}
+      </span>
+      <SushiMascot width={64} mood={mood} bounce={bounce} />
+    </div>
+  );
+}
+
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <>
@@ -262,6 +274,9 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
         </p>
       </section>
       <aside className="setup__actions rise d3">
+        <div className="setup__squad">
+          <BentoBox unit={5} />
+        </div>
         <div className="setup__row setup__row--end">
           <button type="button" className="setup-btn setup-btn--primary" onClick={onNext} autoFocus>
             Get started <ArrowIcon />
@@ -291,6 +306,12 @@ function EnvironmentStep({ info, onNext, onBack }: { info: SetupStatus; onNext: 
     ["Sign-in", formatSignIn(info.auth_mode)],
     ["Version", info.version]
   ];
+  // The buddy is satisfied once the readout has finished typing.
+  const [checked, setChecked] = useState(false);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setChecked(true), 300 + facts.length * 500 + 400);
+    return () => window.clearTimeout(timer);
+  }, [facts.length]);
   return (
     <>
       <section className="setup__content">
@@ -310,6 +331,7 @@ function EnvironmentStep({ info, onNext, onBack }: { info: SetupStatus; onNext: 
         <p className="setup__note rise d3">Set in the environment or Docker Compose; not editable here.</p>
       </section>
       <aside className="setup__actions rise d3">
+        {checked ? <Buddy say="All good in here!" mood="happy" /> : <Buddy say="Let me have a look…" />}
         <div className="setup__row setup__row--end">
           <button type="button" className="setup-btn setup-btn--ghost" onClick={onBack}>
             Back
@@ -354,9 +376,24 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [bootstrapClosed, setBootstrapClosed] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null);
 
   const mismatch = confirm.length > 0 && confirm !== password;
   const canSubmit = !submitting && username.trim().length > 0 && password.length > 0 && confirm === password;
+
+  // The buddy covers its eyes while a password is typed.
+  const typingSecret = focused === "password" || focused === "confirm";
+  const buddy: { say: string; mood?: SushiExpression; bounce?: boolean } = submitting
+    ? { say: "On it…", mood: "excited", bounce: true }
+    : error
+      ? { say: "Oh no.", mood: "dizzy" }
+      : mismatch && !typingSecret
+        ? { say: "Those two don't match.", mood: "dizzy" }
+        : typingSecret
+          ? { say: "Not peeking!", mood: "blink" }
+          : username.trim()
+            ? { say: `Hi, ${username.trim()}!`, mood: "happy" }
+            : { say: "The first one gets the keys." };
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -407,7 +444,14 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
         </p>
       </section>
       <aside className="setup__actions rise d2">
-        <form className="setup__form" onSubmit={handleSubmit} noValidate>
+        <Buddy {...buddy} />
+        <form
+          className="setup__form"
+          onSubmit={handleSubmit}
+          onFocus={(event) => setFocused(event.target.getAttribute("name"))}
+          onBlur={() => setFocused(null)}
+          noValidate
+        >
           {error ? (
             <p className="setup__error" role="alert">
               {error}
@@ -471,6 +515,8 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
 }
 
 const SAMPLE_TABLES = ["customers", "orders", "products"];
+/** Who hops onto each demo table once it is loaded. */
+const NODE_RIDERS: SushiKind[] = ["onigiri", "maki", "ebi"];
 
 function SampleDataStep({ onNext }: { onNext: () => void }) {
   const [loading, setLoading] = useState(false);
@@ -509,6 +555,11 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
           ) : null}
           {tables.slice(0, 3).map((table, i) => (
             <div key={table} className={`setup__node setup__node--${i + 1}`}>
+              {result ? (
+                <span className="setup__rider" style={{ animationDelay: `${0.5 + i * 0.25}s` }}>
+                  <SushiMascot kind={NODE_RIDERS[i % NODE_RIDERS.length]} width={32} mood="happy" />
+                </span>
+              ) : null}
               <span>{table}</span>
               {result ? <span className="setup__node-count">{result.rows_inserted[table] ?? 0} rows</span> : null}
             </div>
@@ -521,6 +572,15 @@ function SampleDataStep({ onNext }: { onNext: () => void }) {
             {error}
           </p>
         ) : null}
+        {result ? (
+          <Buddy say="Yum, fresh data!" mood="excited" />
+        ) : loading ? (
+          <Buddy say="Carrying rows…" bounce />
+        ) : error ? (
+          <Buddy say="Oh no, that didn't work." mood="dizzy" />
+        ) : (
+          <Buddy say="Want something to play with?" />
+        )}
         {result ? (
           <div className="setup__stack setup__stack--end">
             <div className="setup__success">
@@ -593,6 +653,9 @@ function DoneStep({ info }: { info: SetupStatus }) {
         </p>
       </section>
       <aside className="setup__actions rise d3">
+        <div className="setup__squad">
+          <BentoBox unit={5} celebrate mood="happy" />
+        </div>
         <div className="setup__row setup__row--end">
           {user ? <span className="setup__hint">signed in as {user.username}</span> : null}
           <button type="button" className="setup-btn setup-btn--primary" onClick={finish} autoFocus>
