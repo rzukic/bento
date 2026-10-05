@@ -562,6 +562,77 @@
   color: var(--success);
 }
 
+/* ── mascots ───────────────────────────────────────────────────────────── */
+
+/* The whole squad in its bento box (welcome, done). */
+.setup__squad {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 2rem;
+}
+
+/* The session mascot with a speech bubble on each step. */
+.setup__buddy {
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding-top: 1.25rem;
+}
+
+.setup__bubble {
+  position: relative;
+  display: block;
+  min-width: 0;
+  max-width: 16rem;
+  margin-bottom: 2.25rem;
+  padding: 0.5rem 0.75rem;
+  border: 2px solid var(--setup-ink);
+  background: var(--bg);
+  box-shadow: 3px 3px 0 var(--setup-line-strong);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--setup-ink);
+  transform-origin: 100% 100%;
+  animation: setup-bubble 260ms steps(3, end) both;
+}
+
+/* A stepped pixel tail from the bubble to the mascot. */
+.setup__buddy > .setup__bubble + .sushi-mascot-box::before {
+  content: "";
+  position: absolute;
+  left: -0.75rem;
+  top: 0.5rem;
+  width: 6px;
+  height: 6px;
+  background: var(--setup-ink);
+  box-shadow: -5px -5px 0 0 var(--setup-ink);
+}
+
+@keyframes setup-bubble {
+  from { transform: scale(0.6); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Mascots that hop onto the demo tables once they are loaded. */
+.setup__rider {
+  position: absolute;
+  left: 0.75rem;
+  bottom: calc(100% - 7px);
+  line-height: 0;
+  animation: setup-rider 520ms cubic-bezier(0.3, 1.6, 0.5, 1) both;
+}
+
+@keyframes setup-rider {
+  0% { transform: translateY(-48px); opacity: 0; }
+  40% { opacity: 1; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+
 /* ── responsive ────────────────────────────────────────────────────────── */
 
 @media (max-width: 960px) {
@@ -589,6 +660,11 @@
     text-align: left;
   }
 
+  .setup__squad,
+  .setup__buddy {
+    justify-content: flex-start;
+  }
+
   .setup__steps {
     gap: 1.25rem;
   }
@@ -605,6 +681,11 @@
 @media (max-width: 520px) {
   .setup__constellation {
     height: 170px;
+  }
+
+  /* 4 px per box pixel instead of 5 keeps it crisp and on screen. */
+  .setup__squad .bento-box {
+    zoom: 0.8;
   }
 
   .setup__node--2 { left: 30%; }
@@ -624,7 +705,9 @@
   .setup__node,
   .setup__wire,
   .setup__tick,
-  .setup__track b {
+  .setup__track b,
+  .setup__bubble,
+  .setup__rider {
     animation: none !important;
   }
 

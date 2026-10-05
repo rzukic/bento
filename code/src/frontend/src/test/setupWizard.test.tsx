@@ -216,6 +216,8 @@ describe("Setup wizard", () => {
 
     // Welcome
     await screen.findByRole("heading", { name: /one place to shape it/i });
+    const squad = screen.getByRole("img", { name: /bento box with the whole sushi squad/i });
+    expect(squad.querySelectorAll("svg[data-sushi]")).toHaveLength(8);
     await user.click(screen.getByRole("button", { name: /get started/i }));
 
     // Environment: read-only facts from the status endpoint
@@ -228,10 +230,19 @@ describe("Setup wizard", () => {
 
     // Admin account: confirm must match before the submit enables
     await screen.findByRole("heading", { name: /first account runs the place/i });
+    const buddyFace = () => document.querySelector(".setup__buddy svg.sushi-mascot");
+    expect(screen.getByText("The first one gets the keys.")).toBeInTheDocument();
     await user.type(screen.getByRole("textbox", { name: /username/i }), "root");
+    expect(screen.getByText("Hi, root!")).toBeInTheDocument();
     await user.type(screen.getByLabelText(/^password/i), "correct horse battery");
+    // The buddy shuts its eyes while a password is typed.
+    expect(screen.getByText("Not peeking!")).toBeInTheDocument();
+    expect(buddyFace()).toHaveAttribute("data-expression", "blink");
     await user.type(screen.getByLabelText(/confirm password/i), "wrong");
     expect(screen.getByText(/passwords do not match/i)).toBeInTheDocument();
+    await user.tab();
+    expect(screen.getByText("Those two don't match.")).toBeInTheDocument();
+    expect(buddyFace()).toHaveAttribute("data-expression", "dizzy");
     expect(screen.getByRole("button", { name: /create account and continue/i })).toBeDisabled();
     await user.clear(screen.getByLabelText(/confirm password/i));
     await user.type(screen.getByLabelText(/confirm password/i), "correct horse battery");
@@ -248,12 +259,15 @@ describe("Setup wizard", () => {
     expect(await screen.findByText(/demo workspace loaded/i)).toBeInTheDocument();
     expect(screen.getByText(/3 tables \(customers, orders, products\), 21 rows\.$/i)).toBeInTheDocument();
     expect(sampleCalls).toBe(1);
+    expect(screen.getByText("Yum, fresh data!")).toBeInTheDocument();
+    expect(document.querySelectorAll(".setup__rider svg[data-sushi]")).toHaveLength(3);
     const sampleCall = fetchMock.mock.calls.find(([input]) => String(input).endsWith("/api/v1/setup/sample-data"));
     expect(new Headers(sampleCall?.[1]?.headers).get("Authorization")).toBe("Bearer wizard-token");
     await user.click(screen.getByRole("button", { name: /continue/i }));
 
     // Done → workspace
     await screen.findByRole("heading", { name: /^ready\.$/i });
+    expect(screen.getByRole("img", { name: /bento box/i })).toHaveClass("bento-box--celebrate");
     await user.click(screen.getByRole("button", { name: /open workspace/i }));
 
     await waitFor(() => {
