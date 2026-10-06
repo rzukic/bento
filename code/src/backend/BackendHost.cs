@@ -119,6 +119,12 @@ public static class BackendHost
         services.AddSingleton<CustomFunctionCatalog>();
         services.AddSingleton<Bento.Api.Formula.ICustomFunctionCatalog>(sp => sp.GetRequiredService<CustomFunctionCatalog>());
         services.AddSingleton<CustomFunctionService>();
+        services.AddSingleton<CredentialService>();
+        services.AddSingleton<PriceSourceService>();
+        services.AddSingleton(sp => new Bento.Api.Formula.Sandbox.JsNetwork(new Bento.Api.Formula.Sandbox.JsNetworkOptions
+        {
+            AllowPrivateNetwork = sp.GetRequiredService<IConfiguration>().GetValue("Functions:AllowPrivateNetwork", false)
+        }));
         services.AddSingleton<Bento.Api.Workers.StoredCustomValues>();
         services.AddSingleton<ICustomValueRecalculation>(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddSingleton<ApiKeyService>();
@@ -130,6 +136,7 @@ public static class BackendHost
         services.AddHostedService<SchemaAutoMigrationService>();
         services.AddHostedService<SchemaCacheInitializer>();
         services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
+        services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)

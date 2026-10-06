@@ -12,6 +12,21 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-06 — Live Prices From An API Of Your Choice
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.2 — Live Prices](working-steps/4.2-live-prices.md)
+
+Prices come from an API you choose and stay as history in your own table. A dashboard fetches what is stale when it opens and says "Prices as of 14:32".
+
+**Highlights:**
+- Functions may call listed hosts with `fetch` (https only, never the server's own network), with API keys from the new credential vault (`credentials.name`, stored encrypted, never shown again)
+- **Price sources**:
+  - The function, your prices table (e.g. `finance_prices`), where your securities come from, and each one's symbol, with suggestions from a lookup function.
+  - Runs: a daily run for closing prices and new securities' history, refresh on dashboard open within a freshness window, a daily request budget, and a log of runs.
+- Templates instead of built-in providers: Yahoo Finance (no key) and Xetra symbols for ISINs (OpenFIGI)
+- The Functions page gets tabs for price sources and credentials
+
 ### 2026-10-05 — Your Own Functions In JavaScript
 
 > **Phase**: Phase 4 — Intelligence

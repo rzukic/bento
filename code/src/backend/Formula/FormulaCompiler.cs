@@ -252,6 +252,12 @@ public sealed class FormulaCompiler
                 nameLiteral.Start, nameLiteral.End)]);
         }
 
+        if (!function.UsableInFormulas)
+            return new FormulaCheck(null, [new FormulaError(function.UsesNetwork
+                ? $"{function.Name} calls the internet; such functions run as price sources, not in formulas."
+                : $"{function.Name} gives any JSON value; formulas need a function with a declared result type.",
+                nameLiteral.Start, nameLiteral.End)]);
+
         var given = call.Arguments.Count - 1;
         if (given != function.Arguments.Count)
             return new FormulaCheck(null, [new FormulaError(

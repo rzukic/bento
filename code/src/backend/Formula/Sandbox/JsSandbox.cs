@@ -15,6 +15,9 @@ public sealed record JsSandboxLimits
     public int MaxLogLines { get; init; } = 50;
 
     public static readonly JsSandboxLimits Default = new();
+
+    /// <summary>Functions that call APIs (Step 4.2): the clock includes waiting for answers.</summary>
+    public static readonly JsSandboxLimits Network = new() { Timeout = TimeSpan.FromSeconds(30), MemoryBytes = 64 * 1024 * 1024 };
 }
 
 /// <summary>One call's outcome: a value of the declared type, or an error.</summary>
@@ -33,6 +36,11 @@ public sealed record JsCallResult(object? Value, string? Error, IReadOnlyList<st
 ///
 /// One instance may run many calls (a recalculation of a whole table); it is
 /// not thread-safe. Functions should not keep state between calls.
+///
+/// Step 4.2: a function with allowed hosts gets <c>fetch</c> (requests go through
+/// <see cref="JsNetwork"/>) and a frozen <c>credentials</c> object with the
+/// secrets it declared; its body runs as an async function, so it can
+/// <c>await</c>. Secret values are masked in logs and errors.
 /// </summary>
 public sealed class JsFunction : IDisposable
 {
@@ -43,18 +51,24 @@ public sealed class JsFunction : IDisposable
     private readonly CustomFunctionDef _definition;
     private readonly JsSandboxLimits _limits;
     private readonly List<string> _logs = [];
+    private readonly JsHost _host;
+    private readonly string[] _secretValues;
+    private int _requests;
 
-    private JsFunction(CustomFunctionDef definition, JsSandboxLimits limits)
+    private JsFunction(CustomFunctionDef definition, JsSandboxLimits limits, JsHost host)
     {
         _definition = definition;
         _limits = limits;
+        _host = host;
+        _secretValues = host.Secrets.Values.Where(v => v.Length >= 4).OrderByDescending(v => v.Length).ToArray();
         _engine = new Engine(options => options
             .Strict()
             .DisableStringCompilation()
             .TimeoutInterval(limits.Timeout)
             .LimitMemory(limits.MemoryBytes)
             .LimitRecursion(limits.RecursionDepth)
-            .RegexTimeoutInterval(limits.Timeout));
+            .RegexTimeoutInterval(limits.Timeout)
+            .CatchClrExceptions(e => e is JsFetchException));
 
         _engine.SetValue("__bento_log", new Action<string>(Log));
         _engine.Execute("""
@@ -62,23 +76,46 @@ public sealed class JsFunction : IDisposable
               log: (...values) => __bento_log(values.map(v => typeof v === "string" ? v : JSON.stringify(v)).join(" ")),
             });
             """);
+        if (definition.UsesNetwork)
+        {
+            _engine.SetValue("__bento_fetch", new Func<string, string?, string>(Fetch));
+            _engine.Execute("""
+                const fetch = async (url, options) => {
+                  const r = JSON.parse(__bento_fetch(String(url), options === undefined || options === null ? null : JSON.stringify(options)));
+                  return Object.freeze({
+                    ok: r.status >= 200 && r.status < 300, status: r.status, statusText: r.statusText, url: r.url,
+                    headers: Object.freeze({ get: (name) => r.headers[String(name).toLowerCase()] ?? null }),
+                    text: async () => r.body,
+                    json: async () => JSON.parse(r.body),
+                  });
+                };
+                """);
+            var secrets = definition.Credentials.ToDictionary(n => n, n => host.Secrets.TryGetValue(n, out var v) ? v : null);
+            _engine.Execute($"const credentials = Object.freeze(JSON.parse({System.Text.Json.JsonSerializer.Serialize(System.Text.Json.JsonSerializer.Serialize(secrets))}));");
+        }
         _engine.Constraints.Reset();
         _engine.Execute(Source(definition));
         _entry = _engine.GetValue(EntryName);
     }
 
+    /// <summary>The requests this instance has made (for a price source's daily budget).</summary>
+    public int Requests => _requests;
+
     /// <summary>The script the body runs in: line 1 is the header, the body starts on line 2.</summary>
     public static string Source(CustomFunctionDef definition) =>
-        $"function {EntryName}({string.Join(", ", definition.Arguments.Select(a => a.Name))}) {{\n{definition.Code}\n}}";
+        $"{(IsAsync(definition) ? "async " : "")}function {EntryName}({string.Join(", ", definition.Arguments.Select(a => a.Name))}) {{\n{definition.Code}\n}}";
+
+    private static bool IsAsync(CustomFunctionDef definition) =>
+        definition.UsesNetwork || definition.Code.Contains("await", StringComparison.Ordinal);
 
     /// <summary>The engine for a function, or the syntax error in its code (with the line in the body).</summary>
-    public static (JsFunction? Function, string? Error) Create(CustomFunctionDef definition, JsSandboxLimits? limits = null)
+    public static (JsFunction? Function, string? Error) Create(CustomFunctionDef definition, JsSandboxLimits? limits = null, JsHost? host = null)
     {
         if (CheckSyntax(definition) is { } syntax)
             return (null, syntax);
         try
         {
-            return (new JsFunction(definition, limits ?? JsSandboxLimits.Default), null);
+            return (new JsFunction(definition, limits ?? (definition.UsesNetwork ? JsSandboxLimits.Network : JsSandboxLimits.Default), host ?? JsHost.None), null);
         }
         catch (Exception e)
         {
@@ -113,20 +150,40 @@ public sealed class JsFunction : IDisposable
 
             _engine.Constraints.Reset();
             _engine.Advanced.ResetCallStack();
-            var result = _engine.Invoke(_entry, JsValue.Undefined, args);
+            var result = _engine.Invoke(_entry, JsValue.Undefined, args).UnwrapIfPromise(_limits.Timeout);
             var (value, error) = FromJs(result, _definition.ResultType);
-            return new JsCallResult(value, error, _logs.ToList(), Elapsed(started));
+            return new JsCallResult(value, Redact(error), _logs.ToList(), Elapsed(started));
         }
         catch (Exception e)
         {
-            return new JsCallResult(null, Describe(e), _logs.ToList(), Elapsed(started));
+            return new JsCallResult(null, Redact(Describe(e)), _logs.ToList(), Elapsed(started));
         }
+    }
+
+    private string Fetch(string url, string? options)
+    {
+        if (_host.Network is not { } network)
+            throw new JsFetchException("This function cannot use the network here.");
+        if (++_requests > network.Options.MaxRequestsPerCall * 50)
+            throw new JsFetchException("This function made too many requests.");
+        return JsHost.SerializeResult(network.Fetch(url, options, _definition.AllowedHosts));
+    }
+
+    /// <summary>Secret values never appear in logs or errors.</summary>
+    private string? Redact(string? text)
+    {
+        if (text is null || _secretValues.Length == 0)
+            return text;
+        foreach (var secret in _secretValues)
+            text = text.Replace(secret, "•••", StringComparison.Ordinal);
+        return text;
     }
 
     public void Dispose() => _engine.Dispose();
 
     private void Log(string line)
     {
+        line = Redact(line)!;
         if (_logs.Count < _limits.MaxLogLines)
             _logs.Add(line.Length > 1000 ? line[..1000] + "…" : line);
     }
@@ -144,6 +201,10 @@ public sealed class JsFunction : IDisposable
     {
         if (value is null or DBNull)
             return JsValue.Null;
+        if (value is System.Text.Json.JsonElement json)
+            return json.ValueKind is System.Text.Json.JsonValueKind.Null or System.Text.Json.JsonValueKind.Undefined
+                ? JsValue.Null
+                : _engine.Invoke(_engine.GetValue("JSON").Get("parse"), JsValue.Undefined, [json.GetRawText()]);
         switch (type)
         {
             case "float" or "currency" or "integer":
@@ -180,13 +241,18 @@ public sealed class JsFunction : IDisposable
     }
 
     /// <summary>The returned value as the declared result type (Part 5: integer, float, currency, text, boolean, date, datetime).</summary>
-    private static (object? Value, string? Error) FromJs(JsValue value, string resultType)
+    private (object? Value, string? Error) FromJs(JsValue value, string resultType)
     {
         if (value.IsNull() || value.IsUndefined())
             return (null, null);
 
         switch (resultType)
         {
+            case "any":
+                var json = _engine.Invoke(_engine.GetValue("JSON").Get("stringify"), JsValue.Undefined, [value]);
+                return json.IsString()
+                    ? (System.Text.Json.JsonDocument.Parse(json.AsString()).RootElement.Clone(), null)
+                    : (null, $"The function returned {Kind(value)}, which has no JSON form.");
             case "float" or "currency":
                 if (!value.IsNumber())
                     return (null, $"The function returned {Kind(value)}, not a number.");
@@ -241,6 +307,9 @@ public sealed class JsFunction : IDisposable
     private static string Describe(Exception e) => e switch
     {
         ParseErrorException parse => SyntaxMessage(parse),
+        JsFetchException fetch => fetch.Message,
+        _ when e.GetType().Name == "PromiseRejectedException" &&
+               e.GetType().GetProperty("RejectedValue")?.GetValue(e) is JsValue rejected => RejectedText(rejected),
         JavaScriptException js => $"{ErrorText(js)}{Line(js.Location.Start.Line)}",
         TimeoutException => "The function took too long and was stopped (time limit).",
         ExecutionCanceledException => "The function was stopped.",
@@ -257,6 +326,16 @@ public sealed class JsFunction : IDisposable
         if (e.Error is Jint.Native.Object.ObjectInstance error && error.Get("name") is { } name && name.IsString())
             return $"{name.AsString()}: {error.Get("message")}";
         return e.Message;
+    }
+
+    private static string RejectedText(JsValue rejected)
+    {
+        if (rejected is not Jint.Native.Object.ObjectInstance error || error.Get("name") is not { } name || !name.IsString())
+            return rejected.ToString();
+        // Async functions reject with the Error; its stack names the line ("at __bento_fn (…:4:11)").
+        var stack = error.Get("stack");
+        var line = stack.IsString() ? System.Text.RegularExpressions.Regex.Match(stack.AsString(), @":(\d+):\d+") : null;
+        return $"{name.AsString()}: {error.Get("message")}{(line is { Success: true } ? Line(int.Parse(line.Groups[1].Value, CultureInfo.InvariantCulture)) : "")}";
     }
 
     private static string SyntaxMessage(ParseErrorException e)

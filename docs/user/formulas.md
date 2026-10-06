@@ -131,7 +131,9 @@ return volatility > 0.15 ? "medium" : "low";
 
 When the function fails on a row (it throws, runs too long, returns the wrong type), that value stays empty. The Functions page lists the computed columns with failed rows and the first error; in dashboards the widget names the failure.
 
-**Safety.** Functions run sandboxed on the server: no files, no network, no access to Bento itself, no `eval`. Each call stops after 100 ms, 16 MB of memory or very deep recursion. Calling APIs (for example for live prices) is planned next.
+**Safety.** Functions run sandboxed on the server: no files, no access to Bento itself, no `eval`. Each call stops after 100 ms, 16 MB of memory or very deep recursion.
+
+**Calling APIs.** A function may list hosts under **Internet**. It then gets `fetch` for those hosts (https only, never the server's own network) and can read stored API keys as `credentials.name`. Such functions run as price sources — see [Live Prices](live-prices.md) — not in formulas, and may take up to 30 seconds.
 
 A function used by a computed column cannot be deleted, and a change to its arguments or result type that would break such a column is refused with the column named.
 
@@ -141,4 +143,4 @@ A function used by a computed column cannot be deleted, and a change to its argu
 - aggregates over related rows of related rows (add a computed column on the related table and sum that)
 - the app's text search does not look into computed columns
 - `CUSTOM(…)` inside a larger formula, or summed with `RUNNING_SUM`; top values ranked by a `CUSTOM` measure
-- functions in TypeScript; functions that call APIs (planned next)
+- functions in TypeScript

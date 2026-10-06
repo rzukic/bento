@@ -27,6 +27,7 @@ import { appliedFilters, clearSelection, selectionFromSearch, selectionToSearch 
 import { FilterBar, FiltersEditor } from "./FilterBar";
 import { drillUrl, type DrillTarget } from "./drill";
 import { VariablesEditor } from "./VariablesEditor";
+import { quoteTime, usePriceRefresh } from "./priceRefresh";
 import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
 import "./Dashboards.css";
@@ -128,6 +129,9 @@ export function DashboardPage() {
       if (timer) window.clearInterval(timer);
     };
   }, [refresh, refreshSeconds]);
+
+  // Prices older than their source's window are fetched on open and refresh (Step 4.2).
+  const prices = usePriceRefresh(dashboard?.dashboard, refreshToken, !editing, () => setRefreshToken((n) => n + 1));
 
   const tables = useMemo(() => snapshot?.tables ?? [], [snapshot]);
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
@@ -321,9 +325,21 @@ export function DashboardPage() {
                 ))}
               </select>
             ) : (
-              <Button type="button" variant="ghost" size="sm" onClick={refresh} aria-label="Refresh" title="Refresh">
-                <Icon name="refresh" size={14} />
-              </Button>
+              <>
+                {prices ? (
+                  <span
+                    className={prices.error ? "dashboard-prices dashboard-prices--error" : "dashboard-prices"}
+                    role="status"
+                    title={prices.error ?? `From ${prices.sources.join(", ")}`}
+                  >
+                    {prices.fetching ? "Updating prices…" : `Prices as of ${quoteTime(prices.lastQuoteAt)}`}
+                    {prices.error && !prices.fetching ? " · update failed" : ""}
+                  </span>
+                ) : null}
+                <Button type="button" variant="ghost" size="sm" onClick={refresh} aria-label="Refresh" title="Refresh">
+                  <Icon name="refresh" size={14} />
+                </Button>
+              </>
             )}
             {dashboard.isOwner ? (
               editing ? (

@@ -32,6 +32,10 @@ public sealed class FunctionsController : ControllerBase
     [HttpGet("status")]
     public IActionResult Status() => Ok(new { data = _stored.Status });
 
+    /// <summary>Starting points for new functions (e.g. a price source for Yahoo Finance).</summary>
+    [HttpGet("templates")]
+    public IActionResult Templates() => Ok(new { data = Bento.Api.Formula.FunctionTemplates.All });
+
     [HttpGet("{name}")]
     public async Task<IActionResult> Get(string name) => Ok(new { data = await _functions.GetAsync(name) });
 
@@ -59,5 +63,5 @@ public sealed class FunctionsController : ControllerBase
     /// <summary>Runs unsaved code with test values in the sandbox.</summary>
     [HttpPost("test")]
     [RequireRole("admin")]
-    public IActionResult Test([FromBody] CustomFunctionTestRequest request) => Ok(new { data = _functions.Test(request) });
+    public async Task<IActionResult> Test([FromBody] CustomFunctionTestRequest request) => Ok(new { data = await _functions.TestAsync(request) });
 }
