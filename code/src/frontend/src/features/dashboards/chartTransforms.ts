@@ -32,14 +32,20 @@ export function movingAverage(values: (number | null)[], window: number): (numbe
   });
 }
 
-/** Each measure's chosen colour on its series (a breakdown colours its values from the palette). */
+/** Each measure's chosen colour, axis and format on its series (a breakdown colours its values from the palette). */
 export function withMeasureColors(model: ChartModel, measures: QueryMeasure[], hasBreakdown: boolean): ChartModel {
-  if (hasBreakdown || !measures.some((m) => m.color)) return model;
+  if (hasBreakdown || !measures.some((m) => m.color || m.axis || m.format)) return model;
   return {
     ...model,
     series: model.series.map((series) => {
-      const color = measures.find((m) => m.name === series.name)?.color;
-      return color && !series.kind ? { ...series, color } : series;
+      const measure = measures.find((m) => m.name === series.name);
+      if (!measure || series.kind) return series;
+      return {
+        ...series,
+        ...(measure.color ? { color: measure.color } : {}),
+        ...(measure.axis ? { axis: measure.axis } : {}),
+        ...(measure.format ? { format: measure.format } : {}),
+      };
     }),
   };
 }

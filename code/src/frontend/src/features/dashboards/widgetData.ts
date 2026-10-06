@@ -12,6 +12,13 @@ export function isRunningMeasure(measure: QueryMeasure): boolean {
   return Boolean(measure.running) || (typeof measure.formula === "string" && RUNNING_SUM.test(measure.formula));
 }
 
+const RETURN = /^\s*=?\s*(TWR|REBASE|XIRR|IRR)\s*\(/i;
+
+/** A return (Step 4.3): unknown before its first value, not 0 — like a running total. */
+export function isReturnMeasure(measure: QueryMeasure): boolean {
+  return typeof measure.formula === "string" && RETURN.test(measure.formula);
+}
+
 /** Adds the dashboard's date range to a query's filter on `dateColumn`. */
 export function rangeFilter(dateColumn: string | null | undefined, range: ResolvedRange): QueryFilter | undefined {
   if (!dateColumn || (!range.from && !range.to)) return undefined;
@@ -108,6 +115,9 @@ export type ChartSeries = {
   pick?: GroupPick;
   /** The colour chosen for the measure behind it. */
   color?: SeriesColor;
+  /** On the second value axis (right), written in its own format (Step 4.3). */
+  axis?: "right";
+  format?: NumberFormatKind;
 };
 
 export type ChartModel = {
@@ -156,7 +166,8 @@ export function toChartModel(
   const measures = result.meta.columns.filter((c) => c.role === "measure");
   const labelFor = (group: string) => result.meta.columns.find((c) => c.role === "label" && c.labelOf === group)?.name;
   const format = formatOverride ?? formatKindForType(measures[0]?.type);
-  const running = new Set((query?.measures ?? []).filter(isRunningMeasure).map((m) => m.name));
+  // Running totals and returns hold their last value over empty buckets; other measures count them as 0.
+  const running = new Set((query?.measures ?? []).filter((m) => isRunningMeasure(m) || isReturnMeasure(m)).map((m) => m.name));
 
   if (groups.length === 0) {
     const row = result.data[0] ?? {};

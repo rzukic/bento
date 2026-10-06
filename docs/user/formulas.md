@@ -69,6 +69,8 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Lookup | `LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)` |
 | Dashboards | `RUNNING_SUM(measure)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
+| Finance | `PMT(rate, periods, present_value, [future_value], [at_start])`, `FV(rate, periods, payment, [present_value], [at_start])`, `PV(rate, periods, payment, [future_value], [at_start])`, `NPV(rate, value1, …)` — like Excel |
+| Returns (dashboards) | `XIRR`, `IRR`, `FLOWS`, `TWR`, `REBASE` (see [below](#returns)) |
 | Custom | `CUSTOM("name", argument, …)` — your own JavaScript (see [below](#your-own-functions)) |
 
 A few details:
@@ -102,6 +104,29 @@ Outside an aggregate a measure cannot use a single row's value: `amount * 2` is 
 **`LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)`** finds the latest row on or before a date — a price at a month end: `LOOKUP_ASOF("prices", "ticker", ticker, "date", BUCKET_END(), "price")`. It also works in computed columns, e.g. the price of a holding today with `TODAY()`.
 
 `WHERE` also works in aggregates over related rows: `SUM(transactions.amount WHERE transactions.amount < 0)`.
+
+## Returns
+
+Dashboard measures can compute returns. Each of these is the whole measure; show it as a percentage in the widget.
+
+**`XIRR` — the return a year of dated cash flows**, like Excel: money paid out is negative, money received positive.
+
+| Write | Gives |
+|---|---|
+| `XIRR(amount, date)` | over the rows of the group, e.g. a table of payments |
+| `XIRR(amount, date WHERE kind = "depot")` | only some rows |
+| `XIRR(FLOWS(-trades.invested, trades.date), FLOWS(dividends.net, dividends.date), SUM(SUM(trades.value)), TODAY())` | on accounts: money put in from the trades, dividends received, and today's value as the last flow |
+
+`FLOWS(amount, date [WHERE condition])` collects the flows of the group's rows, or with a link those of each row's related rows. A single flow is a pair: an amount (a measure such as `SUM(SUM(trades.value))`) and its date (`TODAY()` or `"2026-12-31"`). `IRR` works the same with flows at equal intervals and gives the rate per period. Without money both paid out and received there is no rate; the widget says so.
+
+**`TWR(value, flow [, 100])` — the time-weighted return**, for widgets with values at the end of each period:
+- `value` is the portfolio at each period end. `flow` is the money put in during the period; money taken out, such as dividends paid out, is negative.
+- Each period grows by value / (previous value + flow), and the periods multiply. A key figure shows the return in the range; with a third argument the chart shows an index, e.g. 100 at the start.
+- The return starts at the end of the period before the range, so the first month counts too.
+
+**`REBASE(measure [, 100])`** divides by the first value in the range: two lines starting at 100, e.g. the depot and a benchmark's price, `REBASE(LOOKUP_ASOF("prices", "isin", benchmark, "date", BUCKET_END(), "price"))`.
+
+The Wealth template has all three ready (see [Dashboards](dashboards.md#wealth--cash-flow-in-one-click)).
 
 ## Your Own Functions
 
@@ -141,6 +166,8 @@ A function used by a computed column cannot be deleted, and a change to its argu
 
 - formulas in saved queries are not updated when a column they use is renamed (stored columns in saved queries are)
 - aggregates over related rows of related rows (add a computed column on the related table and sum that)
+- returns inside larger formulas (`XIRR(…) * 100`), `RUNNING_SUM` of a return, top values ranked by a return
+- realised gains by average cost
 - the app's text search does not look into computed columns
 - `CUSTOM(…)` inside a larger formula, or summed with `RUNNING_SUM`; top values ranked by a `CUSTOM` measure
 - functions in TypeScript

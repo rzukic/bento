@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-06 — Returns: XIRR, Time-Weighted, Benchmarks
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.3 — Returns & Financial Functions](working-steps/4.3-returns.md)
+
+Dashboards compute what a depot returns, the same on SQLite and Postgres and as Excel does.
+
+**Highlights:**
+- `XIRR` and `IRR` of dated cash flows, gathered with `FLOWS(…)` from several tables (trades, dividends) plus today's value
+- `TWR(value, flow, 100)` at period ends from the start of the range; `REBASE(measure, 100)` for a benchmark
+- `PMT`, `FV`, `PV`, `NPV` in every formula
+- A second value axis in charts, with its own format (e.g. value left, return right in percent)
+- The Wealth template shows the return a year, the time-weighted return and depot vs. benchmark (an ISIN in the variable *benchmark*)
+
 ### 2026-10-06 — Live Prices From An API Of Your Choice
 
 > **Phase**: Phase 4 — Intelligence

@@ -152,6 +152,31 @@ public sealed class FinanceTemplateTests
             }
         });
         Assert.Equal(["MSCI World ETF 15 1500 1650 150"], AggregationQueryTests.Rows(positions, "name", "shares", "invested", "value", "gain"));
+
+        // Step 4.3: the return a year (XIRR) of trades, dividends and today's value.
+        var xirr = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "accounts",
+            measures = new[] { new { name = "xirr", formula = "XIRR(FLOWS(-trades.invested, trades.date), FLOWS(dividends.amount - COALESCE(dividends.tax, 0), dividends.date), SUM(SUM(trades.value)), TODAY())" } }
+        });
+        Assert.True(xirr.GetProperty("data")[0].GetProperty("xirr").GetDouble() > 0);
+
+        // The time-weighted index from the end of June (empty depot): 1020 / 1000, 1470 / (1020 + 500), 1650 / (1470 − 12.50);
+        // the benchmark (a dashboard variable) from its first price.
+        var index = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "accounts",
+            asOf = new { bucket = "month", from = "2026-07-01", to = "2026-09-30", @as = "month" },
+            variables = new Dictionary<string, object> { ["benchmark"] = "IE00B4L5Y983" },
+            measures = new[]
+            {
+                new { name = "depot", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), SUM(SUM(trades.invested WHERE trades.date >= BUCKET_START() AND trades.date <= BUCKET_END())) - SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date >= BUCKET_START() AND dividends.date <= BUCKET_END())), 100)" },
+                new { name = "return", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), SUM(SUM(trades.invested WHERE trades.date >= BUCKET_START() AND trades.date <= BUCKET_END())) - SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date >= BUCKET_START() AND dividends.date <= BUCKET_END())))" },
+                new { name = "benchmark", formula = "REBASE(LOOKUP_ASOF(\"prices\", \"isin\", benchmark, \"date\", BUCKET_END(), \"price\"))" }
+            }
+        });
+        Assert.Equal(["2026-07-01 102 0.02 100", "2026-08-01 98.6447368421 -0.0135526316 96.0784313725", "2026-09-01 111.6732869911 0.1167328699 107.8431372549"],
+            AggregationQueryTests.Rows(index, "month", "depot", "return", "benchmark"));
     }
 
     [Fact]

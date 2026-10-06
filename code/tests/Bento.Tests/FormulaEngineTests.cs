@@ -376,7 +376,7 @@ public sealed class FormulaEngineTests
             // Aggregates run over an account's transactions; measure functions in a query by period end.
             var check = function.Category switch
             {
-                FormulaFunctions.Measures => FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check,
+                FormulaFunctions.Measures or FormulaFunctions.Returns => FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check,
                 // CUSTOM calls a function the user wrote (Step 4.1).
                 "Custom" => FormulaCompiler.Compile(function.Example, Assets, new FormulaSchema([Assets]), provider, context: new FormulaContext
                 {

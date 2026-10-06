@@ -66,6 +66,14 @@ public sealed class FormulaConformanceTests
         ("= qty % 0", "integer", ["null", "null", "null", "null"]),
         ("= POWER(qty, 2) + SQRT(ABS(qty))", "float", ["10.7320508076", "51.6457513111", "0", "null"]),
         ("= SQRT(qty)", "float", ["1.7320508076", "null", "0", "null"]),
+
+        // Finance (Step 4.3): Excel's examples, to the cent
+        ("= ROUND(PMT(0.08 / 12, 10, 10000), 2)", "float", ["-1037.03", "-1037.03", "-1037.03", "-1037.03"]),
+        ("= ROUND(FV(0.06 / 12, 10, -200, -500, 1), 2)", "float", ["2581.4", "2581.4", "2581.4", "2581.4"]),
+        ("= ROUND(PV(0.08 / 12, 12 * 20, 500), 2)", "float", ["-59777.15", "-59777.15", "-59777.15", "-59777.15"]),
+        ("= ROUND(NPV(0.1, -10000, 3000, 4200, 6800), 2)", "float", ["1188.44", "1188.44", "1188.44", "1188.44"]),
+        ("= ROUND(FV(0, qty, -10), 2)", "float", ["30", "-70", "0", "null"]),
+        ("= ROUND(PMT(ratio / 12, 12, 1000), 2)", "float", ["-87.92", "-111.24", "-221.42", "null"]),
         ("= -2^2 + 7 / 2", "float", ["-0.5", "-0.5", "-0.5", "-0.5"]),
         ("= amount > ratio", "boolean", ["false", "true", "false", "null"]),
         ("= amount = 0.1", "boolean", ["false", "false", "true", "null"]),
