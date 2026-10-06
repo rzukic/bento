@@ -36,6 +36,9 @@ const riskClass: CustomFunction = {
     { kind: "column", name: "assets.risk", table: "assets", column: "risk" },
     { kind: "dashboard", name: "Wealth", dashboardId: 8 },
   ],
+  allowedHosts: [],
+  credentials: [],
+  usableInFormulas: true,
 };
 
 const idle: FunctionStatus = { pending: false, lastRunAt: "2026-10-05T11:00:01Z", lastUpdated: 0, failures: [] };

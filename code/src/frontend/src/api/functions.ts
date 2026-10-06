@@ -1,20 +1,22 @@
 import { apiClient } from "./client";
 
 /** float, integer, currency, text, boolean, date, datetime — arguments may also be "any". */
-export type FunctionType = "float" | "integer" | "currency" | "text" | "boolean" | "date" | "datetime";
-export type ArgumentType = FunctionType | "any";
+export type FunctionType = "float" | "integer" | "currency" | "text" | "boolean" | "date" | "datetime" | "any";
+export type ArgumentType = FunctionType;
 
-export const RESULT_TYPES: FunctionType[] = ["float", "integer", "currency", "text", "boolean", "date", "datetime"];
-export const ARGUMENT_TYPES: ArgumentType[] = [...RESULT_TYPES, "any"];
+/** "any" gives any JSON value: such functions run as price sources, not in formulas. */
+export const RESULT_TYPES: FunctionType[] = ["float", "integer", "currency", "text", "boolean", "date", "datetime", "any"];
+export const ARGUMENT_TYPES: ArgumentType[] = RESULT_TYPES;
 
 export type FunctionArgument = { name: string; type: ArgumentType };
 
 export type FunctionUsage = {
-  kind: "column" | "dashboard";
+  kind: "column" | "dashboard" | "priceSource";
   name: string;
   table?: string | null;
   column?: string | null;
   dashboardId?: number | null;
+  sourceId?: number | null;
 };
 
 /** A custom function (Step 4.1): JavaScript called from formulas with CUSTOM("name", …). */
@@ -29,6 +31,12 @@ export type CustomFunction = {
   createdAt: string;
   updatedAt: string;
   usedBy: FunctionUsage[];
+  /** Hosts fetch may call (Step 4.2); empty: no network. */
+  allowedHosts: string[];
+  /** Stored credentials the code reads as credentials.name. */
+  credentials: string[];
+  /** No network and a declared result: callable as CUSTOM(…). */
+  usableInFormulas: boolean;
 };
 
 export type FunctionVersion = {
@@ -37,6 +45,8 @@ export type FunctionVersion = {
   resultType: FunctionType;
   code: string;
   createdAt: string;
+  allowedHosts: string[];
+  credentials: string[];
 };
 
 export type FunctionDraft = {
@@ -45,7 +55,12 @@ export type FunctionDraft = {
   arguments: FunctionArgument[];
   resultType: FunctionType;
   code: string;
+  allowedHosts: string[];
+  credentials: string[];
 };
+
+/** A starting point for a new function (e.g. prices from Yahoo Finance). */
+export type FunctionTemplate = FunctionDraft & { id: string; title: string; description: string; name: string };
 
 export type FunctionTestResult = {
   value: string | number | boolean | null;
@@ -53,6 +68,8 @@ export type FunctionTestResult = {
   error: string | null;
   logs: string[];
   durationMs: number;
+  /** Requests the run made (functions that call APIs). */
+  requests: number;
 };
 
 export type StoredValueFailure = { table: string; column: string; function: string; rows: number; error: string };
@@ -90,18 +107,21 @@ export async function deleteFunction(name: string): Promise<void> {
 }
 
 /** Runs unsaved code with test values in the server's sandbox. */
-export async function testFunction(
-  draft: FunctionDraft,
-  values: (string | number | boolean | null)[],
-): Promise<FunctionTestResult> {
+export async function testFunction(draft: FunctionDraft, values: unknown[]): Promise<FunctionTestResult> {
   return (
     await apiClient.post<DataEnvelope<FunctionTestResult>>("/functions/test", {
       arguments: draft.arguments,
       resultType: draft.resultType,
       code: draft.code,
+      allowedHosts: draft.allowedHosts,
+      credentials: draft.credentials,
       values,
     })
   ).data;
+}
+
+export async function listFunctionTemplates(): Promise<FunctionTemplate[]> {
+  return (await apiClient.get<DataEnvelope<FunctionTemplate[]>>("/functions/templates")).data;
 }
 
 export async function getFunctionStatus(): Promise<FunctionStatus> {

@@ -886,3 +886,20 @@
     margin: 0;
     accent-color: var(--accent);
 }
+
+/* Step 4.2: when the prices a dashboard reads were fetched. */
+.dashboard-prices {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.dashboard-prices--error {
+    border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
+    color: var(--warning);
+}

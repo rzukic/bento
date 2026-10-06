@@ -87,6 +87,7 @@ public sealed class OpenApiDocumentBuilder
             ("Saved queries", "Named aggregation queries, private or shared."),
             ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
             ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
+            ("Prices", "Price sources: your functions fetch prices into a table of your model."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
             ("Schema", "The data model (Model JSON)."),
@@ -369,6 +370,28 @@ public sealed class OpenApiDocumentBuilder
             ["get"] = Operation("Functions", "Stored values of computed columns", "read",
                 "Computed columns that call a function store their values and recalculate them in the background: whether a run is `pending`, when the last ran, and the columns whose function failed on some rows.",
                 responses: Responses(200, "The recalculation status.", anyObject.DeepClone()))
+        };
+        paths["/functions/templates"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "List function templates", "read",
+                "Starting points for new functions, e.g. prices from Yahoo Finance or Xetra symbols for ISINs.",
+                responses: Responses(200, "The templates.", anyObject.DeepClone()))
+        };
+        paths["/price-sources"] = new JsonObject
+        {
+            ["get"] = Operation("Prices", "List price sources", "read",
+                "Each source with its function, target table and columns, the symbol per key, the latest price per key and its status (last quote, last error, requests today).",
+                responses: Responses(200, "The price sources.", anyObject.DeepClone()))
+        };
+        paths["/price-sources/refresh"] = new JsonObject
+        {
+            ["post"] = Operation("Prices", "Refresh stale prices", "read",
+                "Runs every enabled source writing to one of `tables` (all when empty) whose last fetch is older than its freshness window, as a dashboard does when it opens. `changed` tells whether any price was written.",
+                body: Obj(new JsonObject
+                {
+                    ["tables"] = new JsonObject { ["type"] = "array", ["items"] = Str(example: "finance_prices") }
+                }),
+                responses: Responses(200, "Whether prices changed, and each source's state.", anyObject.DeepClone()))
         };
         paths["/dashboards"] = new JsonObject
         {

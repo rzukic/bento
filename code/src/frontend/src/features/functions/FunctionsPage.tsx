@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
+import { listCredentials, type Credential } from "../../api/credentials";
 import {
   ARGUMENT_TYPES,
   RESULT_TYPES,
@@ -9,11 +10,13 @@ import {
   getFunctionStatus,
   getFunctionVersions,
   listFunctions,
+  listFunctionTemplates,
   testFunction,
   updateFunction,
   type ArgumentType,
   type CustomFunction,
   type FunctionDraft,
+  type FunctionTemplate,
   type FunctionStatus,
   type FunctionTestResult,
   type FunctionType,
@@ -26,6 +29,8 @@ import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Spinner } from "../../components/ui/Spinner";
 import { useAuthStore } from "../../stores/authStore";
 import { CodeEditor } from "./CodeEditor";
+import { CredentialsPanel } from "./CredentialsPanel";
+import { PriceSourcesPanel } from "./PriceSourcesPanel";
 import "./Functions.css";
 
 const NEW = "__new";
@@ -38,7 +43,7 @@ const TYPE_LABELS: Record<ArgumentType, string> = {
   boolean: "Yes/no",
   date: "Date",
   datetime: "Date and time",
-  any: "Any value",
+  any: "Any (JSON)",
 };
 
 const STARTER: FunctionDraft & { name: string } = {
@@ -47,6 +52,8 @@ const STARTER: FunctionDraft & { name: string } = {
   arguments: [{ name: "value", type: "float" }],
   resultType: "text",
   code: '// The arguments are the function\'s parameters; return the result.\nif (value === null) return null;\nreturn value > 0 ? "positive" : "zero or negative";',
+  allowedHosts: [],
+  credentials: [],
 };
 
 type Draft = FunctionDraft & { name: string };
@@ -58,6 +65,8 @@ function toDraft(fn: CustomFunction): Draft {
     arguments: fn.arguments.map((a) => ({ ...a })),
     resultType: fn.resultType,
     code: fn.code,
+    allowedHosts: [...fn.allowedHosts],
+    credentials: [...fn.credentials],
   };
 }
 
@@ -77,7 +86,7 @@ function callSnippet(draft: Draft): string {
 }
 
 /** A test input as the value the API sends: numbers, yes/no, text, empty as null. */
-function testValue(raw: string, type: ArgumentType): string | number | boolean | null {
+function testValue(raw: string, type: ArgumentType): unknown {
   const text = raw.trim();
   if (text === "") return null;
   if (type === "float" || type === "integer" || type === "currency") {
@@ -86,6 +95,11 @@ function testValue(raw: string, type: ArgumentType): string | number | boolean |
   }
   if (type === "boolean") return text === "true";
   if (type === "any") {
+    try {
+      return JSON.parse(text) as string | number | boolean | null;
+    } catch {
+      // not JSON: plain text below
+    }
     const n = Number(text);
     if (text !== "" && Number.isFinite(n)) return n;
     if (text === "true" || text === "false") return text === "true";
@@ -106,6 +120,12 @@ export function FunctionsPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const selected = searchParams.get("fn");
+  const tab = searchParams.get("tab") === "prices" ? "prices" : searchParams.get("tab") === "credentials" ? "credentials" : "functions";
+  const selectTab = (next: string) => {
+    const params = new URLSearchParams();
+    if (next !== "functions") params.set("tab", next);
+    setSearchParams(params, { replace: true });
+  };
   const select = useCallback(
     (name: string | null) => {
       const params = new URLSearchParams(searchParams);
@@ -152,11 +172,28 @@ export function FunctionsPage() {
       <header className="functions-page__header">
         <h1 className="functions-page__title">Functions</h1>
         <p className="functions-page__lead">
-          Your own JavaScript, called from formulas with <code>CUSTOM("name", …)</code> — in computed columns, dashboard measures and
-          variables.
+          Your own JavaScript: called from formulas with <code>CUSTOM("name", …)</code>, or fetching prices from an API of your choice.
         </p>
       </header>
 
+      <div className="functions-tabs" role="tablist" aria-label="Functions">
+        {[
+          ["functions", "Functions"],
+          ["prices", "Price sources"],
+          ...(isAdmin ? [["credentials", "Credentials"]] : []),
+        ].map(([id, label]) => (
+          <button key={id} type="button" role="tab" aria-selected={tab === id} className="functions-tabs__tab" onClick={() => selectTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === "prices" ? (
+        <PriceSourcesPanel functions={functions ?? []} isAdmin={isAdmin} />
+      ) : tab === "credentials" && isAdmin ? (
+        <CredentialsPanel />
+      ) : (
+      <>
       {loadError ? <Alert tone="error" message={loadError} /> : null}
 
       <div className="functions-layout">
@@ -189,6 +226,7 @@ export function FunctionsPage() {
                       <span className="functions-list__signature mono">
                         ({fn.arguments.map((a) => a.name).join(", ")}) → {TYPE_LABELS[fn.resultType].toLowerCase()}
                       </span>
+                      {fn.allowedHosts.length > 0 ? <span className="functions-list__net">Calls {fn.allowedHosts.join(", ")}</span> : null}
                       <span className="functions-list__meta">
                         {fn.usedBy.length === 0 ? "Not used yet" : `Used by ${fn.usedBy.length}`}
                         {failures.length > 0 ? <span className="functions-list__failed"> · failed on {failures.reduce((n, f) => n + f.rows, 0)} rows</span> : null}
@@ -223,6 +261,8 @@ export function FunctionsPage() {
           )}
         </section>
       </div>
+      </>
+      )}
     </div>
   );
 }
@@ -243,7 +283,8 @@ function FunctionsIntro({ canCreate, hasFunctions, onCreate }: { canCreate: bool
         background when rows or the function change. In dashboards, <code>CUSTOM("score", SUM(amount))</code> runs on each result.
       </p>
       <p className="functions-intro__note">
-        Functions run sandboxed on the server: no files, no network, at most 100 ms and 16 MB per call.
+        Functions run sandboxed on the server: no files, no access to Bento, at most 100 ms and 16 MB per call. A function may
+        call the hosts you list with <code>fetch</code> — then it runs as a <strong>price source</strong> rather than in formulas.
       </p>
       {canCreate ? (
         <Button type="button" variant="primary" leadingIcon={<Icon name="plus" size={14} />} onClick={onCreate}>
@@ -274,7 +315,18 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
   const [result, setResult] = useState<FunctionTestResult | null>(null);
   const [versions, setVersions] = useState<FunctionVersion[] | null>(null);
   const [copied, setCopied] = useState(false);
+  const [templates, setTemplates] = useState<FunctionTemplate[]>([]);
+  const [stored, setStored] = useState<Credential[]>([]);
+  const [hostInput, setHostInput] = useState("");
 
+  useEffect(() => {
+    if (readOnly) return;
+    if (!fn) void listFunctionTemplates().then(setTemplates).catch(() => setTemplates([]));
+    void listCredentials().then(setStored).catch(() => setStored([]));
+  }, [fn, readOnly]);
+
+  const networked = draft.allowedHosts.length > 0;
+  const inFormulas = !networked && draft.resultType !== "any";
   const dirty = !sameDraft(draft, initial);
   const failures = fn ? (status?.failures.filter((f) => f.function === fn.name) ?? []) : [];
   const snippet = callSnippet(draft);
@@ -307,6 +359,8 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         arguments: draft.arguments.map((a) => ({ name: a.name.trim(), type: a.type })),
         resultType: draft.resultType,
         code: draft.code,
+        allowedHosts: draft.allowedHosts,
+        credentials: draft.credentials,
       };
       const saved = fn ? await updateFunction(fn.name, body) : await createFunction(body);
       setVersions(null);
@@ -334,7 +388,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
     try {
       setResult(await testFunction(draft, draft.arguments.map((a, i) => testValue(testInputs[i] ?? "", a.type))));
     } catch (cause) {
-      setResult({ value: null, resultType: draft.resultType, error: message(cause, "The test could not run."), logs: [], durationMs: 0 });
+      setResult({ value: null, resultType: draft.resultType, error: message(cause, "The test could not run."), logs: [], durationMs: 0, requests: 0 });
     } finally {
       setTesting(false);
     }
@@ -347,6 +401,26 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
     } catch (cause) {
       setError(message(cause, "The history could not be loaded."));
     }
+  };
+
+  const applyTemplate = (template: FunctionTemplate) => {
+    setDraft({
+      name: draft.name.trim() || template.name,
+      description: template.description,
+      arguments: template.arguments.map((a) => ({ ...a })),
+      resultType: template.resultType,
+      code: template.code,
+      allowedHosts: [...template.allowedHosts],
+      credentials: [...template.credentials],
+    });
+    setTestInputs(template.arguments.map(() => ""));
+    setResult(null);
+  };
+
+  const addHost = () => {
+    const host = hostInput.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+    if (host && !draft.allowedHosts.includes(host)) update({ allowedHosts: [...draft.allowedHosts, host] });
+    setHostInput("");
   };
 
   const copySnippet = async () => {
@@ -384,6 +458,17 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
             <span className="function-editor__hint">Small letters, digits and _. Formulas call it by this name; it cannot change later.</span>
           </label>
         )}
+        {!fn && templates.length > 0 ? (
+          <div className="function-templates" role="group" aria-label="Start from a template">
+            <span className="function-editor__label">Start from</span>
+            {templates.map((template) => (
+              <button key={template.id} type="button" className="function-templates__item" title={template.description} onClick={() => applyTemplate(template)}>
+                <Icon name="braces" size={12} />
+                {template.title}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <label className="function-editor__field">
           <span className="function-editor__label">Description</span>
           <input
@@ -474,6 +559,73 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         </div>
       </section>
 
+      <section className="function-editor__section" aria-label="Internet">
+        <div className="function-editor__section-head">
+          <span className="section-label">Internet</span>
+          <span className="function-editor__hint">
+            {networked
+              ? "fetch may call these hosts (https only, never the server's own network). Such functions run as price sources, not in formulas."
+              : "No network: the function only computes. Add a host to call an API with fetch."}
+          </span>
+        </div>
+        {draft.allowedHosts.length > 0 ? (
+          <ul className="function-hosts" aria-label="Allowed hosts">
+            {draft.allowedHosts.map((host) => (
+              <li key={host} className="function-hosts__item mono">
+                {host}
+                {!readOnly ? (
+                  <button type="button" aria-label={`Remove ${host}`} onClick={() => update({ allowedHosts: draft.allowedHosts.filter((h) => h !== host), credentials: draft.allowedHosts.length === 1 ? [] : draft.credentials })}>
+                    <Icon name="x" size={11} />
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {!readOnly ? (
+          <div className="function-hosts__add">
+            <input
+              className="field__control field__control--compact mono"
+              value={hostInput}
+              placeholder="api.example.com"
+              aria-label="Add a host"
+              onChange={(event) => setHostInput(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  addHost();
+                }
+              }}
+            />
+            <Button type="button" size="sm" variant="ghost" onClick={addHost} disabled={!hostInput.trim() || draft.allowedHosts.length >= 10}>
+              Allow host
+            </Button>
+          </div>
+        ) : null}
+        {networked ? (
+          <div className="function-credentials" role="group" aria-label="Credentials">
+            <span className="function-editor__label">Credentials</span>
+            {stored.length === 0 && draft.credentials.length === 0 ? (
+              <span className="function-editor__hint">None stored. API keys go under the Credentials tab; the code reads them as credentials.name.</span>
+            ) : (
+              [...new Set([...stored.map((c) => c.name), ...draft.credentials])].map((name) => (
+                <label key={name} className="function-credentials__item">
+                  <input
+                    type="checkbox"
+                    checked={draft.credentials.includes(name)}
+                    disabled={readOnly}
+                    onChange={(event) =>
+                      update({ credentials: event.target.checked ? [...draft.credentials, name] : draft.credentials.filter((c) => c !== name) })
+                    }
+                  />
+                  <span className="mono">credentials.{name}</span>
+                </label>
+              ))
+            )}
+          </div>
+        ) : null}
+      </section>
+
       {!readOnly ? (
         <section className="function-editor__section function-test" aria-label="Test">
           <div className="function-editor__section-head">
@@ -500,7 +652,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
                     className="field__control field__control--compact"
                     type={argument.type === "date" ? "date" : "text"}
                     value={testInputs[index] ?? ""}
-                    placeholder={argument.type === "text" ? "text" : argument.type === "any" ? "value" : "0"}
+                    placeholder={argument.type === "text" ? "text" : argument.type === "any" ? '["VWCE.DE"]' : "0"}
                     aria-label={`Test value for ${argument.name}`}
                     onChange={(event) => setTestInputs((inputs) => inputs.map((v, i) => (i === index ? event.target.value : v)))}
                   />
@@ -518,10 +670,17 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
               ) : (
                 <span>
                   <span className="function-test__arrow">→</span>{" "}
-                  <span className="mono">{result.value === null ? "empty" : typeof result.value === "string" ? `"${result.value}"` : String(result.value)}</span>
+                  {result.value !== null && typeof result.value === "object" ? (
+                    <pre className="function-test__json mono">{JSON.stringify(result.value, null, 2)}</pre>
+                  ) : (
+                    <span className="mono">{result.value === null ? "empty" : typeof result.value === "string" ? `"${result.value}"` : String(result.value)}</span>
+                  )}
                 </span>
               )}
-              <span className="function-test__duration">{result.durationMs} ms</span>
+              <span className="function-test__duration">
+                {result.requests > 0 ? `${result.requests} ${result.requests === 1 ? "request" : "requests"} · ` : ""}
+                {result.durationMs} ms
+              </span>
               {result.logs.length > 0 ? (
                 <pre className="function-test__logs mono" aria-label="console.log output">
                   {result.logs.join("\n")}
@@ -536,6 +695,14 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         <div className="function-editor__section-head">
           <span className="section-label">Use it</span>
         </div>
+        {!inFormulas ? (
+          <p className="function-editor__hint">
+            {networked ? "This function calls the internet" : "This function gives any JSON value"}, so it runs as a{" "}
+            <Link to="/functions?tab=prices">price source</Link> (prices: arguments symbols, from, to → a list of {"{ symbol, date, price }"};
+            symbols: keys → {"{ key: symbol }"}), not in formulas.
+          </p>
+        ) : (
+        <>
         <div className="function-snippet">
           <code className="mono">{snippet}</code>
           <Button type="button" size="sm" variant="ghost" leadingIcon={<Icon name={copied ? "check" : "copy"} size={12} />} onClick={copySnippet}>
@@ -546,14 +713,18 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
           As a computed column, the formula is the whole call; build on its result in another column. In dashboards, pass measures:{" "}
           <code>CUSTOM("{draft.name || "name"}", SUM(amount))</code>.
         </p>
+        </>
+        )}
         {fn ? (
           fn.usedBy.length > 0 ? (
             <ul className="function-usages">
               {fn.usedBy.map((usage) => (
                 <li key={`${usage.kind}:${usage.name}`}>
-                  <Icon name={usage.kind === "column" ? "table" : "dashboard"} size={13} />
+                  <Icon name={usage.kind === "column" ? "table" : usage.kind === "priceSource" ? "refresh" : "dashboard"} size={13} />
                   {usage.kind === "column" && usage.table ? (
                     <Link to={`/data/${encodeURIComponent(usage.table)}`}>{usage.name}</Link>
+                  ) : usage.kind === "priceSource" ? (
+                    <Link to="/functions?tab=prices">{usage.name}</Link>
                   ) : usage.dashboardId ? (
                     <Link to={`/dashboards/${usage.dashboardId}`}>{usage.name}</Link>
                   ) : (

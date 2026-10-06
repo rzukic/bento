@@ -66,6 +66,8 @@ public sealed class CustomFunctionService
     private readonly SchemaCache _schemaCache;
     private readonly DatabaseConfig _dbConfig;
     private readonly ICustomValueRecalculation? _recalculation;
+    private readonly CredentialService? _credentials;
+    private readonly JsNetwork? _network;
     private readonly ILogger<CustomFunctionService>? _logger;
 
     public CustomFunctionService(
@@ -74,6 +76,8 @@ public sealed class CustomFunctionService
         SchemaCache schemaCache,
         DatabaseConfig dbConfig,
         ICustomValueRecalculation? recalculation = null,
+        CredentialService? credentials = null,
+        JsNetwork? network = null,
         ILogger<CustomFunctionService>? logger = null)
     {
         _systemPool = systemPool;
@@ -81,6 +85,8 @@ public sealed class CustomFunctionService
         _schemaCache = schemaCache;
         _dbConfig = dbConfig;
         _recalculation = recalculation;
+        _credentials = credentials;
+        _network = network;
         _logger = logger;
     }
 
@@ -88,6 +94,7 @@ public sealed class CustomFunctionService
     private string Table => Pg ? "_system.functions" : "functions";
     private string Versions => Pg ? "_system.function_versions" : "function_versions";
     private string Dashboards => Pg ? "_system.dashboards" : "dashboards";
+    private string PriceSources => Pg ? "_system.price_sources" : "price_sources";
 
     /// <summary>Loads every function into the catalog (start-up and after each change).</summary>
     public async Task ReloadAsync()
@@ -102,14 +109,14 @@ public sealed class CustomFunctionService
     {
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = (await conn.QueryAsync<FunctionRow>($"SELECT {Columns} FROM {Table} ORDER BY name")).ToList();
-        var dashboards = await DashboardUsagesAsync(conn);
-        return rows.Select(r => ToResponse(r, dashboards)).ToList();
+        var others = await OtherUsagesAsync(conn);
+        return rows.Select(r => ToResponse(r, others)).ToList();
     }
 
     public async Task<CustomFunctionResponse> GetAsync(string name)
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        return ToResponse(await RequireAsync(conn, name), await DashboardUsagesAsync(conn));
+        return ToResponse(await RequireAsync(conn, name), await OtherUsagesAsync(conn));
     }
 
     public async Task<IReadOnlyList<CustomFunctionVersionResponse>> VersionsAsync(string name)
@@ -118,12 +125,14 @@ public sealed class CustomFunctionService
         var current = await RequireAsync(conn, name);
         var rows = await conn.QueryAsync<FunctionRow>(
             $"""
-            SELECT function_name AS Name, NULL AS Description, arguments, result_type AS ResultType, code, version,
+            SELECT function_name AS Name, NULL AS Description, CAST(arguments AS TEXT) AS Arguments, result_type AS ResultType, code, version,
+                   CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS UpdatedAt
             FROM {Versions} WHERE function_name = @Name ORDER BY version DESC
             """, new { current.Name });
-        return rows.Select(r => new CustomFunctionVersionResponse(r.Version, ParseArguments(r.Arguments), r.ResultType, r.Code, r.CreatedAt)).ToList();
+        return rows.Select(r => new CustomFunctionVersionResponse(r.Version, ParseArguments(r.Arguments), r.ResultType, r.Code, r.CreatedAt,
+            ParseList(r.AllowedHosts), ParseList(r.Credentials))).ToList();
     }
 
     public async Task<CustomFunctionResponse> CreateAsync(CustomFunctionRequest request)
@@ -134,6 +143,7 @@ public sealed class CustomFunctionService
         if (FormulaFunctions.Find(name) is not null)
             throw Invalid("name", $"{name.ToUpperInvariant()} is a built-in formula function; choose another name.");
         var definition = Validate(request, name, 1);
+        await RequireCredentialsAsync(definition);
 
         using var conn = await _systemPool.GetConnectionAsync();
         if (await FindAsync(conn, name) is not null)
@@ -142,8 +152,8 @@ public sealed class CustomFunctionService
         var now = UtcNowIso();
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (name, description, arguments, result_type, code, version, created_at, updated_at)
-            VALUES (@Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, 1, {NowParam}, {NowParam})
+            INSERT INTO {Table} (name, description, arguments, result_type, code, allowed_hosts, credentials, version, created_at, updated_at)
+            VALUES (@Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, 1, {NowParam}, {NowParam})
             """,
             Parameters(definition, now));
         await SaveVersionAsync(conn, definition, now);
@@ -163,12 +173,16 @@ public sealed class CustomFunctionService
             Description = request.Description ?? existing.Description,
             Arguments = request.Arguments ?? ParseArguments(existing.Arguments).ToList(),
             ResultType = request.ResultType ?? existing.ResultType,
-            Code = request.Code ?? existing.Code
+            Code = request.Code ?? existing.Code,
+            AllowedHosts = request.AllowedHosts ?? ParseList(existing.AllowedHosts).ToList(),
+            Credentials = request.Credentials ?? ParseList(existing.Credentials).ToList()
         };
         var previous = ToDefinition(existing);
         var changed = Validate(merged, existing.Name, existing.Version);
+        await RequireCredentialsAsync(changed);
         var codeChanged = changed.Code != previous.Code || changed.ResultType != previous.ResultType ||
-                          !changed.Arguments.SequenceEqual(previous.Arguments);
+                          !changed.Arguments.SequenceEqual(previous.Arguments) ||
+                          !changed.AllowedHosts.SequenceEqual(previous.AllowedHosts) || !changed.Credentials.SequenceEqual(previous.Credentials);
         var definition = changed with { Version = codeChanged ? existing.Version + 1 : existing.Version };
 
         // Computed columns that call it must still check with the new signature.
@@ -186,6 +200,7 @@ public sealed class CustomFunctionService
             $"""
             UPDATE {Table}
             SET description = @Description, arguments = {JsonParam("@Arguments")}, result_type = @ResultType, code = @Code,
+                allowed_hosts = {JsonParam("@AllowedHosts")}, credentials = {JsonParam("@Credentials")},
                 version = @Version, updated_at = {NowParam}
             WHERE name = @Name
             """,
@@ -207,33 +222,65 @@ public sealed class CustomFunctionService
             throw new ApiConflictException(
                 $"'{existing.Name}' is used by {string.Join(", ", columns.Select(c => $"{c.Table}.{c.Column}"))}; change those computed columns first.",
                 new Dictionary<string, object?> { ["columns"] = columns.Select(c => $"{c.Table}.{c.Column}").ToList() });
+        var sources = (await OtherUsagesAsync(conn)).Where(o => o.Function == existing.Name.ToLowerInvariant() && o.Usage.Kind == "priceSource").ToList();
+        if (sources.Count > 0)
+            throw new ApiConflictException(
+                $"'{existing.Name}' runs in the price source {string.Join(", ", sources.Select(s => s.Usage.Name))}; change or delete that source first.",
+                new Dictionary<string, object?> { ["priceSources"] = sources.Select(s => s.Usage.Name).ToList() });
 
         await conn.ExecuteAsync($"DELETE FROM {Table} WHERE name = @Name", new { existing.Name });
         await conn.ExecuteAsync($"DELETE FROM {Versions} WHERE function_name = @Name", new { existing.Name });
         await ReloadAsync();
     }
 
-    /// <summary>Runs code with test values; nothing is saved.</summary>
-    public CustomFunctionTestResponse Test(CustomFunctionTestRequest request)
+    /// <summary>Runs code with test values; nothing is saved. Functions with hosts really call them.</summary>
+    public async Task<CustomFunctionTestResponse> TestAsync(CustomFunctionTestRequest request)
     {
         var definition = Validate(new CustomFunctionRequest
         {
             Arguments = request.Arguments,
             ResultType = request.ResultType,
-            Code = request.Code
+            Code = request.Code,
+            AllowedHosts = request.AllowedHosts,
+            Credentials = request.Credentials
         }, "test", 0, checkSyntax: false);
 
         var values = (request.Values ?? []).Select(FromJson).ToList();
-        var (function, error) = JsFunction.Create(definition);
+        var (function, error) = JsFunction.Create(definition, host: await HostAsync(definition));
         if (function is null)
             return new CustomFunctionTestResponse(null, definition.ResultType, error, [], 0);
         using (function)
         {
-            var result = function.Call(values);
+            // fetch blocks while it waits for answers: run off the request thread.
+            var result = await Task.Run(() => function.Call(values));
             return new CustomFunctionTestResponse(
-                result.Ok ? ResultValues.Shape(result.Value, definition.Result) : null,
-                definition.ResultType, result.Error, result.Logs, result.DurationMs);
+                result.Ok ? Shape(result.Value, definition) : null,
+                definition.ResultType, result.Error, result.Logs, result.DurationMs, function.Requests);
         }
+    }
+
+    /// <summary>What a function may use when it runs: the network and the credentials it names.</summary>
+    public async Task<JsHost> HostAsync(CustomFunctionDef definition)
+    {
+        if (!definition.UsesNetwork)
+            return JsHost.None;
+        var secrets = _credentials is null || definition.Credentials.Count == 0
+            ? new Dictionary<string, string>()
+            : await _credentials.ResolveAsync(definition.Credentials);
+        return new JsHost(_network, secrets);
+    }
+
+    /// <summary>A result in the API's shape; "any" stays JSON.</summary>
+    public static object? Shape(object? value, CustomFunctionDef definition) =>
+        definition.ResultType == "any" ? value : ResultValues.Shape(value, definition.Result);
+
+    private async Task RequireCredentialsAsync(CustomFunctionDef definition)
+    {
+        if (_credentials is null || definition.Credentials.Count == 0)
+            return;
+        var missing = await _credentials.MissingAsync(definition.Credentials);
+        if (missing.Count > 0)
+            throw Invalid("credentials", $"No credential named {string.Join(", ", missing.Select(m => $"'{m}'"))}; add it under Credentials first.");
     }
 
     // ── Usages ───────────────────────────────────────────────────────────
@@ -281,14 +328,22 @@ public sealed class CustomFunctionService
 
     private static readonly Regex DashboardCall = new("CUSTOM\\(\\s*\\\\\"([a-z][a-z0-9_]*)\\\\\"", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    private async Task<List<(long Id, string Name, HashSet<string> Functions)>> DashboardUsagesAsync(System.Data.IDbConnection conn)
+    /// <summary>Dashboards whose formulas call a function, and price sources that run one (Step 4.2).</summary>
+    private async Task<List<(string Function, CustomFunctionUsage Usage)>> OtherUsagesAsync(System.Data.IDbConnection conn)
     {
-        var rows = await conn.QueryAsync<DashboardRow>(
-            $"SELECT id, name, CAST(dashboard_json AS TEXT) AS Json FROM {Dashboards}");
-        return rows
-            .Select(r => (r.Id, r.Name, DashboardCall.Matches(r.Json ?? "").Select(m => m.Groups[1].Value.ToLowerInvariant()).ToHashSet()))
-            .Where(r => r.Item3.Count > 0)
-            .ToList();
+        var usages = new List<(string, CustomFunctionUsage)>();
+        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(dashboard_json AS TEXT) AS Json FROM {Dashboards}"))
+        {
+            foreach (var function in DashboardCall.Matches(row.Json ?? "").Select(m => m.Groups[1].Value.ToLowerInvariant()).Distinct())
+                usages.Add((function, new CustomFunctionUsage("dashboard", row.Name, DashboardId: row.Id)));
+        }
+        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(config AS TEXT) AS Json FROM {PriceSources}"))
+        {
+            var config = JsonSerializer.Deserialize<PriceSourceConfig>(row.Json ?? "{}", Json);
+            foreach (var function in new[] { config?.Function, config?.LookupFunction }.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct())
+                usages.Add((function!.ToLowerInvariant(), new CustomFunctionUsage("priceSource", row.Name, SourceId: row.Id)));
+        }
+        return usages;
     }
 
     private sealed class DashboardRow
@@ -331,7 +386,33 @@ public sealed class CustomFunctionService
         if (description is { Length: > 1000 })
             throw Invalid("description", "The description is too long (at most 1000 characters).");
 
-        var definition = new CustomFunctionDef(name, description, arguments, resultType, code, version);
+        var hosts = new List<string>();
+        foreach (var (host, index) in (request.AllowedHosts ?? []).Select((h, i) => (h?.Trim().ToLowerInvariant() ?? "", i)))
+        {
+            if (!CustomFunctionRules.IsValidHost(host))
+                throw Invalid($"allowedHosts[{index}]", $"'{host}' is not a host name; write it without https:// or a path, e.g. query1.finance.yahoo.com or *.example.com.");
+            if (!hosts.Contains(host))
+                hosts.Add(host);
+        }
+        if (hosts.Count > CustomFunctionRules.MaxHosts)
+            throw Invalid("allowedHosts", $"A function may call at most {CustomFunctionRules.MaxHosts} hosts.");
+
+        var credentials = new List<string>();
+        foreach (var (credential, index) in (request.Credentials ?? []).Select((c, i) => (c?.Trim().ToLowerInvariant() ?? "", i)))
+        {
+            if (!CustomFunctionRules.IsValidName(credential))
+                throw Invalid($"credentials[{index}]", $"'{credential}' is not a credential name.");
+            if (!credentials.Contains(credential))
+                credentials.Add(credential);
+        }
+        if (credentials.Count > 0 && hosts.Count == 0)
+            throw Invalid("credentials", "Credentials are for calling APIs; add the hosts the function calls.");
+
+        var definition = new CustomFunctionDef(name, description, arguments, resultType, code, version)
+        {
+            AllowedHosts = hosts,
+            Credentials = credentials
+        };
         if (checkSyntax && JsFunction.CheckSyntax(definition) is { } syntax)
             throw Invalid("code", syntax);
         return definition;
@@ -343,6 +424,7 @@ public sealed class CustomFunctionService
         JsonValueKind.String => value.GetString(),
         JsonValueKind.True => true,
         JsonValueKind.False => false,
+        JsonValueKind.Array or JsonValueKind.Object => value.Clone(),
         _ => null
     };
 
@@ -355,6 +437,8 @@ public sealed class CustomFunctionService
         public string Arguments { get; init; } = "[]";
         public string ResultType { get; init; } = "float";
         public string Code { get; init; } = "";
+        public string AllowedHosts { get; init; } = "[]";
+        public string Credentials { get; init; } = "[]";
         public int Version { get; init; }
         public string CreatedAt { get; init; } = "";
         public string UpdatedAt { get; init; } = "";
@@ -362,6 +446,7 @@ public sealed class CustomFunctionService
 
     private string Columns =>
         "name, description, CAST(arguments AS TEXT) AS Arguments, result_type AS ResultType, code, version, " +
+        "CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials, " +
         $"{SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt, " +
         $"{SystemSqlDialect.TimestampText(_systemPool.Provider, "updated_at")} AS UpdatedAt";
 
@@ -375,8 +460,8 @@ public sealed class CustomFunctionService
     private async Task SaveVersionAsync(System.Data.IDbConnection conn, CustomFunctionDef definition, string now) =>
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Versions} (function_name, version, arguments, result_type, code, created_at)
-            VALUES (@Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {NowParam})
+            INSERT INTO {Versions} (function_name, version, arguments, result_type, code, allowed_hosts, credentials, created_at)
+            VALUES (@Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, {NowParam})
             """,
             Parameters(definition, now));
 
@@ -388,25 +473,34 @@ public sealed class CustomFunctionService
         definition.ResultType,
         definition.Code,
         definition.Version,
+        AllowedHosts = JsonSerializer.Serialize(definition.AllowedHosts, Json),
+        Credentials = JsonSerializer.Serialize(definition.Credentials, Json),
         Now = now
     };
 
     private static CustomFunctionDef ToDefinition(FunctionRow row) =>
-        new(row.Name, row.Description, ParseArguments(row.Arguments), row.ResultType, row.Code, row.Version);
+        new(row.Name, row.Description, ParseArguments(row.Arguments), row.ResultType, row.Code, row.Version)
+        {
+            AllowedHosts = ParseList(row.AllowedHosts),
+            Credentials = ParseList(row.Credentials)
+        };
+
+    private static IReadOnlyList<string> ParseList(string? json) =>
+        JsonSerializer.Deserialize<List<string>>(string.IsNullOrWhiteSpace(json) ? "[]" : json, Json) ?? [];
 
     private static IReadOnlyList<CustomFunctionArgument> ParseArguments(string json) =>
         JsonSerializer.Deserialize<List<CustomFunctionArgument>>(string.IsNullOrWhiteSpace(json) ? "[]" : json, Json) ?? [];
 
-    private CustomFunctionResponse ToResponse(FunctionRow row, List<(long Id, string Name, HashSet<string> Functions)> dashboards)
+    private CustomFunctionResponse ToResponse(FunctionRow row, List<(string Function, CustomFunctionUsage Usage)> others)
     {
         var usedBy = ComputedUsages(_catalog)
             .Where(u => string.Equals(u.Function, row.Name, StringComparison.OrdinalIgnoreCase))
             .Select(u => new CustomFunctionUsage("column", $"{u.Table}.{u.Column}", u.Table, u.Column))
-            .Concat(dashboards.Where(d => d.Functions.Contains(row.Name.ToLowerInvariant()))
-                .Select(d => new CustomFunctionUsage("dashboard", d.Name, DashboardId: d.Id)))
+            .Concat(others.Where(o => o.Function == row.Name.ToLowerInvariant()).Select(o => o.Usage))
             .ToList();
-        return new CustomFunctionResponse(row.Name, row.Description, ParseArguments(row.Arguments), row.ResultType, row.Code,
-            row.Version, row.CreatedAt, row.UpdatedAt, usedBy);
+        var definition = ToDefinition(row);
+        return new CustomFunctionResponse(row.Name, row.Description, definition.Arguments, row.ResultType, row.Code,
+            row.Version, row.CreatedAt, row.UpdatedAt, usedBy, definition.AllowedHosts, definition.Credentials, definition.UsableInFormulas);
     }
 
     private string JsonParam(string parameter) => SystemSqlDialect.JsonParam(_systemPool.Provider, parameter);

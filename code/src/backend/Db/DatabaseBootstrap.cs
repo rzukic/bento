@@ -264,6 +264,43 @@ public class DatabaseBootstrap : IHostedService
             ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
             ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS revoked_at TIMESTAMPTZ;
             """);
+
+        // Step 4.2: functions that call APIs; credentials with descriptions; price sources.
+        await conn.ExecuteAsync("""
+            ALTER TABLE _system.functions ADD COLUMN IF NOT EXISTS allowed_hosts JSONB NOT NULL DEFAULT '[]';
+            ALTER TABLE _system.functions ADD COLUMN IF NOT EXISTS credentials JSONB NOT NULL DEFAULT '[]';
+            ALTER TABLE _system.function_versions ADD COLUMN IF NOT EXISTS allowed_hosts JSONB NOT NULL DEFAULT '[]';
+            ALTER TABLE _system.function_versions ADD COLUMN IF NOT EXISTS credentials JSONB NOT NULL DEFAULT '[]';
+            ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS description TEXT;
+            ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+            ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.price_sources (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL UNIQUE,
+                config          JSONB NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.price_source_runs (
+                id              SERIAL PRIMARY KEY,
+                source_id       INTEGER NOT NULL,
+                kind            VARCHAR(20) NOT NULL,
+                started_at      TIMESTAMPTZ NOT NULL,
+                finished_at     TIMESTAMPTZ,
+                requests        INTEGER NOT NULL DEFAULT 0,
+                rows_written    INTEGER NOT NULL DEFAULT 0,
+                last_quote_at   TIMESTAMPTZ,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON _system.price_source_runs(source_id, started_at);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -499,5 +536,48 @@ public class DatabaseBootstrap : IHostedService
             if (!apiKeyColumns.Contains(column))
                 await conn.ExecuteAsync($"ALTER TABLE api_keys ADD COLUMN {column} {type};");
         }
+
+        // Step 4.2: functions that call APIs; credentials with descriptions; price sources.
+        foreach (var (table, column, type) in new[]
+        {
+            ("functions", "allowed_hosts", "TEXT NOT NULL DEFAULT '[]'"),
+            ("functions", "credentials", "TEXT NOT NULL DEFAULT '[]'"),
+            ("function_versions", "allowed_hosts", "TEXT NOT NULL DEFAULT '[]'"),
+            ("function_versions", "credentials", "TEXT NOT NULL DEFAULT '[]'"),
+            ("credentials", "description", "TEXT"),
+            ("credentials", "updated_at", "TEXT"),
+            ("credentials", "last_used_at", "TEXT")
+        })
+        {
+            var existing = (await conn.QueryAsync<string>($"SELECT name FROM pragma_table_info('{table}');")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!existing.Contains(column))
+                await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {type};");
+        }
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS price_sources (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL UNIQUE,
+                config          TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS price_source_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id       INTEGER NOT NULL,
+                kind            TEXT NOT NULL,
+                started_at      TEXT NOT NULL,
+                finished_at     TEXT,
+                requests        INTEGER NOT NULL DEFAULT 0,
+                rows_written    INTEGER NOT NULL DEFAULT 0,
+                last_quote_at   TEXT,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON price_source_runs(source_id, started_at);
+            """);
     }
 }

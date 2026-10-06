@@ -10,7 +10,12 @@ public sealed record CustomFunctionArgument(string Name, string Type);
 /// A custom function (Step 4.1, Part 5 R5.5): JavaScript the user writes as a
 /// function body, called from formulas with <c>CUSTOM("name", …)</c>.
 /// Types use the formula type names (integer, float, currency, text, boolean,
-/// date, datetime); an argument may also be <c>any</c>.
+/// date, datetime); an argument may also be <c>any</c>, and so may the
+/// result (any JSON value — then the function cannot be used in formulas).
+///
+/// Step 4.2: a function with <see cref="AllowedHosts"/> may call those hosts
+/// with <c>fetch</c> and read the named <see cref="Credentials"/>; it runs as a
+/// price source or a symbol lookup, not in formulas.
 /// </summary>
 public sealed record CustomFunctionDef(
     string Name,
@@ -20,6 +25,17 @@ public sealed record CustomFunctionDef(
     string Code,
     int Version)
 {
+    /// <summary>Hosts <c>fetch</c> may reach: <c>api.example.com</c> or <c>*.example.com</c>. Empty: no network.</summary>
+    public IReadOnlyList<string> AllowedHosts { get; init; } = [];
+
+    /// <summary>Names of stored credentials the code reads as <c>credentials.name</c>.</summary>
+    public IReadOnlyList<string> Credentials { get; init; } = [];
+
+    public bool UsesNetwork => AllowedHosts.Count > 0;
+
+    /// <summary>Usable as CUSTOM(…) in formulas: no network, and a result formulas know.</summary>
+    public bool UsableInFormulas => !UsesNetwork && ResultType != "any";
+
     public FormulaType Result => FormulaTypes.FromName(ResultType) ?? FormulaType.Text;
 }
 
@@ -29,7 +45,8 @@ public static partial class CustomFunctionRules
     public const int MaxArguments = 10;
     public const int MaxCodeLength = 50_000;
 
-    public static readonly IReadOnlyList<string> ResultTypes = ["float", "integer", "currency", "text", "boolean", "date", "datetime"];
+    public static readonly IReadOnlyList<string> ResultTypes = ["float", "integer", "currency", "text", "boolean", "date", "datetime", "any"];
+    public const int MaxHosts = 10;
     public static readonly IReadOnlyList<string> ArgumentTypes = ["float", "integer", "currency", "text", "boolean", "date", "datetime", "any"];
 
     /// <summary>JavaScript words an argument cannot be called.</summary>
@@ -39,7 +56,7 @@ public static partial class CustomFunctionRules
         "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new",
         "null", "return", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while",
         "with", "yield", "let", "static", "implements", "interface", "package", "private", "protected", "public",
-        "await", "enum", "arguments", "eval", "console"
+        "await", "enum", "arguments", "eval", "console", "fetch", "credentials"
     };
 
     [GeneratedRegex("^[a-z][a-z0-9_]{0,62}$")]
@@ -50,6 +67,21 @@ public static partial class CustomFunctionRules
 
     public static bool IsValidName(string name) => NamePattern().IsMatch(name);
 
+    [GeneratedRegex("^(\\*\\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]{2,63}$|^localhost$|^127\\.0\\.0\\.1$")]
+    private static partial Regex HostPattern();
+
+    /// <summary>A host fetch may call: <c>api.example.com</c> or <c>*.example.com</c> (lower-case, no scheme or path).</summary>
+    public static bool IsValidHost(string host) => HostPattern().IsMatch(host);
+
+    /// <summary>Whether a request's host is on the list (<c>*.example.com</c> covers sub-domains, not example.com itself).</summary>
+    public static bool HostAllowed(string host, IEnumerable<string> allowed)
+    {
+        host = host.ToLowerInvariant();
+        return allowed.Any(pattern => pattern.StartsWith("*.", StringComparison.Ordinal)
+            ? host.EndsWith(pattern[1..], StringComparison.Ordinal)
+            : string.Equals(host, pattern, StringComparison.Ordinal));
+    }
+
     public static bool IsValidArgumentName(string name) =>
         ArgumentPattern().IsMatch(name) && !Reserved.Contains(name) && !name.StartsWith("__", StringComparison.Ordinal);
 
@@ -57,7 +89,7 @@ public static partial class CustomFunctionRules
     public static string? NormalizeType(string? type, bool argument)
     {
         var trimmed = type?.Trim().ToLowerInvariant();
-        if (argument && trimmed == "any")
+        if (trimmed == "any")
             return "any";
         return FormulaTypes.FromName(trimmed) is { } known ? FormulaTypes.Name(known) : null;
     }
