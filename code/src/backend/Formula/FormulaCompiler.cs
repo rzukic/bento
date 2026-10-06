@@ -10,7 +10,26 @@ namespace Bento.Api.Formula;
 /// as SQL, for the caller to run the function on. In a computed column the
 /// SQL reads the stored value; elsewhere it is <c>NULL</c>.
 /// </param>
-public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null);
+/// <param name="Series">
+/// Set when the formula is a return over a series (Step 4.3: XIRR, IRR, TWR,
+/// REBASE): its parts as SQL, for the query to compute after the database.
+/// </param>
+public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null, SeriesCall? Series = null);
+
+/// <summary>
+/// XIRR/IRR over cash flows, TWR over values and flows at period ends, REBASE
+/// of a measure to its first value (Step 4.3). The database gives the parts per
+/// result row; <see cref="Returns"/> computes the result.
+/// </summary>
+/// <param name="Kind">xirr, irr, twr or rebase.</param>
+/// <param name="Parts">
+/// XIRR/IRR: "flows" (serialized amount|date;… of many rows) or "amount"/"date"
+/// pairs (one flow each). TWR: "value" and "flow". REBASE: "value".
+/// </param>
+/// <param name="Base">TWR: the index to start at (none: the cumulative return); REBASE: the first value's new value.</param>
+public sealed record SeriesCall(string Kind, IReadOnlyList<SeriesPart> Parts, decimal? Base);
+
+public sealed record SeriesPart(string Kind, string Sql);
 
 /// <summary>A <c>CUSTOM("name", …)</c> call: the function and its arguments as SQL over the row (or the group).</summary>
 public sealed record CustomCall(CustomFunctionDef Function, IReadOnlyList<CustomArgument> Arguments);
@@ -167,6 +186,8 @@ public sealed class FormulaCompiler
         var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null, null);
         if (running && check.Result?.Custom is not null)
             check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a CUSTOM(…) value yet; add up its inputs instead.", root.Start, root.End)]);
+        if (running && check.Result?.Series is not null)
+            check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a return; TWR(…) already accumulates over the periods.", root.Start, root.End)]);
         if (running && check.Result is { } result && !FormulaTypes.IsNumeric(result.Type))
             check = new FormulaCheck(null, [new FormulaError($"RUNNING_SUM needs a number, not {FormulaTypes.Describe(result.Type)}.", root.Start, root.End)]);
         return new MeasureCheck(check, running);
@@ -191,6 +212,8 @@ public sealed class FormulaCompiler
     {
         if (root is FunctionCall call && IsCustom(call.Name))
             return RunCustom(call, length, expected, stored);
+        if (root is FunctionCall series && IsSeries(series.Name))
+            return RunSeries(series);
 
         var expr = Bind(root);
         if (expr is null || _errors.Count > 0)
@@ -310,6 +333,178 @@ public sealed class FormulaCompiler
         type == "any" ? "any value" : FormulaTypes.FromName(type) is { } known ? FormulaTypes.Describe(known) : type;
 
     private static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
+
+    // ── Returns (Step 4.3) ───────────────────────────────────────────────
+
+    private static readonly HashSet<string> SeriesFunctions = new(StringComparer.OrdinalIgnoreCase) { "XIRR", "IRR", "TWR", "REBASE" };
+
+    private static bool IsSeries(string name) => SeriesFunctions.Contains(name);
+
+    /// <summary>
+    /// XIRR/IRR/TWR/REBASE as the whole measure. Each part is a measure (or, for
+    /// XIRR/IRR, FLOWS(amount, date) over many rows) the database computes per
+    /// result row; the return itself is computed afterwards (<see cref="Returns"/>).
+    /// </summary>
+    private FormulaCheck RunSeries(FunctionCall call)
+    {
+        var name = call.Name.ToUpperInvariant();
+        if (!_shared.Context.Measure)
+            return new FormulaCheck(null, [new FormulaError($"{name} works in dashboard measures and variables, over the rows of a table.", call.Start, call.End)]);
+
+        var parts = new List<SeriesPart>();
+        decimal? @base = null;
+        switch (name)
+        {
+            case "XIRR" or "IRR":
+            {
+                var args = call.Arguments.ToList();
+                if (args.Count == 0)
+                    return Error(call, $"Write {name}(amount, date) over the rows, or {name}(FLOWS(amount, date), …, final_value, final_date).");
+                // Shorthand: XIRR(amount, date [WHERE condition], …) — the first two are the flows of the group's rows.
+                if (args[0] is not FunctionCall { Name: var first } || !string.Equals(first, "FLOWS", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (args.Count < 2)
+                        return Error(call, $"Write {name}(amount, date): the cash flows (paid out negative) and their dates.");
+                    var where = call.HasWhere ? args[^1] : null;
+                    if (where is not null && args.Count != 3)
+                        return Error(call, $"A condition goes into FLOWS when {name} has more parts: {name}(FLOWS(amount, date WHERE condition), …).");
+                    var flows = new FunctionCall("FLOWS", where is null ? [args[0], args[1]] : [args[0], args[1], where], call.NameEnd, args[0].Start, args[1].End) { HasWhere = where is not null };
+                    args = [flows, .. args.Skip(2).Take(where is null ? int.MaxValue : 0)];
+                }
+                else if (call.HasWhere)
+                {
+                    return Error(call, $"Put the condition into FLOWS: {name}(FLOWS(amount, date WHERE condition), …).");
+                }
+
+                for (var i = 0; i < args.Count; i++)
+                {
+                    if (args[i] is FunctionCall f && string.Equals(f.Name, "FLOWS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (BindFlows(f) is { } sql)
+                            parts.Add(new SeriesPart("flows", sql));
+                        continue;
+                    }
+                    if (i + 1 >= args.Count)
+                        return Error(args[i], "A single flow is a pair: an amount and its date, e.g. SUM(value), TODAY().");
+                    var amount = Bind(args[i]);
+                    var date = Bind(args[i + 1]);
+                    i++;
+                    if (amount is null || date is null)
+                        continue;
+                    if (!RequireNumber(amount, $"The amount of {name}"))
+                        continue;
+                    var dateText = date.Node is StringLiteral literal &&
+                                   DateOnly.TryParseExact(literal.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+                    if (!FormulaTypes.IsTemporal(date.Type) && date.Type != FormulaType.Null && !dateText)
+                    {
+                        Fail(date.Node, $"The date of a flow must be a date (or \"yyyy-MM-dd\"), not {FormulaTypes.Describe(date.Type)}.");
+                        continue;
+                    }
+                    parts.Add(new SeriesPart("amount", amount.Sql));
+                    parts.Add(new SeriesPart("date", date.Sql));
+                }
+                break;
+            }
+            case "TWR":
+            {
+                if (call.HasWhere || call.Arguments.Count is < 2 or > 3)
+                    return Error(call, "Write TWR(value, flow [, 100]): the value at each period end and the money put in during the period (taken out: negative).");
+                var value = Bind(call.Arguments[0]);
+                var flow = Bind(call.Arguments[1]);
+                if (value is not null && RequireNumber(value, "The value of TWR"))
+                    parts.Add(new SeriesPart("value", value.Sql));
+                if (flow is not null && RequireNumber(flow, "The flow of TWR"))
+                    parts.Add(new SeriesPart("flow", flow.Sql));
+                if (call.Arguments.Count == 3)
+                {
+                    if (call.Arguments[2] is not NumberLiteral { Value: > 0 } start)
+                        return Error(call.Arguments[2], "The index starts at a positive number, e.g. TWR(value, flow, 100).");
+                    @base = start.Value;
+                }
+                break;
+            }
+            default: // REBASE
+            {
+                if (call.HasWhere || call.Arguments.Count is < 1 or > 2)
+                    return Error(call, "Write REBASE(measure [, 100]): the measure relative to its first value in the range.");
+                var value = Bind(call.Arguments[0]);
+                if (value is not null && RequireNumber(value, "REBASE"))
+                    parts.Add(new SeriesPart("value", value.Sql));
+                if (call.Arguments.Count == 2)
+                {
+                    if (call.Arguments[1] is not NumberLiteral { Value: > 0 } start)
+                        return Error(call.Arguments[1], "The first value becomes a positive number, e.g. REBASE(SUM(value), 100).");
+                    @base = start.Value;
+                }
+                @base ??= 100;
+                break;
+            }
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+        if (name is "XIRR" or "IRR" && parts.Count == 0)
+            return Error(call, $"{name} needs cash flows.");
+        return new FormulaCheck(new CompiledFormula("NULL", FormulaType.Number, _columns, Series: new SeriesCall(name.ToLowerInvariant(), parts, @base)), []);
+    }
+
+    private FormulaCheck Error(FormulaNode node, string message) => new(null, [new FormulaError(message, node.Start, node.End)]);
+
+    /// <summary>
+    /// FLOWS(amount, date [WHERE condition]): the cash flows of the group's rows,
+    /// or of each row's related rows (FLOWS(trades.amount, trades.date)), as
+    /// "amount|date;…" text for <see cref="Returns"/>.
+    /// </summary>
+    private string? BindFlows(FunctionCall call)
+    {
+        var valueCount = call.Arguments.Count - (call.HasWhere ? 1 : 0);
+        if (valueCount != 2)
+        {
+            Fail(call, "Write FLOWS(amount, date) or FLOWS(amount, date WHERE condition); money paid out is negative.");
+            return null;
+        }
+
+        var frame = new AggregateFrame(_scope);
+        var outerAggregate = _aggregate;
+        var outerGroup = _inGroup;
+        _aggregate = frame;
+        _inGroup = true;
+        var amount = Bind(call.Arguments[0]);
+        var date = Bind(call.Arguments[1]);
+        var condition = call.HasWhere ? Bind(call.Arguments[^1]) : null;
+        _aggregate = outerAggregate;
+        _inGroup = outerGroup;
+        if (amount is null || date is null || (call.HasWhere && condition is null))
+            return null;
+        if (!RequireNumber(amount, "The amount of FLOWS"))
+            return null;
+        if (!FormulaTypes.IsTemporal(date.Type))
+        {
+            Fail(date.Node, $"The date of FLOWS must be a date, not {FormulaTypes.Describe(date.Type)}.");
+            return null;
+        }
+        if (condition is not null && !RequireBoolean(condition, "The condition of FLOWS"))
+            return null;
+
+        var text = $"CAST({amount.Sql} AS TEXT) || '|' || {(_pg ? $"CAST({date.Sql} AS TEXT)" : date.Sql)}";
+        if (condition is not null)
+            text = $"CASE WHEN {condition.Sql} THEN {text} END";
+        string Concat(string value) => _pg ? $"STRING_AGG({value}, ';')" : $"GROUP_CONCAT({value}, ';')";
+
+        if (frame.Navigation is null)
+            return Concat(text);
+
+        // The related rows of each group row, then all of them.
+        var navigation = frame.Navigation;
+        var rows = frame.Rows!;
+        var key = _scope.Table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null || navigation.Kind != NavigationKind.Children)
+        {
+            Fail(call, "FLOWS follows links from a table to its rows in another, e.g. FLOWS(trades.amount, trades.date) on accounts.");
+            return null;
+        }
+        var related = $"(SELECT {Concat(text)} FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {_scope.Alias}.{Q(key.Name)})";
+        return Concat(related);
+    }
 
     // ── Binding ──────────────────────────────────────────────────────────
 
@@ -636,6 +831,10 @@ public sealed class FormulaCompiler
         var name = info.Name;
         if (name == "CUSTOM")
             return Fail(call, "CUSTOM(…) must be the whole formula. Use its result in another computed column or dashboard variable.");
+        if (IsSeries(name))
+            return Fail(call, $"{name}(…) must be the whole formula of a dashboard measure; show it as a percentage in the widget.");
+        if (name == "FLOWS")
+            return Fail(call, "FLOWS(amount, date) is an argument of XIRR or IRR: XIRR(FLOWS(-invested, date), SUM(value), TODAY()).");
         if (name == "PERCENTILE")
             return BindPercentile(call);
         if (info.Category == FormulaFunctions.RelatedRows)
@@ -767,6 +966,42 @@ public sealed class FormulaCompiler
                 if (!Arity(call, 2, 2) || !RequireNumber(args[0], name) | !RequireNumber(args[1], name))
                     return null;
                 return new Expr(Power(args[0].Sql, args[1].Sql), FormulaType.Number, call);
+            // Finance (Excel's sign convention: money paid out is negative)
+            case "FV" or "PV":
+            {
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, n, payment) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var other = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var growth = $"power(1 + {rate}, {n})";
+                var annuity = $"{payment} * (1 + {rate} * {due}) * ({growth} - 1) / {rate}";
+                var sql = name == "FV"
+                    ? $"(CASE WHEN {rate} = 0 THEN -({other} + {payment} * {n}) ELSE -({other} * {growth} + {annuity}) END)"
+                    : $"(CASE WHEN {rate} = 0 THEN -({other} + {payment} * {n}) ELSE -({other} + {annuity}) / {growth} END)";
+                return new Expr($"(CASE WHEN {rate} <= -1 THEN NULL ELSE {sql} END)", FormulaType.Number, call);
+            }
+            case "PMT":
+            {
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, n, present) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var future = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var growth = $"power(1 + {rate}, {n})";
+                return new Expr(
+                    $"(CASE WHEN {n} = 0 OR {rate} <= -1 THEN NULL WHEN {rate} = 0 THEN -({present} + {future}) / {n} " +
+                    $"ELSE -({rate} * ({future} + {present} * {growth})) / ((1 + {rate} * {due}) * ({growth} - 1)) END)",
+                    FormulaType.Number, call);
+            }
+            case "NPV":
+            {
+                if (!Arity(call, 2, int.MaxValue) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var rate = Real(args[0]);
+                var terms = args.Skip(1).Select((a, i) => $"COALESCE({Real(a)}, 0) / power(1 + {rate}, {i + 1})");
+                return new Expr($"(CASE WHEN {rate} <= -1 THEN NULL ELSE ({string.Join(" + ", terms)}) END)", FormulaType.Number, call);
+            }
             case "SQRT":
                 if (!Arity(call, 1, 1) || !RequireNumber(args[0], name))
                     return null;
@@ -1257,6 +1492,9 @@ public sealed class FormulaCompiler
     // ── SQL pieces ───────────────────────────────────────────────────────
 
     private string RealType => _pg ? "DOUBLE PRECISION" : "REAL";
+
+    /// <summary>A number as floating point, for the finance functions' powers.</summary>
+    private string Real(Expr e) => $"CAST({e.Sql} AS {RealType})";
 
     /// <summary>The value as SQL of the given (compatible) type.</summary>
     private string Convert(Expr e, FormulaType target)

@@ -169,6 +169,12 @@ const at = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });
 export function wealthDashboard(n: FinanceNames): DashboardDocument {
   const t = n.transactions;
   const tr = n.trades;
+  const dv = n.dividends;
+  // Step 4.3: the depot at each month end, and the money put in during the month (dividends paid out count as taken out).
+  const depotAtMonthEnd = `SUM(SUM(${tr}.signed_shares * LOOKUP_ASOF("${n.prices}", "isin", ${tr}.isin, "date", BUCKET_END(), "price") WHERE ${tr}.date <= BUCKET_END()))`;
+  const moneyIn =
+    `SUM(SUM(${tr}.invested WHERE ${tr}.date >= BUCKET_START() AND ${tr}.date <= BUCKET_END())) - ` +
+    `SUM(SUM(${dv}.amount - COALESCE(${dv}.tax, 0) WHERE ${dv}.date >= BUCKET_START() AND ${dv}.date <= BUCKET_END()))`;
   const widgets: DashboardWidget[] = [
     {
       id: "net-worth",
@@ -262,23 +268,78 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       display: { format: "currency" },
     },
     {
+      id: "xirr",
+      type: "kpi",
+      title: "Return a year (XIRR)",
+      position: at(0, 11, 3, 2),
+      data: {
+        // Money paid into the depot, dividends received and today's value, by date (Step 4.3).
+        query: {
+          source: n.accounts,
+          measures: [
+            {
+              name: "xirr",
+              formula: `XIRR(FLOWS(-${tr}.invested, ${tr}.date), FLOWS(${dv}.amount - COALESCE(${dv}.tax, 0), ${dv}.date), SUM(SUM(${tr}.value)), TODAY())`,
+            },
+          ],
+        },
+      },
+      display: { format: "percent", compare: false },
+    },
+    {
+      id: "twr",
+      type: "kpi",
+      title: "Time-weighted return (range)",
+      position: at(0, 13, 3, 2),
+      data: {
+        asOf: true,
+        query: { source: n.accounts, groupBy: [{ column: "opened_on", bucket: "month", as: "month" }], measures: [{ name: "twr", formula: `TWR(${depotAtMonthEnd}, ${moneyIn})` }] },
+      },
+      display: { format: "percent", compare: false },
+    },
+    {
+      id: "depot-vs-benchmark",
+      type: "line",
+      title: "Depot vs. benchmark (100 = start)",
+      position: at(3, 11, 9, 4),
+      data: {
+        // Both from the end of the month before the range; the benchmark's ISIN is the variable "benchmark".
+        asOf: true,
+        query: {
+          source: n.accounts,
+          groupBy: [{ column: "opened_on", bucket: "month", as: "month" }],
+          measures: [
+            { name: "depot", formula: `TWR(${depotAtMonthEnd}, ${moneyIn}, 100)`, color: "teal" },
+            { name: "benchmark", formula: `REBASE(LOOKUP_ASOF("${n.prices}", "isin", benchmark, "date", BUCKET_END(), "price"))`, color: "gray" },
+          ],
+        },
+      },
+      display: { format: "number", referenceLines: [{ value: 100, label: "Start" }] },
+    },
+    {
       id: "how-to",
       type: "text",
       title: "",
-      position: at(0, 11, 12, 3),
+      position: at(0, 15, 12, 3),
       display: {
         text: [
           "# How to fill this",
           `- ${financeLabel(n, "accounts")}: one row per bank account or depot, with its opening balance`,
           `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import)`,
           `- ${financeLabel(n, "trades")}: buys and sells with ISIN, shares and price — your broker's export`,
-          `- ${financeLabel(n, "prices")}: a price per ISIN and date; month ends are enough (live prices come later)`,
+          `- ${financeLabel(n, "prices")}: a price per ISIN and date — by hand, imported, or live from a price source (Functions → Price sources)`,
           `- ${financeLabel(n, "dividends")}: payouts per ISIN`,
+          "- The benchmark is the ISIN in the dashboard variable **benchmark**; give it a symbol in the price source to fetch its prices",
         ].join("\n"),
       },
     },
   ];
-  return { dateRange: { preset: "last-12-months" }, refreshSeconds: 0, widgets };
+  return {
+    dateRange: { preset: "last-12-months" },
+    refreshSeconds: 0,
+    widgets,
+    variables: [{ name: "benchmark", label: "Benchmark ISIN", formula: '"IE00B4L5Y983"' }],
+  };
 }
 
 /** The cash-flow dashboard of the template's transactions, with an account filter. */

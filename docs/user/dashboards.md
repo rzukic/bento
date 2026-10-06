@@ -18,9 +18,12 @@ Or type a name and choose **Create** for an empty dashboard.
 Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — and two dashboards:
 
 - **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
-- **Wealth**: net worth, depot value, unrealised gain and dividends; net worth at each month end (cash and depot stacked, with a total line); allocation by security; positions (shares, invested, value, gain); dividends per month
+- **Wealth**:
+  - Key figures: net worth, depot value, unrealised gain and dividends.
+  - Charts: net worth at each month end (cash and depot stacked, with a total line), allocation by security, positions (shares, invested, value, gain), dividends per month.
+  - Returns: the depot's **return a year (XIRR)** from trades, dividends and today's value, its **time-weighted return** in the range, and **depot vs. benchmark** with both at 100 at the start of the range. The benchmark is the ISIN in the dashboard variable *benchmark* (MSCI World by default); its prices come from the Prices table, e.g. through a [price source](live-prices.md).
 
-Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends, month-end prices into Prices (live prices are planned for a later version).
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Prices come from a [price source](live-prices.md) or by hand.
 
 ## Date Range And Refresh
 
@@ -41,6 +44,7 @@ Choose **Edit**:
   - **The chart** in the middle, live, with the chart types above it, a sentence saying what it shows ("Sum of Betrag (EUR) by Buchungstag per month, split by Top 5 Kategorie + other"), other ways to show the same fields (**suggestions**) and **View data** for the numbers behind it
   - **Data** on the right: the chart's slots — *Horizontal axis*, *Vertical axis* and *Breakdown* for line, area and bar charts; *Slice by* and *Size by* for donuts; *Value* and *Secondary value* for key figures; *Rows* and *Metrics* for tables. Click an item to set it up:
     - a value: **Count, Sum, Average, Minimum, Maximum, Unique count, Median, Percentile** of a field — or a **Formula** — plus a running total when the axis is a date, a **colour** (green for income and red for expenses follow the theme; with a breakdown the values take the palette), and **Show as**: the value, the **change from the period before**, or a **moving average** over 2–24 periods (the first points stay empty until there are enough)
+    - with two or more values on a date axis: **Value axis → Right** puts a value on a second axis with its own scale, **written as** percent, number or amount — e.g. the depot's value on the left and its return on the right
     - a date: the **interval** (day to year)
     - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other** (a breakdown starts with the top 5)
   - **Only rows where** conditions, and which date the dashboard's range applies to

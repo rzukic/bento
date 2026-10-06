@@ -142,6 +142,15 @@ public static class FormulaFunctions
         new("BUCKET_START", Measures, "BUCKET_START()", "In values at the end of each period: the first day of the period.", "SUM(amount WHERE booked_on >= BUCKET_START() AND booked_on <= BUCKET_END())", "date"),
         new("BUCKET_END", Measures, "BUCKET_END()", "In values at the end of each period: the last day of the period.", "SUM(amount WHERE booked_on <= BUCKET_END())", "date"),
         new("LOOKUP_ASOF", "Lookup", "LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)", "The value of the latest row on or before the date, e.g. a price at a month end. Table and column names are text.", "LOOKUP_ASOF(\"prices\", \"ticker\", ticker, \"date\", TODAY(), \"price\")", "the type of value_column"),
+        new("FV", "Finance", "FV(rate, periods, payment, [present_value], [at_start])", "The future value of regular payments at a fixed rate, like Excel: money paid out is negative. at_start: payments at the start of each period.", "FV(0.05 / 12, 10 * 12, -200)", "float"),
+        new("PV", "Finance", "PV(rate, periods, payment, [future_value], [at_start])", "The present value of regular payments at a fixed rate, like Excel.", "PV(0.04 / 12, 20 * 12, -1000)", "float"),
+        new("PMT", "Finance", "PMT(rate, periods, present_value, [future_value], [at_start])", "The payment per period for a loan or savings plan at a fixed rate, like Excel: a loan of 10000 gives a negative payment.", "PMT(0.035 / 12, 25 * 12, 300000)", "float"),
+        new("NPV", "Finance", "NPV(rate, value1, value2, …)", "The net present value of flows at the end of periods 1, 2, …, like Excel.", "NPV(0.08, -1000, 300, 400, 500)", "float"),
+        new("XIRR", Returns, "XIRR(amount, date) or XIRR(FLOWS(…), …, final_value, final_date)", "Dashboards: the annual rate of return of dated cash flows (paid out negative), like Excel. Over the rows of the group, from FLOWS of several tables, and with single flows such as today's value. Must be the whole measure.", "XIRR(FLOWS(-amount, booked_on), SUM(amount), TODAY())", "float"),
+        new("IRR", Returns, "IRR(amount, date)", "Dashboards: the rate per period of flows at equal intervals, in date order, like Excel. Must be the whole measure.", "IRR(amount, booked_on)", "float"),
+        new("FLOWS", Returns, "FLOWS(amount, date [WHERE condition])", "The cash flows of the group's rows, or of each row's related rows (FLOWS(trades.amount, trades.date)), for XIRR and IRR.", "XIRR(FLOWS(amount, booked_on WHERE amount <> 0))", "flows"),
+        new("TWR", Returns, "TWR(value, flow, [index_start])", "Dashboards, values at the end of each period: the time-weighted return so far — each period's growth value / (previous value + money put in), multiplied. With index_start (e.g. 100) an index instead. Must be the whole measure.", "TWR(SUM(amount WHERE booked_on <= BUCKET_END()), SUM(amount WHERE booked_on >= BUCKET_START() AND booked_on <= BUCKET_END()), 100)", "float"),
+        new("REBASE", Returns, "REBASE(measure, [start])", "Dashboards: the measure relative to its first value in the range, which becomes 100 (or start) — to compare a fund with a benchmark. Must be the whole measure.", "REBASE(SUM(amount), 100)", "float"),
         new("CUSTOM", "Custom", "CUSTOM(\"name\", argument1, …)", "Runs one of your own JavaScript functions (see Functions). It must be the whole formula: in a computed column the value is stored and recalculated in the background; in dashboards it runs on each result.", "CUSTOM(\"risk_class\", volatility)", "the function's result type"),
         new("SUMIF", RelatedRows, "SUMIF(link.column, condition)", "SUM with a condition.", "SUMIF(transactions.amount, transactions.amount < 0)", "the type of column"),
         new("COUNTIF", RelatedRows, "COUNTIF(link, condition)", "COUNT with a condition.", "COUNTIF(transactions, transactions.amount < 0)", "integer"),
@@ -150,6 +159,7 @@ public static class FormulaFunctions
 
     public const string RelatedRows = "Related rows";
     public const string Measures = "Measures";
+    public const string Returns = "Returns";
 
     public static readonly IReadOnlyDictionary<string, string> Aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {

@@ -308,6 +308,41 @@ function MeasureSettings({
         </label>
       ) : null}
 
+      {isDateChart(widget) && (widget.data?.query?.groupBy ?? []).length < 2 && (widget.data?.query?.measures ?? []).length > 1 ? (
+        <div className="lens-field lens-field--row">
+          <label className="lens-field">
+            <span className="lens-field__label">Value axis</span>
+            <select
+              className="field__control field__control--compact"
+              aria-label="Value axis"
+              value={measure.axis ?? ""}
+              onChange={(event) =>
+                onChange({ ...measure, axis: event.target.value === "right" ? "right" : undefined, ...(event.target.value === "right" ? {} : { format: undefined }) })
+              }
+            >
+              <option value="">Left</option>
+              <option value="right">Right (its own scale)</option>
+            </select>
+          </label>
+          {measure.axis === "right" ? (
+            <label className="lens-field">
+              <span className="lens-field__label">Written as</span>
+              <select
+                className="field__control field__control--compact"
+                aria-label="Written as"
+                value={measure.format ?? ""}
+                onChange={(event) => onChange({ ...measure, format: (event.target.value || undefined) as typeof measure.format })}
+              >
+                <option value="">Like the chart</option>
+                <option value="percent">Percent</option>
+                <option value="number">Number</option>
+                <option value="currency">Amount</option>
+              </select>
+            </label>
+          ) : null}
+        </div>
+      ) : null}
+
       <label className="lens-field">
         <span className="lens-field__label">Name</span>
         <input className="field__control field__control--compact" value={measure.name} onChange={(event) => onChange({ ...measure, name: event.target.value })} />

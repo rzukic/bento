@@ -280,7 +280,7 @@ public sealed class OpenApiDocumentBuilder
         paths["/query"] = new JsonObject
         {
             ["post"] = Operation("Query", "Run an aggregation query", "read",
-                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct, median, percentile (`percentile`: 0–100) or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
+                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct, median, percentile (`percentile`: 0–100) or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`, returns: `XIRR(amount, date)`, `TWR(value, flow, 100)` with `asOf`, `REBASE(measure)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
                 body: Ref("AggregationQuery"),
                 responses: Responses(200, "Rows and column metadata.", Ref("QueryResult")))
         };
