@@ -3,17 +3,28 @@ import { useNavigate } from "react-router-dom";
 import { createDashboard } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
 import { createRow } from "../../api/data";
+import { createFunction, listFunctionTemplates, listFunctions } from "../../api/functions";
 import { applySchemaDraft, getCanonicalSchemaSnapshot, previewSchemaDraft } from "../../api/schema";
 import { Button } from "../../components/ui/Button";
 import { useSchemaStore } from "../../stores/schemaStore";
 import type { ModelTable } from "../../types/api";
-import { financeCashFlow, financeConflicts, financeNames, seedExamples, suggestedPrefix, wealthDashboard, withFinanceTables } from "./financeTemplate";
+import {
+  ensureCostFunction,
+  financeCashFlow,
+  financeConflicts,
+  financeNames,
+  seedExamples,
+  suggestedPrefix,
+  wealthDashboard,
+  withFinanceTables,
+} from "./financeTemplate";
 
 /**
  * The "Wealth & cash flow" starter (Step 3.9): new tables for accounts,
  * categories, transactions, trades, prices and dividends — nothing existing
  * changes — plus a cash-flow and a wealth dashboard, optionally with
- * example rows.
+ * example rows. Realised gains use the function avg_cost, created from its
+ * template when missing.
  */
 export function FinanceSetup({ tables, onError }: { tables: ModelTable[]; onError: (message: string | null) => void }) {
   const navigate = useNavigate();
@@ -32,6 +43,8 @@ export function FinanceSetup({ tables, onError }: { tables: ModelTable[]; onErro
       const current = await getCanonicalSchemaSnapshot();
       const taken = financeConflicts(names, current.tables);
       if (taken.length > 0) throw new Error(`These tables exist already: ${taken.join(", ")}. Choose another prefix.`);
+      // The trades' realised gains call the function avg_cost (Step 4.3b); it must exist before the tables check.
+      await ensureCostFunction({ list: listFunctions, templates: listFunctionTemplates, create: createFunction });
       const draft = withFinanceTables(current, names);
       const preview = await previewSchemaDraft(draft);
       if (!preview.isValid) throw new Error(preview.errors.map((issue) => issue.message).join(" "));
@@ -62,7 +75,8 @@ export function FinanceSetup({ tables, onError }: { tables: ModelTable[]; onErro
         <span className="dashboards-new__starter-title">Wealth & cash flow</span>
         <span className="dashboards-new__starter-description">
           New tables for accounts, categories, transactions, depot trades, prices and dividends, and two dashboards: cash flow with an account filter, and
-          wealth — net worth over time, depot value, gains, allocation, positions and dividends. Existing tables stay as they are.
+          wealth — net worth over time, depot value, realised and unrealised gains, returns, allocation, positions and dividends. Existing tables stay as
+          they are; the function avg_cost is added for realised gains unless you have it.
         </span>
         {progress ? <span className="dashboards-new__starter-description" role="status">{progress}…</span> : null}
       </div>

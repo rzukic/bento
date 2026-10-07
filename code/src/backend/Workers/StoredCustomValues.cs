@@ -183,6 +183,8 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
         System.Data.IDbConnection conn, Db.Schema.TableDef table, ComputedColumn column)
     {
         var custom = column.Custom!;
+        if (custom.OverRows)
+            return await RecalculateRowsAsync(conn, table, column);
         var function = custom.Function;
         var key = table.Columns.First(c => c.PrimaryKey);
         var source = ComputedColumns.Quote(table.Name);
@@ -256,6 +258,75 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
         }
 
         return (work.Count, await StoredFailureAsync(conn, table, column));
+    }
+
+    /// <summary>
+    /// CUSTOM_ROWS: a group is computed again as a whole when any of its rows,
+    /// their order or the function changed — each row's value may depend on the rows before it.
+    /// </summary>
+    private async Task<(int Changed, CustomValueFailure? Failure)> RecalculateRowsAsync(
+        System.Data.IDbConnection conn, Db.Schema.TableDef table, ComputedColumn column)
+    {
+        var custom = column.Custom!;
+        var function = custom.Function;
+        var key = ComputedColumns.Quote(table.Columns.First(c => c.PrimaryKey).Name);
+        var source = ComputedColumns.Quote(table.Name);
+        var sql = CustomRows.SelectSql(custom, source, key,
+            extraSelect: "v.inputs AS \"__inputs\", v.function_version AS \"__version\"",
+            join: $"LEFT JOIN {Values} v ON v.table_name = @Table AND v.column_name = @Column AND v.row_key = CAST({source}.{key} AS TEXT)");
+        var rows = (await conn.QueryAsync(sql, new { Table = table.Name, Column = column.Column.Name }))
+            .Cast<IDictionary<string, object?>>()
+            .ToList();
+        var stored = rows.ToDictionary(
+            r => System.Convert.ToString(r["__key"], CultureInfo.InvariantCulture)!,
+            r => (Inputs: r["__inputs"] as string, Version: r["__version"] is { } v and not DBNull ? System.Convert.ToInt32(v, CultureInfo.InvariantCulture) : (int?)null));
+
+        var work = CustomRows.Groups(custom, rows)
+            .Where(g => g.Keys.Any(k => stored[k].Version != function.Version || stored[k].Inputs != g.Inputs))
+            .ToList();
+        if (work.Count == 0)
+            return (0, await StoredFailureAsync(conn, table, column));
+
+        var changed = 0;
+        var (instance, syntax) = JsFunction.Create(function);
+        using var transaction = conn.BeginTransaction();
+        try
+        {
+            var now = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            foreach (var group in work)
+            {
+                foreach (var result in CustomRows.Run(instance, syntax, custom, group))
+                {
+                    changed++;
+                    await conn.ExecuteAsync(
+                        $"""
+                        INSERT INTO {Values} (table_name, column_name, row_key, value, inputs, function_version, error, computed_at)
+                        VALUES (@Table, @Column, @Key, @Value, @Inputs, @Version, @Error, @Now)
+                        ON CONFLICT (table_name, column_name, row_key) DO UPDATE SET
+                            value = excluded.value, inputs = excluded.inputs, function_version = excluded.function_version,
+                            error = excluded.error, computed_at = excluded.computed_at
+                        """,
+                        new
+                        {
+                            Table = table.Name,
+                            Column = column.Column.Name,
+                            result.Key,
+                            Value = result.Error is null ? CustomFunctionValues.StorageText(result.Value, function.Result, Pg) : null,
+                            result.Inputs,
+                            function.Version,
+                            result.Error,
+                            Now = now
+                        },
+                        transaction);
+                }
+            }
+            transaction.Commit();
+        }
+        finally
+        {
+            instance?.Dispose();
+        }
+        return (changed, await StoredFailureAsync(conn, table, column));
     }
 
     /// <summary>The rows whose stored value is an error, as one failure per column.</summary>

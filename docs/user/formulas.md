@@ -71,7 +71,7 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
 | Finance | `PMT(rate, periods, present_value, [future_value], [at_start])`, `FV(rate, periods, payment, [present_value], [at_start])`, `PV(rate, periods, payment, [future_value], [at_start])`, `NPV(rate, value1, …)` — like Excel |
 | Returns (dashboards) | `XIRR`, `IRR`, `FLOWS`, `TWR`, `REBASE` (see [below](#returns)) |
-| Custom | `CUSTOM("name", argument, …)` — your own JavaScript (see [below](#your-own-functions)) |
+| Custom | `CUSTOM("name", argument, …)` — your own JavaScript (see [below](#your-own-functions)); `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` over a group of rows (see [below](#functions-over-a-group-of-rows)) |
 
 A few details:
 
@@ -124,6 +124,12 @@ Dashboard measures can compute returns. Each of these is the whole measure; show
 - Each period grows by value / (previous value + flow), and the periods multiply. A key figure shows the return in the range; with a third argument the chart shows an index, e.g. 100 at the start.
 - The return starts at the end of the period before the range, so the first month counts too.
 
+**With dated flows — `TWR(value, FLOWS(amount, date), … [, 100])`** — money counts only for the days it was in the portfolio (Modified Dietz): 1000 € bought on the 15th of a 31-day month counts as 17/31 of 1000 € at the start of the month. A month's growth is (value − flows + weighted flows) / (previous value + weighted flows). Use this when you buy in the middle of a month; the plain form treats all money as there from the start. The Wealth template uses it:
+
+```
+TWR(<depot at month end>, FLOWS(trades.invested, trades.date), FLOWS(COALESCE(dividends.tax, 0) - dividends.amount, dividends.date))
+```
+
 **`REBASE(measure [, 100])`** divides by the first value in the range: two lines starting at 100, e.g. the depot and a benchmark's price, `REBASE(LOOKUP_ASOF("prices", "isin", benchmark, "date", BUCKET_END(), "price"))`.
 
 The Wealth template has all three ready (see [Dashboards](dashboards.md#wealth--cash-flow-in-one-click)).
@@ -162,12 +168,46 @@ When the function fails on a row (it throws, runs too long, returns the wrong ty
 
 A function used by a computed column cannot be deleted, and a change to its arguments or result type that would break such a column is refused with the column named.
 
+### Functions Over A Group Of Rows
+
+Some values depend on the rows before them: the average cost of a position after each buy and sale, a running balance per account, a rank within a group. Tick **Runs over a group of rows** in the function's editor. The function then runs once per group: each argument is a **list** with a value per row, in order, and it returns a list with a value per row.
+
+```js
+// running_total(amount: Number) → Number, over rows
+let sum = 0;
+return amount.map((a) => (sum += a ?? 0));
+```
+
+Call it in a computed column with `CUSTOM_ROWS`:
+
+```
+CUSTOM_ROWS("running_total", PARTITION(account_id), ORDER(date, id), amount)
+```
+
+- `PARTITION(…)` puts rows with the same values into one group (here: per account). Without it, all rows are one group.
+- `ORDER(…)` sorts a group's rows, ascending, empty values first; the key decides between equal rows.
+- The values are stored like those of `CUSTOM`. When a row changes, is added or deleted, its whole group is computed again.
+- **Try it** takes a list per argument, e.g. `[10, -5]`.
+- Functions over rows work only in computed columns, cannot call the internet, and get 2 seconds per group.
+
+**Templates.** Two templates compute what a sale gained, per security (`PARTITION(account_id, isin)`, `ORDER(date, id)`). Their arguments are shares (+ bought, − sold), price, fees and what to give back:
+
+| `what` | Gives per trade |
+|---|---|
+| `"realized"` | What a sale gained: proceeds − fees − the cost of the shares sold (0 for buys) |
+| `"cost"` | How the trade changes the position's cost: + paid for a buy, − the cost of the shares sold |
+| `"held"`, `"average"` | Shares and average cost per share after the trade |
+
+- **Realised gains by average cost** (`avg_cost`): the shares sold cost the average of all held; German banks use it for funds. The Wealth template uses it.
+- **Realised gains by FIFO** (`fifo_cost`): the oldest shares go first, as for shares and ETFs in Germany's tax rules.
+
+Example: buy 10 at 100 (+1 fee), buy 10 at 120 (+1), sell 5 at 130 (−2). By average cost the 20 shares cost 2202, 110.10 each, so the sale gains 650 − 2 − 550.50 = **97.50**. By FIFO the 5 shares come from the first buy at 100.10, so it gains **147.50**. `SUM(cost)` over a position is what the shares still held cost, and `SUM(value - cost)` its unrealised gain.
+
 ## Not Yet
 
 - formulas in saved queries are not updated when a column they use is renamed (stored columns in saved queries are)
 - aggregates over related rows of related rows (add a computed column on the related table and sum that)
 - returns inside larger formulas (`XIRR(…) * 100`), `RUNNING_SUM` of a return, top values ranked by a return
-- realised gains by average cost
 - the app's text search does not look into computed columns
 - `CUSTOM(…)` inside a larger formula, or summed with `RUNNING_SUM`; top values ranked by a `CUSTOM` measure
 - functions in TypeScript

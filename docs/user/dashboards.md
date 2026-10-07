@@ -19,11 +19,30 @@ Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tab
 
 - **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
 - **Wealth**:
-  - Key figures: net worth, depot value, unrealised gain and dividends.
-  - Charts: net worth at each month end (cash and depot stacked, with a total line), allocation by security, positions (shares, invested, value, gain), dividends per month.
+  - Key figures: net worth, depot value, unrealised gain, dividends, and realised gains in the range.
+  - Charts: net worth at each month end (cash and depot stacked, with a total line), allocation by security, positions (shares, cost, value, unrealised and realised gain), dividends per month.
   - Returns: the depot's **return a year (XIRR)** from trades, dividends and today's value, its **time-weighted return** in the range, and **depot vs. benchmark** with both at 100 at the start of the range. The benchmark is the ISIN in the dashboard variable *benchmark* (MSCI World by default); its prices come from the Prices table, e.g. through a [price source](live-prices.md).
+  - Gains by **average cost**: each trade gets a realised gain and a change in cost (columns *Realised gain* and *Cost (±)* of Trades), computed by your function `avg_cost` (see [Functions over a group of rows](formulas.md#functions-over-a-group-of-rows)). **Set up** creates it from its template unless you have one. For FIFO, give `avg_cost` the code of the FIFO template.
+  - The time-weighted return counts money for the days it was in the depot (Modified Dietz), so a buy in the middle of a month does not distort it.
 
-Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Prices come from a [price source](live-prices.md) or by hand.
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Prices come from a [price source](live-prices.md) or by hand.
+
+### A Depot With Its Own Cash
+
+The template's depot holds only securities: a dividend leaves it, so the time-weighted return counts it as money taken out, not as return. Most brokers keep a clearing account (*Verrechnungskonto*) with the depot, where dividends and sale proceeds stay. To measure the depot with its cash, change the measures of **Time-weighted return** and **Depot vs. benchmark** — no new tables needed:
+
+- **Value** at month end: the securities, plus the depot's cash — what you transferred in, minus what trades cost, plus net dividends. Book transfers to the depot in Transactions with the category *Investing* (id 5 in the template; use yours):
+
+  ```
+  SUM(SUM(trades.signed_shares * LOOKUP_ASOF("prices", "isin", trades.isin, "date", BUCKET_END(), "price") WHERE trades.date <= BUCKET_END()))
+    - SUM(SUM(transactions.amount WHERE transactions.category_id = 5 AND transactions.date <= BUCKET_END()))
+    - SUM(SUM(trades.invested WHERE trades.date <= BUCKET_END()))
+    + SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date <= BUCKET_END()))
+  ```
+
+- **Money in**: only the transfers, `FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5)`.
+
+Together: `TWR(<value>, FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5), 100)`. Dividends then stay in the depot and count as return; buying and selling within the depot moves money between securities and cash and changes nothing.
 
 ## Date Range And Refresh
 

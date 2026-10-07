@@ -121,27 +121,44 @@ public static class Returns
 
     /// <summary>
     /// The time-weighted return up to each period: the product of the period
-    /// growths V_t / (V_t−1 + F_t), where F_t (the money put in during the
-    /// period, taken out negative) counts from its start. The first period is the
-    /// base: 0, or the index's start. A period whose base is not positive (an
-    /// empty portfolio before the first purchase) does not move the return.
+    /// growths (V_t − F_t + W_t) / (V_t−1 + W_t), where F_t is the money put in
+    /// during the period (taken out negative) and W_t the same weighted by the
+    /// share of the period it was in (Modified Dietz). Without dates W_t = F_t:
+    /// V_t / (V_t−1 + F_t), the flow counting from the period's start. The first
+    /// period is the base: 0, or the index's start. A period whose base is not
+    /// positive (an empty portfolio before the first purchase) does not move it.
     /// </summary>
-    public static double?[] Twr(IReadOnlyList<(double? Value, double? Flow)> periods, double? index)
+    public static double?[] Twr(IReadOnlyList<(double? Value, double? Flow, double? Weighted)> periods, double? index)
     {
         var result = new double?[periods.Count];
         double growth = 1;
         double? previous = null;
         for (var i = 0; i < periods.Count; i++)
         {
-            var (value, flow) = periods[i];
+            var (value, flow, weighted) = periods[i];
             if (value is null)
                 continue;
-            if (previous is { } start && start + (flow ?? 0) is var invested && invested > 0)
-                growth *= value.Value / invested;
+            var f = flow ?? 0;
+            var w = weighted ?? f;
+            if (previous is { } start && start + w is var invested && invested > 0)
+                growth *= (value.Value - f + w) / invested;
             previous = value;
             result[i] = index is { } first ? first * growth : growth - 1;
         }
         return result;
+    }
+
+    /// <summary>The flows within a period (start and end inclusive): their sum, and their sum weighted by the days they were in.</summary>
+    public static (double Flow, double Weighted) InPeriod(IEnumerable<CashFlow> flows, DateOnly start, DateOnly end)
+    {
+        var days = end.DayNumber - start.DayNumber + 1;
+        double flow = 0, weighted = 0;
+        foreach (var f in flows.Where(f => f.Date >= start && f.Date <= end))
+        {
+            flow += f.Amount;
+            weighted += f.Amount * (end.DayNumber - f.Date.DayNumber + 1) / days;
+        }
+        return (flow, weighted);
     }
 
     /// <summary>Each value relative to the first non-empty one, which becomes <paramref name="start"/>.</summary>

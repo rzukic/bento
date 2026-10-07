@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDocument } from "../api/dashboards";
 import type { ModelTable, SchemaModelDocument } from "../types/api";
 import {
+  ensureCostFunction,
   exampleRows,
   financeCashFlow,
   financeConflicts,
@@ -20,9 +21,29 @@ import {
 const schemaApi = vi.hoisted(() => ({ getCanonicalSchemaSnapshot: vi.fn(), previewSchemaDraft: vi.fn(), applySchemaDraft: vi.fn() }));
 const dashboardsApi = vi.hoisted(() => ({ createDashboard: vi.fn() }));
 const dataApi = vi.hoisted(() => ({ createRow: vi.fn() }));
+const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn(), listFunctionTemplates: vi.fn(), createFunction: vi.fn() }));
 vi.mock("../api/schema", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/schema")>()), ...schemaApi }));
 vi.mock("../api/dashboards", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/dashboards")>()), ...dashboardsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
+vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
+
+const avgCostTemplate = {
+  id: "avg-cost",
+  title: "Realised gains by average cost",
+  description: "By average cost",
+  name: "avg_cost",
+  arguments: [
+    { name: "shares", type: "float" as const },
+    { name: "price", type: "float" as const },
+    { name: "fees", type: "float" as const },
+    { name: "what", type: "text" as const },
+  ],
+  resultType: "float" as const,
+  code: "return shares;",
+  allowedHosts: [],
+  credentials: [],
+  mode: "rows" as const,
+};
 
 afterEach(() => {
   cleanup();
@@ -122,6 +143,9 @@ describe("finance template", () => {
     schemaApi.previewSchemaDraft.mockResolvedValue({ isValid: true, errors: [] });
     schemaApi.applySchemaDraft.mockResolvedValue({});
     dataApi.createRow.mockImplementation(async (_t: string, row: Record<string, unknown>) => ({ ...row, id: 1 }));
+    functionsApi.listFunctions.mockResolvedValue([]);
+    functionsApi.listFunctionTemplates.mockResolvedValue([avgCostTemplate]);
+    functionsApi.createFunction.mockResolvedValue({});
     dashboardsApi.createDashboard.mockImplementation(async (name: string, document: DashboardDocument) => ({ id: name === "Wealth" ? 9 : 8, name, dashboard: document }));
     const applied = withFinanceTables(existing, financeNames("finance_"));
     useSchemaStore.setState({ load: vi.fn(async () => applied as never) });
@@ -140,6 +164,20 @@ describe("finance template", () => {
     expect(schemaApi.applySchemaDraft).toHaveBeenCalledWith(applied);
     await waitFor(() => expect(dashboardsApi.createDashboard.mock.calls.map(([name]) => name)).toEqual(["Cash flow", "Wealth"]));
     expect(dataApi.createRow).toHaveBeenCalledWith("finance_accounts", expect.objectContaining({ name: "Checking" }));
+    // The function the trades' realised gains call is created before the tables are checked.
+    expect(functionsApi.createFunction).toHaveBeenCalledWith(expect.objectContaining({ name: "avg_cost", mode: "rows", code: "return shares;" }));
+    expect(functionsApi.createFunction.mock.invocationCallOrder[0]).toBeLessThan(schemaApi.previewSchemaDraft.mock.invocationCallOrder[0]);
+  });
+
+  it("uses an existing avg_cost over rows and refuses one that is not", async () => {
+    const create = vi.fn();
+    const templates = vi.fn(async () => [avgCostTemplate]);
+    const existing = { ...avgCostTemplate, version: 1, createdAt: "", updatedAt: "", usedBy: [], usableInFormulas: true, description: null };
+    await ensureCostFunction({ list: async () => [existing], templates, create });
+    expect(create).not.toHaveBeenCalled();
+    await expect(ensureCostFunction({ list: async () => [{ ...existing, mode: "row" }], templates, create })).rejects.toThrow(
+      "A function named avg_cost exists already and does not run over a group of rows; rename it under Functions first.",
+    );
   });
 });
 

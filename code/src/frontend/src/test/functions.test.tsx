@@ -122,6 +122,41 @@ describe("Functions page", () => {
     expect(await screen.findByRole("heading", { name: "month_end" })).toBeInTheDocument();
   });
 
+  it("runs a function over a group of rows with a list per argument", async () => {
+    const avgCost: CustomFunction = {
+      ...riskClass,
+      name: "avg_cost",
+      arguments: [
+        { name: "shares", type: "float" },
+        { name: "what", type: "text" },
+      ],
+      resultType: "float",
+      code: "return shares;",
+      usedBy: [],
+      mode: "rows",
+    };
+    api.listFunctions.mockResolvedValue([avgCost]);
+    api.testFunction.mockResolvedValue({ value: [0, 97.5], resultType: "float", error: null, logs: [], durationMs: 0.2, requests: 0 });
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/functions?fn=avg_cost"])} />);
+
+    expect(await screen.findByRole("heading", { name: "avg_cost" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: /Runs over a group of rows/ })).toBeChecked();
+    expect(screen.getByText('CUSTOM_ROWS("avg_cost", PARTITION(isin), ORDER(date, id), shares, what)')).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Internet" })).not.toBeInTheDocument();
+    expect(within(screen.getByLabelText("Result type")).queryByRole("option", { name: "Any (JSON)" })).not.toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Test value for shares"), "[[10, -5]");
+    await user.type(screen.getByLabelText("Test value for what"), '"realized"');
+    await user.click(screen.getByRole("button", { name: "Run" }));
+    expect(api.testFunction).toHaveBeenCalledWith(expect.objectContaining({ mode: "rows" }), [[10, -5], ["realized"]]);
+    expect(await screen.findByText(/97\.5/, { selector: ".function-test__json" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: /Runs over a group of rows/ }));
+    expect(screen.getByText('CUSTOM("avg_cost", shares, what)')).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Internet" })).toBeInTheDocument();
+  });
+
   it("shows stored values that failed, and is read-only for viewers", async () => {
     api.getFunctionStatus.mockResolvedValue({
       ...idle,

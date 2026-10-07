@@ -41,15 +41,29 @@ public sealed class ReturnsTests
     public void Twr_ChainsPeriodGrowth()
     {
         // Dec: 1000. Jan: +10 % → 1100. Feb: 500 put in at the start, then −10 % → (1100 + 500) × 0.9 = 1440.
-        double?[] twr = Returns.Twr([(1000, 0), (1100, 0), (1440, 500)], null);
+        double?[] twr = Returns.Twr([(1000, 0, null), (1100, 0, null), (1440, 500, null)], null);
         Assert.Equal(0, twr[0]!.Value, 10);
         Assert.Equal(0.1, twr[1]!.Value, 10);
         Assert.Equal(1.1 * 0.9 - 1, twr[2]!.Value, 10);
-        Assert.Equal(99, Returns.Twr([(1000, 0), (1100, 0), (1440, 500)], 100)[2]!.Value, 10);
+        Assert.Equal(99, Returns.Twr([(1000, 0, null), (1100, 0, null), (1440, 500, null)], 100)[2]!.Value, 10);
 
         // An empty portfolio before the first purchase: the purchase is the base.
-        double?[] fresh = Returns.Twr([(0, 0), (1050, 1000), (1050, 0)], 100);
+        double?[] fresh = Returns.Twr([(0, 0, null), (1050, 1000, null), (1050, 0, null)], 100);
         Assert.Equal([100, 105, 105], fresh.Select(v => Math.Round(v!.Value, 10)));
+    }
+
+    [Fact]
+    public void Twr_WeighsDatedFlowsByTheirDays()
+    {
+        // June has 30 days; 500 put in on the 16th was in for 15 of them: half weight.
+        var (flow, weighted) = Returns.InPeriod([F("2026-06-16", 500), F("2026-05-31", 99), F("2026-07-01", 99)], new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30));
+        Assert.Equal(500, flow);
+        Assert.Equal(250, weighted, 10);
+        // (1600 − 500 + 250) / (1000 + 250) = 1.08, not 1600 / 1500 as if the money had been in all month.
+        Assert.Equal(0.08, Returns.Twr([(1000, 0, 0), (1600, flow, weighted)], null)[1]!.Value, 10);
+        // A payment on the first day counts fully, one on the last day for that day only.
+        Assert.Equal(100, Returns.InPeriod([F("2026-06-01", 100)], new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30)).Weighted, 10);
+        Assert.Equal(100.0 / 30, Returns.InPeriod([F("2026-06-30", 100)], new DateOnly(2026, 6, 1), new DateOnly(2026, 6, 30)).Weighted, 10);
     }
 
     [Fact]

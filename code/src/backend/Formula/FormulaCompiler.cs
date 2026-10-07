@@ -32,7 +32,18 @@ public sealed record SeriesCall(string Kind, IReadOnlyList<SeriesPart> Parts, de
 public sealed record SeriesPart(string Kind, string Sql);
 
 /// <summary>A <c>CUSTOM("name", …)</c> call: the function and its arguments as SQL over the row (or the group).</summary>
-public sealed record CustomCall(CustomFunctionDef Function, IReadOnlyList<CustomArgument> Arguments);
+/// <param name="Partition">
+/// <c>CUSTOM_ROWS</c> (Step 4.3b): the values that put rows into one group, which
+/// the function gets at once in <see cref="Order"/> (then by key). Null for <c>CUSTOM</c>.
+/// </param>
+public sealed record CustomCall(
+    CustomFunctionDef Function,
+    IReadOnlyList<CustomArgument> Arguments,
+    IReadOnlyList<CustomArgument>? Partition = null,
+    IReadOnlyList<CustomArgument>? Order = null)
+{
+    public bool OverRows => Partition is not null;
+}
 
 public sealed record CustomArgument(string Sql, FormulaType Type);
 
@@ -244,7 +255,8 @@ public sealed class FormulaCompiler
 
     // ── Custom functions (Step 4.1) ──────────────────────────────────────
 
-    private static bool IsCustom(string name) => string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase);
+    private static bool IsCustom(string name) =>
+        string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "CUSTOM_ROWS", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The name of the table that keeps computed columns' CUSTOM values (in the data database).</summary>
     public const string StoredValuesTable = "_bento_function_values";
@@ -258,10 +270,16 @@ public sealed class FormulaCompiler
     /// </summary>
     private FormulaCheck RunCustom(FunctionCall call, int length, FormulaType? expected, string? stored)
     {
+        var overRows = string.Equals(call.Name, "CUSTOM_ROWS", StringComparison.OrdinalIgnoreCase);
+        var label = overRows ? "CUSTOM_ROWS" : "CUSTOM";
         if (call.HasWhere)
-            return new FormulaCheck(null, [new FormulaError("WHERE does not work in CUSTOM; put the condition into an argument, e.g. SUM(amount WHERE amount > 0).", call.Start, call.End)]);
+            return new FormulaCheck(null, [new FormulaError($"WHERE does not work in {label}; put the condition into an argument, e.g. SUM(amount WHERE amount > 0).", call.Start, call.End)]);
+        if (overRows && stored is null && (_shared.Context.Measure || _scope.Table.Columns.Count == 0))
+            return new FormulaCheck(null, [new FormulaError("CUSTOM_ROWS works in computed columns: it gives each row a value from its group's rows.", call.Start, call.End)]);
         if (call.Arguments.Count == 0 || call.Arguments[0] is not StringLiteral nameLiteral)
-            return new FormulaCheck(null, [new FormulaError("CUSTOM needs the function's name as text first: CUSTOM(\"risk_class\", volatility).",
+            return new FormulaCheck(null, [new FormulaError(overRows
+                    ? "CUSTOM_ROWS needs the function's name as text first: CUSTOM_ROWS(\"avg_cost\", PARTITION(isin), ORDER(date), shares, price, fees, \"realized\")."
+                    : "CUSTOM needs the function's name as text first: CUSTOM(\"risk_class\", volatility).",
                 call.Arguments.Count > 0 ? call.Arguments[0].Start : call.Start, call.Arguments.Count > 0 ? call.Arguments[0].End : call.End)]);
 
         var functions = _shared.Context.Functions?.Functions ?? StaticFunctionCatalog.Empty.Functions;
@@ -280,15 +298,48 @@ public sealed class FormulaCompiler
                 ? $"{function.Name} calls the internet; such functions run as price sources, not in formulas."
                 : $"{function.Name} gives any JSON value; formulas need a function with a declared result type.",
                 nameLiteral.Start, nameLiteral.End)]);
+        if (function.RowsMode != overRows)
+            return new FormulaCheck(null, [new FormulaError(function.RowsMode
+                    ? $"{function.Name} runs over a group of rows; call it as CUSTOM_ROWS(\"{function.Name}\", PARTITION(…), ORDER(…), …)."
+                    : $"{function.Name} runs on one row; call it as CUSTOM(\"{function.Name}\", …), or let it run over a group of rows in its editor.",
+                nameLiteral.Start, nameLiteral.End)]);
 
-        var given = call.Arguments.Count - 1;
+        // CUSTOM_ROWS: PARTITION(…) and ORDER(…) come right after the name, both optional.
+        var rest = call.Arguments.Skip(1).ToList();
+        List<CustomArgument>? partition = overRows ? [] : null;
+        List<CustomArgument>? order = overRows ? [] : null;
+        while (overRows && rest.Count > 0 && rest[0] is FunctionCall { Name: var clause } group &&
+               (IsClause(clause, "PARTITION") || IsClause(clause, "ORDER")))
+        {
+            var into = IsClause(clause, "PARTITION") ? partition! : order!;
+            if (into.Count > 0 || group.HasWhere || group.Arguments.Count == 0)
+            {
+                Fail(group, $"{clause.ToUpperInvariant()}(…) comes once, with one or more values and no WHERE.");
+                break;
+            }
+            foreach (var node in group.Arguments)
+            {
+                var bound = Bind(node);
+                if (bound is null)
+                    continue;
+                if (bound.IsRows)
+                    Fail(node, $"{clause.ToUpperInvariant()}(…) takes values of the row, not COUNT(…) of rows.");
+                else
+                    into.Add(new CustomArgument(bound.Sql, bound.Type));
+            }
+            rest.RemoveAt(0);
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+
+        var given = rest.Count;
         if (given != function.Arguments.Count)
             return new FormulaCheck(null, [new FormulaError(
                 $"{function.Name} takes {Count(function.Arguments.Count, "argument")} ({string.Join(", ", function.Arguments.Select(a => a.Name))}), not {given}.",
                 call.Start, call.End)]);
 
         var arguments = new List<CustomArgument>();
-        foreach (var (node, index) in call.Arguments.Skip(1).Select((n, i) => (n, i)))
+        foreach (var (node, index) in rest.Select((n, i) => (n, i)))
         {
             var bound = Bind(node);
             if (bound is null)
@@ -311,7 +362,7 @@ public sealed class FormulaCompiler
             var table = _scope.Table;
             var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
             if (key is null)
-                return new FormulaCheck(null, [new FormulaError($"CUSTOM in a computed column needs a primary key on {table.DisplayName ?? table.Name}.", call.Start, call.End)]);
+                return new FormulaCheck(null, [new FormulaError($"{label} in a computed column needs a primary key on {table.DisplayName ?? table.Name}.", call.Start, call.End)]);
             var value = $"(SELECT v.value FROM {Q(StoredValuesTable)} v WHERE v.table_name = {Str(table.Name)} AND v.column_name = {Str(stored)} " +
                         $"AND v.row_key = CAST({_scope.Alias}.{Q(key.Name)} AS TEXT))";
             expr = expr with { Sql = CustomFunctionValues.ReadSql(value, type, _pg) };
@@ -326,8 +377,10 @@ public sealed class FormulaCompiler
             sql = Convert(expr, target);
             type = target;
         }
-        return new FormulaCheck(new CompiledFormula(sql, type, _columns, new CustomCall(function, arguments)), []);
+        return new FormulaCheck(new CompiledFormula(sql, type, _columns, new CustomCall(function, arguments, partition, order)), []);
     }
+
+    private static bool IsClause(string name, string clause) => string.Equals(name, clause, StringComparison.OrdinalIgnoreCase);
 
     private static string DescribeArgument(string type) =>
         type == "any" ? "any value" : FormulaTypes.FromName(type) is { } known ? FormulaTypes.Describe(known) : type;
@@ -407,19 +460,35 @@ public sealed class FormulaCompiler
             }
             case "TWR":
             {
-                if (call.HasWhere || call.Arguments.Count is < 2 or > 3)
-                    return Error(call, "Write TWR(value, flow [, 100]): the value at each period end and the money put in during the period (taken out: negative).");
-                var value = Bind(call.Arguments[0]);
-                var flow = Bind(call.Arguments[1]);
+                // TWR(value, flow [, start]) or TWR(value, FLOWS(…), FLOWS(…) [, start]): dated flows weigh by the days they were in (Modified Dietz).
+                var args = call.Arguments.ToList();
+                if (args.Count > 2 && args[^1] is NumberLiteral start)
+                {
+                    if (start.Value <= 0)
+                        return Error(start, "The index starts at a positive number, e.g. TWR(value, flow, 100).");
+                    @base = start.Value;
+                    args.RemoveAt(args.Count - 1);
+                }
+                var flows = args.Skip(1).ToList();
+                var dated = flows.Count > 0 && flows.All(f => f is FunctionCall { Name: var n } && string.Equals(n, "FLOWS", StringComparison.OrdinalIgnoreCase));
+                if (call.HasWhere || args.Count < 2 || (!dated && flows.Count != 1))
+                    return Error(call, "Write TWR(value, flow [, 100]) — the value at each period end and the money put in during the period (taken out: negative) — or TWR(value, FLOWS(amount, date), … [, 100]) to weigh each payment by its day.");
+                var value = Bind(args[0]);
                 if (value is not null && RequireNumber(value, "The value of TWR"))
                     parts.Add(new SeriesPart("value", value.Sql));
-                if (flow is not null && RequireNumber(flow, "The flow of TWR"))
-                    parts.Add(new SeriesPart("flow", flow.Sql));
-                if (call.Arguments.Count == 3)
+                if (dated)
                 {
-                    if (call.Arguments[2] is not NumberLiteral { Value: > 0 } start)
-                        return Error(call.Arguments[2], "The index starts at a positive number, e.g. TWR(value, flow, 100).");
-                    @base = start.Value;
+                    foreach (var f in flows.Cast<FunctionCall>())
+                    {
+                        if (BindFlows(f) is { } sql)
+                            parts.Add(new SeriesPart("flows", sql));
+                    }
+                }
+                else
+                {
+                    var flow = Bind(flows[0]);
+                    if (flow is not null && RequireNumber(flow, "The flow of TWR"))
+                        parts.Add(new SeriesPart("flow", flow.Sql));
                 }
                 break;
             }
@@ -829,8 +898,10 @@ public sealed class FormulaCompiler
         }
 
         var name = info.Name;
-        if (name == "CUSTOM")
-            return Fail(call, "CUSTOM(…) must be the whole formula. Use its result in another computed column or dashboard variable.");
+        if (name is "CUSTOM" or "CUSTOM_ROWS")
+            return Fail(call, $"{name}(…) must be the whole formula. Use its result in another computed column" + (name == "CUSTOM" ? " or dashboard variable." : "."));
+        if (name is "PARTITION" or "ORDER")
+            return Fail(call, $"{name}(…) is part of CUSTOM_ROWS: CUSTOM_ROWS(\"avg_cost\", PARTITION(isin), ORDER(date), …).");
         if (IsSeries(name))
             return Fail(call, $"{name}(…) must be the whole formula of a dashboard measure; show it as a percentage in the widget.");
         if (name == "FLOWS")

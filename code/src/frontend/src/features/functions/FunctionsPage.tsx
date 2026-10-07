@@ -54,6 +54,7 @@ const STARTER: FunctionDraft & { name: string } = {
   code: '// The arguments are the function\'s parameters; return the result.\nif (value === null) return null;\nreturn value > 0 ? "positive" : "zero or negative";',
   allowedHosts: [],
   credentials: [],
+  mode: "row",
 };
 
 type Draft = FunctionDraft & { name: string };
@@ -67,6 +68,7 @@ function toDraft(fn: CustomFunction): Draft {
     code: fn.code,
     allowedHosts: [...fn.allowedHosts],
     credentials: [...fn.credentials],
+    mode: fn.mode ?? "row",
   };
 }
 
@@ -79,10 +81,23 @@ function message(cause: unknown, fallback: string): string {
   return fallback;
 }
 
-/** CUSTOM("name", arg, …) as a formula would call it. */
+/** CUSTOM("name", arg, …) as a formula would call it; CUSTOM_ROWS(…) for functions over rows. */
 function callSnippet(draft: Draft): string {
-  const args = draft.arguments.map((a) => a.name).filter(Boolean);
-  return `CUSTOM("${draft.name || "name"}"${args.map((a) => `, ${a}`).join("")})`;
+  const args = draft.arguments.map((a) => `, ${a.name}`).filter((a) => a !== ", ").join("");
+  return draft.mode === "rows"
+    ? `CUSTOM_ROWS("${draft.name || "name"}", PARTITION(isin), ORDER(date, id)${args})`
+    : `CUSTOM("${draft.name || "name"}"${args})`;
+}
+
+/** Rows mode: a test input is a JSON list, a value per row (a single value counts as one row). */
+function testList(raw: string, type: ArgumentType): unknown[] {
+  try {
+    const parsed: unknown = JSON.parse(raw.trim() || "[]");
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    // not JSON: one row below
+  }
+  return [testValue(raw, type)];
 }
 
 /** A test input as the value the API sends: numbers, yes/no, text, empty as null. */
@@ -326,6 +341,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
   }, [fn, readOnly]);
 
   const networked = draft.allowedHosts.length > 0;
+  const overRows = draft.mode === "rows";
   const inFormulas = !networked && draft.resultType !== "any";
   const dirty = !sameDraft(draft, initial);
   const failures = fn ? (status?.failures.filter((f) => f.function === fn.name) ?? []) : [];
@@ -361,6 +377,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         code: draft.code,
         allowedHosts: draft.allowedHosts,
         credentials: draft.credentials,
+        mode: draft.mode ?? "row",
       };
       const saved = fn ? await updateFunction(fn.name, body) : await createFunction(body);
       setVersions(null);
@@ -386,7 +403,8 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
   const runTest = async () => {
     setTesting(true);
     try {
-      setResult(await testFunction(draft, draft.arguments.map((a, i) => testValue(testInputs[i] ?? "", a.type))));
+      const rows = draft.mode === "rows";
+      setResult(await testFunction(draft, draft.arguments.map((a, i) => (rows ? testList : testValue)(testInputs[i] ?? "", a.type))));
     } catch (cause) {
       setResult({ value: null, resultType: draft.resultType, error: message(cause, "The test could not run."), logs: [], durationMs: 0, requests: 0 });
     } finally {
@@ -412,6 +430,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
       code: template.code,
       allowedHosts: [...template.allowedHosts],
       credentials: [...template.credentials],
+      mode: template.mode ?? "row",
     });
     setTestInputs(template.arguments.map(() => ""));
     setResult(null);
@@ -532,12 +551,28 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
             disabled={readOnly}
             onChange={(event) => update({ resultType: event.target.value as FunctionType })}
           >
-            {RESULT_TYPES.map((type) => (
+            {RESULT_TYPES.filter((type) => !overRows || type !== "any").map((type) => (
               <option key={type} value={type}>
                 {TYPE_LABELS[type]}
               </option>
             ))}
           </select>
+        </label>
+        <label className="function-editor__check">
+          <input
+            type="checkbox"
+            checked={overRows}
+            disabled={readOnly || networked || draft.resultType === "any"}
+            onChange={(event) => update({ mode: event.target.checked ? "rows" : "row" })}
+          />
+          <span>
+            Runs over a group of rows
+            <span className="function-editor__hint">
+              {networked || draft.resultType === "any"
+                ? " — only for functions without internet that give a declared type."
+                : " — once per group, in order: each argument is a list, and the function returns a list with a value per row. For running values such as the average cost of a position; called with CUSTOM_ROWS."}
+            </span>
+          </span>
         </label>
       </section>
 
@@ -545,6 +580,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         <div className="function-editor__section-head">
           <span className="section-label">Code</span>
           <span className="function-editor__hint">
+            {overRows ? "Each argument is a list with a value per row, in order; return a list as long. " : ""}
             Numbers arrive as numbers, dates as "yyyy-MM-dd" text, empty values as null. Return a Date or "yyyy-MM-dd" for dates.
           </span>
         </div>
@@ -559,6 +595,7 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         </div>
       </section>
 
+      {!overRows ? (
       <section className="function-editor__section" aria-label="Internet">
         <div className="function-editor__section-head">
           <span className="section-label">Internet</span>
@@ -625,18 +662,21 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
           </div>
         ) : null}
       </section>
+      ) : null}
 
       {!readOnly ? (
         <section className="function-editor__section function-test" aria-label="Test">
           <div className="function-editor__section-head">
             <span className="section-label">Try it</span>
-            <span className="function-editor__hint">Runs the code above in the sandbox; nothing is saved.</span>
+            <span className="function-editor__hint">
+              Runs the code above in the sandbox; nothing is saved.{overRows ? " Give each argument a list, e.g. [10, -5]." : ""}
+            </span>
           </div>
           <div className="function-test__inputs">
             {draft.arguments.map((argument, index) => (
               <label key={index} className="function-editor__field">
                 <span className="function-editor__label mono">{argument.name || `argument ${index + 1}`}</span>
-                {argument.type === "boolean" ? (
+                {argument.type === "boolean" && !overRows ? (
                   <select
                     className="field__control field__control--compact"
                     value={testInputs[index] ?? ""}
@@ -650,9 +690,19 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
                 ) : (
                   <input
                     className="field__control field__control--compact"
-                    type={argument.type === "date" ? "date" : "text"}
+                    type={argument.type === "date" && !overRows ? "date" : "text"}
                     value={testInputs[index] ?? ""}
-                    placeholder={argument.type === "text" ? "text" : argument.type === "any" ? '["VWCE.DE"]' : "0"}
+                    placeholder={
+                      overRows
+                        ? argument.type === "text" || argument.type === "date"
+                          ? '["a", "b"]'
+                          : "[1, 2]"
+                        : argument.type === "text"
+                          ? "text"
+                          : argument.type === "any"
+                            ? '["VWCE.DE"]'
+                            : "0"
+                    }
                     aria-label={`Test value for ${argument.name}`}
                     onChange={(event) => setTestInputs((inputs) => inputs.map((v, i) => (i === index ? event.target.value : v)))}
                   />
@@ -709,10 +759,17 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
             {copied ? "Copied" : "Copy"}
           </Button>
         </div>
-        <p className="function-editor__hint">
-          As a computed column, the formula is the whole call; build on its result in another column. In dashboards, pass measures:{" "}
-          <code>CUSTOM("{draft.name || "name"}", SUM(amount))</code>.
-        </p>
+        {overRows ? (
+          <p className="function-editor__hint">
+            In a computed column, as the whole formula: rows with the same PARTITION values form a group, ORDER sorts them (then the key), and each row
+            gets its value. The values are stored and recalculated in the background when a row of the group changes.
+          </p>
+        ) : (
+          <p className="function-editor__hint">
+            As a computed column, the formula is the whole call; build on its result in another column. In dashboards, pass measures:{" "}
+            <code>CUSTOM("{draft.name || "name"}", SUM(amount))</code>.
+          </p>
+        )}
         </>
         )}
         {fn ? (

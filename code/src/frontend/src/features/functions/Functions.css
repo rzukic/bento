@@ -224,6 +224,18 @@
     min-width: 10rem;
 }
 
+.function-editor__check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+    font-size: var(--fs-sm);
+}
+
+.function-editor__check input {
+    margin-top: 0.2rem;
+}
+
 .function-editor__label {
     color: var(--text-3);
     font-size: var(--fs-xs);

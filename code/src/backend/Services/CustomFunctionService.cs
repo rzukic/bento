@@ -126,7 +126,7 @@ public sealed class CustomFunctionService
         var rows = await conn.QueryAsync<FunctionRow>(
             $"""
             SELECT function_name AS Name, NULL AS Description, CAST(arguments AS TEXT) AS Arguments, result_type AS ResultType, code, version,
-                   CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials,
+                   CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials, mode,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS UpdatedAt
             FROM {Versions} WHERE function_name = @Name ORDER BY version DESC
@@ -152,8 +152,8 @@ public sealed class CustomFunctionService
         var now = UtcNowIso();
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (name, description, arguments, result_type, code, allowed_hosts, credentials, version, created_at, updated_at)
-            VALUES (@Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, 1, {NowParam}, {NowParam})
+            INSERT INTO {Table} (name, description, arguments, result_type, code, allowed_hosts, credentials, mode, version, created_at, updated_at)
+            VALUES (@Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, 1, {NowParam}, {NowParam})
             """,
             Parameters(definition, now));
         await SaveVersionAsync(conn, definition, now);
@@ -175,14 +175,16 @@ public sealed class CustomFunctionService
             ResultType = request.ResultType ?? existing.ResultType,
             Code = request.Code ?? existing.Code,
             AllowedHosts = request.AllowedHosts ?? ParseList(existing.AllowedHosts).ToList(),
-            Credentials = request.Credentials ?? ParseList(existing.Credentials).ToList()
+            Credentials = request.Credentials ?? ParseList(existing.Credentials).ToList(),
+            Mode = request.Mode ?? existing.Mode
         };
         var previous = ToDefinition(existing);
         var changed = Validate(merged, existing.Name, existing.Version);
         await RequireCredentialsAsync(changed);
         var codeChanged = changed.Code != previous.Code || changed.ResultType != previous.ResultType ||
                           !changed.Arguments.SequenceEqual(previous.Arguments) ||
-                          !changed.AllowedHosts.SequenceEqual(previous.AllowedHosts) || !changed.Credentials.SequenceEqual(previous.Credentials);
+                          !changed.AllowedHosts.SequenceEqual(previous.AllowedHosts) || !changed.Credentials.SequenceEqual(previous.Credentials) ||
+                          changed.Mode != previous.Mode;
         var definition = changed with { Version = codeChanged ? existing.Version + 1 : existing.Version };
 
         // Computed columns that call it must still check with the new signature.
@@ -200,7 +202,7 @@ public sealed class CustomFunctionService
             $"""
             UPDATE {Table}
             SET description = @Description, arguments = {JsonParam("@Arguments")}, result_type = @ResultType, code = @Code,
-                allowed_hosts = {JsonParam("@AllowedHosts")}, credentials = {JsonParam("@Credentials")},
+                allowed_hosts = {JsonParam("@AllowedHosts")}, credentials = {JsonParam("@Credentials")}, mode = @Mode,
                 version = @Version, updated_at = {NowParam}
             WHERE name = @Name
             """,
@@ -242,7 +244,8 @@ public sealed class CustomFunctionService
             ResultType = request.ResultType,
             Code = request.Code,
             AllowedHosts = request.AllowedHosts,
-            Credentials = request.Credentials
+            Credentials = request.Credentials,
+            Mode = request.Mode
         }, "test", 0, checkSyntax: false);
 
         var values = (request.Values ?? []).Select(FromJson).ToList();
@@ -251,6 +254,18 @@ public sealed class CustomFunctionService
             return new CustomFunctionTestResponse(null, definition.ResultType, error, [], 0);
         using (function)
         {
+            if (definition.RowsMode)
+            {
+                // Each argument is a list (JSON array) with a value per row.
+                var columns = (request.Values ?? []).Select(v => v.ValueKind == JsonValueKind.Array
+                    ? (IReadOnlyList<object?>)v.EnumerateArray().Select(FromJson).ToList()
+                    : [FromJson(v)]).ToList();
+                var count = columns.Count == 0 ? 0 : columns.Max(c => c.Count);
+                var started = System.Diagnostics.Stopwatch.GetTimestamp();
+                var rows = await Task.Run(() => function.CallRows(columns, count));
+                var ms = Math.Round(System.Diagnostics.Stopwatch.GetElapsedTime(started).TotalMilliseconds, 2);
+                return new CustomFunctionTestResponse(rows.Values?.Select(v => Shape(v, definition)).ToList(), definition.ResultType, rows.Error, rows.Logs, ms);
+            }
             // fetch blocks while it waits for answers: run off the request thread.
             var result = await Task.Run(() => function.Call(values));
             return new CustomFunctionTestResponse(
@@ -316,7 +331,7 @@ public sealed class CustomFunctionService
         try
         {
             return FormulaParser.Parse(formula) is FunctionCall { Name: var name, Arguments: [StringLiteral literal, ..] } &&
-                   string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase)
+                   (string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "CUSTOM_ROWS", StringComparison.OrdinalIgnoreCase))
                 ? literal.Value.Trim()
                 : null;
         }
@@ -408,10 +423,19 @@ public sealed class CustomFunctionService
         if (credentials.Count > 0 && hosts.Count == 0)
             throw Invalid("credentials", "Credentials are for calling APIs; add the hosts the function calls.");
 
+        var mode = string.IsNullOrWhiteSpace(request.Mode) ? "row" : request.Mode.Trim().ToLowerInvariant();
+        if (mode is not ("row" or "rows"))
+            throw Invalid("mode", "mode is \"row\" (one call per row) or \"rows\" (one call per group of rows, for CUSTOM_ROWS).");
+        if (mode == "rows" && hosts.Count > 0)
+            throw Invalid("mode", "A function over rows computes from the rows; it cannot call the internet.");
+        if (mode == "rows" && resultType == "any")
+            throw Invalid("resultType", "A function over rows gives a value per row of a declared type.");
+
         var definition = new CustomFunctionDef(name, description, arguments, resultType, code, version)
         {
             AllowedHosts = hosts,
-            Credentials = credentials
+            Credentials = credentials,
+            Mode = mode
         };
         if (checkSyntax && JsFunction.CheckSyntax(definition) is { } syntax)
             throw Invalid("code", syntax);
@@ -439,6 +463,7 @@ public sealed class CustomFunctionService
         public string Code { get; init; } = "";
         public string AllowedHosts { get; init; } = "[]";
         public string Credentials { get; init; } = "[]";
+        public string Mode { get; init; } = "row";
         public int Version { get; init; }
         public string CreatedAt { get; init; } = "";
         public string UpdatedAt { get; init; } = "";
@@ -446,7 +471,7 @@ public sealed class CustomFunctionService
 
     private string Columns =>
         "name, description, CAST(arguments AS TEXT) AS Arguments, result_type AS ResultType, code, version, " +
-        "CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials, " +
+        "CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials, mode, " +
         $"{SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt, " +
         $"{SystemSqlDialect.TimestampText(_systemPool.Provider, "updated_at")} AS UpdatedAt";
 
@@ -460,8 +485,8 @@ public sealed class CustomFunctionService
     private async Task SaveVersionAsync(System.Data.IDbConnection conn, CustomFunctionDef definition, string now) =>
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Versions} (function_name, version, arguments, result_type, code, allowed_hosts, credentials, created_at)
-            VALUES (@Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, {NowParam})
+            INSERT INTO {Versions} (function_name, version, arguments, result_type, code, allowed_hosts, credentials, mode, created_at)
+            VALUES (@Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, {NowParam})
             """,
             Parameters(definition, now));
 
@@ -475,6 +500,7 @@ public sealed class CustomFunctionService
         definition.Version,
         AllowedHosts = JsonSerializer.Serialize(definition.AllowedHosts, Json),
         Credentials = JsonSerializer.Serialize(definition.Credentials, Json),
+        definition.Mode,
         Now = now
     };
 
@@ -482,7 +508,8 @@ public sealed class CustomFunctionService
         new(row.Name, row.Description, ParseArguments(row.Arguments), row.ResultType, row.Code, row.Version)
         {
             AllowedHosts = ParseList(row.AllowedHosts),
-            Credentials = ParseList(row.Credentials)
+            Credentials = ParseList(row.Credentials),
+            Mode = string.IsNullOrEmpty(row.Mode) ? "row" : row.Mode
         };
 
     private static IReadOnlyList<string> ParseList(string? json) =>
@@ -500,7 +527,7 @@ public sealed class CustomFunctionService
             .ToList();
         var definition = ToDefinition(row);
         return new CustomFunctionResponse(row.Name, row.Description, definition.Arguments, row.ResultType, row.Code,
-            row.Version, row.CreatedAt, row.UpdatedAt, usedBy, definition.AllowedHosts, definition.Credentials, definition.UsableInFormulas);
+            row.Version, row.CreatedAt, row.UpdatedAt, usedBy, definition.AllowedHosts, definition.Credentials, definition.UsableInFormulas, definition.Mode);
     }
 
     private string JsonParam(string parameter) => SystemSqlDialect.JsonParam(_systemPool.Provider, parameter);
