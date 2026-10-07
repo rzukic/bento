@@ -279,6 +279,19 @@ public class DatabaseBootstrap : IHostedService
             """);
 
         await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.forms (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                form_json       JSONB NOT NULL,
+                owner_user_id   INTEGER,
+                is_shared       BOOLEAN NOT NULL DEFAULT FALSE,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS _system.price_sources (
                 id              SERIAL PRIMARY KEY,
                 name            VARCHAR(255) NOT NULL UNIQUE,
@@ -557,6 +570,19 @@ public class DatabaseBootstrap : IHostedService
             if (!existing.Contains(column))
                 await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} {type};");
         }
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS forms (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                form_json       TEXT NOT NULL,
+                owner_user_id   INTEGER,
+                is_shared       INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
 
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS price_sources (

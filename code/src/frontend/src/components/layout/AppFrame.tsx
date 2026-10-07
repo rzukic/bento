@@ -3,6 +3,7 @@ import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAppStore } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
+import { pinnedForms, useFormsStore } from "../../stores/formsStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { Icon, type IconName } from "../common/Icon";
 import type { AppRouteHandle } from "../../router";
@@ -31,6 +32,8 @@ type NavSection = {
   items: NavItem[];
   /** Modules that are not built yet render dimmed. */
   dimmed?: boolean;
+  /** Pinned forms: first in the phone's nav strip. */
+  quick?: boolean;
 };
 
 const navSections: NavSection[] = [
@@ -42,16 +45,14 @@ const navSections: NavSection[] = [
       { to: "/model", label: "Schema", icon: "schema" },
       { to: "/functions", label: "Functions", icon: "braces" },
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
+      { to: "/forms", label: "Forms", icon: "forms" },
       { to: "/connections", label: "Connections", icon: "link" },
     ],
   },
   {
     title: "Coming soon",
     dimmed: true,
-    items: [
-      { to: "/forms", label: "Forms", icon: "forms" },
-      { to: "/ai", label: "AI", icon: "sparkles" },
-    ],
+    items: [{ to: "/ai", label: "AI", icon: "sparkles" }],
   },
   {
     title: "Admin",
@@ -116,6 +117,24 @@ export function AppFrame({ children }: AppFrameProps) {
   const logout = useAuthStore((state) => state.logout);
   const schemaSnapshot = useSchemaStore((state) => state.snapshot);
   const [logoutOpen, setLogoutOpen] = useState(false);
+
+  // Step 4.4: pinned forms as "Quick add", for those who may add rows.
+  const canWrite = user?.role === "admin" || user?.role === "editor";
+  const forms = useFormsStore((state) => state.forms);
+  const loadForms = useFormsStore((state) => state.load);
+  useEffect(() => {
+    if (canWrite) void loadForms();
+  }, [canWrite, loadForms]);
+  const sections = useMemo<NavSection[]>(() => {
+    const quick = canWrite ? pinnedForms(forms) : [];
+    if (quick.length === 0) return navSections;
+    const quickAdd: NavSection = {
+      title: "Quick add",
+      quick: true,
+      items: quick.map((form) => ({ to: `/forms/${form.id}`, label: form.name, icon: "plus" as const })),
+    };
+    return [navSections[0]!, quickAdd, ...navSections.slice(1)];
+  }, [canWrite, forms]);
 
   function handleLogout() {
     setLogoutOpen(false);
@@ -236,8 +255,8 @@ export function AppFrame({ children }: AppFrameProps) {
         </div>
 
         <nav className="shell__nav" aria-label="Main navigation">
-          {navSections.map((section) => (
-            <div key={section.title} className="shell__nav-section">
+          {sections.map((section) => (
+            <div key={section.title} className={section.quick ? "shell__nav-section shell__nav-section--quick" : "shell__nav-section"}>
               <div className="shell__nav-section-title section-label">
                 {section.title}
               </div>

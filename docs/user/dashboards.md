@@ -15,7 +15,7 @@ Or type a name and choose **Create** for an empty dashboard.
 
 ## Wealth & Cash Flow In One Click
 
-Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — and two dashboards:
+Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — two dashboards and a form:
 
 - **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
 - **Wealth**:
@@ -24,8 +24,9 @@ Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tab
   - Returns: the depot's **return a year (XIRR)** from trades, dividends and today's value, its **time-weighted return** in the range, and **depot vs. benchmark** with both at 100 at the start of the range. The benchmark is the ISIN in the dashboard variable *benchmark* (MSCI World by default); its prices come from the Prices table, e.g. through a [price source](live-prices.md).
   - Gains by **average cost**: each trade gets a realised gain and a change in cost (columns *Realised gain* and *Cost (±)* of Trades), computed by your function `avg_cost` (see [Functions over a group of rows](formulas.md#functions-over-a-group-of-rows)). **Set up** creates it from its template unless you have one. For FIFO, give `avg_cost` the code of the FIFO template.
   - The time-weighted return counts money for the days it was in the depot (Modified Dietz), so a buy in the middle of a month does not distort it.
+- **Add transaction**: a [form](forms.md) for quick entry, under *Quick add* in the sidebar and as a button on both dashboards.
 
-Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Prices come from a [price source](live-prices.md) or by hand.
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Add a single purchase with **Add transaction**, also on the phone. Prices come from a [price source](live-prices.md) or by hand.
 
 ### A Depot With Its Own Cash
 

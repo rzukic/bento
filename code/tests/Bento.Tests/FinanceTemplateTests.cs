@@ -200,6 +200,29 @@ public sealed class FinanceTemplateTests
         Assert.Equal(["2026-07-01 103.6470588235 0.0364705882 100", "2026-08-01 99.8776327049 -0.001223673 96.0784313725", "2026-09-01 113.016432907 0.1301643291 107.8431372549"],
             AggregationQueryTests.Rows(index, "month", "depot", "return", "benchmark"));
 
+        // Step 4.4: the setup's "Add transaction" form (financeTemplate.ts transactionForm) fits the template's transactions.
+        using (var form = await host.Client.PostAsJsonAsync("/api/v1/forms", new
+        {
+            name = "Add transaction",
+            isShared = true,
+            form = new
+            {
+                table = "transactions",
+                pinned = true,
+                fields = new object[]
+                {
+                    new { column = "amount", label = "Amount", sign = "negative", help = "− spent, + received" },
+                    new { column = "payee", label = "Payee" },
+                    new { column = "category_id", label = "Category" },
+                    new { column = "account_id", label = "Account", @default = new { kind = "last" } },
+                    new { column = "date", label = "Date", @default = new { kind = "today" } },
+                    new { section = "More" },
+                    new { column = "purpose", label = "Note" }
+                }
+            }
+        }))
+            Assert.Equal(System.Net.HttpStatusCode.Created, form.StatusCode);
+
         // docs/user/dashboards.md, "A depot with its own cash": the depot holds the cash it gets (transfers with category Investing, id 5,
         // minus what the trades cost, plus net dividends). Money in is the transfers only, so the dividend counts as return:
         // July (1020 − 1000 + 1000 × 18/31) / (1000 × 18/31), August (1470 − 500 + 500 × 23/31) / (1020 + 500 × 23/31), September 1662.50 / 1470.

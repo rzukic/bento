@@ -12,6 +12,7 @@ public static class ApiRoutes
     public const string Formulas = Prefix + "/formulas";
     public const string Functions = Prefix + "/functions";
     public const string Dashboards = Prefix + "/dashboards";
+    public const string Forms = Prefix + "/forms";
     public const string Views = Prefix + "/views";
     public const string Import = Prefix + "/import";
     public const string ExplorerPreferences = Prefix + "/explorer/preferences";

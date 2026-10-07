@@ -22,10 +22,12 @@ const schemaApi = vi.hoisted(() => ({ getCanonicalSchemaSnapshot: vi.fn(), previ
 const dashboardsApi = vi.hoisted(() => ({ createDashboard: vi.fn() }));
 const dataApi = vi.hoisted(() => ({ createRow: vi.fn() }));
 const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn(), listFunctionTemplates: vi.fn(), createFunction: vi.fn() }));
+const formsApi = vi.hoisted(() => ({ createForm: vi.fn(), listForms: vi.fn() }));
 vi.mock("../api/schema", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/schema")>()), ...schemaApi }));
 vi.mock("../api/dashboards", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/dashboards")>()), ...dashboardsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
 vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
+vi.mock("../api/forms", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/forms")>()), ...formsApi }));
 
 const avgCostTemplate = {
   id: "avg-cost",
@@ -146,6 +148,8 @@ describe("finance template", () => {
     functionsApi.listFunctions.mockResolvedValue([]);
     functionsApi.listFunctionTemplates.mockResolvedValue([avgCostTemplate]);
     functionsApi.createFunction.mockResolvedValue({});
+    formsApi.createForm.mockResolvedValue({ id: 3 });
+    formsApi.listForms.mockResolvedValue([]);
     dashboardsApi.createDashboard.mockImplementation(async (name: string, document: DashboardDocument) => ({ id: name === "Wealth" ? 9 : 8, name, dashboard: document }));
     const applied = withFinanceTables(existing, financeNames("finance_"));
     useSchemaStore.setState({ load: vi.fn(async () => applied as never) });
@@ -167,6 +171,8 @@ describe("finance template", () => {
     // The function the trades' realised gains call is created before the tables are checked.
     expect(functionsApi.createFunction).toHaveBeenCalledWith(expect.objectContaining({ name: "avg_cost", mode: "rows", code: "return shares;" }));
     expect(functionsApi.createFunction.mock.invocationCallOrder[0]).toBeLessThan(schemaApi.previewSchemaDraft.mock.invocationCallOrder[0]);
+    // Quick entry: a shared, pinned form for the new transactions.
+    expect(formsApi.createForm).toHaveBeenCalledWith("Add transaction", expect.objectContaining({ table: "finance_transactions", pinned: true }), true);
   });
 
   it("uses an existing avg_cost over rows and refuses one that is not", async () => {
