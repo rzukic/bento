@@ -34,7 +34,9 @@ public sealed class FinanceTemplateTests
                     "columns": [
                         { "name": "id", "type": "integer", "primaryKey": true },
                         { "name": "name", "type": "text", "nullable": false, "unique": true },
-                        { "name": "kind", "type": "enum", "values": ["income", "expense", "savings", "transfer"] }
+                        { "name": "kind", "type": "enum", "values": ["income", "expense", "savings", "transfer"] },
+                        { "name": "parent_id", "type": "reference", "references": "categories" },
+                        { "name": "budget", "type": "currency" }
                     ]
                 },
                 {
@@ -46,7 +48,8 @@ public sealed class FinanceTemplateTests
                         { "name": "payee", "type": "text" },
                         { "name": "purpose", "type": "text" },
                         { "name": "account_id", "type": "reference", "references": "accounts" },
-                        { "name": "category_id", "type": "reference", "references": "categories" }
+                        { "name": "category_id", "type": "reference", "references": "categories" },
+                        { "name": "main_category", "type": "computed", "formula": "COALESCE(category_id.parent_id.name, category_id.name)" }
                     ]
                 },
                 {
@@ -93,6 +96,7 @@ public sealed class FinanceTemplateTests
             "relations": [
                 { "name": "accounts_transactions", "type": "1:N", "from": "accounts", "to": "transactions", "column": "account_id" },
                 { "name": "categories_transactions", "type": "1:N", "from": "categories", "to": "transactions", "column": "category_id" },
+                { "name": "categories_subcategories", "type": "1:N", "from": "categories", "to": "categories", "column": "parent_id" },
                 { "name": "accounts_trades", "type": "1:N", "from": "accounts", "to": "trades", "column": "account_id" },
                 { "name": "accounts_dividends", "type": "1:N", "from": "accounts", "to": "dividends", "column": "account_id" }
             ]
@@ -199,6 +203,28 @@ public sealed class FinanceTemplateTests
         });
         Assert.Equal(["2026-07-01 103.6470588235 0.0364705882 100", "2026-08-01 99.8776327049 -0.001223673 96.0784313725", "2026-09-01 113.016432907 0.1301643291 107.8431372549"],
             AggregationQueryTests.Rows(index, "month", "depot", "return", "benchmark"));
+
+        // Step 4.5: Food with Groceries under it — spending by main category rolls Groceries up, one level down shows it again;
+        // a budget widget reads limits from categories.budget and spending grouped by category_id.
+        (await host.Client.PostAsJsonAsync("/api/v1/data/categories", new { name = "Food", kind = "expense" })).EnsureSuccessStatusCode();
+        (await host.Client.PatchAsJsonAsync("/api/v1/data/categories/3", new { parent_id = 6, budget = 250m })).EnsureSuccessStatusCode();
+        var byMain = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "transactions",
+            filter = new Dictionary<string, object> { ["amount"] = new { lt = 0 }, ["date"] = new { gte = "2026-09-01" } },
+            groupBy = new[] { new { column = "main_category" } },
+            measures = new[] { new { name = "spent", fn = "sum", column = "amount" } },
+            sort = new[] { "spent" }
+        });
+        Assert.Equal(["Rent -1000", "Food -200", "Leisure -100"], AggregationQueryTests.Rows(byMain, "main_category", "spent"));
+        var food = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "transactions",
+            filter = new Dictionary<string, object> { ["amount"] = new { lt = 0 }, ["date"] = new { gte = "2026-09-01" }, ["main_category"] = "Food" },
+            groupBy = new[] { new { column = "category_id" } },
+            measures = new[] { new { name = "spent", fn = "sum", column = "amount" } }
+        });
+        Assert.Equal(["Groceries -200"], AggregationQueryTests.Rows(food, "category_id_label", "spent"));
 
         // Step 4.4: the setup's "Add transaction" form (financeTemplate.ts transactionForm) fits the template's transactions.
         using (var form = await host.Client.PostAsJsonAsync("/api/v1/forms", new

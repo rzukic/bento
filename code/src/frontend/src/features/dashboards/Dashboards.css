@@ -376,6 +376,73 @@
     white-space: nowrap;
 }
 
+/* Step 4.5: a donut's level ("All › Food") above it. */
+.widget-drill {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+}
+
+.widget-drill > :last-child {
+    flex: 1;
+    min-height: 0;
+}
+
+.widget-drill__path {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0 1rem;
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+}
+
+.widget-drill__hint {
+    color: var(--text-4);
+}
+
+.widget-drill__up {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-deep);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Step 4.5: month / quarter / year for viewers, in the theme switch's style. */
+.widget-interval {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+}
+
+.widget-interval__option {
+    min-width: 1.75rem;
+    height: 1.5rem;
+    padding: 0 0.375rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+}
+
+.widget-interval__option:hover {
+    color: var(--text);
+}
+
+.widget-interval__option[aria-pressed="true"] {
+    background: var(--text);
+    color: var(--bg);
+}
+
 .widget-frame__actions {
     display: inline-flex;
     margin-left: auto;
@@ -902,4 +969,113 @@
 .dashboard-prices--error {
     border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
     color: var(--warning);
+}
+
+/* ── Budgets (Step 4.5) ── */
+
+.budget {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem 0.75rem;
+}
+
+.budget__rows {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.budget__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    width: 100%;
+    padding: 0.5rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+}
+
+button.budget__row {
+    cursor: pointer;
+}
+
+button.budget__row:hover,
+button.budget__row:focus-visible {
+    background: var(--hover);
+}
+
+.budget__name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.budget__amounts {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.budget__of {
+    color: var(--text-3);
+}
+
+.budget__share {
+    min-width: 3.25rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    text-align: right;
+}
+
+.budget__share--close {
+    color: var(--warning);
+}
+
+.budget__share--over {
+    color: var(--danger);
+}
+
+.budget__bar {
+    grid-column: 1 / -1;
+    height: 6px;
+    border-radius: var(--r-pill);
+    background: var(--surface-sunken);
+    overflow: hidden;
+}
+
+.budget__fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--text-2);
+}
+
+.budget__fill--close {
+    background: var(--warning);
+}
+
+.budget__fill--over {
+    background: var(--danger);
+}
+
+.budget__footer {
+    margin: 0;
+    padding: 0 0.5rem;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
 }

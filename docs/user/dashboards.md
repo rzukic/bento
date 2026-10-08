@@ -17,7 +17,7 @@ Or type a name and choose **Create** for an empty dashboard.
 
 Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — two dashboards and a form:
 
-- **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
+- **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter, spending by main category (a slice shows its subcategories) and **Budgets this month**
 - **Wealth**:
   - Key figures: net worth, depot value, unrealised gain, dividends, and realised gains in the range.
   - Charts: net worth at each month end (cash and depot stacked, with a total line), allocation by security, positions (shares, cost, value, unrealised and realised gain), dividends per month.
@@ -26,7 +26,7 @@ Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tab
   - The time-weighted return counts money for the days it was in the depot (Modified Dietz), so a buy in the middle of a month does not distort it.
 - **Add transaction**: a [form](forms.md) for quick entry, under *Quick add* in the sidebar and as a button on both dashboards.
 
-Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Add a single purchase with **Add transaction**, also on the phone. Prices come from a [price source](live-prices.md) or by hand.
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). Categories can have a **main category** (Food → Groceries, Restaurants) and a **monthly budget**; transactions get *Main category* to group by. **Example rows** fills in two accounts, categories with budgets, three months of bookings and this month's first purchase, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Add a single purchase with **Add transaction**, also on the phone. Prices come from a [price source](live-prices.md) or by hand.
 
 ### A Depot With Its Own Cash
 
@@ -97,9 +97,26 @@ A **Sankey** shows flows. Drop one to three categories into **Levels** and a num
 
 Levels keep the top 8 values by amount (income and expenses alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey.
 
+## Months, Quarters, Years
+
+Charts by date show **M Q Y** in their corner, outside edit mode — also for viewers. Switch a chart of monthly bars to quarters or years without changing the dashboard; charts by day or week also offer their own interval. The choice is part of the address (`?interval.net-per-month=quarter`), so a bookmark keeps it. Values at the end of each period follow: net worth per quarter is the value at each quarter's end.
+
+## Budgets
+
+The **Budgets** widget (*Add widget → Budgets*) puts each category's monthly limit against what was spent:
+
+- **Limits** live in a number column of the categories table, e.g. *Monthly budget*. Categories without a limit are left out; what they spent shows as one line under the bars.
+- **Spending** comes from a table with a date, an amount and a link to the categories, e.g. Transactions. Bank accounts store spending as negative amounts; an expenses table may store it as positive ones — the widget's settings say which.
+- **Period**: the **last month of the dashboard's range** (this month, by default), or the **whole range**, where limits count once per month of the range.
+- Each row shows spent of limit, a bar and the share: from 80 % in amber, above 100 % in red. Click a row for its bookings.
+
+The Wealth template's cash-flow dashboard has **Budgets this month**.
+
 ## Click Through To The Rows
 
 Outside edit mode, click a bar, a point, a donut slice, a Sankey node or flow, or a key figure's number: the **Data Explorer** opens on the widget's table with the rows behind it — the widget's conditions, the dashboard's range and what you clicked (the month, the category; for a cash-flow Sankey also income or expenses). Running totals and values at the end of each period list every row up to that period's end. Use the browser's back button to return.
+
+**Donuts one level down**: under *Style*, **Drill into** names a second column, e.g. *Category* for a donut by *Main category*. A slice then shows what is in it inside the donut (*All › Food*: Groceries, Restaurants), and a click there opens the rows. **All** goes back.
 
 Not every click has rows to show: *Other* stands for all values outside the top ones, and *Saved* is a difference. Formula values open the rows of their group, not only the ones their `WHERE` picks.
 

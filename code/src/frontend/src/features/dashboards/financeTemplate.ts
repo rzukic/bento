@@ -122,6 +122,9 @@ function tables(n: FinanceNames): SchemaTable[] {
         id,
         { name: "name", displayName: "Name", type: "text", nullable: false, unique: true },
         { name: "kind", displayName: "Kind", type: "enum", values: ["income", "expense", "savings", "transfer"] },
+        // Step 4.5: subcategories (Food → Groceries) and a monthly budget per category.
+        { name: "parent_id", displayName: "Main category", type: "reference", references: n.categories },
+        { name: "budget", displayName: "Monthly budget", type: "currency" },
       ],
     },
     {
@@ -135,6 +138,7 @@ function tables(n: FinanceNames): SchemaTable[] {
         { name: "purpose", displayName: "Purpose", type: "text" },
         { name: "account_id", displayName: "Account", type: "reference", references: n.accounts },
         { name: "category_id", displayName: "Category", type: "reference", references: n.categories },
+        { name: "main_category", displayName: "Main category", type: "computed", formula: "COALESCE(category_id.parent_id.name, category_id.name)" },
       ],
     },
     {
@@ -194,6 +198,7 @@ function relations(n: FinanceNames, taken: Set<string>): SchemaRelation[] {
   return [
     { name: unique(`${n.accounts}_${n.transactions}`), type: "1:N", from: n.accounts, to: n.transactions, column: "account_id" },
     { name: unique(`${n.categories}_${n.transactions}`), type: "1:N", from: n.categories, to: n.transactions, column: "category_id" },
+    { name: unique(`${n.categories}_subcategories`), type: "1:N", from: n.categories, to: n.categories, column: "parent_id" },
     { name: unique(`${n.accounts}_${n.trades}`), type: "1:N", from: n.accounts, to: n.trades, column: "account_id" },
     { name: unique(`${n.accounts}_${n.dividends}`), type: "1:N", from: n.accounts, to: n.dividends, column: "account_id" },
   ];
@@ -415,10 +420,29 @@ export function transactionForm(n: FinanceNames): FormDefinition {
 
 /** The cash-flow dashboard of the template's transactions, with an account filter. */
 export function financeCashFlow(transactions: ModelTable): DashboardDocument {
-  return { ...cashFlowDashboard(transactions), filters: [{ column: "account_id", label: "Account" }] };
+  const base = cashFlowDashboard(transactions);
+  const widgets: DashboardWidget[] = base.widgets.map((widget) =>
+    // Step 4.5: spending by main category; a slice shows its categories.
+    widget.id === "spending-by-category" && widget.data?.query
+      ? {
+          ...widget,
+          title: "Spending by category",
+          data: { ...widget.data, query: { ...widget.data.query, groupBy: [{ column: "main_category" }] } },
+          display: { ...widget.display, drill: "category_id" },
+        }
+      : widget,
+  );
+  widgets.push({
+    id: "budgets",
+    type: "budget",
+    title: "Budgets this month",
+    position: at(0, 15, 12, 5),
+    data: { budget: { source: transactions.name, amount: "amount", date: "date", category: "category_id", limit: "budget", expenses: "negative", period: "month" } },
+  });
+  return { ...base, widgets, filters: [{ column: "account_id", label: "Account" }] };
 }
 
-/** Example rows to try it out: two accounts, three months of bookings, an ETF, its prices and a dividend. */
+/** Example rows to try it out: two accounts, categories with budgets and subcategories, three months of bookings and this month's first, an ETF, its prices and a dividend. */
 export function exampleRows(today = new Date()) {
   const month = (back: number, day: number) => {
     const d = new Date(Date.UTC(today.getFullYear(), today.getMonth() - back, day));
@@ -430,21 +454,29 @@ export function exampleRows(today = new Date()) {
       { name: "Checking", kind: "giro", opened_on: month(12, 1), opening_balance: 1000 },
       { name: "Depot", kind: "depot", opened_on: month(12, 1), opening_balance: 0 },
     ],
+    // Parents before their subcategories; budgets per month.
     categories: [
       { name: "Salary", kind: "income" },
-      { name: "Rent", kind: "expense" },
-      { name: "Groceries", kind: "expense" },
-      { name: "Leisure", kind: "expense" },
+      { name: "Rent", kind: "expense", budget: 1000 },
+      { name: "Food", kind: "expense" },
+      { name: "Groceries", kind: "expense", parent: "Food", budget: 250 },
+      { name: "Restaurants", kind: "expense", parent: "Food", budget: 80 },
+      { name: "Leisure", kind: "expense", budget: 150 },
       { name: "Investing", kind: "savings" },
+    ] as { name: string; kind: string; parent?: string; budget?: number }[],
+    // Account by position: 0 = Checking, 1 = Depot; category by name.
+    transactions: [
+      ...[3, 2, 1].flatMap((back) => [
+        { date: month(back, 1), amount: 3000, payee: "Employer", account: 0, category: "Salary" },
+        { date: month(back, 2), amount: -1000, payee: "Landlord", account: 0, category: "Rent" },
+        { date: month(back, 10), amount: -200, payee: "Supermarket", account: 0, category: "Groceries" },
+        { date: month(back, 20), amount: -100, payee: "Cinema", account: 0, category: "Leisure" },
+        { date: month(back, 22), amount: -35, payee: "Pizzeria", account: 0, category: "Restaurants" },
+        ...(back > 1 ? [{ date: month(back, 14), amount: back === 3 ? -1000 : -500, payee: "Depot", account: 0, category: "Investing" }] : []),
+      ]),
+      // This month so far: groceries at 82 % of their budget.
+      { date: month(0, 1), amount: -205, payee: "Supermarket", account: 0, category: "Groceries" },
     ],
-    // Account and category by position: 0 = Checking, 1 = Depot; Salary, Rent, Groceries, Leisure, Investing.
-    transactions: [3, 2, 1].flatMap((back) => [
-      { date: month(back, 1), amount: 3000, payee: "Employer", account: 0, category: 0 },
-      { date: month(back, 2), amount: -1000, payee: "Landlord", account: 0, category: 1 },
-      { date: month(back, 10), amount: -200, payee: "Supermarket", account: 0, category: 2 },
-      { date: month(back, 20), amount: -100, payee: "Cinema", account: 0, category: 3 },
-      ...(back > 1 ? [{ date: month(back, 14), amount: back === 3 ? -1000 : -500, payee: "Depot", account: 0, category: 4 }] : []),
-    ]),
     trades: [
       { date: month(3, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 10, price: 100, account: 1 },
       { date: month(2, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 5, price: 100, account: 1 },
@@ -470,7 +502,9 @@ export async function seedExamples(n: FinanceNames, createRow: CreateRow, today 
     return created;
   };
   const accounts = await ids(n.accounts, rows.accounts);
-  const categories = await ids(n.categories, rows.categories);
+  const categories: Record<string, unknown> = {};
+  for (const { parent, ...row } of rows.categories)
+    categories[row.name] = (await createRow(n.categories, { ...row, ...(parent ? { parent_id: categories[parent] } : {}) })).id;
   for (const { account, category, ...row } of rows.transactions)
     await createRow(n.transactions, { ...row, account_id: accounts[account], category_id: categories[category] });
   for (const { account, ...row } of rows.trades) await createRow(n.trades, { ...row, account_id: accounts[account] });
