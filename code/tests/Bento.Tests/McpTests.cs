@@ -271,6 +271,30 @@ public sealed class McpTests
         Assert.Equal(HttpStatusCode.MethodNotAllowed, (await host.Client.SendAsync(get)).StatusCode);
     }
 
+    [Fact]
+    public async Task DesktopBundle_CarriesThisInstallationsAddress()
+    {
+        await using var host = await CreateHostAsync(publicUrl: "https://bento.example.com");
+
+        // A plain download: no sign-in, no secret inside.
+        using var response = await host.Client.GetAsync("/api/v1/mcp/bento.mcpb");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("bento.mcpb", response.Content.Headers.ContentDisposition?.FileNameStar ?? response.Content.Headers.ContentDisposition?.FileName?.Trim('"'));
+
+        using var zip = new System.IO.Compression.ZipArchive(await response.Content.ReadAsStreamAsync());
+        Assert.Equal(new[] { "icon.png", "manifest.json", "server/index.js" }, zip.Entries.Select(e => e.FullName).OrderBy(n => n, StringComparer.Ordinal));
+
+        using var manifestStream = zip.GetEntry("manifest.json")!.Open();
+        var manifest = await JsonDocument.ParseAsync(manifestStream);
+        var root = manifest.RootElement;
+        Assert.Equal("bento", root.GetProperty("name").GetString());
+        Assert.Equal("node", root.GetProperty("server").GetProperty("type").GetString());
+        Assert.Equal("${__dirname}/server/index.js", root.GetProperty("server").GetProperty("mcp_config").GetProperty("args")[0].GetString());
+        Assert.Equal("https://bento.example.com/mcp", root.GetProperty("user_config").GetProperty("url").GetProperty("default").GetString());
+        Assert.True(root.GetProperty("user_config").GetProperty("api_key").GetProperty("sensitive").GetBoolean());
+        Assert.DoesNotContain("{{", root.GetRawText());
+    }
+
     // ── Helpers ──
 
     internal static async Task<ApiIntegrationTestHost> CreateHostAsync(string? publicUrl = null)

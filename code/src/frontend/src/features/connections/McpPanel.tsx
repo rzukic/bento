@@ -140,13 +140,23 @@ export function McpPanel() {
 
         <article className="mcp__setup">
           <h3>
-            <Icon name="link" size={14} /> With an API key
+            <Icon name="download" size={14} /> Claude Desktop extension
           </h3>
-          <div className="mcp__command">
-            <pre>{keyCommand}</pre>
-            <CopyButton text={keyCommand.replace("\\\n  ", "")} label="Copy the API key command" />
-          </div>
-          <p className="mcp__hint">For clients without sign-in. A read key only reads; a read-write key may add and change rows.</p>
+          <ol>
+            <li>
+              Download the extension — its address is already this Bento's.
+            </li>
+            <li>Double-click the file (or drag it into Claude Desktop) and install it.</li>
+            <li>
+              Enter an API key from <strong>API keys</strong>: read only reads, read-write may add and change rows.
+            </li>
+          </ol>
+          <a className="btn btn--primary btn--sm mcp__download" href="/api/v1/mcp/bento.mcpb" download="bento.mcpb">
+            <Icon name="download" size={13} /> Download bento.mcpb
+          </a>
+          <p className="mcp__hint">
+            Or in Claude Code with a key: <code>{keyCommand.replace("\\\n  ", "")}</code>
+          </p>
         </article>
       </div>
 

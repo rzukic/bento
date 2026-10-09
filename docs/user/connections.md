@@ -60,9 +60,13 @@ On the sign-in page Bento asks which access the app gets:
 
 The app acts as you and never does more than your role allows (a viewer's connection only reads). It never changes the schema, users or keys, and MCP has no delete. Each connected app appears under **Connected apps** with its access and when it was last used; **Disconnect** ends its access at once. Admins see every user's apps.
 
+### Claude Desktop extension
+
+**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop), install, and enter an [API key](#api-keys): a read key only reads, a read-write key may also add and change rows. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp` with the key; it needs no sign-in, which suits a desktop that should stay connected. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
+
 ### Connect with an API key
 
-For clients without sign-in, pass an [API key](#api-keys) as a header:
+For other clients without sign-in, pass an [API key](#api-keys) as a header:
 
 ```bash
 claude mcp add --transport http bento https://bento.example.com/mcp \

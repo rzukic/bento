@@ -613,6 +613,11 @@
     overflow-wrap: anywhere;
 }
 
+.mcp__download {
+    align-self: flex-start;
+    text-decoration: none;
+}
+
 .mcp__hint {
     margin: 0;
     color: var(--text-3);

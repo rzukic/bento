@@ -36,7 +36,8 @@ public sealed class AuthMiddleware
             return;
         }
 
-        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path) || IsPublicOAuthRoute(context.Request.Path))
+        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path) || IsPublicOAuthRoute(context.Request.Path) ||
+            context.Request.Path.Equals("/" + ApiRoutes.McpBundle, StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

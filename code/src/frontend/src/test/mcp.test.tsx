@@ -98,6 +98,7 @@ describe("Connections → Claude", () => {
     expect(await screen.findByText("https://bento.example.com/mcp")).toBeInTheDocument();
     expect(screen.getByText("claude mcp add --transport http bento https://bento.example.com/mcp")).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Claude" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("link", { name: /download bento\.mcpb/i })).toHaveAttribute("href", "/api/v1/mcp/bento.mcpb");
 
     expect(await screen.findByText("Claude", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("Read and write")).toBeInTheDocument();
