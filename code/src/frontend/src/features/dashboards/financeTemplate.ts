@@ -436,7 +436,7 @@ export function financeCashFlow(transactions: ModelTable): DashboardDocument {
     id: "budgets",
     type: "budget",
     title: "Budgets this month",
-    position: at(0, 15, 12, 5),
+    position: at(0, 15, 12, 4),
     data: { budget: { source: transactions.name, amount: "amount", date: "date", category: "category_id", limit: "budget", expenses: "negative", period: "month" } },
   });
   return { ...base, widgets, filters: [{ column: "account_id", label: "Account" }] };

@@ -983,7 +983,8 @@
 
 .budget__rows {
     display: flex;
-    flex: 1;
+    /* As tall as its rows (the total follows right below), scrolling when the widget is smaller. */
+    flex: 0 1 auto;
     min-height: 0;
     flex-direction: column;
     margin: 0;
