@@ -25,6 +25,18 @@
 		reverse_proxy backend:5000
 	}
 
+	# MCP for AI clients and the OAuth discovery documents they read first.
+	# The consent page itself (/oauth/authorize) is part of the SPA.
+	handle /mcp {
+		reverse_proxy backend:5000
+	}
+	handle /.well-known/oauth-* {
+		reverse_proxy backend:5000
+	}
+	handle /.well-known/openid-configuration {
+		reverse_proxy backend:5000
+	}
+
 	# Everything else — Vite SPA via nginx (SPA fallback happens there).
 	handle {
 		reverse_proxy frontend:80

@@ -22,15 +22,21 @@ public sealed class AuthMiddleware
         _runtimeOptions = runtimeOptions;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys)
+    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
     {
+        if (IsMcpRoute(context.Request.Path))
+        {
+            await AuthenticateMcpAsync(context, apiKeys, oauth);
+            return;
+        }
+
         if (!IsVersionedApiRoute(context.Request.Path))
         {
             await _next(context);
             return;
         }
 
-        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path))
+        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path) || IsPublicOAuthRoute(context.Request.Path))
         {
             await _next(context);
             return;
@@ -43,15 +49,8 @@ public sealed class AuthMiddleware
             return;
         }
 
-        // API keys (Part 3 R3.3): X-API-Key or "Authorization: Bearer bento_…".
-        var apiKey = ReadApiKey(context.Request);
-        if (apiKey is not null)
+        if (await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: true))
         {
-            if (!_runtimeOptions.IsStandardAuthMode)
-                throw Unauthorized("This auth mode is not available yet.");
-            var identity = await apiKeys.AuthenticateAsync(apiKey);
-            EnsureScopeAllows(identity.Scope, context.Request);
-            context.User = CreateApiKeyPrincipal(identity);
             await _next(context);
             return;
         }
@@ -67,6 +66,105 @@ public sealed class AuthMiddleware
 
         await _next(context);
     }
+
+    /// <summary>
+    /// OAuth access tokens of MCP clients (<c>Bearer bento_at_…</c>) and API keys
+    /// (<c>X-API-Key</c> or <c>Bearer bento_…</c>). Both act as their user within
+    /// their scope; false when the request carries neither.
+    /// </summary>
+    private async Task<bool> TryAuthenticateCredentialAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, bool enforceScope)
+    {
+        var bearer = ReadBearer(context.Request);
+        if (OAuthService.LooksLikeAccessToken(bearer))
+        {
+            if (!_runtimeOptions.IsStandardAuthMode)
+                throw Unauthorized("This auth mode is not available yet.");
+            var grant = await oauth.AuthenticateAsync(bearer!);
+            if (enforceScope) EnsureScopeAllows(grant.Scope, context.Request);
+            context.User = CreateOAuthPrincipal(grant);
+            return true;
+        }
+
+        // API keys (Part 3 R3.3): X-API-Key or "Authorization: Bearer bento_…".
+        var apiKey = ReadApiKey(context.Request);
+        if (apiKey is null)
+            return false;
+        if (!_runtimeOptions.IsStandardAuthMode)
+            throw Unauthorized("This auth mode is not available yet.");
+        var identity = await apiKeys.AuthenticateAsync(apiKey);
+        if (enforceScope) EnsureScopeAllows(identity.Scope, context.Request);
+        context.User = CreateApiKeyPrincipal(identity);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>/mcp</c> takes an OAuth token, an API key or a session token. The scope is
+    /// not checked here: a read-only caller may still POST (every MCP message is a
+    /// POST); the REST calls behind each tool enforce it. Without valid credentials
+    /// the answer points the client at the OAuth metadata (RFC 9728 §5.1).
+    /// </summary>
+    private async Task AuthenticateMcpAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
+    {
+        if (_runtimeOptions.IsOpenAuthMode)
+        {
+            context.User = CreateOpenModePrincipal();
+            await _next(context);
+            return;
+        }
+
+        try
+        {
+            if (!await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: false))
+                context.User = CreateAuthenticatedPrincipal(context.Request.Headers.Authorization);
+        }
+        catch (ApiUnauthorizedException ex)
+        {
+            var metadata = Services.Mcp.PublicUrl.ResourceMetadata(context.Request, _runtimeOptions);
+            var hasToken = !string.IsNullOrWhiteSpace(context.Request.Headers.Authorization) || !string.IsNullOrWhiteSpace(context.Request.Headers["X-API-Key"]);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = hasToken
+                ? $"Bearer resource_metadata=\"{metadata}\", error=\"invalid_token\", error_description=\"{ex.Message}\""
+                : $"Bearer resource_metadata=\"{metadata}\"";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                jsonrpc = "2.0",
+                id = (object?)null,
+                error = new { code = -32001, message = ex.Message }
+            });
+            return;
+        }
+
+        await _next(context);
+    }
+
+    private static string? ReadBearer(HttpRequest request)
+    {
+        var authorization = request.Headers.Authorization.ToString();
+        return authorization.StartsWith(BearerPrefix, StringComparison.OrdinalIgnoreCase)
+            ? authorization[BearerPrefix.Length..].Trim()
+            : null;
+    }
+
+    private static ClaimsPrincipal CreateOAuthPrincipal(OAuthService.OAuthIdentity grant)
+    {
+        return new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, grant.UserId.ToString(CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Name, grant.Username),
+            new Claim(ClaimTypes.Role, grant.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"),
+            new Claim("auth_method", "oauth"),
+            new Claim("oauth_grant_id", grant.GrantId.ToString(CultureInfo.InvariantCulture)),
+            new Claim("oauth_client", grant.ClientName)
+        ], "OAuth"));
+    }
+
+    private static bool IsMcpRoute(PathString path) =>
+        path.Equals("/" + ApiRoutes.Mcp, StringComparison.OrdinalIgnoreCase) || path.Equals("/" + ApiRoutes.Mcp + "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Client registration and the token endpoint authenticate by their own rules (public clients, PKCE).</summary>
+    private static bool IsPublicOAuthRoute(PathString path) =>
+        path.Equals("/" + ApiRoutes.OAuthRegister, StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/" + ApiRoutes.OAuthToken, StringComparison.OrdinalIgnoreCase);
 
     private static string? ReadApiKey(HttpRequest request)
     {

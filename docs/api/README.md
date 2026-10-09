@@ -24,7 +24,7 @@ Current Step 1.4 auth contract:
 - rate limits per client IP and route: login, register and the setup `POST`s allow `auth_rate_limit_per_minute` requests (default 5); refresh and logout allow `session_rate_limit_per_minute` (default 120). Both values are reported by `GET /api/v1/auth`; a limited request returns `429 TOO_MANY_REQUESTS` with `details.retryAfterSeconds`. The SPA retries a rate-limited refresh instead of treating it as signed out
 - `POST /api/v1/auth/logout` revokes the refresh session named by the cookie (if any) and clears the cookie; always `204`, so a stale or missing cookie never blocks signing out. The short-lived access token stays valid until it expires
 - `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
-- API key auth remains deferred to a later phase
+- API keys (`X-API-Key` or `Bearer bento_…`) and, for MCP clients, OAuth access tokens (`Bearer bento_at_…`) act as their user within their scope; see [MCP and OAuth](#mcp-and-oauth-step-46)
 
 ---
 
@@ -385,6 +385,29 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 | `DELETE` | `/api/v1/dashboards/:dashboardId` | Delete dashboard |
 
 > **Not yet implemented** — planned for Phase 3.
+
+---
+
+### MCP and OAuth (Step 4.6)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/mcp` | MCP over streamable HTTP (JSON-RPC 2.0, stateless, JSON responses): `initialize`, `ping`, `tools/list`, `tools/call`. `GET` and `DELETE` answer 405 (no server stream) |
+| `GET` | `/.well-known/oauth-protected-resource` | RFC 9728: the resource (`<public url>/mcp`) and its authorization server (Bento itself) |
+| `GET` | `/.well-known/oauth-authorization-server` | RFC 8414 metadata (also served as `openid-configuration`) |
+| `POST` | `/api/v1/oauth/register` | RFC 7591 dynamic client registration; public clients only (`token_endpoint_auth_method: none`); redirects must be https, http on loopback, or an app's own scheme |
+| `POST` | `/api/v1/oauth/token` | `authorization_code` (PKCE S256 required) and `refresh_token` (rotating; a reused refresh token or code revokes the grant). Form or JSON body; errors as `{ error, error_description }` |
+| `GET` | `/api/v1/oauth/authorize?client_id&redirect_uri` | For the consent page: the client's name and redirect host (signed-in user) |
+| `POST` | `/api/v1/oauth/authorize` | The user's decision `{ clientId, redirectUri, codeChallenge, codeChallengeMethod, scope: read \| read-write, state, approve }` → `{ redirectTo }` with `code` or `error=access_denied`, plus `state` and `iss` |
+| `GET` | `/api/v1/mcp` | The MCP address for this installation |
+| `GET` | `/api/v1/mcp/connections` | Connected apps (own; admins: all) |
+| `DELETE` | `/api/v1/mcp/connections/:id` | Disconnect an app (revokes its tokens) |
+| `GET` | `/api/v1/mcp/calls?limit=50` | The MCP call log (own; admins: all) |
+
+- `/mcp` accepts an OAuth access token (`Bearer bento_at_…`), an API key or a session token. Without valid credentials it answers 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`.
+- An access token lasts one hour and acts as its user within its scope, like an API key: `read`, or `read-write` for editors and admins. Tokens never reach admin routes or the connection settings.
+- Each tool is a call to this REST API with the caller's credentials, so the same roles, scopes and validation apply.
+- `PUBLIC_URL` sets the address used in the metadata; without it the request's scheme and host are used.
 
 ---
 

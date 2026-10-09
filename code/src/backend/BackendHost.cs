@@ -128,6 +128,11 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Workers.StoredCustomValues>();
         services.AddSingleton<ICustomValueRecalculation>(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddSingleton<ApiKeyService>();
+        services.AddSingleton<OAuthService>();
+        services.AddSingleton<Bento.Api.Services.Mcp.BentoSelfClient>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpCallLog>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpTools>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpServer>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();
 

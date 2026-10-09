@@ -36,7 +36,8 @@ public sealed class CorsPolicyMiddleware
     public async Task InvokeAsync(HttpContext context)
     {
         var origin = context.Request.Headers[OriginHeader].ToString();
-        if (string.IsNullOrWhiteSpace(origin))
+        // OAuth/MCP discovery documents are public and readable from any origin.
+        if (string.IsNullOrWhiteSpace(origin) || context.Request.Path.StartsWithSegments("/.well-known", StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;

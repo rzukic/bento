@@ -16,6 +16,7 @@ const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").t
 const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormsPage })));
 const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
 const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
+const OAuthConsentPage = lazy(() => import("./features/connections/OAuthConsentPage").then((m) => ({ default: m.OAuthConsentPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>;
@@ -240,6 +241,16 @@ export const appRoutes: RouteObject[] = [
           {
             element: <RequireAuth />,
             children: [
+              {
+                // An MCP client (Claude) asks to connect; full-screen like the login.
+                path: "oauth/authorize",
+                element: (
+                  <Lazy>
+                    <OAuthConsentPage />
+                  </Lazy>
+                ),
+                handle: { title: "Connect an app" } satisfies AppRouteHandle
+              },
               {
                 element: <ShellLayout />,
                 children: shellRoutes

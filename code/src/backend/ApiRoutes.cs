@@ -23,5 +23,10 @@ public static class ApiRoutes
     public const string Credentials = Admin + "/credentials";
     public const string PriceSources = Prefix + "/price-sources";
     public const string OpenApi = Prefix + "/openapi.json";
+    public const string OAuth = Prefix + "/oauth";
+    public const string OAuthRegister = OAuth + "/register";
+    public const string OAuthToken = OAuth + "/token";
+    public const string Mcp = "mcp";
+    public const string McpConnections = Prefix + "/mcp";
     public const string AdminHealthDetails = AdminHealth + "/details";
 }
