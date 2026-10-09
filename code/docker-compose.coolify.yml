@@ -46,6 +46,10 @@ services:
       BACKEND_PORT: "5000"
       DATA_DIR: /data
       LOG_LEVEL: ${LOG_LEVEL:-Information}
+      # The public URL (Coolify fills it from the proxy's domain). Caddy runs in plain
+      # HTTP mode behind Coolify, so the backend sees http:// and would otherwise
+      # reject the browser's https:// Origin as cross-origin.
+      ALLOWED_ORIGINS: ${SERVICE_URL_PROXY}
       # Forwarded headers from Caddy (and Coolify's proxy) on the private Docker networks.
       TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8
       DATABASE_PROVIDER: Postgres

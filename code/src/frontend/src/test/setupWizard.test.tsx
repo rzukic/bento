@@ -337,6 +337,31 @@ describe("Setup wizard", () => {
     expect(useAuthStore.getState().status).toBe("idle");
   });
 
+  it("shows the backend's message when a 403 is not a closed bootstrap", async () => {
+    stubFetch(statusHandler(uninitialized), (url, init) => {
+      if (url.endsWith("/api/v1/auth/register") && init?.method === "POST") {
+        return errorResponse(403, "FORBIDDEN", "CORS origin is not allowed.");
+      }
+      return undefined;
+    });
+    const router = createTestRouter(["/setup"]);
+    render(<RouterProvider router={router} />);
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByRole("button", { name: /get started/i }));
+    await user.click(await screen.findByRole("button", { name: /continue/i }));
+    await screen.findByRole("heading", { name: /first account runs the place/i });
+    await user.type(screen.getByRole("textbox", { name: /username/i }), "root");
+    await user.type(screen.getByLabelText(/^password/i), "pw-123456");
+    await user.type(screen.getByLabelText(/confirm password/i), "pw-123456");
+    await user.click(screen.getByRole("button", { name: /create account and continue/i }));
+
+    expect(await screen.findByText(/cors origin is not allowed/i)).toBeInTheDocument();
+    expect(screen.queryByText(/an administrator account already exists/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /go to sign in/i })).not.toBeInTheDocument();
+    expect(useSetupStore.getState().info?.initialized).toBe(false);
+  });
+
   it("surfaces backend validation errors from registration", async () => {
     stubFetch(statusHandler(uninitialized), (url, init) => {
       if (url.endsWith("/api/v1/auth/register") && init?.method === "POST") {
