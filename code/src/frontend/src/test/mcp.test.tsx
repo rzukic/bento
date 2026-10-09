@@ -24,6 +24,7 @@ const connection: McpConnection = {
   clientName: "Claude",
   username: "admin",
   scope: "read-write",
+  permissions: ["data.read", "data.write", "schema.write"],
   createdAt: "2026-10-09T12:00:00.000Z",
   lastUsedAt: "2026-10-09T12:05:00.000Z",
 };
@@ -101,7 +102,8 @@ describe("Connections → Claude", () => {
     expect(screen.getByRole("link", { name: /download bento\.mcpb/i })).toHaveAttribute("href", "/api/v1/mcp/bento.mcpb");
 
     expect(await screen.findByText("Claude", { selector: "strong" })).toBeInTheDocument();
-    expect(screen.getByText("Read and write")).toBeInTheDocument();
+    expect(screen.getByText("Add and change rows")).toBeInTheDocument();
+    expect(screen.getByText("Tables and columns")).toHaveClass("mcp__permission--danger");
 
     expect(screen.getByText("create_row")).toBeInTheDocument();
     expect(screen.getByText("API key #3")).toBeInTheDocument();
@@ -122,7 +124,12 @@ describe("Connections → Claude", () => {
 
 describe("OAuth consent page", () => {
   it("asks for access and sends the user back with the decision", async () => {
-    api.getAuthorizeInfo.mockResolvedValue({ clientName: "Claude", redirectHost: "claude.ai", canWrite: true });
+    api.getAuthorizeInfo.mockResolvedValue({
+      clientName: "Claude",
+      redirectHost: "claude.ai",
+      canWrite: true,
+      allowed: ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write"],
+    });
     api.decideAuthorization.mockResolvedValue("https://claude.ai/api/mcp/auth_callback?code=c0de&state=st4te");
     const assign = vi.fn();
     vi.stubGlobal("location", { ...window.location, assign });
@@ -131,9 +138,13 @@ describe("OAuth consent page", () => {
 
     expect(await screen.findByText("claude.ai")).toBeInTheDocument();
     expect(api.getAuthorizeInfo).toHaveBeenCalledWith("bento_client_x", "https://claude.ai/api/mcp/auth_callback");
-    // The client asked for write and the user may write: preselected, but changeable.
-    expect(screen.getByRole("radio", { name: /read and write/i })).toBeChecked();
-    await user.click(screen.getByRole("radio", { name: /read only/i }));
+    // The client asked for write: adding rows is preselected, the rest is up to the user; reading is always in.
+    expect(screen.getByRole("checkbox", { name: /read everything/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /read everything/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /add and change rows/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /tables and columns/i })).not.toBeChecked();
+    await user.click(screen.getByRole("checkbox", { name: /dashboards and saved queries/i }));
+    await user.click(screen.getByRole("checkbox", { name: /add and change rows/i }));
     await user.click(screen.getByRole("button", { name: /allow/i }));
 
     await waitFor(() =>
@@ -142,7 +153,7 @@ describe("OAuth consent page", () => {
         redirectUri: "https://claude.ai/api/mcp/auth_callback",
         codeChallenge: "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopq",
         codeChallengeMethod: "S256",
-        scope: "read",
+        permissions: ["data.read", "dashboards.write"],
         state: "st4te",
         approve: true,
       }),
@@ -150,14 +161,19 @@ describe("OAuth consent page", () => {
     expect(assign).toHaveBeenCalledWith("https://claude.ai/api/mcp/auth_callback?code=c0de&state=st4te");
   });
 
-  it("offers only read access to a viewer", async () => {
+  it("offers a viewer only what the role allows, and All picks those", async () => {
     signIn("viewer");
-    api.getAuthorizeInfo.mockResolvedValue({ clientName: "Claude", redirectHost: "claude.ai", canWrite: false });
+    api.getAuthorizeInfo.mockResolvedValue({ clientName: "Claude", redirectHost: "claude.ai", canWrite: false, allowed: ["data.read", "dashboards.write"] });
+    const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter([consentUrl])} />);
 
-    expect(await screen.findByText("Your role can only read.")).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /read and write/i })).toBeDisabled();
-    expect(screen.getByRole("radio", { name: /read only/i })).toBeChecked();
+    expect(await screen.findAllByText("Needs the admin role.")).toHaveLength(2);
+    expect(screen.getAllByText("Needs the editor role.")).toHaveLength(3);
+    expect(screen.getByRole("checkbox", { name: /add and change rows/i })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: /add and change rows/i })).not.toBeChecked();
+    await user.click(screen.getByRole("button", { name: "All" }));
+    expect(screen.getByRole("checkbox", { name: /dashboards and saved queries/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /tables and columns/i })).not.toBeChecked();
   });
 
   it("refuses an incomplete link without asking the server", async () => {
@@ -168,7 +184,7 @@ describe("OAuth consent page", () => {
 
   it("returns to the consent page with its query after signing in", async () => {
     signIn("admin", "unauthenticated");
-    api.getAuthorizeInfo.mockResolvedValue({ clientName: "Claude", redirectHost: "claude.ai", canWrite: true });
+    api.getAuthorizeInfo.mockResolvedValue({ clientName: "Claude", redirectHost: "claude.ai", canWrite: true, allowed: ["data.read"] });
     const router = createTestRouter([consentUrl]);
     render(<RouterProvider router={router} />);
 

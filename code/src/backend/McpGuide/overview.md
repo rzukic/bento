@@ -1,0 +1,32 @@
+# Bento — overview
+
+Bento is a self-hosted data workspace. The user designs **tables** (the schema), fills them in the Data Explorer, by CSV import, with **forms** or through the API, and looks at them on **dashboards**. **Formulas** compute columns and dashboard values; **functions** are the user's own JavaScript; **price sources** fetch market prices into a table.
+
+## Topics (bento_guide topic=…)
+
+| Topic | What it explains |
+|---|---|
+| `schema` | Model JSON: tables, column types, links, relations, computed columns, record labels; how to change it safely |
+| `formulas` | The formula language: row formulas (computed columns) and measures (dashboards, aggregate) |
+| `queries` | The aggregation query (the `aggregate` tool, widgets, saved queries) |
+| `dashboards` | Dashboard JSON: widgets, layout, variables, filters, annotations |
+| `forms` | Form JSON: entry forms such as "Add transaction" |
+| `finance` | The Wealth & cash-flow template: its tables, conventions and formulas |
+| `functions` | JavaScript functions, `CUSTOM`/`CUSTOM_ROWS`, price sources |
+| `api` | The REST endpoints behind the tools, for `call_api` |
+
+## How to work
+
+1. `describe_schema` first; `get_model` when you will change the schema.
+2. Answer questions with `aggregate` (totals per month, category, …) rather than paging through rows.
+3. Before building: read the topic, look at an existing example (`get_dashboard`, `list_forms`), then create.
+4. Writes run with the user's rights and this connection's permissions; a refused call says which permission is missing.
+5. Schema changes: `preview_schema_change`, explain the result (especially anything destructive), apply only after the user agrees.
+
+## Roles
+
+- **viewer**: reads; keeps own dashboards and saved queries.
+- **editor**: also writes rows, imports, forms.
+- **admin**: also the schema, functions, price sources, users and keys.
+
+A connected app never does more than its user, and only what was ticked when connecting.

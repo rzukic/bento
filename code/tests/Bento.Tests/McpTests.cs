@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Bento.Tests;
 
@@ -72,7 +73,7 @@ public sealed class McpTests
         var access = tokens.Body.GetProperty("access_token").GetString()!;
         var refresh = tokens.Body.GetProperty("refresh_token").GetString()!;
         Assert.StartsWith("bento_at_", access);
-        Assert.Equal("read write", tokens.Body.GetProperty("scope").GetString());
+        Assert.Equal("data.read data.write", tokens.Body.GetProperty("scope").GetString());
 
         // The code works once.
         var again = await TokenAsync(host, new()
@@ -154,7 +155,7 @@ public sealed class McpTests
 
         var refused = await CallToolAsync(host, access, "create_row", new { table = "customers", values = new { name = "Nope" } });
         Assert.True(refused.IsError);
-        Assert.Contains("can only read", refused.Text);
+        Assert.Contains("needs \"data.write\"", refused.Text);
 
         // The token itself is read-only on the REST API too.
         Assert.Equal(HttpStatusCode.Forbidden, (await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/data/customers", access, new { name = "Nope" })).StatusCode);
@@ -296,6 +297,152 @@ public sealed class McpTests
         Assert.DoesNotContain("{{", root.GetRawText());
     }
 
+    [Fact]
+    public async Task Permissions_LimitAnAdminsConnection_ToWhatWasTicked()
+    {
+        await using var host = await CreateHostAsync();
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var access = await ConnectAsync(host, admin, "read", ["data.read", "data.write"]);
+
+        var tools = ToolNames(await McpAsync(host, access, "tools/list"));
+        Assert.Contains("create_row", tools);
+        Assert.Contains("bento_guide", tools);
+        Assert.Contains("call_api", tools);
+        Assert.DoesNotContain("delete_row", tools);
+        Assert.DoesNotContain("create_dashboard", tools);
+        Assert.DoesNotContain("apply_schema_change", tools);
+        Assert.DoesNotContain("save_function", tools);
+
+        // Not ticked: refused by Bento itself, also through call_api — although the user is an admin.
+        var model = (await (await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/admin/schema/model", admin)).Content.ReadFromJsonAsync<JsonElement>());
+        var viaApi = await CallToolAsync(host, access, "call_api", new { method = "PUT", path = "/api/v1/admin/schema", body = model });
+        Assert.True(viaApi.IsError);
+        Assert.Contains("schema.write", viaApi.Text);
+        Assert.Equal(HttpStatusCode.Forbidden, (await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/dashboards", access, new { name = "X", dashboard = new { widgets = Array.Empty<object>() } })).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await ApiKeyTests.SendAsync(host, HttpMethod.Delete, "/api/v1/data/customers/1", access)).StatusCode);
+        var hidden = await CallToolAsync(host, access, "delete_row", new { table = "customers", id = "1" });
+        Assert.True(hidden.IsError);
+        Assert.Contains("data.delete", hidden.Text);
+
+        // What was ticked works.
+        Assert.False((await CallToolAsync(host, access, "create_row", new { table = "customers", values = new { name = "Ok" } })).IsError);
+        Assert.False((await CallToolAsync(host, access, "call_api", new { method = "GET", path = "/api/v1/formulas/functions" })).IsError);
+        // Areas apps never reach.
+        Assert.Contains("cannot use this part", (await CallToolAsync(host, access, "call_api", new { method = "GET", path = "/api/v1/admin/api-keys" })).Text);
+
+        var connection = (await (await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/mcp/connections", admin)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data")[0];
+        Assert.Equal(new[] { "data.read", "data.write" }, connection.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+    }
+
+    [Fact]
+    public async Task FullConnection_BuildsDashboards_Forms_Schema_AndFunctions()
+    {
+        await using var host = await CreateHostAsync();
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var access = await ConnectAsync(host, admin, "read", ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write"]);
+        // Everything ticked: every tool.
+        Assert.Equal(host.GetService<Bento.Api.Services.Mcp.McpTools>().All.Count, ToolNames(await McpAsync(host, access, "tools/list")).Count);
+
+        // Schema: add a column after a preview.
+        var model = JsonNode.Parse((await CallToolAsync(host, access, "get_model", new { })).Text)!.AsObject();
+        model["tables"]![0]!["columns"]!.AsArray().Add(new JsonObject { ["name"] = "vip", ["type"] = "boolean" });
+        var preview = await CallToolAsync(host, access, "preview_schema_change", new { model });
+        Assert.False(preview.IsError, preview.Text);
+        Assert.Contains("vip", preview.Text);
+        var applied = await CallToolAsync(host, access, "apply_schema_change", new { model });
+        Assert.False(applied.IsError, applied.Text);
+        Assert.Contains("vip: boolean", (await CallToolAsync(host, access, "describe_schema", new { })).Text);
+
+        // Rows incl. delete.
+        var row = await CallToolAsync(host, access, "create_row", new { table = "customers", values = new { name = "Temp", vip = true } });
+        var rowId = JsonDocument.Parse(row.Text).RootElement.GetProperty("data").GetProperty("id").GetInt64();
+        Assert.False((await CallToolAsync(host, access, "delete_row", new { table = "customers", id = rowId.ToString() })).IsError);
+
+        // A dashboard, changed and deleted.
+        var dashboard = await CallToolAsync(host, access, "create_dashboard", new
+        {
+            name = "Customers",
+            dashboard = new
+            {
+                widgets = new object[]
+                {
+                    new { id = "count", type = "kpi", title = "Customers", position = new { x = 0, y = 0, w = 3, h = 2 }, data = new { query = new { source = "customers", measures = new[] { new { name = "n", fn = "count" } } } } }
+                }
+            }
+        });
+        Assert.False(dashboard.IsError, dashboard.Text);
+        var dashboardId = JsonDocument.Parse(dashboard.Text).RootElement.GetProperty("data").GetProperty("id").GetInt64();
+        Assert.False((await CallToolAsync(host, access, "update_dashboard", new { id = dashboardId, name = "All customers" })).IsError);
+        Assert.Contains("All customers", (await CallToolAsync(host, access, "list_dashboards", new { })).Text);
+        Assert.False((await CallToolAsync(host, access, "delete_dashboard", new { id = dashboardId })).IsError);
+
+        // A saved query, a form, a function.
+        Assert.False((await CallToolAsync(host, access, "save_query", new { name = "By tier", query = new { source = "customers", groupBy = new[] { new { column = "tier" } }, measures = new[] { new { name = "n", fn = "count" } } } })).IsError);
+        var form = await CallToolAsync(host, access, "create_form", new { name = "Add customer", form = new { table = "customers", fields = new[] { new { column = "name" } } } });
+        Assert.False(form.IsError, form.Text);
+        var test = await CallToolAsync(host, access, "test_function", new { arguments = new[] { new { name = "x", type = "float" } }, resultType = "float", code = "return x * 2;", values = new[] { 21 } });
+        Assert.Contains("42", test.Text);
+        var saved = await CallToolAsync(host, access, "save_function", new { name = "double_it", arguments = new[] { new { name = "x", type = "float" } }, resultType = "float", code = "return x * 2;" });
+        Assert.False(saved.IsError, saved.Text);
+        var savedAgain = await CallToolAsync(host, access, "save_function", new { name = "double_it", arguments = new[] { new { name = "x", type = "float" } }, resultType = "float", code = "return x + x;" });
+        Assert.False(savedAgain.IsError, savedAgain.Text);
+        Assert.Contains("x + x", (await CallToolAsync(host, access, "get_function", new { name = "double_it" })).Text);
+
+        // A formula check.
+        var check = await CallToolAsync(host, access, "check_formula", new { table = "customers", formula = "UPPER(name)", preview = true, limit = 2 });
+        Assert.False(check.IsError, check.Text);
+    }
+
+    [Fact]
+    public async Task Guide_HasEveryTopic_AndCoversTheFormats()
+    {
+        foreach (var topic in Bento.Api.Services.Mcp.McpTools.GuideTopics)
+        {
+            var result = Bento.Api.Services.Mcp.McpTools.Guide(topic);
+            Assert.False(result.IsError, topic);
+            Assert.True(result.Text.Length > 300, topic);
+        }
+        Assert.True(Bento.Api.Services.Mcp.McpTools.Guide("nope").IsError);
+
+        // The guide stays in step with the code: every widget type and column type is explained.
+        var dashboards = Bento.Api.Services.Mcp.McpTools.Guide("dashboards").Text;
+        foreach (var type in Bento.Api.Controllers.DashboardsController.WidgetTypes)
+            Assert.Contains($"`{type}`", dashboards);
+        var schema = Bento.Api.Services.Mcp.McpTools.Guide("schema").Text;
+        foreach (var type in new[] { "text", "integer", "float", "currency", "boolean", "date", "datetime", "enum", "reference", "computed", "json", "uuid", "file" })
+            Assert.Contains($"`{type}`", schema);
+
+        // And over MCP, for any connection.
+        await using var host = await CreateHostAsync();
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var readKey = await ApiKeyTests.CreateKeyAsync(host, admin, "read");
+        Assert.Contains("Model JSON", (await CallToolAsync(host, readKey, "bento_guide", new { topic = "schema" })).Text);
+        Assert.Contains("bento_guide", (await McpAsync(host, readKey, "initialize", new { protocolVersion = "2025-06-18" })).GetProperty("result").GetProperty("instructions").GetString());
+    }
+
+    [Theory]
+    [InlineData("GET", "/api/v1/data/transactions", "data.read")]
+    [InlineData("POST", "/api/v1/query", "data.read")]
+    [InlineData("POST", "/api/v1/queries/3/run", "data.read")]
+    [InlineData("POST", "/api/v1/admin/schema/preview", "data.read")]
+    [InlineData("POST", "/api/v1/data/transactions", "data.write")]
+    [InlineData("PATCH", "/api/v1/data/transactions/4", "data.write")]
+    [InlineData("DELETE", "/api/v1/data/transactions/4", "data.delete")]
+    [InlineData("POST", "/api/v1/import/transactions", "data.write")]
+    [InlineData("POST", "/api/v1/queries", "dashboards.write")]
+    [InlineData("PUT", "/api/v1/dashboards/2", "dashboards.write")]
+    [InlineData("DELETE", "/api/v1/forms/2", "forms.write")]
+    [InlineData("PUT", "/api/v1/admin/schema", "schema.write")]
+    [InlineData("POST", "/api/v1/functions", "functions.write")]
+    [InlineData("POST", "/api/v1/price-sources/1/run", "functions.write")]
+    [InlineData("GET", "/api/v1/admin/api-keys", null)]
+    [InlineData("GET", "/api/v1/admin/credentials", null)]
+    [InlineData("POST", "/api/v1/auth/register", null)]
+    [InlineData("GET", "/api/v1/mcp/connections", null)]
+    [InlineData("POST", "/api/v1/oauth/authorize", null)]
+    public void RequiredPermission_PerRoute(string method, string path, string? expected) =>
+        Assert.Equal(expected, Bento.Api.Services.McpPermissions.RequiredFor(method, path));
+
     // ── Helpers ──
 
     internal static async Task<ApiIntegrationTestHost> CreateHostAsync(string? publicUrl = null)
@@ -314,11 +461,11 @@ public sealed class McpTests
     }
 
     /// <summary>Register a client, approve it as the given user and return an access token.</summary>
-    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope)
+    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope, string[]? permissions = null)
     {
         var clientId = await RegisterAsync(host, "Claude");
         var (verifier, challenge) = Pkce();
-        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope))["code"];
+        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope, permissions: permissions))["code"];
         var tokens = await TokenAsync(host, new()
         {
             ["grant_type"] = "authorization_code", ["client_id"] = clientId, ["code"] = code,
@@ -341,10 +488,10 @@ public sealed class McpTests
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("client_id").GetString()!;
     }
 
-    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect)
+    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect, string[]? permissions = null)
     {
         using var response = await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/oauth/authorize", userToken,
-            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, state, approve = true });
+            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, permissions, state, approve = true });
         return (await ReadDataAsync(response)).GetProperty("redirectTo").GetString()!;
     }
 

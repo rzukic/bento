@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Configuration;
+using Bento.Api.Services;
 using Bento.Api.Services.Mcp;
 
 namespace Bento.Api.Controllers;
@@ -30,7 +31,7 @@ public sealed class WellKnownController : ControllerBase
         {
             ["resource"] = baseUrl + "/mcp",
             ["authorization_servers"] = new[] { baseUrl },
-            ["scopes_supported"] = new[] { "read", "write" },
+            ["scopes_supported"] = McpPermissions.All.Concat(["read", "write"]).ToArray(),
             ["bearer_methods_supported"] = new[] { "header" },
             ["resource_name"] = "Bento"
         });
@@ -48,7 +49,7 @@ public sealed class WellKnownController : ControllerBase
             ["authorization_endpoint"] = baseUrl + "/oauth/authorize",
             ["token_endpoint"] = baseUrl + "/" + ApiRoutes.OAuthToken,
             ["registration_endpoint"] = baseUrl + "/" + ApiRoutes.OAuthRegister,
-            ["scopes_supported"] = new[] { "read", "write" },
+            ["scopes_supported"] = McpPermissions.All.Concat(["read", "write"]).ToArray(),
             ["response_types_supported"] = new[] { "code" },
             ["grant_types_supported"] = new[] { "authorization_code", "refresh_token" },
             ["token_endpoint_auth_methods_supported"] = new[] { "none" },

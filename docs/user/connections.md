@@ -42,27 +42,34 @@ Keys need sign-in to be switched on (`AUTH_MODE=standard`, the default).
 
 ## Claude (MCP)
 
-Bento is an **MCP server**: connect it once and Claude can answer questions about your data ("how much did I spend on groceries last quarter compared to a year earlier?") and, if you allow it, add a transaction ("add 12,40 € at the bakery today"). **Connections → Claude** shows the address, the steps for each client, the apps connected with your account, and every call Claude made.
+Bento is an **MCP server**: connect it once and Claude can answer questions about your data ("how much did I spend on groceries last quarter compared to a year earlier?"), add a transaction ("add 12,40 € at the bakery today") and — if you allow it — build dashboards and forms, change the schema or write functions. **Connections → Claude** shows the address, the steps for each client, the apps connected with your account, and every call Claude made.
 
 The address is your Bento's address plus `/mcp`, e.g. `https://bento.example.com/mcp`.
 
 ### Connect with your Bento account
 
-- **Claude app, web and phone**: Settings → Connectors → *Add custom connector*, name it *Bento*, paste the address, **Connect**. Bento's sign-in opens; sign in and choose the access. Claude on the web reaches Bento from the internet, so Bento needs a public address (e.g. on Coolify).
+- **Claude app, web and phone**: Settings → Connectors → *Add custom connector*, name it *Bento*, paste the address, **Connect**. Bento's sign-in opens; sign in and tick what Claude may do. Claude on the web reaches Bento from the internet, so Bento needs a public address (e.g. on Coolify).
 - **Claude Code**: `claude mcp add --transport http bento https://bento.example.com/mcp`, then run `/mcp` in Claude Code and choose *Authenticate*; the browser opens Bento's sign-in.
 
-On the sign-in page Bento asks which access the app gets:
+On the sign-in page you tick what the app may do, area by area (**All** and **Read only** set them in one click):
 
-| Access | Allows |
-|--------|--------|
-| Read only | Tables, rows, dashboards, forms and saved queries; analyses with the query API |
-| Read and write | Also adding and changing rows |
+| Permission | Allows | Needs |
+|------------|--------|-------|
+| Read everything | Tables and rows, the schema, dashboards, forms, saved queries and functions; analyses | always on |
+| Add and change rows | New and changed records, CSV imports | editor |
+| Delete rows | Removing records | editor |
+| Dashboards and saved queries | Creating, changing and deleting them | viewer |
+| Forms | Creating, changing and deleting entry forms | editor |
+| Tables and columns | Changing the schema — this can delete data | admin |
+| Functions and price sources | JavaScript functions, running price sources | admin |
 
-The app acts as you and never does more than your role allows (a viewer's connection only reads). It never changes the schema, users or keys, and MCP has no delete. Each connected app appears under **Connected apps** with its access and when it was last used; **Disconnect** ends its access at once. Admins see every user's apps.
+The app acts as you and never does more than your role allows; Bento checks every call it makes against what you ticked, so an app allowed to add rows cannot change the schema even when you are an admin. Users, API keys, credentials and connections are never reachable for apps. Each connected app appears under **Connected apps** with its permissions and when it was last used; **Disconnect** ends its access at once; to change what it may do, connect again. Admins see every user's apps.
+
+Claude also gets a **guide** (`bento_guide`): how Bento works and the exact formats of the schema, formulas, queries, dashboards, forms, the finance template and functions. It reads the matching part before building something, and asks before changing the schema or deleting.
 
 ### Claude Desktop extension
 
-**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and choose *Read only* or *Read and write*. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
+**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and tick what Claude may do. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
 
 ### Connect with an API key
 
@@ -77,16 +84,23 @@ A read key only reads; a read-write key may also add and change rows.
 
 ### What Claude can do
 
-| Tool | Does |
-|------|------|
-| `describe_schema` | The tables, columns, links and relations (one table in detail when named) |
-| `list_rows`, `get_row` | Rows with filters, search, sort and paging; one row by id |
-| `aggregate` | Sums, counts, averages over time and groups — the query API |
-| `list_formula_functions` | Every formula function, for measures |
-| `list_saved_queries`, `run_saved_query` | Saved queries |
-| `list_dashboards`, `get_dashboard` | Dashboards and the queries behind their widgets |
-| `list_forms` | Entry forms with their defaults (how you add a transaction) |
-| `create_row`, `update_row` | Add or change a row (read-and-write access only) |
+| Tool | Does | Permission |
+|------|------|------------|
+| `bento_guide` | How Bento works, topic by topic | read |
+| `describe_schema`, `get_model` | The tables at a glance; the full Model JSON | read |
+| `list_rows`, `get_row` | Rows with filters, search, sort and paging | read |
+| `aggregate`, `check_formula`, `list_formula_functions` | Analyses with the query API; checking formulas | read |
+| `list_saved_queries`, `run_saved_query`, `list_dashboards`, `get_dashboard`, `list_forms` | What exists | read |
+| `list_functions`, `get_function`, `list_price_sources` | Functions and price sources | read |
+| `call_api` | Any other API call, within the same permissions | read (and what the call needs) |
+| `create_row`, `update_row` | Add or change a row | add and change rows |
+| `delete_row` | Delete a row | delete rows |
+| `create_dashboard`, `update_dashboard`, `delete_dashboard`, `save_query`, `delete_saved_query` | Dashboards and saved queries | dashboards |
+| `create_form`, `update_form`, `delete_form` | Forms | forms |
+| `preview_schema_change`, `apply_schema_change` | Schema changes, previewed first | tables and columns |
+| `save_function`, `test_function`, `delete_function`, `run_price_source` | Functions and price sources | functions |
+
+A connection only sees the tools it may use. API keys work like a connection with read only (read keys) or with rows, dashboards and forms (read-write keys).
 
 **Recent calls** lists every tool call: when, which tool and arguments, through which app or key, the result and how long it took. Calls are kept 90 days.
 

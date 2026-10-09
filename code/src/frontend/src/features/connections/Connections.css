@@ -647,6 +647,25 @@
     font-size: var(--fs-base);
 }
 
+.mcp__permissions {
+    white-space: normal !important;
+}
+
+.mcp__permission {
+    display: inline-block;
+    margin: 0.1rem 0.25rem 0.1rem 0;
+    padding: 0.05rem 0.45rem;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 7%, var(--surface));
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.mcp__permission--danger {
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+    color: var(--danger);
+}
+
 .mcp__args {
     display: block;
     max-width: 28rem;

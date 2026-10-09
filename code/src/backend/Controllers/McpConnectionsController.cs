@@ -53,6 +53,7 @@ public sealed class McpConnectionsController : ControllerBase
                 clientName = g.ClientName,
                 username = g.Username,
                 scope = g.Scope,
+                permissions = g.Permissions,
                 createdAt = g.CreatedAt,
                 lastUsedAt = g.LastUsedAt
             })

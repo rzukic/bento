@@ -360,6 +360,7 @@ public class DatabaseBootstrap : IHostedService
                 duration_ms     INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON _system.mcp_calls(called_at);
+            ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS permissions TEXT;
             """);
     }
 
@@ -698,5 +699,10 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON mcp_calls(called_at);
             """);
+
+        // Step 4.6: per-area permissions of a connected app (JSON list), added after the first release.
+        var grantColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('oauth_grants');")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!grantColumns.Contains("permissions"))
+            await conn.ExecuteAsync("ALTER TABLE oauth_grants ADD COLUMN permissions TEXT;");
     }
 }

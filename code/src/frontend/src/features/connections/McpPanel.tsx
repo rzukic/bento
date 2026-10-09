@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { ApiClientError } from "../../api/client";
-import { getMcpInfo, listMcpCalls, listMcpConnections, revokeMcpConnection, type McpCall, type McpConnection, type McpInfo } from "../../api/mcp";
+import { getMcpInfo, listMcpCalls, listMcpConnections, MCP_PERMISSIONS, revokeMcpConnection, type McpCall, type McpConnection, type McpInfo } from "../../api/mcp";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -93,9 +93,9 @@ export function McpPanel() {
   return (
     <div className="mcp">
       <p className="api-keys__intro">
-        Ask Claude about your data — or let it add a transaction. Bento is an <strong>MCP server</strong>: connect it once and Claude can
-        read your tables, run analyses, look at dashboards and, if you allow it, add and change rows. It never changes the schema and
-        never deletes anything.
+        Ask Claude about your data, let it add a transaction or build a dashboard. Bento is an <strong>MCP server</strong>: connect it
+        once and Claude can read your tables, run analyses and look at dashboards — and, area by area as you allow it when connecting,
+        change rows, dashboards, forms, the schema or functions.
       </p>
 
       {error ? <Alert tone="error" message={error} /> : null}
@@ -190,7 +190,13 @@ export function McpPanel() {
                       <strong>{connection.clientName}</strong>
                     </td>
                     {isAdmin ? <td>{connection.username ?? "—"}</td> : null}
-                    <td>{connection.scope === "read" ? "Read" : "Read and write"}</td>
+                    <td className="mcp__permissions">
+                      {MCP_PERMISSIONS.filter((p) => connection.permissions.includes(p.id)).map((p) => (
+                        <span key={p.id} className={`mcp__permission${p.danger ? " mcp__permission--danger" : ""}`}>
+                          {p.label}
+                        </span>
+                      ))}
+                    </td>
                     <td>{formatWhen(connection.createdAt)}</td>
                     <td>{connection.lastUsedAt ? formatWhen(connection.lastUsedAt) : "Never"}</td>
                     <td>

@@ -4,7 +4,7 @@
   "display_name": "Bento",
   "version": "{{VERSION}}",
   "description": "Your Bento tables, analyses and dashboards in Claude; add transactions by asking.",
-  "long_description": "Connects Claude Desktop to your Bento. On first use your browser opens Bento's sign-in: sign in and choose Read only (tables, rows, dashboards, forms, analyses) or Read and write (also add and change rows). It never changes the schema and never deletes anything. The sign-in is kept on this computer and renewed by itself; disconnect it any time in Bento under Connections → Claude, where every call is listed.",
+  "long_description": "Connects Claude Desktop to your Bento. On first use your browser opens Bento's sign-in: sign in and tick what Claude may do — read everything, add and change or delete rows, dashboards, forms, the schema, functions. The sign-in is kept on this computer and renewed by itself; disconnect it any time in Bento under Connections → Claude, where every call is listed.",
   "author": {
     "name": "Bento"
   },

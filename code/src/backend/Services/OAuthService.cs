@@ -12,9 +12,9 @@ namespace Bento.Api.Services;
 /// A small OAuth 2.1 authorization server for MCP clients (Step 4.6): clients
 /// register themselves (RFC 7591), the user approves them on Bento's consent
 /// page, and the client trades the code (PKCE S256 only) for an access token
-/// and a rotating refresh token. A grant acts as its user, limited to its scope
-/// exactly like an API key: <c>read</c>, or <c>read-write</c> for users who may
-/// write. Codes and tokens are stored as SHA-256 hashes.
+/// and a rotating refresh token. A grant acts as its user, limited to the
+/// permissions the user ticked (<see cref="McpPermissions"/>) and capped by the
+/// user's role. Codes and tokens are stored as SHA-256 hashes.
 /// </summary>
 public sealed class OAuthService
 {
@@ -39,7 +39,8 @@ public sealed class OAuthService
 
     public sealed record TokenSet(string AccessToken, string RefreshToken, int ExpiresIn, string Scope);
 
-    public sealed record OAuthIdentity(long GrantId, long UserId, string Username, string Scope, string ClientName);
+    /// <summary>The user behind a token, their role, and what the app may do (already capped by the role).</summary>
+    public sealed record OAuthIdentity(long GrantId, long UserId, string Username, string Role, IReadOnlyList<string> Permissions, string ClientName);
 
     public sealed class GrantRow
     {
@@ -49,20 +50,34 @@ public sealed class OAuthService
         public long UserId { get; init; }
         public string? Username { get; init; }
         public string Scope { get; init; } = ApiKeyService.ReadScope;
+        public string? PermissionsJson { get; init; }
         public string CreatedAt { get; init; } = "";
         public string? LastUsedAt { get; init; }
+
+        public IReadOnlyList<string> Permissions => ReadPermissions(PermissionsJson, Scope);
     }
 
     public static bool LooksLikeAccessToken(string? value) =>
         value is not null && value.StartsWith(AccessTokenPrefix, StringComparison.Ordinal) && value.Length > AccessTokenPrefix.Length + 8;
 
-    /// <summary>OAuth scope strings ("read", "read write") to Bento's key scopes and back.</summary>
-    public static string ScopeFromOAuth(string? scope) =>
-        (scope ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains("write", StringComparer.OrdinalIgnoreCase)
-            ? ApiKeyService.ReadWriteScope
-            : ApiKeyService.ReadScope;
-
-    public static string ScopeToOAuth(string scope) => scope == ApiKeyService.ReadWriteScope ? "read write" : "read";
+    /// <summary>Stored permissions; grants from before per-area permissions have only read or read-write.</summary>
+    private static IReadOnlyList<string> ReadPermissions(string? json, string scope)
+    {
+        if (!string.IsNullOrWhiteSpace(json))
+        {
+            try
+            {
+                return McpPermissions.Normalize(JsonSerializer.Deserialize<string[]>(json));
+            }
+            catch (JsonException)
+            {
+                // fall through to the scope
+            }
+        }
+        return scope == ApiKeyService.ReadWriteScope
+            ? [McpPermissions.Read, McpPermissions.WriteRows]
+            : [McpPermissions.Read];
+    }
 
     // --- Clients -------------------------------------------------------------------
 
@@ -115,8 +130,11 @@ public sealed class OAuthService
     // --- Authorization code --------------------------------------------------------
 
     /// <summary>The signed-in user approved the client: a grant (reused per client and user) and a one-time code.</summary>
-    public async Task<string> ApproveAsync(long userId, string clientId, string redirectUri, string codeChallenge, string scope)
+    public async Task<string> ApproveAsync(long userId, string clientId, string redirectUri, string codeChallenge, IReadOnlyList<string> permissions)
     {
+        var granted = McpPermissions.Normalize(permissions);
+        var scope = granted.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
+        var permissionsJson = JsonSerializer.Serialize(granted);
         await ResolveAuthorizationAsync(clientId, redirectUri);
         if (string.IsNullOrWhiteSpace(codeChallenge) || codeChallenge.Length is < 43 or > 128)
             throw new OAuthException("invalid_request", "A PKCE code_challenge (S256) is required.");
@@ -128,17 +146,17 @@ public sealed class OAuthService
             new { ClientId = clientId, UserId = userId });
         if (grantId is { } existing)
         {
-            await conn.ExecuteAsync($"UPDATE {Grants} SET scope = @Scope WHERE id = @Id", new { Scope = scope, Id = existing });
+            await conn.ExecuteAsync($"UPDATE {Grants} SET scope = @Scope, permissions = @Permissions WHERE id = @Id", new { Scope = scope, Permissions = permissionsJson, Id = existing });
         }
         else
         {
             grantId = await conn.ExecuteScalarAsync<long>(
                 $"""
-                INSERT INTO {Grants} (client_id, user_id, scope, created_at)
-                VALUES (@ClientId, @UserId, @Scope, {Ts("@Now")})
+                INSERT INTO {Grants} (client_id, user_id, scope, permissions, created_at)
+                VALUES (@ClientId, @UserId, @Scope, @Permissions, {Ts("@Now")})
                 RETURNING id
                 """,
-                new { ClientId = clientId, UserId = userId, Scope = scope, Now = Iso(now) });
+                new { ClientId = clientId, UserId = userId, Scope = scope, Permissions = permissionsJson, Now = Iso(now) });
         }
 
         var code = CodePrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -171,7 +189,7 @@ public sealed class OAuthService
             throw new OAuthException("invalid_grant", "code_verifier does not match the code_challenge.");
 
         await MarkUsedAsync(conn, token.Id);
-        return await IssueTokensAsync(conn, token.GrantId, token.Scope);
+        return await IssueTokensAsync(conn, token.GrantId, ReadPermissions(token.PermissionsJson, token.Scope));
     }
 
     public async Task<TokenSet> RefreshAsync(string? clientId, string? refreshToken)
@@ -194,7 +212,7 @@ public sealed class OAuthService
             throw new OAuthException("invalid_grant", "The refresh token is invalid or expired.");
 
         await MarkUsedAsync(conn, token.Id);
-        return await IssueTokensAsync(conn, token.GrantId, token.Scope);
+        return await IssueTokensAsync(conn, token.GrantId, ReadPermissions(token.PermissionsJson, token.Scope));
     }
 
     // --- Access tokens -------------------------------------------------------------
@@ -205,7 +223,7 @@ public sealed class OAuthService
         using var conn = await _systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<AccessLookupRow>(
             $"""
-            SELECT g.id AS GrantId, g.user_id AS UserId, u.username, u.role AS UserRole, g.scope,
+            SELECT g.id AS GrantId, g.user_id AS UserId, u.username, u.role AS UserRole, g.scope, g.permissions AS PermissionsJson,
                    c.name AS ClientName, {Text("t.expires_at")} AS ExpiresAt, {Text("g.revoked_at")} AS RevokedAt,
                    {Text("g.last_used_at")} AS LastUsedAt
             FROM {Tokens} t
@@ -226,10 +244,8 @@ public sealed class OAuthService
             await conn.ExecuteAsync($"UPDATE {Grants} SET last_used_at = {Ts("@Now")} WHERE id = @Id", new { Id = row.GrantId, Now = Iso(now) });
         }
 
-        var scope = row.Scope == ApiKeyService.ReadWriteScope && row.UserRole is "admin" or "editor"
-            ? ApiKeyService.ReadWriteScope
-            : ApiKeyService.ReadScope;
-        return new OAuthIdentity(row.GrantId, row.UserId, row.Username ?? "", scope, row.ClientName ?? "MCP client");
+        var permissions = McpPermissions.Cap(ReadPermissions(row.PermissionsJson, row.Scope), row.UserRole);
+        return new OAuthIdentity(row.GrantId, row.UserId, row.Username ?? "", row.UserRole ?? "viewer", permissions, row.ClientName ?? "MCP client");
     }
 
     // --- Grants ("connected apps") ------------------------------------------------
@@ -241,7 +257,7 @@ public sealed class OAuthService
         var rows = await conn.QueryAsync<GrantRow>(
             $"""
             SELECT g.id, g.client_id AS ClientId, COALESCE(c.name, 'MCP client') AS ClientName, g.user_id AS UserId, u.username,
-                   g.scope, {Text("g.created_at")} AS CreatedAt, {Text("g.last_used_at")} AS LastUsedAt
+                   g.scope, g.permissions AS PermissionsJson, {Text("g.created_at")} AS CreatedAt, {Text("g.last_used_at")} AS LastUsedAt
             FROM {Grants} g
             LEFT JOIN {Clients} c ON c.client_id = g.client_id
             LEFT JOIN {Users} u ON u.id = g.user_id
@@ -294,7 +310,7 @@ public sealed class OAuthService
                string.Equals(a.PathAndQuery, b.PathAndQuery, StringComparison.Ordinal);
     }
 
-    private async Task<TokenSet> IssueTokensAsync(System.Data.IDbConnection conn, long grantId, string scope)
+    private async Task<TokenSet> IssueTokensAsync(System.Data.IDbConnection conn, long grantId, IReadOnlyList<string> permissions)
     {
         var now = DateTime.UtcNow;
         var access = AccessTokenPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -303,7 +319,7 @@ public sealed class OAuthService
         await InsertTokenAsync(conn, grantId, "refresh", refresh, now + RefreshTokenLifetime, null, null);
         // Expired tokens are kept a day (to recognise reuse), then dropped.
         await conn.ExecuteAsync($"DELETE FROM {Tokens} WHERE expires_at < {Ts("@Cutoff")}", new { Cutoff = Iso(now.AddDays(-1)) });
-        return new TokenSet(access, refresh, (int)AccessTokenLifetime.TotalSeconds, ScopeToOAuth(scope));
+        return new TokenSet(access, refresh, (int)AccessTokenLifetime.TotalSeconds, McpPermissions.ToScope(permissions));
     }
 
     private async Task InsertTokenAsync(System.Data.IDbConnection conn, long grantId, string kind, string token, DateTime expiresAt, string? redirectUri, string? codeChallenge)
@@ -322,7 +338,7 @@ public sealed class OAuthService
             $"""
             SELECT t.id, t.grant_id AS GrantId, t.redirect_uri AS RedirectUri, t.code_challenge AS CodeChallenge,
                    {Text("t.expires_at")} AS ExpiresAt, {Text("t.used_at")} AS UsedAt,
-                   g.client_id AS ClientId, g.scope, {Text("g.revoked_at")} AS RevokedAt
+                   g.client_id AS ClientId, g.scope, g.permissions AS PermissionsJson, {Text("g.revoked_at")} AS RevokedAt
             FROM {Tokens} t
             INNER JOIN {Grants} g ON g.id = t.grant_id
             WHERE t.token_hash = @Hash AND t.kind = @Kind
@@ -357,6 +373,7 @@ public sealed class OAuthService
         public string? UsedAt { get; init; }
         public string ClientId { get; init; } = "";
         public string Scope { get; init; } = ApiKeyService.ReadScope;
+        public string? PermissionsJson { get; init; }
         public string? RevokedAt { get; init; }
     }
 
@@ -367,6 +384,7 @@ public sealed class OAuthService
         public string? Username { get; init; }
         public string? UserRole { get; init; }
         public string Scope { get; init; } = ApiKeyService.ReadScope;
+        public string? PermissionsJson { get; init; }
         public string? ClientName { get; init; }
         public string ExpiresAt { get; init; } = "";
         public string? RevokedAt { get; init; }

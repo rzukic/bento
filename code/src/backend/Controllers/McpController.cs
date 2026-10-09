@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
+using Bento.Api.Services;
 using Bento.Api.Services.Mcp;
 
 namespace Bento.Api.Controllers;
@@ -97,6 +98,15 @@ public sealed class McpController : ControllerBase
                 ? new Services.Mcp.BentoSelfClient.Credentials("X-API-Key", request.Headers["X-API-Key"].ToString())
                 : new Services.Mcp.BentoSelfClient.Credentials(null, null);
 
-        return new McpCaller(userId, via, credential, role is "api" or "editor" or "admin", credentials);
+        // OAuth apps: the permissions ticked on the consent page (already capped by the role);
+        // API keys: their scope; a session or open mode: everything the role allows.
+        var permissions = method switch
+        {
+            "oauth" => (IReadOnlyList<string>)(user.FindFirstValue("oauth_permissions") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries),
+            "api_key" => McpPermissions.ForApiKeyScope(role == "api" ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope),
+            _ => McpPermissions.ForRole(role)
+        };
+
+        return new McpCaller(userId, via, credential, permissions.ToHashSet(StringComparer.Ordinal), credentials);
     }
 }
