@@ -6,7 +6,7 @@ using System.Text.Json.Nodes;
 namespace Bento.Api.Services.Mcp;
 
 /// <summary>Who is calling and what they may do (<see cref="McpPermissions"/>); the credentials are passed on to the REST API.</summary>
-public sealed record McpCaller(long? UserId, string Via, string? Credential, IReadOnlyCollection<string> Permissions, BentoSelfClient.Credentials Credentials)
+public sealed record McpCaller(long? UserId, string Via, string? Credential, IReadOnlyCollection<string> Permissions, BentoSelfClient.Credentials Credentials, long? GrantId = null)
 {
     public bool Allows(string permission) => Permissions.Contains(permission);
 }

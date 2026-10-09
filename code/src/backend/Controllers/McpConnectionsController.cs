@@ -45,20 +45,55 @@ public sealed class McpConnectionsController : ControllerBase
     {
         EnsureSignedInUser();
         var grants = await _oauth.ListGrantsAsync(ScopeUserId());
-        return Ok(new
-        {
-            data = grants.Select(g => new
-            {
-                id = g.Id,
-                clientName = g.ClientName,
-                username = g.Username,
-                scope = g.Scope,
-                permissions = g.Permissions,
-                createdAt = g.CreatedAt,
-                lastUsedAt = g.LastUsedAt
-            })
-        });
+        return Ok(new { data = grants.Select(ToResponse) });
     }
+
+    [HttpGet("connections/{id:long}")]
+    public async Task<IActionResult> Connection(long id)
+    {
+        EnsureSignedInUser();
+        return Ok(new { data = ToResponse(await _oauth.GetGrantAsync(id, ScopeUserId())) });
+    }
+
+    public sealed record PermissionsRequest
+    {
+        public IReadOnlyList<string>? Permissions { get; init; }
+    }
+
+    /// <summary>Changes what a connected app may do (capped by its user's role); applies to its next call.</summary>
+    [HttpPut("connections/{id:long}")]
+    public async Task<IActionResult> UpdatePermissions(long id, [FromBody] PermissionsRequest request)
+    {
+        EnsureSignedInUser();
+        var unknown = (request.Permissions ?? []).Where(p => !McpPermissions.All.Contains(p, StringComparer.Ordinal)).ToList();
+        if (unknown.Count > 0)
+            throw new ApiValidationException($"Unknown permission: {string.Join(", ", unknown)}.", new Dictionary<string, object?> { ["field"] = "permissions" });
+        var grant = await _oauth.UpdateGrantPermissionsAsync(id, ScopeUserId(), request.Permissions ?? []);
+        return Ok(new { data = ToResponse(grant) });
+    }
+
+    /// <summary>The calls made through one connected app.</summary>
+    [HttpGet("connections/{id:long}/calls")]
+    public async Task<IActionResult> ConnectionCalls(long id, [FromQuery] int limit = 100)
+    {
+        EnsureSignedInUser();
+        var grant = await _oauth.GetGrantAsync(id, ScopeUserId());
+        var calls = await _calls.ListForGrantAsync(grant.Id, grant.UserId, grant.ClientName, grant.CreatedAt, limit);
+        return Ok(new { data = calls });
+    }
+
+    private static object ToResponse(OAuthService.GrantRow g) => new
+    {
+        id = g.Id,
+        clientName = g.ClientName,
+        username = g.Username,
+        scope = g.Scope,
+        permissions = McpPermissions.Cap(g.Permissions, g.UserRole),
+        // What the user behind the app could grant it.
+        allowed = McpPermissions.ForRole(g.UserRole),
+        createdAt = g.CreatedAt,
+        lastUsedAt = g.LastUsedAt
+    };
 
     [HttpDelete("connections/{id:long}")]
     public async Task<IActionResult> Revoke(long id)

@@ -710,3 +710,139 @@
     font-family: var(--font-mono);
     font-size: 0.92em;
 }
+
+/* A connected app opens in a large dialog: its permissions and its calls. */
+.mcp__connection {
+    cursor: pointer;
+}
+
+.mcp__connection:hover td {
+    background: color-mix(in srgb, var(--text) 3%, var(--surface));
+}
+
+.mcp__connection-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.mcp__connection-open svg {
+    color: var(--text-3);
+}
+
+.mcp-connection {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 56rem);
+    /* The dialog fits its area; only its body scrolls, the footer stays in view. */
+    max-height: 100%;
+}
+
+.dialog:has(> .mcp-connection) {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.mcp-connection__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 0.5rem;
+}
+
+.mcp-connection .dialog__footer {
+    margin-top: 0;
+}
+
+.mcp-connection__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mcp-connection__save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.mcp-connection__call {
+    cursor: pointer;
+}
+
+.mcp-connection__toggle {
+    display: inline-flex;
+    margin-right: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    vertical-align: middle;
+    cursor: pointer;
+}
+
+.mcp-connection__details td {
+    background: color-mix(in srgb, var(--text) 3%, var(--surface));
+}
+
+.mcp-connection__details pre {
+    margin: 0.25rem 0 0.75rem;
+    max-height: 18rem;
+    overflow: auto;
+    padding: 0.625rem 0.75rem;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: var(--fs-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mcp-connection__error {
+    color: var(--danger);
+}
+
+.mcp-connection__disconnect {
+    margin-right: auto;
+    color: var(--danger);
+}
+
+/* In the dialog the calls table fits its width: long arguments and errors are cut (open a call for all of it). */
+.mcp-connection .mcp__calls {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.mcp-connection .mcp__calls th:nth-child(1) {
+    width: 11rem;
+}
+
+.mcp-connection .mcp__calls th:nth-child(3) {
+    width: 30%;
+}
+
+.mcp-connection .mcp__calls th:nth-child(4) {
+    width: 5.5rem;
+}
+
+.mcp-connection .mcp__calls td {
+    overflow: hidden;
+}
+
+.mcp-connection .mcp__args,
+.mcp-connection .mcp__error {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}

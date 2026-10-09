@@ -12,6 +12,15 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Open A Connected App: Change Its Permissions, See Its Calls
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-a-connected-app-opens-in-a-dialog)
+
+**Highlights:**
+- Click an app under **Connections → Claude → Connected apps**: tick or untick what it may do and save. It applies to the app's next call, with no need to connect again.
+- The same dialog lists **every call that app made**; open a call to see its full arguments and the error.
+
 ### 2026-10-09 — Bank Bookings Arrive Categorised
 
 > **Phase**: Phase 4 — Intelligence

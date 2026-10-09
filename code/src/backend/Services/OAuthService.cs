@@ -49,6 +49,7 @@ public sealed class OAuthService
         public string ClientName { get; init; } = "";
         public long UserId { get; init; }
         public string? Username { get; init; }
+        public string? UserRole { get; init; }
         public string Scope { get; init; } = ApiKeyService.ReadScope;
         public string? PermissionsJson { get; init; }
         public string CreatedAt { get; init; } = "";
@@ -256,7 +257,7 @@ public sealed class OAuthService
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = await conn.QueryAsync<GrantRow>(
             $"""
-            SELECT g.id, g.client_id AS ClientId, COALESCE(c.name, 'MCP client') AS ClientName, g.user_id AS UserId, u.username,
+            SELECT g.id, g.client_id AS ClientId, COALESCE(c.name, 'MCP client') AS ClientName, g.user_id AS UserId, u.username, u.role AS UserRole,
                    g.scope, g.permissions AS PermissionsJson, {Text("g.created_at")} AS CreatedAt, {Text("g.last_used_at")} AS LastUsedAt
             FROM {Grants} g
             LEFT JOIN {Clients} c ON c.client_id = g.client_id
@@ -266,6 +267,30 @@ public sealed class OAuthService
             """,
             new { UserId = userId });
         return rows.ToList();
+    }
+
+    /// <summary>An active grant: the user's own, or any for an admin (<paramref name="ownerUserId"/> null).</summary>
+    public async Task<GrantRow> GetGrantAsync(long grantId, long? ownerUserId)
+    {
+        var grant = (await ListGrantsAsync(ownerUserId)).FirstOrDefault(g => g.Id == grantId);
+        return grant ?? throw new ApiNotFoundException($"Connection {grantId} not found.");
+    }
+
+    /// <summary>
+    /// Changes what a connected app may do. Capped by the role of the user it acts
+    /// as; read is always in. Applies to the next call — tokens are checked against
+    /// the grant every time.
+    /// </summary>
+    public async Task<GrantRow> UpdateGrantPermissionsAsync(long grantId, long? ownerUserId, IEnumerable<string> permissions)
+    {
+        var grant = await GetGrantAsync(grantId, ownerUserId);
+        var capped = McpPermissions.Cap(permissions.Append(McpPermissions.Read), grant.UserRole);
+        var scope = capped.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
+        using var conn = await _systemPool.GetConnectionAsync();
+        await conn.ExecuteAsync(
+            $"UPDATE {Grants} SET permissions = @Permissions, scope = @Scope WHERE id = @Id",
+            new { Id = grantId, Permissions = JsonSerializer.Serialize(capped), Scope = scope });
+        return await GetGrantAsync(grantId, ownerUserId);
     }
 
     public async Task RevokeGrantAsync(long grantId, long? ownerUserId)

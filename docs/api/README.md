@@ -401,13 +401,16 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 | `POST` | `/api/v1/oauth/authorize` | The user's decision `{ clientId, redirectUri, codeChallenge, codeChallengeMethod, scope: read \| read-write, state, approve }` → `{ redirectTo }` with `code` or `error=access_denied`, plus `state` and `iss` |
 | `GET` | `/api/v1/mcp` | The MCP address for this installation |
 | `GET` | `/api/v1/mcp/connections` | Connected apps (own; admins: all) |
+| `GET` | `/api/v1/mcp/connections/:id` | One connected app (own; admins: all) |
+| `PUT` | `/api/v1/mcp/connections/:id` | Change what it may do: `{ permissions: [...] }`. Read is always in, capped by the role of the user it acts as; applies to its next call |
+| `GET` | `/api/v1/mcp/connections/:id/calls?limit=100` | The calls made through this app, newest first |
 | `DELETE` | `/api/v1/mcp/connections/:id` | Disconnect an app (revokes its tokens) |
 | `GET` | `/api/v1/mcp/calls?limit=50` | The MCP call log (own; admins: all) |
 | `GET` | `/api/v1/mcp/bento.mcpb` | Claude Desktop extension (MCP bundle: manifest, icon, a stdio bridge to `/mcp` that signs in through the browser with OAuth and keeps the tokens in `~/.bento`), its address set to this installation. Public; holds no secret |
 
 - `/mcp` accepts an OAuth access token (`Bearer bento_at_…`), an API key or a session token. Without valid credentials it answers 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`.
 - An access token lasts one hour and acts as its user with the permissions ticked on the consent page (`data.read`, `data.write`, `data.delete`, `dashboards.write`, `forms.write`, `schema.write`, `functions.write`; capped by the role; also the token's `scope`). Every call is checked against them; users, keys, credentials, connections and sign-in are never reachable with a token.
-- `POST /api/v1/oauth/authorize` takes `permissions` (a list of those ids); `GET` returns `allowed`, what the user's role permits.
+- `POST /api/v1/oauth/authorize` takes `permissions` (a list of those ids); `GET` returns `allowed`, what the user's role permits. Connected apps also carry `allowed` (what their user's role permits).
 - Each tool is a call to this REST API with the caller's credentials, so the same roles, scopes and validation apply.
 - `PUBLIC_URL` sets the address used in the metadata; without it the request's scheme and host are used.
 

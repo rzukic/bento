@@ -394,6 +394,54 @@ public sealed class McpTests
     }
 
     [Fact]
+    public async Task ConnectedApp_PermissionsChange_AndItsCallsAreListed()
+    {
+        await using var host = await CreateHostAsync();
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var reader = await ConnectAsync(host, admin, "read", ["data.read"]);
+        var writer = await ConnectAsync(host, admin, "read", ["data.read", "data.write"]);
+        var connections = await ReadDataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/mcp/connections", admin));
+        // Newest first: the writer, then the reader.
+        var readerId = connections[1].GetProperty("id").GetInt64();
+        Assert.Contains("schema.write", connections[1].GetProperty("allowed").EnumerateArray().Select(p => p.GetString()));
+
+        Assert.False((await CallToolAsync(host, reader, "describe_schema", new { })).IsError);
+        Assert.True((await CallToolAsync(host, reader, "create_row", new { table = "customers", values = new { name = "No" } })).IsError);
+        Assert.False((await CallToolAsync(host, writer, "create_row", new { table = "customers", values = new { name = "Yes" } })).IsError);
+
+        // Only the reader's calls, newest first.
+        var calls = await ReadDataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/mcp/connections/{readerId}/calls", admin));
+        Assert.Equal(["create_row", "describe_schema"], calls.EnumerateArray().Select(c => c.GetProperty("tool").GetString()));
+        Assert.False(calls[0].GetProperty("ok").GetBoolean());
+
+        // Allowing rows applies to the next call, without connecting again.
+        var updated = await ReadDataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{readerId}", admin, new { permissions = new[] { "data.write" } }));
+        Assert.Equal(["data.read", "data.write"], updated.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal("read-write", updated.GetProperty("scope").GetString());
+        Assert.False((await CallToolAsync(host, reader, "create_row", new { table = "customers", values = new { name = "Now" } })).IsError);
+        Assert.Contains("create_row", ToolNames(await McpAsync(host, reader, "tools/list")));
+
+        // And taking it away again.
+        await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{readerId}", admin, new { permissions = Array.Empty<string>() });
+        Assert.True((await CallToolAsync(host, reader, "create_row", new { table = "customers", values = new { name = "Again" } })).IsError);
+        Assert.Equal(HttpStatusCode.BadRequest, (await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{readerId}", admin, new { permissions = new[] { "everything" } })).StatusCode);
+
+        // A viewer's app: capped by the viewer's role; other users' apps are not theirs to see.
+        var viewer = await AiTests.ViewerTokenAsync(host, admin);
+        await ConnectAsync(host, viewer, "read", ["data.read"]);
+        var own = (await ReadDataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/mcp/connections", viewer)))[0];
+        var ownId = own.GetProperty("id").GetInt64();
+        Assert.DoesNotContain("data.write", own.GetProperty("allowed").EnumerateArray().Select(p => p.GetString()));
+        var capped = await ReadDataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{ownId}", viewer, new { permissions = new[] { "schema.write", "dashboards.write" } }));
+        Assert.Equal(["data.read", "dashboards.write"], capped.GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+        Assert.Equal(HttpStatusCode.NotFound, (await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/mcp/connections/{readerId}/calls", viewer)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{readerId}", viewer, new { permissions = Array.Empty<string>() })).StatusCode);
+
+        // An app cannot widen its own access.
+        Assert.Equal(HttpStatusCode.Forbidden, (await ApiKeyTests.SendAsync(host, HttpMethod.Put, $"/api/v1/mcp/connections/{readerId}", reader, new { permissions = new[] { "schema.write" } })).StatusCode);
+    }
+
+    [Fact]
     public async Task Guide_HasEveryTopic_AndCoversTheFormats()
     {
         foreach (var topic in Bento.Api.Services.Mcp.McpTools.GuideTopics)
@@ -584,5 +632,7 @@ public sealed class PostgresMcpTests
         Assert.Equal("create_row", calls[0].GetProperty("tool").GetString());
         var connections = (await (await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/mcp/connections", admin)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data");
         Assert.Equal("read-write", connections[0].GetProperty("scope").GetString());
+        var ownCalls = (await (await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/mcp/connections/{connections[0].GetProperty("id").GetInt64()}/calls", admin)).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data");
+        Assert.Equal("create_row", ownCalls[0].GetProperty("tool").GetString());
     }
 }

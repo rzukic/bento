@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
   listMcpConnections: vi.fn(),
   revokeMcpConnection: vi.fn(),
   listMcpCalls: vi.fn(),
+  listMcpConnectionCalls: vi.fn(),
+  updateMcpConnection: vi.fn(),
   getAuthorizeInfo: vi.fn(),
   decideAuthorization: vi.fn(),
 }));
@@ -25,6 +27,7 @@ const connection: McpConnection = {
   username: "admin",
   scope: "read-write",
   permissions: ["data.read", "data.write", "schema.write"],
+  allowed: ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write"],
   createdAt: "2026-10-09T12:00:00.000Z",
   lastUsedAt: "2026-10-09T12:05:00.000Z",
 };
@@ -93,6 +96,38 @@ afterEach(() => {
 });
 
 describe("Connections → Claude", () => {
+  it("opens a connected app: changes what it may do and lists its calls", async () => {
+    api.listMcpConnectionCalls.mockResolvedValue([calls[0], { ...calls[1], via: "oauth", credential: "Claude" }]);
+    api.updateMcpConnection.mockImplementation(async (_id: number, permissions: string[]) => ({ ...connection, permissions }));
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/connections?tab=claude"])} />);
+
+    await user.click(await screen.findByRole("button", { name: "Open Claude" }));
+    const dialog = await screen.findByRole("dialog", { name: "Claude" });
+    expect(api.listMcpConnectionCalls).toHaveBeenCalledWith(4);
+    expect(await within(dialog).findByRole("heading", { name: "Calls (2, 1 failed)" })).toBeInTheDocument();
+
+    // A call opens to its full arguments and error.
+    await user.click(within(dialog).getByRole("button", { name: "Show details of list_rows" }));
+    expect(within(dialog).getByText(/"table": "nope"/)).toBeInTheDocument();
+    expect(within(dialog).getAllByText("Error 404: Table 'nope' not found.").length).toBeGreaterThan(0);
+
+    // Take the schema away, allow deleting rows.
+    const save = within(dialog).getByRole("button", { name: "Save permissions" });
+    expect(save).toBeDisabled();
+    await user.click(within(dialog).getByRole("checkbox", { name: /Tables and columns/ }));
+    await user.click(within(dialog).getByRole("checkbox", { name: /Delete rows/ }));
+    await user.click(save);
+    expect(api.updateMcpConnection).toHaveBeenCalledWith(4, ["data.read", "data.write", "data.delete"]);
+    expect(await within(dialog).findByText(/applies to the app's next call/)).toBeInTheDocument();
+
+    // The table behind the dialog shows the new access.
+    await user.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByText("Delete rows", { selector: ".mcp__permission" })).toBeInTheDocument();
+    expect(screen.queryByText("Tables and columns", { selector: ".mcp__permission" })).not.toBeInTheDocument();
+  });
+
   it("shows the address, the setup commands, connected apps and calls", async () => {
     render(<RouterProvider router={createTestRouter(["/connections?tab=claude"])} />);
 

@@ -107,6 +107,7 @@ public sealed class McpController : ControllerBase
             _ => McpPermissions.ForRole(role)
         };
 
-        return new McpCaller(userId, via, credential, permissions.ToHashSet(StringComparer.Ordinal), credentials);
+        var grantId = long.TryParse(user.FindFirstValue("oauth_grant_id"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var grant) ? grant : (long?)null;
+        return new McpCaller(userId, via, credential, permissions.ToHashSet(StringComparer.Ordinal), credentials, grantId);
     }
 }

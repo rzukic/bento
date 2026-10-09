@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
-import { decideAuthorization, getAuthorizeInfo, MCP_PERMISSIONS, permissionsFromScope, type AuthorizeInfo, type McpPermission } from "../../api/mcp";
+import { decideAuthorization, getAuthorizeInfo, permissionsFromScope, type AuthorizeInfo, type McpPermission } from "../../api/mcp";
 import { Glyph, Sky } from "../../components/common/Atmosphere";
 import { Icon } from "../../components/common/Icon";
 import { ThemeSwitch } from "../../components/common/ThemeSwitch";
@@ -10,6 +10,7 @@ import { useDocumentTitle } from "../../hooks/useDocumentTitle";
 import { useAuthStore } from "../../stores/authStore";
 import "../../routes/LoginPage.css";
 import "./OAuthConsent.css";
+import { PermissionChecklist } from "./PermissionChecklist";
 
 /**
  * /oauth/authorize (Step 4.6): an MCP client such as Claude asks to use Bento
@@ -119,52 +120,9 @@ export function OAuthConsentPage() {
 
             {info ? (
               <>
-                <fieldset className="oauth-consent__choices" disabled={busy}>
-                  <legend>
-                    What it may do
-                    <span className="oauth-consent__quick">
-                      <button
-                        type="button"
-                        onClick={() => setGranted(MCP_PERMISSIONS.map((p) => p.id).filter((id) => info.allowed.includes(id)))}
-                      >
-                        All
-                      </button>
-                      <button type="button" onClick={() => setGranted(["data.read"])}>
-                        Read only
-                      </button>
-                    </span>
-                  </legend>
-                  {MCP_PERMISSIONS.map((permission) => {
-                    const allowed = info.allowed.includes(permission.id);
-                    const always = permission.id === "data.read";
-                    const checked = granted.includes(permission.id);
-                    return (
-                      <label
-                        key={permission.id}
-                        className={`oauth-consent__choice${allowed ? "" : " oauth-consent__choice--off"}${permission.danger ? " oauth-consent__choice--danger" : ""}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          disabled={always || !allowed}
-                          onChange={() =>
-                            setGranted((current) =>
-                              current.includes(permission.id)
-                                ? current.filter((id) => id !== permission.id)
-                                : MCP_PERMISSIONS.map((p) => p.id).filter((id) => id === permission.id || current.includes(id)),
-                            )
-                          }
-                        />
-                        <span>
-                          <strong>{permission.label}</strong>
-                          <small>{allowed ? permission.detail : `Needs the ${permission.needs} role.`}</small>
-                        </span>
-                      </label>
-                    );
-                  })}
-                </fieldset>
+                <PermissionChecklist allowed={info.allowed} granted={granted} onChange={setGranted} disabled={busy} />
                 <p className="oauth-consent__note">
-                  It acts as you and never manages users or keys. Disconnect it or change what it may do (connect again) any time under Connections → Claude.
+                  It acts as you and never manages users or keys. Change what it may do or disconnect it any time under Connections → Claude.
                 </p>
                 <div className="login__row oauth-consent__actions">
                   <button type="button" className="btn btn--ghost btn--lg" disabled={busy} onClick={() => void decide(false)}>

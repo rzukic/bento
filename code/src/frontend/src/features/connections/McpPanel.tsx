@@ -6,6 +6,7 @@ import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Spinner } from "../../components/ui/Spinner";
+import { ConnectionDialog } from "./ConnectionDialog";
 import { useAuthStore } from "../../stores/authStore";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 
@@ -56,6 +57,7 @@ export function McpPanel() {
   const [calls, setCalls] = useState<McpCall[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<McpConnection | null>(null);
+  const [opened, setOpened] = useState<McpConnection | null>(null);
 
   const reload = () => {
     void listMcpConnections()
@@ -78,6 +80,7 @@ export function McpPanel() {
 
   const revoke = async (connection: McpConnection) => {
     setRevoking(null);
+    setOpened(null);
     try {
       await revokeMcpConnection(connection.id);
       reload();
@@ -185,9 +188,20 @@ export function McpPanel() {
               </thead>
               <tbody>
                 {connections.map((connection) => (
-                  <tr key={connection.id}>
+                  <tr key={connection.id} className="mcp__connection" onClick={() => setOpened(connection)}>
                     <td>
-                      <strong>{connection.clientName}</strong>
+                      <button
+                        type="button"
+                        className="mcp__connection-open"
+                        aria-label={`Open ${connection.clientName}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setOpened(connection);
+                        }}
+                      >
+                        <strong>{connection.clientName}</strong>
+                        <Icon name="chevron-right" size={12} />
+                      </button>
                     </td>
                     {isAdmin ? <td>{connection.username ?? "—"}</td> : null}
                     <td className="mcp__permissions">
@@ -200,7 +214,15 @@ export function McpPanel() {
                     <td>{formatWhen(connection.createdAt)}</td>
                     <td>{connection.lastUsedAt ? formatWhen(connection.lastUsedAt) : "Never"}</td>
                     <td>
-                      <Button type="button" variant="ghost" size="sm" onClick={() => setRevoking(connection)}>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setRevoking(connection);
+                        }}
+                      >
                         Disconnect
                       </Button>
                     </td>
@@ -267,6 +289,19 @@ export function McpPanel() {
           </div>
         )}
       </section>
+
+      {opened && !revoking ? (
+        <ConnectionDialog
+          connection={opened}
+          showUser={isAdmin}
+          onClose={() => setOpened(null)}
+          onSaved={(updated) => {
+            setOpened(updated);
+            setConnections((current) => current?.map((c) => (c.id === updated.id ? updated : c)) ?? current);
+          }}
+          onDisconnect={(connection) => setRevoking(connection)}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={revoking !== null}
