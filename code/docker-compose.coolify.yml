@@ -55,8 +55,8 @@ services:
     volumes:
       - bento-data:/data
     depends_on:
-      postgres:
-        condition: service_healthy
+      postgres-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "dotnet", "Bento.Api.dll", "--healthcheck"]
       interval: 30s
@@ -85,6 +85,25 @@ services:
       timeout: 3s
       retries: 10
       start_period: 10s
+
+  # One-shot on every deploy: (re)applies the idempotent role/schema script, so
+  # the roles exist and match the generated passwords even when the data volume
+  # was initialised without them.
+  postgres-init:
+    build: ./init-db
+    restart: "no"
+    # Coolify-only key (stripped before deploy): a finished one-shot is not "degraded".
+    exclude_from_hc: true
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "bento_admin", "-d", "bento", "-f", "/docker-entrypoint-initdb.d/01-roles-and-schemas.sql"]
+    environment:
+      PGPASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      BENTO_SYSTEM_ROLE: bento_system
+      BENTO_DATA_ROLE: bento_data
+      BENTO_SYSTEM_PASSWORD: ${SERVICE_PASSWORD_BENTOSYSTEM}
+      BENTO_DATA_PASSWORD: ${SERVICE_PASSWORD_BENTODATA}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
 volumes:
   bento-data:
