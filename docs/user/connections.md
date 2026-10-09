@@ -1,6 +1,6 @@
 # Connections
 
-**Connections** in the sidebar is where Bento meets scripts, spreadsheets and other tools: the API of your installation, explained and testable, the API keys those tools use, and **Claude** over MCP.
+**Connections** in the sidebar is where Bento meets scripts, spreadsheets and other tools: the API of your installation, explained and testable, the API keys those tools use, and **AI apps** — Claude, ChatGPT and Codex — over MCP.
 
 ## The API Page
 
@@ -40,9 +40,9 @@ The list shows when each key was created and last used, when it expires, and its
 
 Keys need sign-in to be switched on (`AUTH_MODE=standard`, the default).
 
-## Claude (MCP)
+## AI Apps: Claude, ChatGPT, Codex (MCP)
 
-Bento is an **MCP server**: connect it once and Claude can answer questions about your data ("how much did I spend on groceries last quarter compared to a year earlier?"), add a transaction ("add 12,40 € at the bakery today") and — if you allow it — build dashboards and forms, change the schema or write functions. **Connections → Claude** shows the address, the steps for each client, the apps connected with your account, and every call Claude made.
+Bento is an **MCP server**: connect it once and Claude can answer questions about your data ("how much did I spend on groceries last quarter compared to a year earlier?"), add a transaction ("add 12,40 € at the bakery today") and — if you allow it — build dashboards and forms, change the schema or write functions. The same works with **ChatGPT** and **Codex**. The AI runs on your own subscription, so Bento pays nothing for it. **Connections → AI apps** shows the address, the steps for each client, the apps connected with your account, and every call they made.
 
 The address is your Bento's address plus `/mcp`, e.g. `https://bento.example.com/mcp`.
 
@@ -50,8 +50,14 @@ The address is your Bento's address plus `/mcp`, e.g. `https://bento.example.com
 
 - **Claude app, web and phone**: Settings → Connectors → *Add custom connector*, name it *Bento*, paste the address, **Connect**. Bento's sign-in opens; sign in and tick what Claude may do. Claude on the web reaches Bento from the internet, so Bento needs a public address (e.g. on Coolify).
 - **Claude Code**: `claude mcp add --transport http bento https://bento.example.com/mcp`, then run `/mcp` in Claude Code and choose *Authenticate*; the browser opens Bento's sign-in.
+- **ChatGPT**:
+  1. Go to Settings → Apps & Connectors → Advanced settings and turn on **Developer mode**. This is on the web and needs a paid plan; menu names may differ slightly.
+  2. In Apps & Connectors choose **Create**: name it *Bento*, paste the address, and set authentication to *OAuth*.
+  3. Sign in to Bento and tick the access.
+  4. In a chat, turn Bento on under the **+** menu.
+- **Codex** (the app, the CLI and the IDE extension share the setting): `codex mcp add bento --url https://bento.example.com/mcp`. Codex opens Bento's sign-in right away; `codex mcp login bento` signs in again later.
 
-On the sign-in page you tick what the app may do, area by area (**All** and **Read only** set them in one click):
+On the sign-in page you tick what the app may do, area by area (**All** and **Read only** set them in one click). What the app asks for is ticked in advance, except **Delete rows** and **Tables and columns**: some apps ask for everything, so you tick those two yourself.
 
 | Permission | Allows | Needs |
 |------------|--------|-------|
@@ -75,7 +81,7 @@ Claude also gets a **guide** (`bento_guide`): how Bento works and the exact form
 
 ### Claude Desktop extension
 
-**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and tick what Claude may do. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
+**Connections → AI apps → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and tick what Claude may do. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
 
 ### Connect with an API key
 

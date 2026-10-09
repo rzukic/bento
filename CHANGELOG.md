@@ -12,6 +12,16 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Bento In ChatGPT And Codex
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-chatgpt-and-codex)
+
+**Highlights:**
+- **ChatGPT** (developer-mode connector) and **Codex** (app, CLI and IDE: `codex mcp add bento --url …`) connect to Bento the way Claude does: sign in with your Bento account, tick what they may do, and use your own subscription.
+- Connections → **AI apps** (formerly *Claude*) has the steps for all of them.
+- The sign-in page no longer pre-ticks *Delete rows* or *Tables and columns*, even when an app asks for everything.
+
 ### 2026-10-09 — Open A Connected App: Change Its Permissions, See Its Calls
 
 > **Phase**: Phase 4 — Intelligence

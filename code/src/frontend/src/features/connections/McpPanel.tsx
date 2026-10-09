@@ -49,7 +49,7 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   );
 }
 
-/** Connections → Claude: connect Bento to Claude over MCP, see connected apps and every call. */
+/** Connections → AI apps: connect Bento to Claude, ChatGPT or Codex over MCP, see connected apps and every call. */
 export function McpPanel() {
   const isAdmin = useAuthStore((state) => state.user?.role === "admin");
   const [info, setInfo] = useState<McpInfo | null>(null);
@@ -91,14 +91,15 @@ export function McpPanel() {
 
   const endpoint = info?.endpoint ?? `${window.location.origin}/mcp`;
   const codeCommand = `claude mcp add --transport http bento ${endpoint}`;
+  const codexCommand = `codex mcp add bento --url ${endpoint}`;
   const keyCommand = `claude mcp add --transport http bento ${endpoint} \\\n  --header "Authorization: Bearer <API key>"`;
 
   return (
     <div className="mcp">
       <p className="api-keys__intro">
-        Ask Claude about your data, let it add a transaction or build a dashboard. Bento is an <strong>MCP server</strong>: connect it
-        once and Claude can read your tables, run analyses and look at dashboards — and, area by area as you allow it when connecting,
-        change rows, dashboards, forms, the schema or functions.
+        Ask Claude or ChatGPT about your data, let it add a transaction or build a dashboard — with your own subscription, at no cost to
+        Bento. Bento is an <strong>MCP server</strong>: connect an app once and it can read your tables, run analyses and look at
+        dashboards — and, area by area as you allow it when connecting, change rows, dashboards, forms, the schema or functions.
       </p>
 
       {error ? <Alert tone="error" message={error} /> : null}
@@ -159,6 +160,36 @@ export function McpPanel() {
           </a>
           <p className="mcp__hint">
             Or in Claude Code with a key: <code>{keyCommand.replace("\\\n  ", "")}</code>
+          </p>
+        </article>
+        <article className="mcp__setup">
+          <h3>
+            <Icon name="sparkles" size={14} /> ChatGPT
+          </h3>
+          <ol>
+            <li>
+              In ChatGPT open <strong>Settings → Apps &amp; Connectors → Advanced settings</strong> and turn on <strong>Developer mode</strong>.
+            </li>
+            <li>
+              Back in <strong>Apps &amp; Connectors</strong> choose <strong>Create</strong>: name it <em>Bento</em>, paste the address above,
+              authentication <em>OAuth</em>.
+            </li>
+            <li>Sign in to Bento and pick the access. In a chat, turn on Bento under the <strong>+</strong> menu.</li>
+          </ol>
+          <p className="mcp__hint">Developer mode is in ChatGPT on the web and needs a paid plan; menu names may differ slightly.</p>
+        </article>
+
+        <article className="mcp__setup">
+          <h3>
+            <Icon name="braces" size={14} /> Codex — app, CLI and IDE
+          </h3>
+          <div className="mcp__command">
+            <pre>{codexCommand}</pre>
+            <CopyButton text={codexCommand} label="Copy the Codex command" />
+          </div>
+          <p className="mcp__hint">
+            Codex opens Bento's sign-in right away; later <code>codex mcp login bento</code> signs in again. The Codex app, the CLI and the
+            IDE extension share this setting.
           </p>
         </article>
       </div>

@@ -29,7 +29,7 @@ function same(a: McpPermission[], b: McpPermission[]): boolean {
 }
 
 /**
- * One connected app, opened from Connections → Claude: change what it may do
+ * One connected app, opened from Connections → AI apps: change what it may do
  * (applies to its next call) and look through every call it made.
  */
 export function ConnectionDialog({

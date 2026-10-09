@@ -95,7 +95,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe("Connections → Claude", () => {
+describe("Connections → AI apps", () => {
   it("opens a connected app: changes what it may do and lists its calls", async () => {
     api.listMcpConnectionCalls.mockResolvedValue([calls[0], { ...calls[1], via: "oauth", credential: "Claude" }]);
     api.updateMcpConnection.mockImplementation(async (_id: number, permissions: string[]) => ({ ...connection, permissions }));
@@ -128,12 +128,14 @@ describe("Connections → Claude", () => {
     expect(screen.queryByText("Tables and columns", { selector: ".mcp__permission" })).not.toBeInTheDocument();
   });
 
-  it("shows the address, the setup commands, connected apps and calls", async () => {
-    render(<RouterProvider router={createTestRouter(["/connections?tab=claude"])} />);
+  it("shows the address, the setup for Claude, ChatGPT and Codex, connected apps and calls", async () => {
+    render(<RouterProvider router={createTestRouter(["/connections?tab=ai"])} />);
 
     expect(await screen.findByText("https://bento.example.com/mcp")).toBeInTheDocument();
     expect(screen.getByText("claude mcp add --transport http bento https://bento.example.com/mcp")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Claude" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByText("codex mcp add bento --url https://bento.example.com/mcp")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ChatGPT" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "AI apps" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("link", { name: /download bento\.mcpb/i })).toHaveAttribute("href", "/api/v1/mcp/bento.mcpb");
 
     expect(await screen.findByText("Claude", { selector: "strong" })).toBeInTheDocument();
@@ -194,6 +196,21 @@ describe("OAuth consent page", () => {
       }),
     );
     expect(assign).toHaveBeenCalledWith("https://claude.ai/api/mcp/auth_callback?code=c0de&state=st4te");
+  });
+
+  it("never ticks deleting rows or the schema in advance, even when the app asks for everything", async () => {
+    api.getAuthorizeInfo.mockResolvedValue({
+      clientName: "Codex",
+      redirectHost: "127.0.0.1:52363",
+      canWrite: true,
+      allowed: ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write"],
+    });
+    render(<RouterProvider router={createTestRouter([consentUrl.replace("scope=read%20write", "scope=data.read+data.write+data.delete+dashboards.write+forms.write+schema.write+functions.write")])} />);
+
+    expect(await screen.findByRole("checkbox", { name: /add and change rows/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /functions and price sources/i })).toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /delete rows/i })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: /tables and columns/i })).not.toBeChecked();
   });
 
   it("offers a viewer only what the role allows, and All picks those", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
-import { decideAuthorization, getAuthorizeInfo, permissionsFromScope, type AuthorizeInfo, type McpPermission } from "../../api/mcp";
+import { decideAuthorization, getAuthorizeInfo, MCP_PERMISSIONS, permissionsFromScope, type AuthorizeInfo, type McpPermission } from "../../api/mcp";
 import { Glyph, Sky } from "../../components/common/Atmosphere";
 import { Icon } from "../../components/common/Icon";
 import { ThemeSwitch } from "../../components/common/ThemeSwitch";
@@ -46,8 +46,9 @@ export function OAuthConsentPage() {
       .then((next) => {
         if (cancelled) return;
         setInfo(next);
-        // What the app asked for, as far as the user's role allows it.
-        setGranted(permissionsFromScope(scopeParam).filter((id) => next.allowed.includes(id)));
+        // What the app asked for, as far as the user's role allows it — but never
+        // deleting rows or changing the schema: the user ticks those themselves.
+        setGranted(permissionsFromScope(scopeParam).filter((id) => next.allowed.includes(id) && !MCP_PERMISSIONS.find((p) => p.id === id)?.danger));
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof ApiClientError ? cause.message : "The app could not be checked. Try again.");
@@ -122,7 +123,7 @@ export function OAuthConsentPage() {
               <>
                 <PermissionChecklist allowed={info.allowed} granted={granted} onChange={setGranted} disabled={busy} />
                 <p className="oauth-consent__note">
-                  It acts as you and never manages users or keys. Change what it may do or disconnect it any time under Connections → Claude.
+                  It acts as you and never manages users or keys. Change what it may do or disconnect it any time under Connections → AI apps.
                 </p>
                 <div className="login__row oauth-consent__actions">
                   <button type="button" className="btn btn--ghost btn--lg" disabled={busy} onClick={() => void decide(false)}>
