@@ -431,7 +431,9 @@ textarea.form-field__input {
     width: min(34rem, 100%);
 }
 
-.form-dialog .form-fill__actions {
+/* On a card (the dashboard dialog, the builder's preview), the sticky Save bar fades into the card, not the page. */
+.form-dialog .form-fill__actions,
+.form-builder__preview .form-fill__actions {
     background: linear-gradient(to top, var(--surface) 70%, transparent);
 }
 

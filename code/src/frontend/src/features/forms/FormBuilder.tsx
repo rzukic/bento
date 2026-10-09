@@ -178,10 +178,12 @@ export function FormBuilder() {
                   </div>
                   {open === index ? (
                     isSection(item) ? (
-                      <label className="form-field">
-                        <span className="form-field__label">Section title</span>
-                        <input className="field__control" value={item.section} aria-label="Section title" onChange={(event) => setItem(index, { section: event.target.value })} />
-                      </label>
+                      <div className="form-builder__settings">
+                        <label className="form-field">
+                          <span className="form-field__label">Section title</span>
+                          <input className="field__control" value={item.section} aria-label="Section title" onChange={(event) => setItem(index, { section: event.target.value })} />
+                        </label>
+                      </div>
                     ) : column ? (
                       <FieldSettings field={item} column={column} onChange={(next) => setItem(index, next)} />
                     ) : null
