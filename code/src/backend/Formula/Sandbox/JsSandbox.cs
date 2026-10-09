@@ -18,6 +18,9 @@ public sealed record JsSandboxLimits
 
     /// <summary>Functions that call APIs (Step 4.2): the clock includes waiting for answers.</summary>
     public static readonly JsSandboxLimits Network = new() { Timeout = TimeSpan.FromSeconds(30), MemoryBytes = 64 * 1024 * 1024 };
+
+    /// <summary>Functions over rows (Step 4.3b): one call handles a whole group.</summary>
+    public static readonly JsSandboxLimits Rows = new() { Timeout = TimeSpan.FromSeconds(2), MemoryBytes = 64 * 1024 * 1024 };
 }
 
 /// <summary>One call's outcome: a value of the declared type, or an error.</summary>
@@ -115,7 +118,7 @@ public sealed class JsFunction : IDisposable
             return (null, syntax);
         try
         {
-            return (new JsFunction(definition, limits ?? (definition.UsesNetwork ? JsSandboxLimits.Network : JsSandboxLimits.Default), host ?? JsHost.None), null);
+            return (new JsFunction(definition, limits ?? (definition.UsesNetwork ? JsSandboxLimits.Network : definition.RowsMode ? JsSandboxLimits.Rows : JsSandboxLimits.Default), host ?? JsHost.None), null);
         }
         catch (Exception e)
         {
@@ -157,6 +160,46 @@ public sealed class JsFunction : IDisposable
         catch (Exception e)
         {
             return new JsCallResult(null, Redact(Describe(e)), _logs.ToList(), Elapsed(started));
+        }
+    }
+
+    /// <summary>
+    /// Rows mode (Step 4.3b): one call for a whole group in order. Each argument
+    /// is a list with a value per row; the function returns a list as long.
+    /// </summary>
+    public (IReadOnlyList<object?>? Values, string? Error, IReadOnlyList<string> Logs) CallRows(IReadOnlyList<IReadOnlyList<object?>> columns, int count)
+    {
+        _logs.Clear();
+        try
+        {
+            var args = new JsValue[_definition.Arguments.Count];
+            for (var i = 0; i < args.Length; i++)
+            {
+                var type = _definition.Arguments[i].Type;
+                var column = i < columns.Count ? columns[i] : [];
+                args[i] = new Jint.Native.JsArray(_engine, Enumerable.Range(0, count).Select(r => ToJs(r < column.Count ? column[r] : null, type)).ToArray());
+            }
+
+            _engine.Constraints.Reset();
+            _engine.Advanced.ResetCallStack();
+            var result = _engine.Invoke(_entry, JsValue.Undefined, args).UnwrapIfPromise(_limits.Timeout);
+            if (result is not Jint.Native.JsArray list)
+                return (null, $"A function over rows returns a list with a value per row, not {Kind(result)}.", _logs.ToList());
+            if ((int)list.Length != count)
+                return (null, $"The function returned {list.Length} values for {count} rows; return a list with a value per row.", _logs.ToList());
+            var values = new List<object?>(count);
+            for (uint r = 0; r < count; r++)
+            {
+                var (value, error) = FromJs(list[r], _definition.ResultType);
+                if (error is not null)
+                    return (null, $"Row {r + 1}: {Redact(error)}", _logs.ToList());
+                values.Add(value);
+            }
+            return (values, null, _logs.ToList());
+        }
+        catch (Exception e)
+        {
+            return (null, Redact(Describe(e)), _logs.ToList());
         }
     }
 

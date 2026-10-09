@@ -10,11 +10,13 @@ public sealed record FunctionTemplate(
     string ResultType,
     IReadOnlyList<string> AllowedHosts,
     IReadOnlyList<string> Credentials,
-    string Code);
+    string Code,
+    string Mode = "row");
 
 /// <summary>
 /// Function templates (Step 4.2). Nothing here is built into Bento's behaviour:
 /// a template only fills the editor; the saved function is the user's to change.
+/// The cost basis templates (Step 4.3b) run over a group of rows (CUSTOM_ROWS).
 /// </summary>
 public static class FunctionTemplates
 {
@@ -106,6 +108,97 @@ public static class FunctionTemplates
               });
             }
             return result;
-            """)
+            """),
+        new(
+            "avg-cost",
+            "Realised gains by average cost",
+            "Runs over the trades of one security in date order (CUSTOM_ROWS): what a sale gained over the average cost of the shares sold, and how each trade changes the cost of the position. The method German banks use for funds.",
+            AverageCost,
+            [new("shares", "float"), new("price", "float"), new("fees", "float"), new("what", "text")],
+            "float",
+            [],
+            [],
+            """
+            // Average cost, over one security's trades in order (CUSTOM_ROWS): each argument is a list with a value per trade.
+            // shares: + bought, − sold; price: per share; fees: per trade; what: "realized", "cost", "held" or "average".
+            //   realized — what a sale gained: proceeds − fees − the average cost of the shares sold (0 for buys)
+            //   cost     — how the trade changes the position's cost: + paid for a buy, − the cost of the shares sold
+            //   held, average — shares and average cost per share after the trade
+            // Returns a list with a value per trade.
+            const round = (x) => Math.round(x * 1e8) / 1e8;
+            let held = 0;
+            let cost = 0;
+            return shares.map((n, i) => {
+              const p = price[i] ?? 0;
+              const f = fees[i] ?? 0;
+              let realized = 0;
+              let change = 0;
+              if (n > 0) {
+                change = n * p + f;
+              } else if (n < 0) {
+                const sold = Math.min(-n, held);
+                const out = held > 0 ? (cost * sold) / held : 0;
+                change = -out;
+                realized = -n * p - f - out;
+              }
+              held += n;
+              cost += change;
+              if (Math.abs(held) < 1e-9) cost = 0;
+              const values = { realized, cost: change, held, average: held > 0 ? cost / held : 0 };
+              if (!(what[i] in values)) throw new Error(`what is "realized", "cost", "held" or "average", not "${what[i]}"`);
+              return round(values[what[i]]);
+            });
+            """,
+            "rows"),
+        new(
+            "fifo-cost",
+            "Realised gains by FIFO",
+            "Runs over the trades of one security in date order (CUSTOM_ROWS): a sale uses up the oldest shares first (first in, first out), as for shares and ETFs in Germany. Gives the realised gain and the change in the position's cost per trade.",
+            "fifo_cost",
+            [new("shares", "float"), new("price", "float"), new("fees", "float"), new("what", "text")],
+            "float",
+            [],
+            [],
+            """
+            // First in, first out, over one security's trades in order (CUSTOM_ROWS): each argument is a list with a value per trade.
+            // shares: + bought, − sold; price: per share; fees: per trade; what: "realized", "cost", "held" or "average".
+            //   realized — what a sale gained: proceeds − fees − the cost of the oldest shares still held (0 for buys)
+            //   cost     — how the trade changes the position's cost: + paid for a buy, − the cost of the shares sold
+            //   held, average — shares and average cost per share after the trade
+            // Returns a list with a value per trade.
+            const round = (x) => Math.round(x * 1e8) / 1e8;
+            const lots = []; // { n: shares left, unit: cost per share including the buy's fees }
+            return shares.map((n, i) => {
+              const p = price[i] ?? 0;
+              const f = fees[i] ?? 0;
+              let realized = 0;
+              let change = 0;
+              if (n > 0) {
+                change = n * p + f;
+                lots.push({ n, unit: change / n });
+              } else if (n < 0) {
+                let left = -n;
+                let out = 0;
+                while (left > 1e-12 && lots.length > 0) {
+                  const take = Math.min(left, lots[0].n);
+                  out += take * lots[0].unit;
+                  lots[0].n -= take;
+                  left -= take;
+                  if (lots[0].n <= 1e-12) lots.shift();
+                }
+                change = -out;
+                realized = -n * p - f - out;
+              }
+              const held = lots.reduce((sum, lot) => sum + lot.n, 0);
+              const cost = lots.reduce((sum, lot) => sum + lot.n * lot.unit, 0);
+              const values = { realized, cost: change, held, average: held > 0 ? cost / held : 0 };
+              if (!(what[i] in values)) throw new Error(`what is "realized", "cost", "held" or "average", not "${what[i]}"`);
+              return round(values[what[i]]);
+            });
+            """,
+            "rows")
     ];
+
+    /// <summary>The name the wealth template's trades call for realised gains (Step 4.3b).</summary>
+    public const string AverageCost = "avg_cost";
 }

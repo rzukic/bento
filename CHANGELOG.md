@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-07 — Realised Gains And A Fairer Time-Weighted Return
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.3b — Returns Refinement](working-steps/4.3b-returns-refinement.md)
+
+The Wealth dashboard shows what sales gained, and its time-weighted return no longer depends on the day of the month you buy.
+
+**Highlights:**
+- Functions over a group of rows: `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` in computed columns — the function gets a group's rows at once, in order, for running values
+- Templates for realised gains by **average cost** and by **FIFO** (realised gain, change in cost, shares held, average cost per trade)
+- Wealth template: *Realised gain* and *Cost (±)* per trade, a *Realised gains in the range* key figure, positions with cost and realised gain, and an unrealised gain that stays right after sales
+- `TWR(value, FLOWS(…), …)` weighs money by the days it was invested (Modified Dietz)
+- How to measure a depot with its own cash (clearing account), so dividends count as return
+
 ### 2026-10-06 — Returns: XIRR, Time-Weighted, Benchmarks
 
 > **Phase**: Phase 4 — Intelligence

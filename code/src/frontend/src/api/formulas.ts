@@ -88,15 +88,17 @@ export async function loadFormulaFunctions(): Promise<FormulaFunction[]> {
   return [
     ...builtIn,
     ...custom.map((fn) => {
-      const args = fn.arguments.map((a) => a.name);
+      const args = fn.arguments.map((a) => `, ${a.name}`).join("");
+      // Step 4.3b: functions over a group of rows are called with CUSTOM_ROWS.
+      const call = fn.mode === "rows" ? `CUSTOM_ROWS("${fn.name}", PARTITION(…), ORDER(…)${args})` : `CUSTOM("${fn.name}"${args})`;
       return {
         name: fn.name,
         category: "Custom",
-        signature: `CUSTOM("${fn.name}"${args.map((a) => `, ${a}`).join("")})`,
+        signature: call,
         description: fn.description || "Your own function (see Functions).",
-        example: `CUSTOM("${fn.name}"${args.map((a) => `, ${a}`).join("")})`,
+        example: call,
         returns: fn.resultType,
-        apply: `CUSTOM("${fn.name}"${args.length > 0 ? ", " : ")"}`,
+        apply: fn.mode === "rows" ? `CUSTOM_ROWS("${fn.name}", PARTITION(` : `CUSTOM("${fn.name}"${args ? ", " : ")"}`,
       } satisfies FormulaFunction;
     }),
   ];

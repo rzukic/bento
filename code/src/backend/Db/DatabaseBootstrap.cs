@@ -274,6 +274,8 @@ public class DatabaseBootstrap : IHostedService
             ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS description TEXT;
             ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
             ALTER TABLE _system.credentials ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+            ALTER TABLE _system.functions ADD COLUMN IF NOT EXISTS mode VARCHAR(10) NOT NULL DEFAULT 'row';
+            ALTER TABLE _system.function_versions ADD COLUMN IF NOT EXISTS mode VARCHAR(10) NOT NULL DEFAULT 'row';
             """);
 
         await conn.ExecuteAsync("""
@@ -546,7 +548,9 @@ public class DatabaseBootstrap : IHostedService
             ("function_versions", "credentials", "TEXT NOT NULL DEFAULT '[]'"),
             ("credentials", "description", "TEXT"),
             ("credentials", "updated_at", "TEXT"),
-            ("credentials", "last_used_at", "TEXT")
+            ("credentials", "last_used_at", "TEXT"),
+            ("functions", "mode", "TEXT NOT NULL DEFAULT 'row'"),
+            ("function_versions", "mode", "TEXT NOT NULL DEFAULT 'row'")
         })
         {
             var existing = (await conn.QueryAsync<string>($"SELECT name FROM pragma_table_info('{table}');")).ToHashSet(StringComparer.OrdinalIgnoreCase);

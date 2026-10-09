@@ -95,6 +95,21 @@ public sealed class FormulaEngineTests
         ]
     };
 
+    private static readonly TableDef Trades = new()
+    {
+        Name = "trades",
+        Columns =
+        [
+            new ColumnDef { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new ColumnDef { Name = "account_id", Type = ColumnType.Integer },
+            new ColumnDef { Name = "isin", Type = ColumnType.Text },
+            new ColumnDef { Name = "date", Type = ColumnType.Date },
+            new ColumnDef { Name = "shares", Type = ColumnType.Float },
+            new ColumnDef { Name = "price", Type = ColumnType.Currency },
+            new ColumnDef { Name = "fees", Type = ColumnType.Currency }
+        ]
+    };
+
     private static FormulaCheck Check(string formula, DatabaseProvider provider = DatabaseProvider.Sqlite, FormulaType? expected = null, TableDef? table = null, string? column = null) =>
         FormulaCompiler.Compile(formula, table ?? Transactions, Schema, provider, expected: expected, column: column);
 
@@ -377,10 +392,14 @@ public sealed class FormulaEngineTests
             var check = function.Category switch
             {
                 FormulaFunctions.Measures or FormulaFunctions.Returns => FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check,
-                // CUSTOM calls a function the user wrote (Step 4.1).
-                "Custom" => FormulaCompiler.Compile(function.Example, Assets, new FormulaSchema([Assets]), provider, context: new FormulaContext
+                // CUSTOM calls a function the user wrote (Step 4.1); CUSTOM_ROWS one over a group of trades (Step 4.3b).
+                "Custom" => FormulaCompiler.Compile(function.Example, function.Example.StartsWith("CUSTOM_ROWS", StringComparison.Ordinal) ? Trades : Assets,
+                    new FormulaSchema([Assets, Trades]), provider, column: "x", context: new FormulaContext
                 {
-                    Functions = new StaticFunctionCatalog([new CustomFunctionDef("risk_class", null, [new CustomFunctionArgument("volatility", "float")], "text", "return \"low\";", 1)])
+                    Functions = new StaticFunctionCatalog([
+                        new CustomFunctionDef("risk_class", null, [new CustomFunctionArgument("volatility", "float")], "text", "return \"low\";", 1),
+                        new CustomFunctionDef("avg_cost", null,
+                            [new("shares", "float"), new("price", "float"), new("fees", "float"), new("what", "text")], "float", "return shares;", 1) { Mode = "rows" }])
                 }),
                 _ => Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null)
             };

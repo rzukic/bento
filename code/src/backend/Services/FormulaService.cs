@@ -100,8 +100,8 @@ public sealed class FormulaService
             : $"{row}.{Q(c.Name)} AS \"__c{i}\""));
         // CUSTOM(…) runs here on each row, so a draft column previews before anything is stored.
         var custom = compiled.Custom;
-        if (custom is null)
-            select.Add($"{compiled.Sql} AS \"__value\"");
+        if (custom is null || custom.OverRows)
+            select.Add($"{(custom is null ? compiled.Sql : "NULL")} AS \"__value\"");
         else
             select.AddRange(custom.Arguments.Select((a, i) => $"{a.Sql} AS \"__a{i}\""));
         var sql = $"SELECT {string.Join(", ", select)} FROM {row}" +
@@ -118,7 +118,37 @@ public sealed class FormulaService
             throw new ApiUnprocessableEntityException($"The formula could not be computed on the data: {e.Message}");
         }
 
-        if (custom is not null)
+        if (custom is { OverRows: true } && key is not null)
+        {
+            // CUSTOM_ROWS: a row's value depends on its whole group, so the groups of all rows run.
+            List<IDictionary<string, object?>> all;
+            try
+            {
+                all = (await scope.Db.Connection.QueryAsync(CustomRows.SelectSql(custom, row, Q(key.Name))))
+                    .Cast<IDictionary<string, object?>>().ToList();
+            }
+            catch (DbException e)
+            {
+                throw new ApiUnprocessableEntityException($"The formula could not be computed on the data: {e.Message}");
+            }
+            var shown = rows.Select(r => System.Convert.ToString(r["__id"], System.Globalization.CultureInfo.InvariantCulture)).ToHashSet();
+            var (function, error) = Formula.Sandbox.JsFunction.Create(custom.Function);
+            var results = new Dictionary<string, CustomRows.Result>();
+            using (function)
+            {
+                foreach (var group in CustomRows.Groups(custom, all).Where(g => g.Keys.Any(shown.Contains)))
+                    foreach (var result in CustomRows.Run(function, error, custom, group))
+                        results[result.Key] = result;
+            }
+            foreach (var values in rows)
+            {
+                if (!results.TryGetValue(System.Convert.ToString(values["__id"], System.Globalization.CultureInfo.InvariantCulture)!, out var result))
+                    continue;
+                values["__value"] = result.Value;
+                values["__error"] = result.Error;
+            }
+        }
+        else if (custom is not null)
         {
             var (function, error) = Formula.Sandbox.JsFunction.Create(custom.Function);
             using (function)

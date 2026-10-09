@@ -33,6 +33,15 @@ public sealed record CustomFunctionDef(
 
     public bool UsesNetwork => AllowedHosts.Count > 0;
 
+    /// <summary>
+    /// "row" (default): one call per row with single values. "rows" (Step 4.3b):
+    /// one call per group of rows in order — each argument arrives as a list and
+    /// the function returns a list with a value per row; used by CUSTOM_ROWS(…).
+    /// </summary>
+    public string Mode { get; init; } = "row";
+
+    public bool RowsMode => Mode == "rows";
+
     /// <summary>Usable as CUSTOM(…) in formulas: no network, and a result formulas know.</summary>
     public bool UsableInFormulas => !UsesNetwork && ResultType != "any";
 

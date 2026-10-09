@@ -356,7 +356,7 @@ public sealed class OpenApiDocumentBuilder
         paths["/functions"] = new JsonObject
         {
             ["get"] = Operation("Functions", "List custom functions", "read",
-                "Your own JavaScript functions, called from formulas with `CUSTOM(\"name\", …)`: arguments, result type, code, version and where each is used. Admins create and change them in the app.",
+                "Your own JavaScript functions, called from formulas with `CUSTOM(\"name\", …)` — or `CUSTOM_ROWS(\"name\", PARTITION(…), ORDER(…), …)` for those with mode `rows`: arguments, result type, mode, code, version and where each is used. Admins create and change them in the app.",
                 responses: Responses(200, "The custom functions.", anyObject.DeepClone()))
         };
         paths["/functions/{name}"] = new JsonObject
@@ -374,7 +374,7 @@ public sealed class OpenApiDocumentBuilder
         paths["/functions/templates"] = new JsonObject
         {
             ["get"] = Operation("Functions", "List function templates", "read",
-                "Starting points for new functions, e.g. prices from Yahoo Finance or Xetra symbols for ISINs.",
+                "Starting points for new functions, e.g. prices from Yahoo Finance, Xetra symbols for ISINs, or realised gains by average cost and FIFO (mode `rows`).",
                 responses: Responses(200, "The templates.", anyObject.DeepClone()))
         };
         paths["/price-sources"] = new JsonObject

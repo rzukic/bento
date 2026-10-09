@@ -37,7 +37,12 @@ export type CustomFunction = {
   credentials: string[];
   /** No network and a declared result: callable as CUSTOM(…). */
   usableInFormulas: boolean;
+  /** "rows" (Step 4.3b): one call per group of rows, arguments as lists — CUSTOM_ROWS(…). */
+  mode?: FunctionMode;
 };
+
+/** "row": one call per row; "rows": one call per group of rows in order (CUSTOM_ROWS). */
+export type FunctionMode = "row" | "rows";
 
 export type FunctionVersion = {
   version: number;
@@ -47,6 +52,7 @@ export type FunctionVersion = {
   createdAt: string;
   allowedHosts: string[];
   credentials: string[];
+  mode?: FunctionMode;
 };
 
 export type FunctionDraft = {
@@ -57,13 +63,15 @@ export type FunctionDraft = {
   code: string;
   allowedHosts: string[];
   credentials: string[];
+  mode?: FunctionMode;
 };
 
 /** A starting point for a new function (e.g. prices from Yahoo Finance). */
 export type FunctionTemplate = FunctionDraft & { id: string; title: string; description: string; name: string };
 
 export type FunctionTestResult = {
-  value: string | number | boolean | null;
+  /** Rows mode and "any" results: a list or JSON object. */
+  value: string | number | boolean | null | unknown[] | Record<string, unknown>;
   resultType: FunctionType;
   error: string | null;
   logs: string[];
@@ -115,6 +123,7 @@ export async function testFunction(draft: FunctionDraft, values: unknown[]): Pro
       code: draft.code,
       allowedHosts: draft.allowedHosts,
       credentials: draft.credentials,
+      mode: draft.mode ?? "row",
       values,
     })
   ).data;

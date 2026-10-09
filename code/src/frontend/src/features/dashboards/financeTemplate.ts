@@ -1,4 +1,5 @@
 import type { DashboardDocument, DashboardWidget } from "../../api/dashboards";
+import type { CustomFunction, FunctionDraft, FunctionTemplate } from "../../api/functions";
 import type { ModelTable, SchemaColumn, SchemaModelDocument, SchemaRelation, SchemaTable } from "../../types/api";
 import { cashFlowDashboard } from "./starter";
 
@@ -54,6 +55,43 @@ export function suggestedPrefix(existing: { name: string }[]): string {
 }
 
 const id: SchemaColumn = { name: "id", type: "integer", primaryKey: true };
+
+/** The function the trades' realised gains and cost call (Step 4.3b): the user's own, made from the "avg-cost" template. */
+export const COST_FUNCTION = "avg_cost";
+
+function costCall(what: "realized" | "cost"): string {
+  return `CUSTOM_ROWS("${COST_FUNCTION}", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), "${what}")`;
+}
+
+export type CostFunctionApi = {
+  list: () => Promise<CustomFunction[]>;
+  templates: () => Promise<FunctionTemplate[]>;
+  create: (draft: FunctionDraft) => Promise<unknown>;
+};
+
+/**
+ * Creates avg_cost from its template unless it exists. An existing one is
+ * used when it runs over rows with the template's four arguments.
+ */
+export async function ensureCostFunction(api: CostFunctionApi): Promise<void> {
+  const existing = (await api.list()).find((fn) => fn.name === COST_FUNCTION);
+  if (existing) {
+    if (existing.mode === "rows" && existing.arguments.length === 4) return;
+    throw new Error(`A function named ${COST_FUNCTION} exists already and does not run over a group of rows; rename it under Functions first.`);
+  }
+  const template = (await api.templates()).find((t) => t.id === "avg-cost");
+  if (!template) throw new Error("The server has no average cost template; update Bento.");
+  await api.create({
+    name: COST_FUNCTION,
+    description: template.description,
+    arguments: template.arguments,
+    resultType: template.resultType,
+    code: template.code,
+    allowedHosts: [],
+    credentials: [],
+    mode: "rows",
+  });
+}
 
 /** "Transactions", or with a prefix "Finance transactions", so pickers tell them from existing tables. */
 export function financeLabel(n: FinanceNames, key: keyof FinanceNames): string {
@@ -114,6 +152,9 @@ function tables(n: FinanceNames): SchemaTable[] {
         { name: "signed_shares", displayName: "Shares (±)", type: "computed", formula: 'IF(kind = "sell", -shares, shares)' },
         { name: "invested", displayName: "Invested", type: "computed", formula: "signed_shares * price + COALESCE(fees, 0)" },
         { name: "value", displayName: "Value today", type: "computed", formula: `signed_shares * LOOKUP_ASOF("${n.prices}", "isin", isin, "date", TODAY(), "price")` },
+        // Step 4.3b: by average cost per security and account, in date order — see costFunction below.
+        { name: "realized", displayName: "Realised gain", type: "computed", resultType: "currency", formula: costCall("realized") },
+        { name: "cost_change", displayName: "Cost (±)", type: "computed", resultType: "currency", formula: costCall("cost") },
       ],
     },
     {
@@ -170,11 +211,9 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
   const t = n.transactions;
   const tr = n.trades;
   const dv = n.dividends;
-  // Step 4.3: the depot at each month end, and the money put in during the month (dividends paid out count as taken out).
+  // Step 4.3: the depot at each month end. Step 4.3b: the money put in by date (Modified Dietz) — trades in, net dividends paid out.
   const depotAtMonthEnd = `SUM(SUM(${tr}.signed_shares * LOOKUP_ASOF("${n.prices}", "isin", ${tr}.isin, "date", BUCKET_END(), "price") WHERE ${tr}.date <= BUCKET_END()))`;
-  const moneyIn =
-    `SUM(SUM(${tr}.invested WHERE ${tr}.date >= BUCKET_START() AND ${tr}.date <= BUCKET_END())) - ` +
-    `SUM(SUM(${dv}.amount - COALESCE(${dv}.tax, 0) WHERE ${dv}.date >= BUCKET_START() AND ${dv}.date <= BUCKET_END()))`;
+  const moneyIn = `FLOWS(${tr}.invested, ${tr}.date), FLOWS(COALESCE(${dv}.tax, 0) - ${dv}.amount, ${dv}.date)`;
   const widgets: DashboardWidget[] = [
     {
       id: "net-worth",
@@ -197,7 +236,8 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       type: "kpi",
       title: "Unrealised gain",
       position: at(6, 0, 3, 2),
-      data: { query: { source: tr, measures: [{ name: "gain", formula: "SUM(value - invested)" }] } },
+      // Value of the shares held over what they cost (average cost; sold shares leave with their cost).
+      data: { query: { source: tr, measures: [{ name: "gain", formula: "SUM(value - cost_change)" }] } },
       display: { format: "currency", compare: false },
     },
     {
@@ -250,9 +290,10 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
           groupBy: [{ column: "name" }],
           measures: [
             { name: "shares", formula: "SUM(signed_shares)" },
-            { name: "invested", formula: "SUM(invested)" },
+            { name: "cost", formula: "SUM(cost_change)" },
             { name: "value", formula: "SUM(value)" },
-            { name: "gain", formula: "SUM(value - invested)" },
+            { name: "gain", formula: "SUM(value - cost_change)" },
+            { name: "realized", formula: "SUM(realized)" },
           ],
           sort: ["-value"],
         },
@@ -301,7 +342,7 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       id: "depot-vs-benchmark",
       type: "line",
       title: "Depot vs. benchmark (100 = start)",
-      position: at(3, 11, 9, 4),
+      position: at(3, 11, 9, 6),
       data: {
         // Both from the end of the month before the range; the benchmark's ISIN is the variable "benchmark".
         asOf: true,
@@ -317,10 +358,18 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       display: { format: "number", referenceLines: [{ value: 100, label: "Start" }] },
     },
     {
+      id: "realized",
+      type: "kpi",
+      title: "Realised gains in the range",
+      position: at(0, 15, 3, 2),
+      data: { query: { source: tr, measures: [{ name: "realized", formula: "SUM(realized)" }] }, dateColumn: "date" },
+      display: { format: "currency" },
+    },
+    {
       id: "how-to",
       type: "text",
       title: "",
-      position: at(0, 15, 12, 3),
+      position: at(0, 17, 12, 3),
       display: {
         text: [
           "# How to fill this",
@@ -329,7 +378,8 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
           `- ${financeLabel(n, "trades")}: buys and sells with ISIN, shares and price — your broker's export`,
           `- ${financeLabel(n, "prices")}: a price per ISIN and date — by hand, imported, or live from a price source (Functions → Price sources)`,
           `- ${financeLabel(n, "dividends")}: payouts per ISIN`,
-          "- The benchmark is the ISIN in the dashboard variable **benchmark**; give it a symbol in the price source to fetch its prices",
+          `- Realised gains and the cost of each position come from your function ${COST_FUNCTION} (average cost); switch to FIFO by giving it the code of the FIFO template under Functions`,
+          "- The benchmark is the ISIN in the dashboard variable benchmark; give it a symbol in the price source to fetch its prices",
         ].join("\n"),
       },
     },
@@ -377,6 +427,7 @@ export function exampleRows(today = new Date()) {
     trades: [
       { date: month(3, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 10, price: 100, account: 1 },
       { date: month(2, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 5, price: 100, account: 1 },
+      { date: month(1, 20), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "sell", shares: 3, price: 108, fees: 1, account: 1 },
     ],
     prices: [
       { isin: "IE00B4L5Y983", date: monthEnd(3), price: 102 },

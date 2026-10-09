@@ -853,13 +853,34 @@ public sealed class AggregationQueryService
             {
                 var ordered = group.OrderBy(r => Convert.ToString(r[date!.Output], CultureInfo.InvariantCulture), StringComparer.Ordinal).ToList();
                 double?[] values = series.Kind == "twr"
-                    ? Returns.Twr(ordered.Select(r => (Number(r, 0), Number(r, 1))).ToList(), series.Base is { } b ? (double)b : null)
+                    ? Returns.Twr(ordered.Select(r => TwrPeriod(plan, series, r, i)).ToList(), series.Base is { } b ? (double)b : null)
                     : Returns.Rebase(ordered.Select(r => Number(r, 0)).ToList(), (double)(series.Base ?? 100));
                 for (var k = 0; k < ordered.Count; k++)
                     ordered[k][measure.Output] = values[k] is { } v ? (decimal)Math.Round(v, 10) : null;
             }
         }
         return warnings;
+    }
+
+    /// <summary>
+    /// A TWR period's value and money put in: from a measure (counted from the
+    /// period's start), or from dated FLOWS within the period, weighted by days.
+    /// </summary>
+    private static (double? Value, double? Flow, double? Weighted) TwrPeriod(Plan plan, SeriesCall series, IDictionary<string, object?> row, int measure)
+    {
+        double? Number(int part) => ResultValues.ToDecimal(row[$"__s{measure}_{part}"]) is { } d ? (double)d : null;
+        var value = Number(0);
+        if (series.Parts.Count > 1 && series.Parts[1].Kind == "flow")
+            return (value, Number(1), null);
+
+        var label = Convert.ToString(row[plan.Calendar!.Output], CultureInfo.InvariantCulture);
+        var period = plan.Calendar.Periods.FirstOrDefault(p => p.Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) == label);
+        if (period == default)
+            return (value, null, null);
+        var flows = series.Parts.Select((p, k) => (p, k)).Where(x => x.p.Kind == "flows")
+            .SelectMany(x => Returns.ParseFlows(row[$"__s{measure}_{x.k}"] as string));
+        var (flow, weighted) = Returns.InPeriod(flows, period.Start, period.End);
+        return (value, flow, weighted);
     }
 
     /// <summary>The calendar with the period before its first one, as the base of TWR/REBASE.</summary>

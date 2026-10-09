@@ -127,6 +127,19 @@ public sealed class ReturnsQueryTests
         Assert.Equal(["2026-01-01 110 0.1 104", "2026-02-01 100.8333333333 0.0083333333 102", "2026-03-01 108.0357142857 0.0803571429 110"],
             Rows(index, "month", "depot", "return", "benchmark"));
 
+        // Payments weighed by their days (Modified Dietz): the purchase on Feb 10 was in for 19 of 28 days,
+        // the dividend on Mar 20 left with 12 of 31 to go → 110, 99.78, 106.86.
+        var dietz = await QueryAsync(host, new
+        {
+            source = "accounts",
+            asOf = new { bucket = "month", from = "2026-01-01", to = "2026-03-31", @as = "month" },
+            measures = new[]
+            {
+                new { name = "depot", formula = $"TWR({MonthEndValue}, FLOWS(trades.invested, trades.date), FLOWS(-dividends.net, dividends.date), 100)" }
+            }
+        });
+        Assert.Equal(["2026-01-01 110", "2026-02-01 99.7787610619", "2026-03-01 106.8615190438"], Rows(dietz, "month", "depot"));
+
         // Rebasing works on plain date groups too (the first period in the range is 100).
         var monthly = await QueryAsync(host, new
         {

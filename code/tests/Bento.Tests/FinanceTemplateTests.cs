@@ -1,5 +1,7 @@
 using System.Net.Http.Json;
 using System.Text.Json;
+using Bento.Api.Formula;
+using Bento.Api.Workers;
 
 namespace Bento.Tests;
 
@@ -8,7 +10,8 @@ namespace Bento.Tests;
 /// dashboards (net worth at each month end from balances plus trades ×
 /// price, depot value, gains, positions), with its example rows. Mirrors
 /// <c>features/dashboards/financeTemplate.ts</c> (no prefix); the same
-/// scenario runs on Postgres.
+/// scenario runs on Postgres. Step 4.3b: realised gains by average cost
+/// through the function avg_cost, and the time-weighted return by Modified Dietz.
 /// </summary>
 public sealed class FinanceTemplateTests
 {
@@ -60,7 +63,9 @@ public sealed class FinanceTemplateTests
                         { "name": "account_id", "type": "reference", "references": "accounts" },
                         { "name": "signed_shares", "type": "computed", "formula": "IF(kind = \"sell\", -shares, shares)" },
                         { "name": "invested", "type": "computed", "formula": "signed_shares * price + COALESCE(fees, 0)" },
-                        { "name": "value", "type": "computed", "formula": "signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", isin, \"date\", TODAY(), \"price\")" }
+                        { "name": "value", "type": "computed", "formula": "signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", isin, \"date\", TODAY(), \"price\")" },
+                        { "name": "realized", "type": "computed", "resultType": "currency", "formula": "CUSTOM_ROWS(\"avg_cost\", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), \"realized\")" },
+                        { "name": "cost_change", "type": "computed", "resultType": "currency", "formula": "CUSTOM_ROWS(\"avg_cost\", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), \"cost\")" }
                     ]
                 },
                 {
@@ -93,6 +98,21 @@ public sealed class FinanceTemplateTests
             ]
         }
         """;
+
+    /// <summary>The function avg_cost from its template, as the setup creates it, then the tables.</summary>
+    internal static async Task ApplyAsync(ApiIntegrationTestHost host)
+    {
+        var template = FunctionTemplates.All.Single(t => t.Id == "avg-cost");
+        (await host.Client.PostAsJsonAsync("/api/v1/functions", new
+        {
+            name = FunctionTemplates.AverageCost,
+            template.Arguments,
+            template.ResultType,
+            template.Code,
+            template.Mode
+        })).EnsureSuccessStatusCode();
+        await host.ApplySchemaAsync(Schema);
+    }
 
     internal static async Task SeedAsync(ApiIntegrationTestHost host)
     {
@@ -146,12 +166,13 @@ public sealed class FinanceTemplateTests
             measures = new[]
             {
                 new { name = "shares", formula = "SUM(signed_shares)" },
-                new { name = "invested", formula = "SUM(invested)" },
+                new { name = "cost", formula = "SUM(cost_change)" },
                 new { name = "value", formula = "SUM(value)" },
-                new { name = "gain", formula = "SUM(value - invested)" }
+                new { name = "gain", formula = "SUM(value - cost_change)" },
+                new { name = "realized", formula = "SUM(realized)" }
             }
         });
-        Assert.Equal(["MSCI World ETF 15 1500 1650 150"], AggregationQueryTests.Rows(positions, "name", "shares", "invested", "value", "gain"));
+        Assert.Equal(["MSCI World ETF 15 1500 1650 150 0"], AggregationQueryTests.Rows(positions, "name", "shares", "cost", "value", "gain", "realized"));
 
         // Step 4.3: the return a year (XIRR) of trades, dividends and today's value.
         var xirr = await AggregationQueryTests.QueryAsync(host, new
@@ -161,8 +182,9 @@ public sealed class FinanceTemplateTests
         });
         Assert.True(xirr.GetProperty("data")[0].GetProperty("xirr").GetDouble() > 0);
 
-        // The time-weighted index from the end of June (empty depot): 1020 / 1000, 1470 / (1020 + 500), 1650 / (1470 − 12.50);
-        // the benchmark (a dashboard variable) from its first price.
+        // The time-weighted index from the end of June (empty depot), by Modified Dietz: money counts for the part of the month it was in.
+        // July: 1000 on the 15th (17 of 31 days) → (1020 − 1000 + 548.39) / 548.39; August: 500 on the 10th (22 of 31) → (1470 − 500 + 354.84) / (1020 + 354.84);
+        // September: 12.50 paid out on the 15th (16 of 30) → (1650 + 12.50 − 6.67) / (1470 − 6.67). The benchmark (a dashboard variable) from its first price.
         var index = await AggregationQueryTests.QueryAsync(host, new
         {
             source = "accounts",
@@ -170,20 +192,52 @@ public sealed class FinanceTemplateTests
             variables = new Dictionary<string, object> { ["benchmark"] = "IE00B4L5Y983" },
             measures = new[]
             {
-                new { name = "depot", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), SUM(SUM(trades.invested WHERE trades.date >= BUCKET_START() AND trades.date <= BUCKET_END())) - SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date >= BUCKET_START() AND dividends.date <= BUCKET_END())), 100)" },
-                new { name = "return", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), SUM(SUM(trades.invested WHERE trades.date >= BUCKET_START() AND trades.date <= BUCKET_END())) - SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date >= BUCKET_START() AND dividends.date <= BUCKET_END())))" },
+                new { name = "depot", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), FLOWS(trades.invested, trades.date), FLOWS(COALESCE(dividends.tax, 0) - dividends.amount, dividends.date), 100)" },
+                new { name = "return", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())), FLOWS(trades.invested, trades.date), FLOWS(COALESCE(dividends.tax, 0) - dividends.amount, dividends.date))" },
                 new { name = "benchmark", formula = "REBASE(LOOKUP_ASOF(\"prices\", \"isin\", benchmark, \"date\", BUCKET_END(), \"price\"))" }
             }
         });
-        Assert.Equal(["2026-07-01 102 0.02 100", "2026-08-01 98.6447368421 -0.0135526316 96.0784313725", "2026-09-01 111.6732869911 0.1167328699 107.8431372549"],
+        Assert.Equal(["2026-07-01 103.6470588235 0.0364705882 100", "2026-08-01 99.8776327049 -0.001223673 96.0784313725", "2026-09-01 113.016432907 0.1301643291 107.8431372549"],
             AggregationQueryTests.Rows(index, "month", "depot", "return", "benchmark"));
+
+        // docs/user/dashboards.md, "A depot with its own cash": the depot holds the cash it gets (transfers with category Investing, id 5,
+        // minus what the trades cost, plus net dividends). Money in is the transfers only, so the dividend counts as return:
+        // July (1020 − 1000 + 1000 × 18/31) / (1000 × 18/31), August (1470 − 500 + 500 × 23/31) / (1020 + 500 × 23/31), September 1662.50 / 1470.
+        var withCash = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "accounts",
+            asOf = new { bucket = "month", from = "2026-07-01", to = "2026-09-30", @as = "month" },
+            measures = new[]
+            {
+                new { name = "depot", formula = "TWR(SUM(SUM(trades.signed_shares * LOOKUP_ASOF(\"prices\", \"isin\", trades.isin, \"date\", BUCKET_END(), \"price\") WHERE trades.date <= BUCKET_END())) - SUM(SUM(transactions.amount WHERE transactions.category_id = 5 AND transactions.date <= BUCKET_END())) - SUM(SUM(trades.invested WHERE trades.date <= BUCKET_END())) + SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date <= BUCKET_END())), FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5), 100)" }
+            }
+        });
+        Assert.Equal(["2026-07-01 103.4444444444", "2026-08-01 99.726010101", "2026-09-01 112.7853685666"], AggregationQueryTests.Rows(withCash, "month", "depot"));
+
+        // A sale of 5 at 108 with 1 fee: by average cost (100 a share) it gains 540 − 1 − 500 = 39; 10 shares costing 1000 stay, worth 1100.
+        (await host.Client.PostAsJsonAsync("/api/v1/data/trades", new { date = "2026-09-20", isin = "IE00B4L5Y983", name = "MSCI World ETF", kind = "sell", shares = 5, price = 108m, fees = 1m, account_id = 2 })).EnsureSuccessStatusCode();
+        await host.GetService<StoredCustomValues>().RunAsync();
+        var sold = await AggregationQueryTests.QueryAsync(host, new
+        {
+            source = "trades",
+            groupBy = new[] { new { column = "name" } },
+            measures = new[]
+            {
+                new { name = "shares", formula = "SUM(signed_shares)" },
+                new { name = "cost", formula = "SUM(cost_change)" },
+                new { name = "value", formula = "SUM(value)" },
+                new { name = "gain", formula = "SUM(value - cost_change)" },
+                new { name = "realized", formula = "SUM(realized)" }
+            }
+        });
+        Assert.Equal(["MSCI World ETF 10 1000 1100 100 39"], AggregationQueryTests.Rows(sold, "name", "shares", "cost", "value", "gain", "realized"));
     }
 
     [Fact]
     public async Task Template_OnSqlite()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?> { ["Backend:AuthMode"] = "open", ["Schema:AutoMigrateOnStartup"] = "false" });
-        await host.ApplySchemaAsync(Schema);
+        await ApplyAsync(host);
         await SeedAsync(host);
         await Scenario(host);
     }
@@ -202,7 +256,7 @@ public sealed class PostgresFinanceTemplateTests
             ["Backend:Jwt:Secret"] = "postgres-test-secret",
             ["Schema:AutoMigrateOnStartup"] = "false"
         });
-        await host.ApplySchemaAsync(FinanceTemplateTests.Schema);
+        await FinanceTemplateTests.ApplyAsync(host);
         await FinanceTemplateTests.SeedAsync(host);
         await FinanceTemplateTests.Scenario(host);
     }
