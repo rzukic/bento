@@ -97,6 +97,14 @@ A **Sankey** shows flows. Drop one to three categories into **Levels** and a num
 
 Levels keep the top 8 values by amount (income and expenses alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey.
 
+## Form Buttons
+
+Editors see buttons such as **+ Add transaction** in a dashboard's header: they open a [form](forms.md) in a dialog, and the dashboard reloads after saving. Which ones, you choose in edit mode under **Quick add**:
+
+- **Automatic** (default): the forms in Quick add for the tables the dashboard shows — as a widget's source, or through a link in a measure.
+- **These forms**: the ones you tick, in that order — also forms not in Quick add.
+- **None**: no buttons; the sidebar's Quick add stays.
+
 ## Months, Quarters, Years
 
 Charts by date show **M Q Y** in their corner, outside edit mode — also for viewers. Switch a chart of monthly bars to quarters or years without changing the dashboard; charts by day or week also offer their own interval. The choice is part of the address (`?interval.net-per-month=quarter`), so a bookmark keeps it. Values at the end of each period follow: net worth per quarter is the value at each quarter's end.

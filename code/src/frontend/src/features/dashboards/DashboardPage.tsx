@@ -25,6 +25,7 @@ import { FormFill } from "../forms/FormFill";
 import { formsForDashboard } from "../forms/quickAdd";
 import { defaultBudget } from "./budget";
 import { BudgetEditor } from "./BudgetEditor";
+import { QuickAddEditor } from "./QuickAddEditor";
 import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
 import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
@@ -69,6 +70,7 @@ export function DashboardPage() {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -386,6 +388,7 @@ export function DashboardPage() {
                       setVariablesOpen(false);
                       setAnnotationsOpen(false);
                       setFiltersOpen(false);
+                      setQuickAddOpen(false);
                     }}
                   >
                     Cancel
@@ -443,6 +446,7 @@ export function DashboardPage() {
               setVariablesOpen((open) => !open);
               setAnnotationsOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -457,6 +461,7 @@ export function DashboardPage() {
               setAnnotationsOpen((open) => !open);
               setVariablesOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -471,10 +476,26 @@ export function DashboardPage() {
               setFiltersOpen((open) => !open);
               setVariablesOpen(false);
               setAnnotationsOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
             Filters{(document?.filters ?? []).length > 0 ? ` (${document!.filters!.length})` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="plus" size={13} />}
+            aria-expanded={quickAddOpen}
+            onClick={() => {
+              setQuickAddOpen((open) => !open);
+              setVariablesOpen(false);
+              setAnnotationsOpen(false);
+              setFiltersOpen(false);
+              setEditingWidgetId(null);
+            }}
+          >
+            Quick add{document?.quickAdd === "none" ? ": none" : Array.isArray(document?.quickAdd) ? ` (${document!.quickAdd.length})` : ""}
           </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
@@ -522,7 +543,7 @@ export function DashboardPage() {
                   ) : null}
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); }}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); setQuickAddOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -599,6 +620,14 @@ export function DashboardPage() {
           tables={dataTables(tables)}
           onChange={(next) => updateDocument((doc) => ({ ...doc, filters: next.length > 0 ? next : undefined }))}
           onClose={() => setFiltersOpen(false)}
+        />
+      ) : null}
+      {editing && quickAddOpen && document ? (
+        <QuickAddEditor
+          document={document}
+          forms={forms ?? []}
+          onChange={(quickAdd) => updateDocument((doc) => ({ ...doc, quickAdd }))}
+          onClose={() => setQuickAddOpen(false)}
         />
       ) : null}
       {quickForm ? (

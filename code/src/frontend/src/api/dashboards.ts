@@ -148,6 +148,11 @@ export type DashboardDocument = {
   annotations?: DashboardAnnotation[];
   /** Filters in the bar above the widgets (Part 9 R9.6): each narrows every widget whose table has the column. */
   filters?: DashboardFilter[];
+  /**
+   * Form buttons in the header (Step 4.5): missing or "auto" — the forms in
+   * Quick add whose table the dashboard shows; a list — these forms, by id; "none" — no buttons.
+   */
+  quickAdd?: "auto" | "none" | number[];
 };
 
 /** A dashboard filter on a column name, e.g. `konto_id`; the chosen values live in the address. */
