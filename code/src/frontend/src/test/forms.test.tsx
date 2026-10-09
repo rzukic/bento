@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -234,6 +234,42 @@ describe("Forms", () => {
         true,
       ),
     );
+  });
+
+  it("moves a field by dragging its grip with the mouse", async () => {
+    // jsdom has no PointerEvent; a MouseEvent carries clientY and button.
+    if (!("PointerEvent" in window)) {
+      vi.stubGlobal(
+        "PointerEvent",
+        class extends MouseEvent {
+          pointerId: number;
+          constructor(type: string, init: PointerEventInit = {}) {
+            super(type, init);
+            this.pointerId = init.pointerId ?? 1;
+          }
+        },
+      );
+    }
+    render(<RouterProvider router={createTestRouter(["/forms/new?table=transactions"])} />);
+    const list = await screen.findByRole("list", { name: "Fields" });
+    const rows = within(list).getAllByRole("listitem");
+    // jsdom has no layout: each row 40px high, stacked from the top.
+    rows.forEach((row, i) => {
+      row.getBoundingClientRect = () => ({ top: i * 40, height: 40, bottom: i * 40 + 40, left: 0, right: 300, width: 300, x: 0, y: i * 40, toJSON: () => ({}) }) as DOMRect;
+    });
+    const grip = rows[3]!.querySelector(".form-builder__grip")!;
+    fireEvent.pointerDown(grip, { button: 0, pointerId: 1, clientY: 140 });
+    fireEvent.pointerMove(grip, { pointerId: 1, clientY: 15 });
+    expect(rows[0]).toHaveClass("form-builder__item--drop-before");
+    fireEvent.pointerUp(grip, { pointerId: 1, clientY: 15 });
+    expect(within(list).getAllByRole("listitem").map((li) => li.querySelector(".form-builder__item-title span")?.textContent)).toEqual([
+      "kind",
+      "date",
+      "amount",
+      "payee",
+      "account_id",
+      "category_id",
+    ]);
   });
 
   it("lists pinned forms under Quick add in the sidebar", async () => {

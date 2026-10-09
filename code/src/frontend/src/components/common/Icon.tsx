@@ -46,7 +46,8 @@ export type IconName =
   | "star"
   | "copy"
   | "trash"
-  | "panel-left";
+  | "panel-left"
+  | "grip";
 
 type IconProps = SVGProps<SVGSVGElement> & {
   name: IconName;
@@ -218,6 +219,16 @@ const paths: Record<IconName, React.ReactNode> = {
     <>
       <rect x="3" y="4" width="18" height="16" rx="2.5" />
       <path d="M9.5 4v16" />
+    </>
+  ),
+  grip: (
+    <>
+      <circle cx="9" cy="6" r="1.5" />
+      <circle cx="15" cy="6" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="9" cy="18" r="1.5" />
+      <circle cx="15" cy="18" r="1.5" />
     </>
   ),
   "more-horizontal": (

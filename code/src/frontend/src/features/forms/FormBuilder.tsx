@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
 import { createForm, deleteForm, getForm, isSection, updateForm, type FieldDefault, type FormDefinition, type FormField, type FormItem } from "../../api/forms";
@@ -49,6 +49,11 @@ export function FormBuilder() {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [open, setOpen] = useState<number | null>(null);
+  // Dragging an item by its grip (pointer events: mouse, touch and pen alike):
+  // which one, and the gap it would land in (0 = before the first item).
+  const [dragging, setDragging] = useState<number | null>(null);
+  const [dropAt, setDropAt] = useState<number | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
 
   useEffect(() => {
     void loadSchema();
@@ -93,6 +98,30 @@ export function FormBuilder() {
     [fields[index], fields[target]] = [fields[target]!, fields[index]!];
     setItems(fields);
     setOpen((o) => (o === index ? target : o === target ? index : o));
+  };
+  /** Moves an item to a gap between items (0 = before the first); the open one stays open. */
+  const moveTo = (from: number, gap: number) => {
+    const target = gap > from ? gap - 1 : gap;
+    if (target === from) return;
+    const openItem = open === null ? null : form.fields[open];
+    const fields = [...form.fields];
+    const [item] = fields.splice(from, 1);
+    fields.splice(target, 0, item!);
+    setItems(fields);
+    setOpen(openItem ? fields.indexOf(openItem) : null);
+  };
+  const endDrag = () => {
+    setDragging(null);
+    setDropAt(null);
+  };
+  /** The gap under the pointer: before the first item whose middle lies below it. */
+  const gapAt = (clientY: number) => {
+    const rows = [...(listRef.current?.children ?? [])];
+    const index = rows.findIndex((row) => {
+      const box = row.getBoundingClientRect();
+      return clientY < box.top + box.height / 2;
+    });
+    return index < 0 ? rows.length : index;
   };
   const remove = (index: number) => {
     setItems(form.fields.filter((_, i) => i !== index));
@@ -148,13 +177,47 @@ export function FormBuilder() {
             </label>
           </div>
 
-          <ol className="form-builder__items" aria-label="Fields">
+          <ol ref={listRef} className={dragging === null ? "form-builder__items" : "form-builder__items form-builder__items--dragging"} aria-label="Fields">
             {form.fields.map((item, index) => {
               const column = isSection(item) ? null : table.columns.find((c) => c.name === item.column) ?? null;
               const title = isSection(item) ? item.section || "Section" : column ? columnLabel(column, item) : `${item.column} (gone)`;
               return (
-                <li key={isSection(item) ? `s${index}` : item.column} className={isSection(item) ? "form-builder__item form-builder__item--section" : "form-builder__item"}>
+                <li
+                  key={isSection(item) ? `s${index}` : item.column}
+                  className={[
+                    "form-builder__item",
+                    isSection(item) ? "form-builder__item--section" : "",
+                    dragging === index ? "form-builder__item--dragging" : "",
+                    dragging !== null && dropAt === index ? "form-builder__item--drop-before" : "",
+                    dragging !== null && dropAt === index + 1 && index === form.fields.length - 1 ? "form-builder__item--drop-after" : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
                   <div className="form-builder__item-head">
+                    <span
+                      className="form-builder__grip"
+                      title="Drag to move"
+                      aria-hidden="true"
+                      onPointerDown={(event) => {
+                        if (event.button > 0) return;
+                        event.preventDefault();
+                        event.currentTarget.setPointerCapture?.(event.pointerId);
+                        setDragging(index);
+                        setDropAt(index);
+                      }}
+                      onPointerMove={(event) => {
+                        if (dragging === index) setDropAt(gapAt(event.clientY));
+                      }}
+                      onPointerUp={(event) => {
+                        if (dragging !== index) return;
+                        moveTo(index, gapAt(event.clientY));
+                        endDrag();
+                      }}
+                      onPointerCancel={endDrag}
+                    >
+                      <Icon name="grip" size={13} />
+                    </span>
                     <button
                       type="button"
                       className="form-builder__item-title"
