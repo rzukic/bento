@@ -104,6 +104,8 @@
   flex-direction: column;
   min-width: 0;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .shell__brand-name {
@@ -131,6 +133,9 @@
 
 .shell__nav-section-title {
   padding: 0.25rem 0.625rem 0.375rem;
+  /* One line always: while the sidebar widens on hover it must not wrap and push the items down. */
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .shell__nav-list {
@@ -245,6 +250,8 @@
   flex-direction: column;
   line-height: 1.1;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .shell__user-name {
@@ -286,9 +293,7 @@
    move when the sidebar opens (on hover or for good). */
 .shell--collapsed:not(.shell--peek) .shell__nav-section-title {
   position: relative;
-  overflow: hidden;
   color: transparent;
-  white-space: nowrap;
   user-select: none;
 }
 
