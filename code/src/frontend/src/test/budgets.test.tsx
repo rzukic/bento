@@ -18,7 +18,7 @@ import type { ModelSnapshot } from "../types/api";
 
 const queryApi = vi.hoisted(() => ({ runQuery: vi.fn(), listSavedQueries: vi.fn() }));
 const dataApi = vi.hoisted(() => ({ fetchTableRows: vi.fn() }));
-const dashboardsApi = vi.hoisted(() => ({ getDashboard: vi.fn(), listDashboards: vi.fn() }));
+const dashboardsApi = vi.hoisted(() => ({ getDashboard: vi.fn(), listDashboards: vi.fn(), updateDashboard: vi.fn() }));
 vi.mock("../api/query", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/query")>()), ...queryApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
 vi.mock("../api/dashboards", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/dashboards")>()), ...dashboardsApi }));
@@ -223,6 +223,51 @@ describe("interval switch", () => {
     expect(params.toString()).toBe("range=this-year&interval.net=year");
     expect(intervalsFromSearch(params)).toEqual({ net: "year" });
     expect(intervalToSearch(chart, "month", params).toString()).toBe("range=this-year");
+  });
+
+  it("offers it on summarized tables by date too, and follows the widget's setting", () => {
+    const table: DashboardWidget = { ...chart, type: "table" };
+    expect(intervalOptions(table)).toEqual(["month", "quarter", "year"]);
+    // Individual rows have no interval.
+    expect(intervalOptions({ ...table, data: { ...table.data, rows: { columns: ["date", "amount"] } } })).toEqual([]);
+    // Switched off.
+    expect(intervalOptions({ ...chart, display: { intervals: false } })).toEqual([]);
+    expect(withInterval({ ...chart, display: { intervals: false } }, "year")).toEqual({ ...chart, display: { intervals: false } });
+    // Only quarters and years — the widget's own month always stays.
+    const limited: DashboardWidget = { ...chart, display: { intervals: ["quarter", "year"] } };
+    expect(intervalOptions(limited)).toEqual(["month", "quarter", "year"]);
+    expect(intervalOptions({ ...chart, display: { intervals: ["year"] } })).toEqual(["month", "year"]);
+    expect(intervalOptions({ ...chart, display: { intervals: ["day", "week", "year"] } })).toEqual(["day", "week", "month", "year"]);
+    expect(withInterval({ ...chart, display: { intervals: ["year"] } }, "quarter")).toEqual({ ...chart, display: { intervals: ["year"] } });
+    // Nothing left to switch between: no switch.
+    expect(intervalOptions({ ...chart, display: { intervals: [] } })).toEqual([]);
+  });
+
+  it("lets the owner limit or hide the switch under Style", async () => {
+    queryApi.runQuery.mockResolvedValue({ data: [], meta: { truncated: false, columns: [] } });
+    queryApi.listSavedQueries.mockResolvedValue([]);
+    const owned: Dashboard = { id: 7, name: "Cash flow", isShared: false, isOwner: true, dashboard: { widgets: [chart] }, createdAt: "", updatedAt: "" };
+    dashboardsApi.getDashboard.mockResolvedValue(owned);
+    dashboardsApi.updateDashboard.mockImplementation(async (_id: number, changes: { dashboard: Dashboard["dashboard"] }) => ({ ...owned, dashboard: changes.dashboard }));
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }, { timeout: 5000 }));
+    await user.click(screen.getByRole("button", { name: "Configure Net per month" }));
+    const editor = await screen.findByRole("dialog", { name: "Edit widget" });
+    await user.click(within(editor).getByRole("tab", { name: "Style" }));
+    const intervals = within(editor).getByRole("group", { name: "Intervals to switch between" });
+    // The widget's own interval stays; quarters go.
+    expect(within(intervals).getByRole("button", { name: "Month" })).toBeDisabled();
+    await user.click(within(intervals).getByRole("button", { name: "Quarter" }));
+    expect(within(intervals).getByRole("button", { name: "Quarter" })).toHaveAttribute("aria-pressed", "false");
+    await user.click(within(editor).getByRole("button", { name: "Done" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(dashboardsApi.updateDashboard).toHaveBeenCalled());
+    expect(dashboardsApi.updateDashboard.mock.calls[0][1].dashboard.widgets[0].display).toEqual({ intervals: ["month", "year"] });
+    const group = await screen.findByRole("group", { name: "Net per month: interval" });
+    expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(["M", "Y"]);
   });
 
   it("lets a viewer switch a chart to quarters", async () => {

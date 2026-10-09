@@ -123,7 +123,16 @@ Editors see buttons such as **+ Add transaction** in a dashboard's header: they 
 
 ## Months, Quarters, Years
 
-Charts by date show **M Q Y** in their corner, outside edit mode — also for viewers. Switch a chart of monthly bars to quarters or years without changing the dashboard; charts by day or week also offer their own interval. The choice is part of the address (`?interval.net-per-month=quarter`), so a bookmark keeps it. Values at the end of each period follow: net worth per quarter is the value at each quarter's end.
+Charts and summarized tables by date show **M Q Y** in their corner, outside edit mode, for viewers too. Switch monthly bars or a table "per month" to quarters or years without changing the dashboard. Charts by day or week also offer their own interval.
+
+- The choice is part of the address (`?interval.net-per-month=quarter`), so a bookmark keeps it.
+- Values at the end of each period follow: net worth per quarter is the value at each quarter's end.
+- A table names its periods ("September 2026", "Q3 2026") and heads the column with the interval.
+
+To change what a widget offers, go to the widget editor → **Style** → **Viewers can switch the interval**:
+
+- Untick it to hide the switch.
+- Choose the intervals to offer, for example only quarters and years. The widget's own interval always stays.
 
 ## Budgets
 

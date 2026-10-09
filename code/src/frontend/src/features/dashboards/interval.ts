@@ -13,15 +13,34 @@ export const INTERVAL_LABELS: Record<QueryBucket, { short: string; long: string 
   year: { short: "Y", long: "Year" },
 };
 
-const CHARTS = new Set(["line", "area", "bar"]);
+const SWITCHABLE = new Set(["line", "area", "bar", "table"]);
 const PARAM = "interval.";
+export const ALL_INTERVALS: QueryBucket[] = ["day", "week", "month", "quarter", "year"];
 
-/** The intervals a widget can switch between: its own and month, quarter, year — none for widgets without a date group. */
-export function intervalOptions(widget: DashboardWidget): QueryBucket[] {
-  const bucket = widget.data?.query?.groupBy?.find((g) => g.bucket)?.bucket;
-  if (!CHARTS.has(widget.type) || !bucket) return [];
+/** The widget's own interval (its date group's bucket), if it can have a switch at all: charts and summarized tables by date. */
+export function ownInterval(widget: DashboardWidget): QueryBucket | undefined {
+  if (!SWITCHABLE.has(widget.type) || widget.data?.rows) return undefined;
+  return widget.data?.query?.groupBy?.find((g) => g.bucket)?.bucket;
+}
+
+/** Without a setting: its own interval and month, quarter, year. */
+export function defaultIntervals(bucket: QueryBucket): QueryBucket[] {
   const options: QueryBucket[] = bucket === "day" || bucket === "week" ? [bucket] : [];
   return [...options, "month", "quarter", "year"];
+}
+
+/**
+ * The intervals viewers can switch the widget between — none for widgets
+ * without a date group or with the switch turned off (display.intervals: false);
+ * a chosen list always keeps the widget's own interval.
+ */
+export function intervalOptions(widget: DashboardWidget): QueryBucket[] {
+  const bucket = ownInterval(widget);
+  const setting = widget.display?.intervals;
+  if (!bucket || setting === false) return [];
+  if (!setting) return defaultIntervals(bucket);
+  const chosen = ALL_INTERVALS.filter((b) => b === bucket || setting.includes(b));
+  return chosen.length > 1 ? chosen : [];
 }
 
 /** The widget with its date group in another interval. */

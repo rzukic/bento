@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { DashboardAnnotation, DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
-import { listSavedQueries, type QueryResult, type SavedQuery } from "../../../api/query";
+import { listSavedQueries, type QueryBucket, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { formatKindForType, formatNumber, toNumber } from "../../../lib/format";
@@ -39,6 +39,7 @@ import {
 } from "./model";
 import "./Lens.css";
 import { DescribeWidget } from "../../ai/DescribeWidget";
+import { ALL_INTERVALS, INTERVAL_LABELS, defaultIntervals, ownInterval } from "../interval";
 import { useAiEnabled } from "../../ai/useAiEnabled";
 
 const FIELD_DRAG = "application/x-bento-field";
@@ -721,6 +722,52 @@ function EditingPanel({
   );
 }
 
+/**
+ * Charts and summarized tables by date: whether viewers can switch the interval
+ * (M Q Y in the widget's header) and to which ones; the widget's own interval
+ * is always one of them.
+ */
+function IntervalSetting({ widget, setDisplay }: { widget: DashboardWidget; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const own = ownInterval(widget);
+  if (!own) return null;
+  const setting = widget.display?.intervals;
+  const on = setting !== false;
+  const chosen = setting === false ? defaultIntervals(own) : (setting ?? defaultIntervals(own));
+  const set = (next: QueryBucket[]) => {
+    const list = ALL_INTERVALS.filter((b) => b === own || next.includes(b));
+    const isDefault = list.length === defaultIntervals(own).length && list.every((b) => defaultIntervals(own).includes(b));
+    setDisplay({ intervals: isDefault ? undefined : list });
+  };
+  return (
+    <div className="lens-field">
+      <label className="lens-check" title="M Q Y in the widget's header: viewers change the interval without editing the widget">
+        <input type="checkbox" checked={on} onChange={(event) => setDisplay({ intervals: event.target.checked ? undefined : false })} />
+        Viewers can switch the interval
+      </label>
+      {on ? (
+        <div className="lens-intervals" role="group" aria-label="Intervals to switch between">
+          {ALL_INTERVALS.map((bucket) => {
+            const active = bucket === own || chosen.includes(bucket);
+            return (
+              <button
+                key={bucket}
+                type="button"
+                className="lens-intervals__option"
+                aria-pressed={active}
+                disabled={bucket === own}
+                title={bucket === own ? `${INTERVAL_LABELS[bucket].long} — the widget's own interval` : INTERVAL_LABELS[bucket].long}
+                onClick={() => set(active ? chosen.filter((b) => b !== bucket) : [...chosen, bucket])}
+              >
+                {INTERVAL_LABELS[bucket].long}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StyleSettings({
   widget,
   table,
@@ -801,6 +848,7 @@ function StyleSettings({
           Show annotations{annotationCount > 0 ? ` (${annotationCount})` : ""}
         </label>
       ) : null}
+      <IntervalSetting widget={widget} setDisplay={setDisplay} />
       {isChart ? <ReferenceLines lines={display.referenceLines ?? []} variables={variables} onChange={(referenceLines) => setDisplay({ referenceLines: referenceLines.length > 0 ? referenceLines : undefined })} /> : null}
       {widget.type === "kpi" ? (
         <>

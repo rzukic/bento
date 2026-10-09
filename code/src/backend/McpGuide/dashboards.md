@@ -51,7 +51,7 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 
 ## `display`
 
-`format` (`auto currency number integer percent`), `stacked`, `totalLine`, `colorBySign`, `compare`, `higherIsBetter`, `trend`, `goal` (number or variable name), `summary` (table total row), `referenceLines` `[{value, label}]`, `annotations` (false hides them), `sankey`, `shares`, `drill`, `text`.
+`format` (`auto currency number integer percent`), `intervals` (charts and summarized tables by date: `false` hides the viewer's M Q Y switch, or a list such as `["quarter", "year"]`; the widget's own interval always stays), `stacked`, `totalLine`, `colorBySign`, `compare`, `higherIsBetter`, `trend`, `goal` (number or variable name), `summary` (table total row), `referenceLines` `[{value, label}]`, `annotations` (false hides them), `sankey`, `shares`, `drill`, `text`.
 
 ## Dashboard level
 

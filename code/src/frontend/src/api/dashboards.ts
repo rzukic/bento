@@ -1,5 +1,5 @@
 import { apiClient } from "./client";
-import type { AggregationQuery } from "./query";
+import type { AggregationQuery, QueryBucket } from "./query";
 
 export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text" | "budget";
 
@@ -100,6 +100,12 @@ export type WidgetDisplay = {
   shares?: boolean;
   /** Donut (Step 4.5): a column of the same table; a slice then shows its rows grouped by it, e.g. main category → category. */
   drill?: string;
+  /**
+   * Charts and tables by date: the intervals viewers can switch to (M Q Y …);
+   * false hides the switch. Missing: month, quarter and year (plus day or week
+   * when the widget itself is by day or week).
+   */
+  intervals?: false | QueryBucket[];
 };
 
 export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
