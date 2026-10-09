@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import "./Atmosphere.css";
 
 /**
@@ -33,17 +33,46 @@ const GLYPH_STOPS: Record<GlyphTone, [string, string, string, string]> = {
   warn: ["#fde68a", "#f59e0b", "#fb7185", "#b45309"]
 };
 
+/** The glyph's frame in SVG units: two letters at 640px fill it. */
+const GLYPH_WIDTH = 900;
+const GLYPH_HEIGHT = 660;
+/** Room on the right so the stroke of the last letter is not cut. */
+const GLYPH_PADDING = 24;
+
 /**
- * A very large hairline glyph (a step number, a wordmark fragment) stroked
- * with a slowly rotating gradient. Decorative; the real value is always
- * rendered as text elsewhere.
+ * A very large hairline glyph (a step number, a word such as "Bento") stroked
+ * with a slowly rotating gradient. Longer words get smaller letters: the
+ * frame grows with the text and is scaled down into the same area, anchored
+ * bottom left. Decorative; the real value is always rendered as text elsewhere.
  */
 export function Glyph({ value, tone = "default", className = "" }: { value: string; tone?: GlyphTone; className?: string }) {
   const gradientId = useId();
   const stops = GLYPH_STOPS[tone];
+  const textRef = useRef<SVGTextElement | null>(null);
+  // Before measuring: about 0.62em per letter at 640px.
+  const [textWidth, setTextWidth] = useState(() => value.length * 400);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const text = textRef.current;
+      if (text && typeof text.getBBox === "function") {
+        const width = text.getBBox().width;
+        if (width > 0) setTextWidth(width);
+      }
+    };
+    measure();
+    // The display font may arrive after the first paint; measure again then.
+    void document.fonts?.ready.then(measure);
+  }, [value]);
+
+  const width = Math.max(GLYPH_WIDTH, textWidth + GLYPH_PADDING);
+  const height = (width * GLYPH_HEIGHT) / GLYPH_WIDTH;
+  // Grow upwards: the baseline stays at the bottom of the area.
+  const viewBox = `0 ${GLYPH_HEIGHT - height} ${width} ${height}`;
+
   return (
     <div className={["atmo-glyph", className].filter(Boolean).join(" ")} aria-hidden="true" key={value}>
-      <svg viewBox="0 0 900 660" xmlns="http://www.w3.org/2000/svg">
+      <svg viewBox={viewBox} preserveAspectRatio="xMinYMax meet" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <linearGradient id={gradientId} x1="0" y1="0" x2="1" y2="1">
             <stop offset="0" stopColor={stops[0]} />
@@ -53,7 +82,7 @@ export function Glyph({ value, tone = "default", className = "" }: { value: stri
             <animateTransform attributeName="gradientTransform" type="rotate" from="0 0.5 0.5" to="360 0.5 0.5" dur="18s" repeatCount="indefinite" />
           </linearGradient>
         </defs>
-        <text className="atmo-glyph__text" x="0" y="600" fill="none" stroke={`url(#${gradientId})`} strokeWidth="1.25">
+        <text ref={textRef} className="atmo-glyph__text" x="0" y="600" fill="none" stroke={`url(#${gradientId})`} strokeWidth={1.25 * (width / GLYPH_WIDTH)}>
           {value}
         </text>
       </svg>

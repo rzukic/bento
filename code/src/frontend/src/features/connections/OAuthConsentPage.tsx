@@ -73,7 +73,7 @@ export function OAuthConsentPage() {
   return (
     <main className="login oauth-consent" aria-labelledby="consent-title">
       <Sky />
-      <Glyph value="Mc" />
+      <Glyph value="MCP" />
       <div className="login__frame">
         <header className="login__header">
           <div className="login__brand">
