@@ -22,7 +22,7 @@ Adding rows needs the editor or admin role; viewers can open shared forms but no
 
 **Forms → New form**, choose a table, **Start**. The form starts with every column you can fill (not computed columns or keys the database assigns): dates start today, links at the value used last time.
 
-- **Order**: move fields with the arrows. **Section** adds a heading, e.g. "More" for rarely used fields.
+- **Order**: drag a field by its grip (⋮⋮), or move it with the arrows. **Section** adds a heading, e.g. "More" for rarely used fields.
 - **Label** and **Help**: what the field says, and a line under it.
 - **Starts with**: empty, **Today**, **Now**, **Last used** (in this browser) or a **Fixed value**.
 - **+/− switch** for numbers: starts at − (spending) or +.
