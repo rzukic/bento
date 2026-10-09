@@ -89,6 +89,7 @@ public sealed class OpenApiDocumentBuilder
             ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
             ("Prices", "Price sources: your functions fetch prices into a table of your model."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
+            ("Forms", "Quick entry forms: the table, its fields in order, sections and defaults. Submissions go through the data API."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
             ("Schema", "The data model (Model JSON)."),
             ("Auth", "Sign in for a session token. Scripts use API keys instead."),
@@ -402,6 +403,17 @@ public sealed class OpenApiDocumentBuilder
         {
             ["get"] = Operation("Dashboards", "Get a dashboard", "read", null, parameters: new JsonArray(idParam.DeepClone()),
                 responses: Responses(200, "The dashboard.", anyObject.DeepClone()))
+        };
+        paths["/forms"] = new JsonObject
+        {
+            ["get"] = Operation("Forms", "List forms", "read",
+                "Own forms and shared ones. Each names a `table` and its `fields` in order: `{ column, label?, help?, hidden?, default?: { kind: today | now | last | value, value? }, sign?: negative | positive }` or `{ section }`. A filled form is a `POST /data/{table}`.",
+                responses: Responses(200, "Forms with their Form JSON.", anyObject.DeepClone()))
+        };
+        paths["/forms/{id}"] = new JsonObject
+        {
+            ["get"] = Operation("Forms", "Get a form", "read", null, parameters: new JsonArray(idParam.DeepClone()),
+                responses: Responses(200, "The form.", anyObject.DeepClone()))
         };
         var importBody = Obj(new JsonObject
         {

@@ -12,6 +12,20 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-07 — Quick Entry Forms: Add A Transaction On The Phone
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.4 — Quick Entry Forms](working-steps/4.4-quick-entry-forms.md)
+
+A form adds a row to a table in a few taps — built for the phone, checked like any other row.
+
+**Highlights:**
+- Forms from any table, with a light builder: order, sections, labels, help, hidden fields, defaults (today, now, last used, fixed), a −/+ switch for amounts, live preview
+- Phone first: accounts and categories as buttons, Today/Yesterday, the number pad with −/+, recent payees suggested; after saving it starts over for the next entry
+- **Quick add** in the sidebar (first on the phone) and buttons on dashboards that show the table; the dashboard reloads after saving
+- The Wealth template adds **Add transaction**
+- Forms follow table and column renames; `/api/v1/forms` for Form JSON
+
 ### 2026-10-07 — Realised Gains And A Fairer Time-Weighted Return
 
 > **Phase**: Phase 4 — Intelligence

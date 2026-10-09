@@ -482,6 +482,11 @@
     display: none;
   }
 
+  /* Quick add (pinned forms) comes first on the phone. */
+  .shell__nav-section--quick {
+    order: -1;
+  }
+
   .shell__nav-list {
     flex-direction: row;
   }

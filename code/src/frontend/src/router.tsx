@@ -13,11 +13,13 @@ const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsLi
 const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
 const FunctionsPage = lazy(() => import("./features/functions/FunctionsPage").then((m) => ({ default: m.FunctionsPage })));
 const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormsPage })));
+const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
+const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
 
 function Lazy({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>;
 }
-import { FormsPage } from "./routes/FormsPage";
 import { HomePage } from "./routes/HomePage";
 import { LoginPage } from "./routes/LoginPage";
 import { ModelPage } from "./routes/ModelPage";
@@ -151,12 +153,44 @@ const shellRoutes: RouteObject[] = [
   },
   {
     path: "forms",
-    element: <FormsPage />,
+    element: (
+      <Lazy>
+        <FormsPage />
+      </Lazy>
+    ),
     handle: {
       title: "Forms",
+      hidePageHeader: true,
       navLabel: "Forms",
-      navGroup: "Coming soon"
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
+  },
+  {
+    path: "forms/new",
+    element: (
+      <Lazy>
+        <FormBuilder />
+      </Lazy>
+    ),
+    handle: { title: "New form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
+  },
+  {
+    path: "forms/:formId",
+    element: (
+      <Lazy>
+        <FormPage />
+      </Lazy>
+    ),
+    handle: { title: "Form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
+  },
+  {
+    path: "forms/:formId/edit",
+    element: (
+      <Lazy>
+        <FormBuilder />
+      </Lazy>
+    ),
+    handle: { title: "Edit form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
   },
   {
     path: "ai",

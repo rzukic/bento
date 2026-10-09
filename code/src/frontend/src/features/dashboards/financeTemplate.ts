@@ -1,5 +1,6 @@
 import type { DashboardDocument, DashboardWidget } from "../../api/dashboards";
 import type { CustomFunction, FunctionDraft, FunctionTemplate } from "../../api/functions";
+import type { FormDefinition } from "../../api/forms";
 import type { ModelTable, SchemaColumn, SchemaModelDocument, SchemaRelation, SchemaTable } from "../../types/api";
 import { cashFlowDashboard } from "./starter";
 
@@ -374,7 +375,7 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
         text: [
           "# How to fill this",
           `- ${financeLabel(n, "accounts")}: one row per bank account or depot, with its opening balance`,
-          `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import)`,
+          `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import), or add one with Add transaction (Quick add in the sidebar, also on the phone)`,
           `- ${financeLabel(n, "trades")}: buys and sells with ISIN, shares and price — your broker's export`,
           `- ${financeLabel(n, "prices")}: a price per ISIN and date — by hand, imported, or live from a price source (Functions → Price sources)`,
           `- ${financeLabel(n, "dividends")}: payouts per ISIN`,
@@ -389,6 +390,26 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
     refreshSeconds: 0,
     widgets,
     variables: [{ name: "benchmark", label: "Benchmark ISIN", formula: '"IE00B4L5Y983"' }],
+  };
+}
+
+/**
+ * "Add transaction" (Step 4.4): a pinned form for the phone. The amount starts
+ * as spending (−), the date today, the account as last time; payees are suggested.
+ */
+export function transactionForm(n: FinanceNames): FormDefinition {
+  return {
+    table: n.transactions,
+    pinned: true,
+    fields: [
+      { column: "amount", label: "Amount", sign: "negative", help: "− spent, + received" },
+      { column: "payee", label: "Payee" },
+      { column: "category_id", label: "Category" },
+      { column: "account_id", label: "Account", default: { kind: "last" } },
+      { column: "date", label: "Date", default: { kind: "today" } },
+      { section: "More" },
+      { column: "purpose", label: "Note" },
+    ],
   };
 }
 

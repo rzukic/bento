@@ -17,6 +17,12 @@ import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { useAuthStore } from "../../stores/authStore";
+import { useFormsStore } from "../../stores/formsStore";
+import type { SavedForm } from "../../api/forms";
+import { Dialog } from "../../components/ui/Dialog";
+import { FormFill } from "../forms/FormFill";
+import { formsForDashboard } from "../forms/quickAdd";
 import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
 import type { LayoutItem } from "./layout";
@@ -64,6 +70,14 @@ export function DashboardPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Step 4.4: pinned forms for the tables this dashboard shows, opened in a dialog.
+  const canWrite = useAuthStore((state) => state.user?.role === "admin" || state.user?.role === "editor");
+  const forms = useFormsStore((state) => state.forms);
+  const loadForms = useFormsStore((state) => state.load);
+  const [quickForm, setQuickForm] = useState<SavedForm | null>(null);
+  useEffect(() => {
+    if (canWrite) void loadForms();
+  }, [canWrite, loadForms]);
   const [refreshToken, setRefreshToken] = useState(0);
   const lastRefresh = useRef(Date.now());
 
@@ -339,6 +353,13 @@ export function DashboardPage() {
                 <Button type="button" variant="ghost" size="sm" onClick={refresh} aria-label="Refresh" title="Refresh">
                   <Icon name="refresh" size={14} />
                 </Button>
+                {canWrite
+                  ? formsForDashboard(forms, dashboard.dashboard).map((form) => (
+                      <Button key={form.id} type="button" size="sm" leadingIcon={<Icon name="plus" size={13} />} onClick={() => setQuickForm(form)}>
+                        {form.name}
+                      </Button>
+                    ))
+                  : null}
               </>
             )}
             {dashboard.isOwner ? (
@@ -546,6 +567,25 @@ export function DashboardPage() {
           onChange={(next) => updateDocument((doc) => ({ ...doc, filters: next.length > 0 ? next : undefined }))}
           onClose={() => setFiltersOpen(false)}
         />
+      ) : null}
+      {quickForm ? (
+        <Dialog open title={quickForm.name} onClose={() => setQuickForm(null)} panelClassName="form-dialog">
+          {snapshot?.tables.find((t) => t.name === quickForm.form.table) ? (
+            <FormFill
+              formKey={String(quickForm.id)}
+              form={quickForm.form}
+              table={snapshot.tables.find((t) => t.name === quickForm.form.table)!}
+              afterSave="close"
+              onSaved={() => {
+                setQuickForm(null);
+                refresh();
+              }}
+              onCancel={() => setQuickForm(null)}
+            />
+          ) : (
+            <Alert tone="error" message={`The table ${quickForm.form.table} no longer exists.`} />
+          )}
+        </Dialog>
       ) : null}
       {editing && annotationsOpen ? (
         <AnnotationsEditor
