@@ -283,10 +283,15 @@
 
 /* Collapsed sidebar */
 .shell--collapsed:not(.shell--peek) .shell__brand-text,
-.shell--collapsed:not(.shell--peek) .shell__nav-label,
+.shell--collapsed:not(.shell--peek) .shell__nav-label {
+  display: none;
+}
+
+/* The user line keeps its name, role and menu in the layout (hidden), so it
+   has the same height collapsed and open and the avatar does not move. */
 .shell--collapsed:not(.shell--peek) .shell__user-text,
 .shell--collapsed:not(.shell--peek) .shell__user-menu {
-  display: none;
+  visibility: hidden;
 }
 
 /* A section heading keeps its height as a short line, so the items do not
