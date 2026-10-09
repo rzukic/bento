@@ -148,7 +148,7 @@ export function McpPanel() {
             </li>
             <li>Double-click the file (or drag it into Claude Desktop) and install it.</li>
             <li>
-              Enter an API key from <strong>API keys</strong>: read only reads, read-write may add and change rows.
+              On first use your browser opens Bento's sign-in: sign in and pick the access.
             </li>
           </ol>
           <a className="btn btn--primary btn--sm mcp__download" href="/api/v1/mcp/bento.mcpb" download="bento.mcpb">

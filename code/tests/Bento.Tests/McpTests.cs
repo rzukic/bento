@@ -291,7 +291,8 @@ public sealed class McpTests
         Assert.Equal("node", root.GetProperty("server").GetProperty("type").GetString());
         Assert.Equal("${__dirname}/server/index.js", root.GetProperty("server").GetProperty("mcp_config").GetProperty("args")[0].GetString());
         Assert.Equal("https://bento.example.com/mcp", root.GetProperty("user_config").GetProperty("url").GetProperty("default").GetString());
-        Assert.True(root.GetProperty("user_config").GetProperty("api_key").GetProperty("sensitive").GetBoolean());
+        // It signs in through the browser like the connector: no key to enter.
+        Assert.False(root.GetProperty("user_config").TryGetProperty("api_key", out _));
         Assert.DoesNotContain("{{", root.GetRawText());
     }
 

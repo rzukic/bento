@@ -4,7 +4,7 @@
   "display_name": "Bento",
   "version": "{{VERSION}}",
   "description": "Your Bento tables, analyses and dashboards in Claude; add transactions by asking.",
-  "long_description": "Connects Claude Desktop to your Bento's MCP endpoint with a Bento API key. A read key lets Claude look at tables, rows, dashboards and forms and run analyses; a read-write key also lets it add and change rows. It never changes the schema and never deletes anything. Every call is listed in Bento under Connections → Claude.",
+  "long_description": "Connects Claude Desktop to your Bento. On first use your browser opens Bento's sign-in: sign in and choose Read only (tables, rows, dashboards, forms, analyses) or Read and write (also add and change rows). It never changes the schema and never deletes anything. The sign-in is kept on this computer and renewed by itself; disconnect it any time in Bento under Connections → Claude, where every call is listed.",
   "author": {
     "name": "Bento"
   },
@@ -18,20 +18,12 @@
       "command": "node",
       "args": ["${__dirname}/server/index.js"],
       "env": {
-        "BENTO_MCP_URL": "${user_config.url}",
-        "BENTO_MCP_KEY": "${user_config.api_key}"
+        "BENTO_MCP_URL": "${user_config.url}"
       }
     }
   },
   "tools_generated": true,
   "user_config": {
-    "api_key": {
-      "type": "string",
-      "title": "API key",
-      "description": "A Bento API key (Connections → API keys). Read keys only read; read-write keys may also add and change rows.",
-      "sensitive": true,
-      "required": true
-    },
     "url": {
       "type": "string",
       "title": "MCP address",

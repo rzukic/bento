@@ -62,7 +62,7 @@ The app acts as you and never does more than your role allows (a viewer's connec
 
 ### Claude Desktop extension
 
-**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop), install, and enter an [API key](#api-keys): a read key only reads, a read-write key may also add and change rows. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp` with the key; it needs no sign-in, which suits a desktop that should stay connected. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
+**Connections → Claude → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and choose *Read only* or *Read and write*. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
 
 ### Connect with an API key
 
