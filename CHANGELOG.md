@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Explain Any Number With Bento's AI
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.7 — AI Basis & "Explain This"](working-steps/4.7-ai-explain.md)
+
+Ask a dashboard what a number is made of and what changed.
+
+**Highlights:**
+- **✨ Explain** on every widget: the AI says what the number is made of, what changed compared with the period before, and which rows drive it, in your language. You can ask follow-up questions.
+- It runs **as you, read-only**, on the same tools and guide as MCP. It looks up what it needs and shows the lookups and the cost under each answer.
+- The **AI page** lets admins set the Anthropic key (kept in the credential vault), the model (Opus 5.5, Sonnet 5.5, Haiku 5.5), a **monthly limit in US$** and an on switch. Everyone sees every call with its tokens and cost.
+- The rest of Phase 4's AI is re-planned around where you work: categorising bank bookings on import (4.8), and describing a widget or formula instead of clicking it together, with undo (4.9).
+
 ### 2026-10-09 — Claude Connects To Bento (MCP), With Your Bento Account
 
 > **Phase**: Phase 4 — Intelligence

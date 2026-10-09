@@ -1,0 +1,168 @@
+/* Bento's AI (Step 4.7): the explain panel and the AI page. */
+
+.ai-answer {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  font-size: var(--fs-base);
+  line-height: 1.55;
+}
+
+.ai-answer p {
+  margin: 0;
+}
+
+.ai-answer ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.explain-panel__busy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 2rem 0;
+  color: var(--text-2);
+}
+
+.explain-panel__question {
+  align-self: flex-end;
+  max-width: 85%;
+  margin: 0;
+  padding: 0.45rem 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--text) 6%, var(--surface));
+  font-size: var(--fs-sm);
+}
+
+.explain-panel__meta {
+  margin: 0.25rem 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.explain-panel__ask {
+  gap: 0.5rem;
+}
+
+.explain-panel__ask input {
+  flex: 1;
+  min-width: 0;
+}
+
+.widget-explain {
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.15s var(--ease);
+}
+
+.widget-frame:hover .widget-explain,
+.widget-frame:focus-within .widget-explain,
+.widget-explain[aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .widget-explain {
+    opacity: 1;
+  }
+}
+
+/* ── AI page ── */
+
+.ai-page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  max-width: 64rem;
+}
+
+.ai-page__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl, 1.75rem);
+}
+
+.ai-page__lead {
+  margin: 0.25rem 0 0;
+  color: var(--text-2);
+}
+
+.ai-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+
+.ai-card h2 {
+  margin: 0;
+  font-size: var(--fs-base);
+}
+
+.ai-card__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+
+.ai-card__field {
+  display: flex;
+  flex: 1 1 14rem;
+  flex-direction: column;
+  gap: 0.25rem;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.ai-card__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.ai-budget {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+
+.ai-budget__track {
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--text) 8%, var(--surface));
+}
+
+.ai-budget__fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.ai-budget__fill--over {
+  background: var(--danger);
+}
+
+.ai-budget__label {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.ai-card__toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding-bottom: 0.4rem;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}

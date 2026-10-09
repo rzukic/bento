@@ -5,7 +5,6 @@ import { RequireAuth } from "./components/auth/RequireAuth";
 import { ShellLayout } from "./components/layout/ShellLayout";
 import { DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
-import { AiPage } from "./routes/AiPage";
 import { Spinner } from "./components/ui/Spinner";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
@@ -16,6 +15,7 @@ const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").t
 const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormsPage })));
 const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
 const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
+const AiPage = lazy(() => import("./features/ai/AiPage").then((m) => ({ default: m.AiPage })));
 const OAuthConsentPage = lazy(() => import("./features/connections/OAuthConsentPage").then((m) => ({ default: m.OAuthConsentPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
@@ -195,11 +195,16 @@ const shellRoutes: RouteObject[] = [
   },
   {
     path: "ai",
-    element: <AiPage />,
+    element: (
+      <Lazy>
+        <AiPage />
+      </Lazy>
+    ),
     handle: {
-      title: "AI Assistant",
+      title: "AI",
+      hidePageHeader: true,
       navLabel: "AI",
-      navGroup: "Coming soon"
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {

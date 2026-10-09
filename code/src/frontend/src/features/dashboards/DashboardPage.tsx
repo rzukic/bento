@@ -31,7 +31,10 @@ import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
 import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
-import { variableRequests, type VariableResults } from "./formulaQueries";
+import { runnableQuery, variableRequests, variableValues, type VariableResults } from "./formulaQueries";
+import { getAiStatus, type ExplainRequest } from "../../api/ai";
+import type { QueryResult } from "../../api/query";
+import { ExplainPanel } from "../ai/ExplainPanel";
 import { AnnotationsEditor } from "./AnnotationsEditor";
 import { appliedFilters, clearSelection, selectionFromSearch, selectionToSearch } from "./dashboardFilters";
 import { FilterBar, FiltersEditor } from "./FilterBar";
@@ -68,6 +71,10 @@ export function DashboardPage() {
   const [draft, setDraft] = useState<{ name: string; isShared: boolean; document: DashboardDocument } | null>(null);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
+  // Step 4.7: "Explain this" — shown when the AI is set up; the panel's request.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [explaining, setExplaining] = useState<ExplainRequest | null>(null);
+  const widgetResults = useRef(new Map<string, QueryResult | null>());
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
@@ -160,6 +167,17 @@ export function DashboardPage() {
   const annotations = useMemo(() => document?.annotations ?? [], [document]);
   // Drill-down: a click on a chart opens the rows behind it in the Data Explorer.
   const openRows = useCallback((target: DrillTarget) => navigate(drillUrl(target)), [navigate]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAiStatus().then(
+      (status) => !cancelled && setAiEnabled(status.enabled),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const variablesKey = JSON.stringify(variables);
 
   // Variables are evaluated together (they may use each other), with the
@@ -210,6 +228,25 @@ export function DashboardPage() {
 
   const setRange = (next: DashboardDateRange) => {
     setSearchParams(rangeToSearch(next, searchParams), { replace: true });
+  };
+
+  /** What the AI gets: the widget, the query it ran (range and filters in it) and what it shows. */
+  const openExplain = (widget: DashboardWidget) => {
+    const data = widget.data;
+    const result = widgetResults.current.get(widget.id);
+    setExplaining({
+      language: navigator.language || "en",
+      dashboardId: dashboard?.id,
+      dashboard: dashboard?.name,
+      title: widget.title || WIDGET_LABELS[widget.type],
+      type: widget.type,
+      query: data?.query ? runnableQuery(data.query, data, resolved, variableValues(variableResults)) : undefined,
+      data,
+      result: result?.data,
+      // The range ends before `to`; the AI gets the last day itself.
+      range: { from: resolved.from, to: resolved.to ? new Date(Date.parse(resolved.to) - 86_400_000).toISOString().slice(0, 10) : null },
+      filters: resolved.filters,
+    });
   };
 
   const startEditing = () => dashboard && setDraft({ name: dashboard.name, isShared: dashboard.isShared, document: dashboard.dashboard });
@@ -541,6 +578,20 @@ export function DashboardPage() {
                       ))}
                     </span>
                   ) : null}
+                  {!editing && aiEnabled && widget.type !== "text" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="widget-explain"
+                      aria-label={`Explain ${widget.title || widget.type}`}
+                      aria-expanded={explaining?.title === (widget.title || WIDGET_LABELS[widget.type])}
+                      title="Explain this"
+                      onClick={() => openExplain(widget)}
+                    >
+                      <Icon name="sparkles" size={13} />
+                    </Button>
+                  ) : null}
                   {editing ? (
                     <span className="widget-frame__actions">
                       <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); setQuickAddOpen(false); }}>
@@ -570,6 +621,7 @@ export function DashboardPage() {
                     variables={variableResults}
                     annotations={annotations}
                     onDrill={editing ? undefined : openRows}
+                    onResult={(result) => widgetResults.current.set(widget.id, result)}
                   />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}
@@ -649,6 +701,7 @@ export function DashboardPage() {
           )}
         </Dialog>
       ) : null}
+      {explaining ? <ExplainPanel key={JSON.stringify(explaining)} request={explaining} onClose={() => setExplaining(null)} /> : null}
       {editing && annotationsOpen ? (
         <AnnotationsEditor
           annotations={annotations}

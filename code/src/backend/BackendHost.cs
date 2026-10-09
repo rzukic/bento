@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Bento.Api.Configuration;
 using Bento.Api.Db;
 using Bento.Api.Db.Migrations;
@@ -133,6 +134,10 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Services.Mcp.McpCallLog>();
         services.AddSingleton<Bento.Api.Services.Mcp.McpTools>();
         services.AddSingleton<Bento.Api.Services.Mcp.McpServer>();
+        services.TryAddSingleton<Bento.Api.Services.Ai.IAiModel, Bento.Api.Services.Ai.AnthropicAiModel>();
+        services.AddSingleton<Bento.Api.Services.Ai.AiSettingsService>();
+        services.AddSingleton<Bento.Api.Services.Ai.AiAgent>();
+        services.AddSingleton<Bento.Api.Services.Ai.ExplainService>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();
 
