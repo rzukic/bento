@@ -110,7 +110,7 @@ export function MeasureFormulaField({
         ariaLabel={ariaLabel}
         placeholder={placeholder}
       />
-      <DescribeFormula table={table} kind="measure" current={value} onFormula={onChange} />
+      {table ? <DescribeFormula table={table} kind="measure" current={value} onFormula={onChange} /> : null}
       {check === null ? null : check.valid ? (
         <p className="formula-field__status formula-field__status--ok">
           Gives {describeFormulaType(check.type ?? "float")}
