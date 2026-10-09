@@ -80,7 +80,9 @@ docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml --
 3. Set the domain on the **proxy** service (`https://bento.example.com`) and point its DNS record (A or CNAME) at the server.
 4. **Deploy**, open the domain and finish the setup wizard.
 
-Coolify generates the Postgres passwords and the JWT secret on the first deploy and keeps them. The data lives in named volumes, so redeploys and updates keep it; with automatic deploys on, each push to the branch updates Bento.
+Coolify generates the Postgres passwords and the JWT secret on the first deploy and keeps them. The data lives in named volumes, so redeploys and updates keep it; with automatic deploys on, each push to the branch updates Bento. Before the backend starts, the one-shot `postgres-init` service re-applies the database roles on every deploy.
+
+The server must accept inbound traffic on ports **80 and 443**: Let's Encrypt checks port 80 before it issues the certificate, and GitHub only delivers push webhooks (automatic deploys) to a dashboard with a valid certificate.
 
 ### Stopping
 
