@@ -73,6 +73,17 @@ export function DashboardPage() {
   // Sentences the AI built widgets from while editing (Step 4.9), for the dashboard's history.
   const [described, setDescribed] = useState<string[]>([]);
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Widgets whose numbers are on their way, for the spinner in the interval switch.
+  const [loadingWidgets, setLoadingWidgets] = useState<ReadonlySet<string>>(() => new Set());
+  const setWidgetLoading = useCallback((id: string, loading: boolean) => {
+    setLoadingWidgets((current) => {
+      if (current.has(id) === loading) return current;
+      const next = new Set(current);
+      if (loading) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
   const [restoredNote, setRestoredNote] = useState<string | null>(null);
   const me = useAuthStore((state) => state.user?.username);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
@@ -589,20 +600,29 @@ export function DashboardPage() {
                 <header className="widget-frame__header" data-drag-handle={editing ? "" : undefined}>
                   <h2 className="widget-frame__title">{widget.title}</h2>
                   {options.length > 0 ? (
-                    <span className="widget-interval" role="group" aria-label={`${widget.title || "Chart"}: interval`}>
-                      {options.map((bucket) => (
-                        <button
-                          key={bucket}
-                          type="button"
-                          className="widget-interval__option"
-                          aria-pressed={bucket === current}
-                          aria-label={INTERVAL_LABELS[bucket].long}
-                          title={INTERVAL_LABELS[bucket].long}
-                          onClick={() => setSearchParams(intervalToSearch(own, bucket, searchParams), { replace: true })}
-                        >
-                          {INTERVAL_LABELS[bucket].short}
-                        </button>
-                      ))}
+                    <span
+                      className="widget-interval"
+                      role="group"
+                      aria-label={`${widget.title || "Chart"}: interval`}
+                      aria-busy={loadingWidgets.has(widget.id) || undefined}
+                    >
+                      {options.map((bucket) => {
+                        const busy = bucket === current && loadingWidgets.has(widget.id);
+                        return (
+                          <button
+                            key={bucket}
+                            type="button"
+                            className={busy ? "widget-interval__option widget-interval__option--busy" : "widget-interval__option"}
+                            aria-pressed={bucket === current}
+                            aria-label={INTERVAL_LABELS[bucket].long}
+                            title={busy ? `${INTERVAL_LABELS[bucket].long} — loading` : INTERVAL_LABELS[bucket].long}
+                            onClick={() => setSearchParams(intervalToSearch(own, bucket, searchParams), { replace: true })}
+                          >
+                            {INTERVAL_LABELS[bucket].short}
+                            {busy ? <span className="widget-interval__spinner" aria-hidden="true" /> : null}
+                          </button>
+                        );
+                      })}
                     </span>
                   ) : null}
                   {!editing && aiEnabled && widget.type !== "text" ? (
@@ -649,6 +669,7 @@ export function DashboardPage() {
                     annotations={annotations}
                     onDrill={editing ? undefined : openRows}
                     onResult={(result) => widgetResults.current.set(widget.id, result)}
+                    onLoading={(loading) => setWidgetLoading(widget.id, loading)}
                   />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}

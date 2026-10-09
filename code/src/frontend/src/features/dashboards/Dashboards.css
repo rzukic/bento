@@ -443,6 +443,28 @@
     color: var(--bg);
 }
 
+/* While the numbers for the chosen interval load: "Q ◌". */
+.widget-interval__option--busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.widget-interval__spinner {
+    width: 0.6rem;
+    height: 0.6rem;
+    border: 1.5px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .widget-interval__spinner {
+        animation-duration: 2s;
+    }
+}
+
 .widget-frame__actions {
     display: inline-flex;
     margin-left: auto;
