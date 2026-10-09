@@ -433,6 +433,26 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
   - 422 for a refusal
 - Each call is recorded with its cost, whether it worked or failed.
 
+### Categorise (Step 4.8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/categorise/:table/suggest` | `{ column, rows: [{ key, values: { column: text } }], ai? }`. Returns `{ column, options: [{ value, label, group }], matchColumns, suggestions: [{ key, value, label, source, confidence, keyword, matchColumn, ruleId }], ai, aiError }`. Order of sources: `rule`, then `history`, then (with `ai: true`) `ai` for rows still open. At most 500 rows |
+| `GET` | `/api/v1/categorise/:table/rules?column=` | The table's rules, with the linked record's label |
+| `POST` | `/api/v1/categorise/:table/rules` | `{ rules: [{ column, matchColumn, pattern, value }] }`. A rule with the same column, match column and keyword (ignoring case) is replaced. Returns all rules of the table |
+| `DELETE` | `/api/v1/categorise/:table/rules/:id` | Delete a rule |
+
+- `column` must be a link column (`value` is the record's id) or a choice column (`value` is the choice). `matchColumn` must be a text column.
+- A rule matches when the row's `matchColumn` contains `pattern`, ignoring case. When several rules match, the longest keyword wins.
+- `history`: the row's first text column (usually the payee) equals that of earlier rows that have a value, and at least two thirds of them agree. `confidence` is that share.
+- `ai`:
+  - Rows with the same text are asked once.
+  - It is a single model call per batch of 60, without tools. Its usage is recorded as feature `categorise`.
+  - Without the AI set up, or with the budget used up, `aiError` says why. Rule and history results are still returned.
+  - API keys get 403 for `ai: true`; rules and history work for them.
+- Needs `editor` or `api`. OAuth apps (MCP) cannot call these routes.
+- The import takes the chosen values per row: `assign: { column, values: { "<file line>": "<value>" } }` on `POST /api/v1/import/:table/preview` and `POST /api/v1/import/:table`. They win over the file's own value.
+
 ---
 
 ### WebSocket

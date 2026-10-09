@@ -11,7 +11,7 @@ import { getCurrentLocale } from "../data-explorer/components/editors/temporalEd
 import "../connections/Connections.css";
 import "./Ai.css";
 
-const FEATURES: Record<string, string> = { explain: "Explain" };
+const FEATURES: Record<string, string> = { explain: "Explain", categorise: "Categorise" };
 
 function formatWhen(value: string): string {
   const date = new Date(value);
@@ -80,9 +80,9 @@ export function AiPage() {
       <header>
         <h1 className="ai-page__title">AI</h1>
         <p className="ai-page__lead">
-          Bento's AI explains the numbers on your dashboards: the <Icon name="sparkles" size={12} /> button on a widget says what a number is made of
-          and what changed. It uses Claude by Anthropic with your own API key; what it looks at is sent to Anthropic. Categorising bank bookings and
-          building widgets from a sentence come next.
+          Bento's AI explains the numbers on your dashboards — the <Icon name="sparkles" size={12} /> button on a widget says what a number is made
+          of and what changed — and categorises bank bookings when you import them. It uses Claude by Anthropic with your own API key; what it looks
+          at is sent to Anthropic. Building widgets from a sentence comes next.
         </p>
       </header>
 

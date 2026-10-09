@@ -1,0 +1,127 @@
+/* Categorising rows (Step 4.8): the bar above the rows and the value per row. */
+
+.categorise-bar {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: color-mix(in srgb, var(--text) 3%, var(--surface));
+}
+
+.categorise-bar__row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+
+.categorise-bar__column {
+    display: inline-flex;
+    white-space: nowrap;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    font-weight: 600;
+}
+
+.categorise-bar__status {
+    flex: 1 1 14rem;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+}
+
+.categorise-bar__hint {
+    margin: 0;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+}
+
+.categorise-rules {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--fs-sm);
+}
+
+.categorise-rules li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.125rem 0;
+    border-top: 1px solid var(--line);
+}
+
+.categorise-rules li:first-child {
+    border-top: 0;
+}
+
+.categorise-rules code {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+.category-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 11rem;
+}
+
+.category-cell__line {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+}
+
+.category-cell__select {
+    flex: 1;
+    min-width: 0;
+}
+
+.category-cell__source {
+    flex-shrink: 0;
+    padding: 0.05rem 0.4rem;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 7%, var(--surface));
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.category-cell__source--ai {
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    color: var(--text);
+}
+
+.category-cell__source--you {
+    background: var(--text);
+    color: var(--surface);
+}
+
+.category-cell--unsure .category-cell__select {
+    border-color: var(--warning, var(--danger));
+}
+
+.categorise-bar__remember {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+}
+
+.category-cell__remember {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}

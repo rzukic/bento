@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Bank Bookings Arrive Categorised
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.8 — Categorise On Import](working-steps/4.8-ai-categorise.md)
+
+The monthly chore of picking a category for every booking now mostly does itself.
+
+**Highlights:**
+- The **import review fills the category**: first your **rules** ("payee contains REWE" → Groceries), then what earlier rows of the **same payee** got, and with **✨ Suggest the rest** Bento's AI for what is left, with how sure it is.
+- Each row shows where its value came from, and you can change it. **Your corrections and the AI's sure choices become rules**, so next month those payees need no AI.
+- **Categorise** in a table's toolbar does the same for rows already in the table.
+- Works for any link or choice column. Rules are listed per table and can be deleted.
+
 ### 2026-10-09 — Explain Any Number With Bento's AI
 
 > **Phase**: Phase 4 — Intelligence

@@ -386,6 +386,17 @@ public class DatabaseBootstrap : IHostedService
                 duration_ms         INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON _system.ai_usage(called_at);
+            CREATE TABLE IF NOT EXISTS _system.category_rules (
+                id              SERIAL PRIMARY KEY,
+                table_name      VARCHAR(255) NOT NULL,
+                target_column   VARCHAR(255) NOT NULL,
+                match_column    VARCHAR(255) NOT NULL,
+                pattern         VARCHAR(200) NOT NULL,
+                value           TEXT NOT NULL,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_category_rules_table ON _system.category_rules(table_name, target_column);
             """);
     }
 
@@ -752,6 +763,17 @@ public class DatabaseBootstrap : IHostedService
                 duration_ms         INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON ai_usage(called_at);
+            CREATE TABLE IF NOT EXISTS category_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name      TEXT NOT NULL,
+                target_column   TEXT NOT NULL,
+                match_column    TEXT NOT NULL,
+                pattern         TEXT NOT NULL,
+                value           TEXT NOT NULL,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_category_rules_table ON category_rules(table_name, target_column);
             """);
     }
 }

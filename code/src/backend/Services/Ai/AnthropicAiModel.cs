@@ -56,7 +56,8 @@ public sealed class AnthropicAiModel : IAiModel
                 new() { Text = request.System, CacheControl = new BetaCacheControlEphemeral() },
             },
             OutputConfig = new BetaOutputConfig { Effort = request.Effort },
-            Tools = tools,
+            // A single answer without tools (categorising) sends no tool list at all.
+            Tools = tools.Count > 0 ? tools : null,
             Messages = request.Messages.Select(ToParam).ToList(),
         };
 
