@@ -62,7 +62,7 @@ export function LoginPage() {
   return (
     <main className="login" aria-labelledby="login-title">
       <Sky />
-      <Glyph value="Be" />
+      <Glyph value="Bento" />
       <div className="login__frame">
         <header className="login__header">
           <div className="login__brand">
