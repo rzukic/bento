@@ -45,6 +45,14 @@ The template's depot holds only securities: a dividend leaves it, so the time-we
 
 Together: `TWR(<value>, FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5), 100)`. Dividends then stay in the depot and count as return; buying and selling within the depot moves money between securities and cash and changes nothing.
 
+## History: Undo Any Change
+
+Every save keeps the dashboard's state from before. This covers your own saves, saves of AI-built widgets, and changes by Claude, ChatGPT or a script through MCP or the API.
+
+**History** at the top of a dashboard lists these states, newest first, with who made each change and through which app. **Restore** brings a state back. The state you leave is kept as well, so a restore can be undone the same way. Bento keeps the last 100 states per dashboard.
+
+A deleted dashboard appears under **Recently deleted** in the list of dashboards; **Bring back** restores it with its address. On the [AI page](ai.md), **Changes by AI apps** lists what apps changed, each with **Undo**.
+
 ## Date Range And Refresh
 
 The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
@@ -76,6 +84,14 @@ Choose **Edit**:
 Donuts show their total in the middle and each slice's share in the tooltip. A Sankey can label its nodes with shares of the first column (for a cash flow, of the income) under **Style → Show shares**.
 
 Tooltips list the series as they sit at that date (stacks top to bottom), mark the one under the pointer and show a stack's total. Stacks put positive values above 0 and negative ones below — for income and expenses, stacked bars with a total line read best.
+
+### Describe Instead Of Click
+
+With Bento's AI set up (see [AI](ai.md)), the widget editor has a ✨ field above the chart. Describe the widget in a sentence, for example *expenses by main category per quarter, without rent* or *net worth over the last two years as a line*, and choose **Build**.
+
+The AI looks at your tables, looks up the values it filters on (the category *Rent*), and writes the widget. Bento then runs its query for the dashboard's range. If the query fails or returns nothing, the AI gets the reason and fixes it, so what lands in the editor works.
+
+The result is an ordinary widget: the fields, filters and style are set in the editor and you can change all of them. A line under the field says what the widget shows, how many steps it took and what it cost. **Undo** puts back the widget from before. Nothing is saved until you choose **Save**, and the history then notes the sentence.
 
 ### Key Figures
 

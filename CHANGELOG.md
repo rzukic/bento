@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Describe A Widget Or A Formula, Undo Any Dashboard Change
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.9 — Describe Instead Of Click](working-steps/4.9-ai-describe.md)
+
+Build by saying what you want, and take back any change, also those made by Claude or ChatGPT.
+
+**Highlights:**
+- **✨ in the widget editor**: describe the widget ("expenses by main category per quarter, without rent"). Bento's AI builds it and Bento runs its query before it reaches the editor. Adjust it like any widget, or **Undo**.
+- **✨ under every formula field**: describe what it should compute. The AI writes the formula, Bento checks it, and the field previews it.
+- **History on every dashboard**: each save keeps the state before it, with who changed it and through which app. **Restore** goes back, and a restore can be undone too. Deleted dashboards can be brought back.
+- **Changes by AI apps** on the AI page: what Claude, ChatGPT or a script changed, each with **Undo**.
+
 ### 2026-10-09 — Bento In ChatGPT And Codex
 
 > **Phase**: Phase 4 — Intelligence

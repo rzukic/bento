@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { getAiSettings, getAiStatus, listAiUsage, saveAiSettings, type AiSettings, type AiStatus, type AiUsageRow } from "../../api/ai";
+import { listDashboardChanges, restoreDashboardVersion, restoreDeletedDashboard, type DashboardVersion } from "../../api/dashboards";
+import { Link } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -10,8 +12,9 @@ import { useAuthStore } from "../../stores/authStore";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 import "../connections/Connections.css";
 import "./Ai.css";
+import { forgetAiStatus } from "./useAiEnabled";
 
-const FEATURES: Record<string, string> = { explain: "Explain", categorise: "Categorise" };
+const FEATURES: Record<string, string> = { explain: "Explain", categorise: "Categorise", describe_widget: "Describe a widget", describe_formula: "Describe a formula" };
 
 function formatWhen(value: string): string {
   const date = new Date(value);
@@ -39,10 +42,13 @@ export function AiPage() {
   const [model, setModel] = useState("");
   const [limit, setLimit] = useState("");
   const [busy, setBusy] = useState(false);
+  const [changes, setChanges] = useState<DashboardVersion[] | null>(null);
+  const [undone, setUndone] = useState<number[]>([]);
 
   const load = () => {
     void getAiStatus().then(setStatus, (cause) => setError(message(cause, "The AI status could not be loaded.")));
     void listAiUsage().then(setUsage, () => setUsage([]));
+    void listDashboardChanges().then(setChanges, () => setChanges([]));
     if (isAdmin)
       void getAiSettings().then(
         (next) => {
@@ -62,6 +68,7 @@ export function AiPage() {
     setSaved(null);
     try {
       const next = await saveAiSettings(changes);
+      forgetAiStatus();
       setSettings(next);
       setApiKey("");
       setSaved(note);
@@ -73,6 +80,20 @@ export function AiPage() {
     }
   };
 
+  /** Undo an app's change: back to the state before it (a deleted dashboard comes back). */
+  const undo = async (change: DashboardVersion) => {
+    setError(null);
+    setSaved(null);
+    try {
+      if (change.action === "delete") await restoreDeletedDashboard(change.id);
+      else await restoreDashboardVersion(change.dashboardId, change.id);
+      setUndone((current) => [...current, change.id]);
+      setSaved(`“${change.name}” is back to how it was before.`);
+    } catch (cause) {
+      setError(message(cause, "The change could not be undone."));
+    }
+  };
+
   const spentShare = settings && settings.monthlyLimitUsd > 0 ? Math.min(1, settings.spentThisMonthUsd / settings.monthlyLimitUsd) : 1;
 
   return (
@@ -81,8 +102,8 @@ export function AiPage() {
         <h1 className="ai-page__title">AI</h1>
         <p className="ai-page__lead">
           Bento's AI explains the numbers on your dashboards — the <Icon name="sparkles" size={12} /> button on a widget says what a number is made
-          of and what changed — and categorises bank bookings when you import them. It uses Claude by Anthropic with your own API key; what it looks
-          at is sent to Anthropic. Building widgets from a sentence comes next.
+          of and what changed — categorises bank bookings when you import them, and builds widgets and formulas from a sentence. It uses Claude by Anthropic with your
+          own API key; what it looks at is sent to Anthropic.
         </p>
       </header>
 
@@ -176,6 +197,50 @@ export function AiPage() {
           <p className="ai-card__hint">
             {status.enabled ? (status.budgetLeft ? `On, with ${status.model}.` : "This month's budget is used up.") : "Off."}
           </p>
+        </section>
+      ) : null}
+
+      {changes && changes.length > 0 ? (
+        <section className="mcp__section" aria-label="Changes by AI apps">
+          <h3 className="mcp__heading">Changes by AI apps</h3>
+          <p className="ai-card__hint">
+            What Claude, ChatGPT or a script changed in your dashboards. Undo puts a dashboard back to how it was before that change; the state
+            you undo stays in the dashboard's history.
+          </p>
+          <div className="api-keys__table-wrap">
+            <table className="api-keys__table">
+              <thead>
+                <tr>
+                  <th>When</th>
+                  <th>App</th>
+                  <th>Dashboard</th>
+                  <th>Change</th>
+                  <th aria-label="Actions" />
+                </tr>
+              </thead>
+              <tbody>
+                {changes.map((change) => (
+                  <tr key={change.id}>
+                    <td>{formatWhen(change.createdAt)}</td>
+                    <td>{change.via}</td>
+                    <td>
+                      {change.action === "delete" ? change.name : <Link to={`/dashboards/${change.dashboardId}`}>{change.name}</Link>}
+                    </td>
+                    <td>{change.action === "delete" ? "Deleted" : change.action === "restore" ? "Restored an earlier state" : "Changed"}</td>
+                    <td>
+                      {undone.includes(change.id) ? (
+                        <span className="api-keys__status api-keys__status--active">undone</span>
+                      ) : (
+                        <Button type="button" variant="ghost" size="sm" onClick={() => void undo(change)}>
+                          Undo
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       ) : null}
 

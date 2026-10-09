@@ -72,3 +72,44 @@ export async function listAiUsage(limit = 50): Promise<AiUsageRow[]> {
 export async function explain(request: ExplainRequest): Promise<ExplainAnswer> {
   return (await apiClient.post<DataEnvelope<ExplainAnswer>>("/ai/explain", request)).data;
 }
+
+/** What "describe instead of click" gives back (Step 4.9): a checked widget or formula, or why not. */
+export type DescribeAnswer = {
+  widget: import("./dashboards").DashboardWidget | null;
+  formula: string | null;
+  note: string | null;
+  model: string;
+  costUsd: number;
+  toolCalls: number;
+  durationMs: number;
+};
+
+export type DescribeWidgetRequest = {
+  language: string;
+  sentence: string;
+  dashboard?: string;
+  widget: import("./dashboards").DashboardWidget;
+  /** The dashboard's range, `to` exclusive. */
+  range?: { from: string | null; to: string | null };
+  variables?: { name: string; label?: string; value: unknown }[];
+  otherWidgets?: string[];
+};
+
+/** POST /api/v1/ai/describe/widget — a sentence → a widget whose query Bento ran; nothing is saved. */
+export async function describeWidget(request: DescribeWidgetRequest): Promise<DescribeAnswer> {
+  return (await apiClient.post<DataEnvelope<DescribeAnswer>>("/ai/describe/widget", request)).data;
+}
+
+export type DescribeFormulaRequest = {
+  language: string;
+  sentence: string;
+  table: string;
+  kind: "column" | "measure";
+  current?: string;
+  resultType?: string;
+};
+
+/** POST /api/v1/ai/describe/formula — a sentence → a formula Bento checked. */
+export async function describeFormula(request: DescribeFormulaRequest): Promise<DescribeAnswer> {
+  return (await apiClient.post<DataEnvelope<DescribeAnswer>>("/ai/describe/formula", request)).data;
+}

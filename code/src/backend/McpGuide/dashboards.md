@@ -63,3 +63,5 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 - `quickAdd`: `"auto"` (forms in Quick add for the tables shown), `"none"`, or a list of form ids.
 
 Changes replace the whole document: read it with `get_dashboard`, change it, send it back with `update_dashboard`.
+
+Every change keeps the state before it, marked with this app's name. The user sees it in the dashboard's History and can undo it. If the user asks you to undo something: `GET /api/v1/dashboards/{id}/versions` lists the states, and `POST /api/v1/dashboards/{id}/versions/{versionId}/restore` brings one back (`call_api`).

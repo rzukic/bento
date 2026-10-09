@@ -1,6 +1,6 @@
 # AI
 
-Bento's AI works where you work. It does not open a chat window. It explains the numbers on your dashboards and categorises bank bookings. It runs as **you**: it only sees what you can see, and it never changes anything without your OK.
+Bento's AI works where you work. It does not open a chat window. It explains the numbers on your dashboards, categorises bank bookings, and builds widgets and formulas from a sentence. It runs as **you**: it only sees what you can see, and it never changes anything without your OK.
 
 For a full conversation with your data, connect your own Claude over MCP (see [Connections → AI apps](connections.md)).
 
@@ -62,6 +62,13 @@ The AI page lists every call. For each call it shows:
 
 Viewers and editors see their own calls; admins see everyone's.
 
-## What Comes Next
+## Describe Instead Of Click
 
-- **Describe instead of click**: describe a widget or a formula in a sentence; Bento shows a live preview before saving, and you can undo it.
+- **Widgets**: in the widget editor, describe the widget in a sentence. Bento runs its query before it reaches the editor. See [Dashboards](dashboards.md#describe-instead-of-click).
+- **Formulas**: under any formula field, choose ✨ *Describe it instead*. Bento checks the formula before it goes into the field. See [Formulas](formulas.md#describe-it-instead).
+
+Nothing is saved until you save. **Undo** next to the result puts back what was there.
+
+## Changes By AI Apps
+
+When Claude, ChatGPT or a script changes or deletes a dashboard through MCP or the API, the change is listed here. **Undo** puts the dashboard back to how it was before. Every dashboard also has a **History** of all its changes; see [Dashboards](dashboards.md#history-undo-any-change).

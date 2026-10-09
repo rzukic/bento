@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createDashboard, listDashboards, type Dashboard, type DashboardDocument } from "../../api/dashboards";
+import { createDashboard, listDashboards, listDeletedDashboards, restoreDeletedDashboard, type Dashboard, type DashboardDocument, type DashboardVersion } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -9,6 +9,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useAuthStore } from "../../stores/authStore";
 import { FinanceSetup } from "./FinanceSetup";
+import { describeVersion, formatVersionTime } from "./HistoryDialog";
 import { cashFlowDashboard, dataTables, describeCashFlow, isFinanceTable } from "./starter";
 import "./Dashboards.css";
 
@@ -22,6 +23,23 @@ export function DashboardsListPage() {
   const [name, setName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<DashboardVersion[]>([]);
+  const me = useAuthStore((state) => state.user?.username);
+
+  useEffect(() => {
+    listDeletedDashboards()
+      .then(setDeleted)
+      .catch(() => setDeleted([]));
+  }, []);
+
+  const bringBack = async (version: DashboardVersion) => {
+    try {
+      const restored = await restoreDeletedDashboard(version.id);
+      navigate(`/dashboards/${restored.id}`);
+    } catch (cause) {
+      setError(cause instanceof ApiClientError ? cause.message : "The dashboard could not be brought back.");
+    }
+  };
 
   useEffect(() => {
     void loadSchema();
@@ -82,6 +100,25 @@ export function DashboardsListPage() {
           ))}
         </ul>
       )}
+
+      {deleted.length > 0 ? (
+        <section className="dashboards-deleted" aria-labelledby="dashboards-deleted-heading">
+          <h2 id="dashboards-deleted-heading" className="dashboards-new__title">Recently deleted</h2>
+          <ul className="dashboards-deleted__list">
+            {deleted.map((version) => (
+              <li key={version.id}>
+                <span className="dashboards-deleted__name">{version.name}</span>
+                <span className="dashboards-list__meta">
+                  {describeVersion(version, me)} · {formatVersionTime(version.createdAt)} · {version.widgets} {version.widgets === 1 ? "widget" : "widgets"}
+                </span>
+                <Button type="button" variant="ghost" size="sm" onClick={() => void bringBack(version)}>
+                  Bring back
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <section className="dashboards-new" aria-labelledby="dashboards-new-heading">
         <h2 id="dashboards-new-heading" className="dashboards-new__title">New dashboard</h2>

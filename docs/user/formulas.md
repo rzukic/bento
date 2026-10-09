@@ -83,6 +83,12 @@ A few details:
 
 The full list with descriptions and examples is at `GET /api/v1/formulas/functions` and in the editor's suggestions.
 
+## Describe It Instead
+
+With Bento's AI set up (see [AI](ai.md)), every formula field offers **✨ Describe it instead**. Write what it should compute, for example *the amount without sign, only for expenses* or *average price per share bought*, and choose **Write** (or press Enter).
+
+The AI looks at the table's columns and the functions, and tries the formula. Bento then checks it: computed columns are validated, and widget values run as a measure. If it fails, the AI gets the error and corrects itself. The formula goes into the field, where the usual check and preview show what it gives. **Undo** puts back the formula from before.
+
 ## Formulas In Dashboards
 
 A widget value or a dashboard variable can be a formula over many rows — a **measure**. There, `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `MEDIAN` and `PERCENTILE` work on the rows of each group (each month, each category):

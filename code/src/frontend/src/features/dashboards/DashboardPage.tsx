@@ -25,6 +25,7 @@ import { FormFill } from "../forms/FormFill";
 import { formsForDashboard } from "../forms/quickAdd";
 import { defaultBudget } from "./budget";
 import { BudgetEditor } from "./BudgetEditor";
+import { HistoryDialog } from "./HistoryDialog";
 import { QuickAddEditor } from "./QuickAddEditor";
 import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
 import { DashboardGrid } from "./DashboardGrid";
@@ -69,6 +70,11 @@ export function DashboardPage() {
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [draft, setDraft] = useState<{ name: string; isShared: boolean; document: DashboardDocument } | null>(null);
+  // Sentences the AI built widgets from while editing (Step 4.9), for the dashboard's history.
+  const [described, setDescribed] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [restoredNote, setRestoredNote] = useState<string | null>(null);
+  const me = useAuthStore((state) => state.user?.username);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
   // Step 4.7: "Explain this" — shown when the AI is set up; the panel's request.
@@ -258,9 +264,11 @@ export function DashboardPage() {
     try {
       // The range in use becomes the dashboard's default.
       const document = { ...draft.document, dateRange: range };
-      const saved = await updateDashboard(dashboard.id, { name: draft.name.trim() || dashboard.name, isShared: draft.isShared, dashboard: document });
+      const note = described.length > 0 ? `AI: ${described.join(" · ")}` : undefined;
+      const saved = await updateDashboard(dashboard.id, { name: draft.name.trim() || dashboard.name, isShared: draft.isShared, dashboard: document, note });
       setDashboard(saved);
       setDraft(null);
+      setDescribed([]);
       setEditingWidgetId(null);
       // The range becomes the default; the chosen filter values stay.
       const kept = new URLSearchParams();
@@ -406,6 +414,11 @@ export function DashboardPage() {
                   : null}
               </>
             )}
+            {!editing ? (
+              <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="clock" size={13} />} onClick={() => setHistoryOpen(true)}>
+                History
+              </Button>
+            ) : null}
             {dashboard.isOwner ? (
               editing ? (
                 <>
@@ -421,6 +434,7 @@ export function DashboardPage() {
                     variant="ghost"
                     onClick={() => {
                       setDraft(null);
+                      setDescribed([]);
                       setEditingWidgetId(null);
                       setVariablesOpen(false);
                       setAnnotationsOpen(false);
@@ -448,6 +462,19 @@ export function DashboardPage() {
       </header>
 
       {error ? <Alert tone="error" message={error} /> : null}
+      {restoredNote && !editing ? <Alert tone="success" message={restoredNote} /> : null}
+      {historyOpen ? (
+        <HistoryDialog
+          dashboard={dashboard}
+          me={me}
+          onClose={() => setHistoryOpen(false)}
+          onRestored={(restored) => {
+            setDashboard(restored);
+            setHistoryOpen(false);
+            setRestoredNote("Restored. The state before is in the history, if you want it back.");
+          }}
+        />
+      ) : null}
 
       <FilterBar
         filters={document?.filters ?? []}
@@ -650,6 +677,9 @@ export function DashboardPage() {
           range={resolved}
           refreshToken={refreshToken}
           tokens={tokens}
+          dashboardName={draft?.name ?? dashboard?.name}
+          otherWidgets={widgets.filter((w) => w.id !== editingWidget.id).map((w) => w.title).filter(Boolean)}
+          onDescribed={(sentence) => setDescribed((current) => [...current, sentence])}
           onChange={setWidget}
           onClose={() => setEditingWidgetId(null)}
         />
