@@ -47,6 +47,7 @@ export function WidgetContent({
   variables,
   annotations,
   onDrill,
+  onResult,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -58,12 +59,17 @@ export function WidgetContent({
   annotations?: DashboardAnnotation[];
   /** Opens the rows behind a click (view mode only). */
   onDrill?: (target: DrillTarget) => void;
+  /** The rows the widget shows, for "Explain this" (Step 4.7). */
+  onResult?: (result: QueryResult | null) => void;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
   // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
   const [level, setLevel] = useState<{ value: unknown; label: string } | null>(null);
   const shown = useMemo(() => (level ? drilledWidget(widget, level.value) : widget), [widget, level]);
   const state = useWidgetResult(shown, range, refreshToken, values);
+  useEffect(() => {
+    onResult?.(state.result);
+  }, [onResult, state.result]);
 
   if (widget.type === "text") return <TextWidget text={widget.display?.text ?? ""} />;
   if (widget.type === "kpi" && widget.data?.variable) {

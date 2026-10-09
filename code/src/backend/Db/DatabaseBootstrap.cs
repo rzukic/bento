@@ -362,6 +362,31 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON _system.mcp_calls(called_at);
             ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS permissions TEXT;
             """);
+
+        // AI (Step 4.7): settings (key/value) and every model call with its tokens and cost.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.ai_settings (
+                key             VARCHAR(100) PRIMARY KEY,
+                value           TEXT
+            );
+            CREATE TABLE IF NOT EXISTS _system.ai_usage (
+                id                  SERIAL PRIMARY KEY,
+                called_at           TIMESTAMPTZ NOT NULL,
+                user_id             INTEGER,
+                feature             VARCHAR(50) NOT NULL,
+                model               VARCHAR(100) NOT NULL,
+                input_tokens        BIGINT NOT NULL DEFAULT 0,
+                output_tokens       BIGINT NOT NULL DEFAULT 0,
+                cache_read_tokens   BIGINT NOT NULL DEFAULT 0,
+                cache_write_tokens  BIGINT NOT NULL DEFAULT 0,
+                cost_usd            NUMERIC(12, 6) NOT NULL DEFAULT 0,
+                tool_calls          INTEGER NOT NULL DEFAULT 0,
+                ok                  BOOLEAN NOT NULL,
+                error               TEXT,
+                duration_ms         INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON _system.ai_usage(called_at);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -704,5 +729,29 @@ public class DatabaseBootstrap : IHostedService
         var grantColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('oauth_grants');")).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (!grantColumns.Contains("permissions"))
             await conn.ExecuteAsync("ALTER TABLE oauth_grants ADD COLUMN permissions TEXT;");
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS ai_settings (
+                key             TEXT PRIMARY KEY,
+                value           TEXT
+            );
+            CREATE TABLE IF NOT EXISTS ai_usage (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                called_at           TEXT NOT NULL,
+                user_id             INTEGER,
+                feature             TEXT NOT NULL,
+                model               TEXT NOT NULL,
+                input_tokens        INTEGER NOT NULL DEFAULT 0,
+                output_tokens       INTEGER NOT NULL DEFAULT 0,
+                cache_read_tokens   INTEGER NOT NULL DEFAULT 0,
+                cache_write_tokens  INTEGER NOT NULL DEFAULT 0,
+                cost_usd            REAL NOT NULL DEFAULT 0,
+                tool_calls          INTEGER NOT NULL DEFAULT 0,
+                ok                  INTEGER NOT NULL,
+                error               TEXT,
+                duration_ms         INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON ai_usage(called_at);
+            """);
     }
 }

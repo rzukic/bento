@@ -413,6 +413,28 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 
 ---
 
+### AI (Step 4.7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/ai/status` | `{ enabled, configured, model, budgetLeft }`: whether the AI actions show |
+| `GET` | `/api/v1/ai/settings` | Admin: `{ configured, enabled, model, monthlyLimitUsd, spentThisMonthUsd, models[] }`. The key is never returned |
+| `PUT` | `/api/v1/ai/settings` | Admin: `{ apiKey?, model?, monthlyLimitUsd?, enabled? }`. A missing `apiKey` keeps the stored key; an empty one removes it. The key is stored as the credential `anthropic_api_key` |
+| `GET` | `/api/v1/ai/usage?limit=50` | AI calls (own; admins: all) with feature, model, tokens (in, out, cache read/write), `costUsd`, `toolCalls`, `ok`, `error`, `durationMs` |
+| `POST` | `/api/v1/ai/explain` | Explains a widget: `{ language, title, type, dashboardId?, dashboard?, query?, data?, result?, range?, filters?, point?, question? }` → `{ answer, model, costUsd, toolCalls, durationMs }` |
+
+- Only for signed-in users. API keys and OAuth tokens get 403, because scripts and connected apps bring their own model.
+- Explain runs the read-only MCP tools (`describe_schema`, `list_rows`, `get_row`, `aggregate`, `list_formula_functions`, `get_dashboard`, `list_saved_queries`, `run_saved_query`, `bento_guide`) as the calling user, with at most 8 model turns.
+- A missing key, a switched-off AI or a used-up monthly limit answers 422 before any call. The used-up limit has code `ai_budget_exhausted`.
+- Provider errors answer `{ error: { code: "AI_FAILED", message } }`:
+  - 502 when Anthropic cannot be reached
+  - 401 for an invalid key
+  - 429 when rate-limited
+  - 422 for a refusal
+- Each call is recorded with its cost, whether it worked or failed.
+
+---
+
 ### WebSocket
 
 Connected at `/ws`. Uses SignalR protocol.
