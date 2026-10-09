@@ -12,6 +12,15 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — The Interval Switch On Tables, And Per Widget
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
+
+**Highlights:**
+- **M Q Y** also on summarized tables by date. Their periods read "Q3 2026", under a column named after the interval.
+- Per widget under **Style → Viewers can switch the interval**: hide the switch, or offer only some intervals.
+
 ### 2026-10-09 — Describe A Widget Or A Formula, Undo Any Dashboard Change
 
 > **Phase**: Phase 4 — Intelligence

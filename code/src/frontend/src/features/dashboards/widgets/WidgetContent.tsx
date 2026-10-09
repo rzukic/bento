@@ -5,7 +5,7 @@ import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
 import { useAppStore } from "../../../stores/appStore";
 import { EChart, type ChartClick } from "../charts/EChart";
-import { buildChartOption, buildSankeyOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
+import { buildChartOption, buildSankeyOption, formatBucketLabel, formatBucketTitle, readChartTokens, type ChartTokens } from "../charts/chartOptions";
 import { drillTarget, signFilter, type DrillTarget, type GroupPick } from "../drill";
 import { sankeyMode, toSankeyModel } from "../sankey";
 import type { ResolvedRange } from "../dateRange";
@@ -17,6 +17,7 @@ import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenc
 import { renderCellValue } from "../../data-explorer/components/cellValue";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { BudgetWidget } from "./BudgetWidget";
+import { INTERVAL_LABELS } from "../interval";
 
 /** Re-reads the chart colors whenever the light/dark theme changes. */
 export function useChartTokens(): ChartTokens {
@@ -485,8 +486,12 @@ function TableWidget({
   const labelled = new Set(result.meta.columns.filter((c) => c.role === "label").map((c) => c.labelOf));
   const columns = result.meta.columns.filter((c) => c.role !== "other" && !(c.role === "group" && labelled.has(c.name)));
   if (result.data.length === 0) return <p className="widget-note">No data in this range.</p>;
+  // The date group reads as periods ("September 2026", "Q3 2026"), headed by its interval.
+  const dateGroup = widget.data?.query?.groupBy?.find((g) => g.bucket);
+  const dateKey = dateGroup ? (dateGroup.as ?? dateGroup.column) : null;
   const cell = (row: QueryResult["data"][number], column: QueryResult["meta"]["columns"][number]) => {
     const value = row[column.name];
+    if (dateGroup?.bucket && column.name === dateKey && typeof value === "string") return formatBucketTitle(value.slice(0, 10), dateGroup.bucket);
     const number = column.role === "measure" ? toNumber(value) : null;
     if (number !== null) return formatNumber(number, format ?? formatKindForType(column.type));
     const group = column.role === "label" ? column.labelOf! : column.name;
@@ -503,7 +508,7 @@ function TableWidget({
           <tr>
             {columns.map((column) => (
               <th key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                {column.role === "label" ? column.labelOf : column.name}
+                {dateGroup?.bucket && column.name === dateKey ? INTERVAL_LABELS[dateGroup.bucket].long : column.role === "label" ? column.labelOf : column.name}
               </th>
             ))}
           </tr>

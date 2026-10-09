@@ -827,3 +827,32 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 0.5rem;
 }
+
+/* Which intervals viewers can switch to (M Q Y in the widget's header). */
+.lens-intervals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding-left: 1.5rem;
+}
+
+.lens-intervals__option {
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    color: var(--text-2);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+}
+
+.lens-intervals__option[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--text) 35%, var(--line));
+    background: color-mix(in srgb, var(--text) 8%, var(--surface));
+    color: var(--text);
+}
+
+.lens-intervals__option:disabled {
+    cursor: default;
+}
