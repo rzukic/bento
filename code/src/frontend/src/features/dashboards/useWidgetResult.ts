@@ -16,6 +16,8 @@ export type WidgetResultState = {
   /** The query that ran (a saved query's definition included) — for running flags and buckets. */
   query: AggregationQuery | null;
   error: string | null;
+  /** A new result is on its way while the previous one is still shown (e.g. after switching M → Q). */
+  refreshing: boolean;
 };
 
 /**
@@ -31,18 +33,18 @@ export function useWidgetResult(
   refreshToken: number,
   variables: Record<string, VariableValue> = noVariables,
 ): WidgetResultState {
-  const [state, setState] = useState<WidgetResultState>({ status: "loading", result: null, query: null, error: null });
+  const [state, setState] = useState<WidgetResultState>({ status: "loading", result: null, query: null, error: null, refreshing: false });
   const key = JSON.stringify([widget.type, widget.data, range, refreshToken, variables]);
 
   useEffect(() => {
     const data = widget.data;
     if (widget.type === "text" || !data || data.variable || data.rows || (!data.query && data.savedQueryId === undefined)) {
-      setState({ status: "ready", result: null, query: null, error: null });
+      setState({ status: "ready", result: null, query: null, error: null, refreshing: false });
       return;
     }
 
     let cancelled = false;
-    setState((current) => ({ ...current, status: current.result ? current.status : "loading", error: null }));
+    setState((current) => ({ ...current, status: current.result ? current.status : "loading", error: null, refreshing: current.result !== null }));
     void (async () => {
       try {
         let query = data.query ?? null;
@@ -54,12 +56,13 @@ export function useWidgetResult(
         } else {
           result = await runQuery(runnableQuery(query!, data, range, variables));
         }
-        if (!cancelled) setState({ status: "ready", result, query, error: null });
+        if (!cancelled) setState({ status: "ready", result, query, error: null, refreshing: false });
       } catch (cause) {
         if (!cancelled) {
           setState((current) => ({
             ...current,
             status: "error",
+            refreshing: false,
             error: cause instanceof ApiClientError ? cause.message : "The numbers could not be loaded.",
           }));
         }

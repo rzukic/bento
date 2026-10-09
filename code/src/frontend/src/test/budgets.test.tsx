@@ -282,8 +282,21 @@ describe("interval switch", () => {
 
     const switcher = await screen.findByRole("group", { name: "Net per month: interval" });
     expect(within(switcher).getByRole("button", { name: "Month" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(switcher).not.toHaveAttribute("aria-busy"));
+
+    // The quarters take a moment: the old chart stays, the switch shows a spinner on Q.
+    let answer: (result: QueryResult) => void = () => undefined;
+    queryApi.runQuery.mockImplementation(() => new Promise<QueryResult>((resolve) => (answer = resolve)));
     await user.click(within(switcher).getByRole("button", { name: "Quarter" }));
     await waitFor(() => expect(queryApi.runQuery).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: [{ column: "date", bucket: "quarter", as: "month" }] })));
-    expect(within(switcher).getByRole("button", { name: "Quarter" })).toHaveAttribute("aria-pressed", "true");
+    const quarter = within(switcher).getByRole("button", { name: "Quarter" });
+    expect(quarter).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(switcher).toHaveAttribute("aria-busy", "true"));
+    expect(quarter.querySelector(".widget-interval__spinner")).not.toBeNull();
+    expect(screen.getByRole("img", { name: /Net per month/ })).toBeInTheDocument();
+
+    await act(async () => answer({ data: [{ month: "2026-07-01", net: 300 }], meta: { truncated: false, columns: [{ name: "month", type: "date", role: "group" }, { name: "net", type: "currency", role: "measure" }] } }));
+    await waitFor(() => expect(switcher).not.toHaveAttribute("aria-busy"));
+    expect(quarter.querySelector(".widget-interval__spinner")).toBeNull();
   });
 });

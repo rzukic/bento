@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { DashboardAnnotation, DashboardWidget } from "../../../api/dashboards";
-import type { QueryResult, VariableValue } from "../../../api/query";
+import type { AggregationQuery, QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
 import { useAppStore } from "../../../stores/appStore";
@@ -40,6 +40,8 @@ function overrideFormat(widget: DashboardWidget): NumberFormatKind | undefined {
   return format && format !== "auto" ? format : undefined;
 }
 
+const LOADING_DELAY_MS = 150;
+
 export function WidgetContent({
   widget,
   range,
@@ -49,6 +51,7 @@ export function WidgetContent({
   annotations,
   onDrill,
   onResult,
+  onLoading,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -62,6 +65,8 @@ export function WidgetContent({
   onDrill?: (target: DrillTarget) => void;
   /** The rows the widget shows, for "Explain this" (Step 4.7). */
   onResult?: (result: QueryResult | null) => void;
+  /** Whether numbers are on their way — first load or a refresh behind the shown ones (for the interval switch's spinner). */
+  onLoading?: (loading: boolean) => void;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
   // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
@@ -71,6 +76,16 @@ export function WidgetContent({
   useEffect(() => {
     onResult?.(state.result);
   }, [onResult, state.result]);
+  const loading = state.status === "loading" || state.refreshing;
+  useEffect(() => {
+    if (!loading) {
+      onLoading?.(false);
+      return;
+    }
+    // Only a load that takes a moment shows: a quick one would just flicker.
+    const timer = window.setTimeout(() => onLoading?.(true), LOADING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [onLoading, loading]);
 
   if (widget.type === "text") return <TextWidget text={widget.display?.text ?? ""} />;
   if (widget.type === "kpi" && widget.data?.variable) {
@@ -113,7 +128,7 @@ export function WidgetContent({
         />
       );
     case "table":
-      return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
+      return <TableWidget result={state.result} query={state.query} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
     case "sankey":
       return <SankeyWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} onDrill={onDrill} />;
     default:
@@ -462,12 +477,15 @@ function previousLabel(result: QueryResult): string | null {
 
 function TableWidget({
   result,
+  query: shownQuery,
   widget,
   range,
   refreshToken,
   values,
 }: {
   result: QueryResult;
+  /** The query behind the shown result — while another interval loads, still the previous one. */
+  query: AggregationQuery | null;
   widget: DashboardWidget;
   range: ResolvedRange;
   refreshToken: number;
@@ -487,7 +505,8 @@ function TableWidget({
   const columns = result.meta.columns.filter((c) => c.role !== "other" && !(c.role === "group" && labelled.has(c.name)));
   if (result.data.length === 0) return <p className="widget-note">No data in this range.</p>;
   // The date group reads as periods ("September 2026", "Q3 2026"), headed by its interval.
-  const dateGroup = widget.data?.query?.groupBy?.find((g) => g.bucket);
+  // Label the periods by the query that produced these rows, not by an interval still loading.
+  const dateGroup = (shownQuery ?? widget.data?.query)?.groupBy?.find((g) => g.bucket);
   const dateKey = dateGroup ? (dateGroup.as ?? dateGroup.column) : null;
   const cell = (row: QueryResult["data"][number], column: QueryResult["meta"]["columns"][number]) => {
     const value = row[column.name];
