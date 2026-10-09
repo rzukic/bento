@@ -65,7 +65,9 @@ services:
       retries: 5
 
   postgres:
-    image: postgres:16-alpine
+    # postgres:16-alpine plus the role/schema bootstrap (a bind mount of
+    # ./init-db would be empty on Coolify, which builds from a copy of the repo).
+    build: ./init-db
     restart: unless-stopped
     environment:
       POSTGRES_DB: bento
@@ -77,8 +79,6 @@ services:
       BENTO_DATA_PASSWORD: ${SERVICE_PASSWORD_BENTODATA}
     volumes:
       - pg-data:/var/lib/postgresql/data
-      # Creates the system and data roles and schemas on the first start (empty volume only).
-      - ./init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U bento_admin -d bento"]
       interval: 5s
