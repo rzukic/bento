@@ -273,7 +273,6 @@
 /* Collapsed sidebar */
 .shell--collapsed:not(.shell--peek) .shell__brand-text,
 .shell--collapsed:not(.shell--peek) .shell__nav-label,
-.shell--collapsed:not(.shell--peek) .shell__nav-section-title,
 .shell--collapsed:not(.shell--peek) .shell__user-text,
 .shell--collapsed:not(.shell--peek) .shell__user-menu {
   display: none;
@@ -281,6 +280,27 @@
 
 .shell--collapsed:not(.shell--peek) .shell__sidebar {
   padding: 1.25rem 0.5rem 0.75rem;
+}
+
+/* A section heading keeps its height as a short line, so the items do not
+   move when the sidebar opens (on hover or for good). */
+.shell--collapsed:not(.shell--peek) .shell__nav-section-title {
+  position: relative;
+  overflow: hidden;
+  color: transparent;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.shell--collapsed:not(.shell--peek) .shell__nav-section-title::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 1px;
+  background: var(--line-2);
+  transform: translate(-50%, -50%);
 }
 
 .shell--collapsed:not(.shell--peek) .shell__brand,
