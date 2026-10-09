@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Security.Claims;
 using System.Text.Json;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
@@ -24,6 +25,8 @@ public sealed class DashboardsController : ControllerBase
 
     private const int GridColumns = 12;
     private const int MaxWidgets = 60;
+    /// <summary>Older states kept per dashboard (Step 4.9).</summary>
+    private const int MaxVersions = 100;
 
     private readonly ISystemPool _systemPool;
 
@@ -37,7 +40,24 @@ public sealed class DashboardsController : ControllerBase
         public string? Name { get; init; }
         public bool? IsShared { get; init; }
         public JsonElement? Dashboard { get; init; }
+        /// <summary>Optional, for the history: e.g. what the AI was asked when it built a widget.</summary>
+        public string? Note { get; init; }
     }
+
+    /// <summary>
+    /// The state a dashboard had before a change, and who made the change — the
+    /// user in the app, or an app or key (<c>Via</c>) such as Claude over MCP.
+    /// </summary>
+    public sealed record VersionResponse(
+        long Id,
+        long DashboardId,
+        string Name,
+        int Widgets,
+        string Action,
+        string? ChangedBy,
+        string? Via,
+        string? Note,
+        string CreatedAt);
 
     public sealed record DashboardResponse(
         long Id,
@@ -101,6 +121,7 @@ public sealed class DashboardsController : ControllerBase
         if (existing.OwnerUserId != userId)
             throw new ApiForbiddenException("Only the owner can change this dashboard.");
 
+        await RecordVersionAsync(conn, existing, "update", request.Note);
         await conn.ExecuteAsync(
             $"""
             UPDATE {Table}
@@ -127,9 +148,175 @@ public sealed class DashboardsController : ControllerBase
         var existing = await GetVisibleAsync(conn, id, userId);
         if (existing.OwnerUserId != userId)
             throw new ApiForbiddenException("Only the owner can delete this dashboard.");
+        await RecordVersionAsync(conn, existing, "delete", null);
         await conn.ExecuteAsync($"DELETE FROM {Table} WHERE id = @Id", new { Id = id });
         return NoContent();
     }
+
+    // ── History (Step 4.9) ───────────────────────────────────────────────
+
+    /// <summary>The dashboard's earlier states, newest first: who changed it, through which app, when.</summary>
+    [HttpGet("{id:long}/versions")]
+    public async Task<IActionResult> Versions(long id)
+    {
+        var userId = UserId();
+        using var conn = await _systemPool.GetConnectionAsync();
+        await GetVisibleAsync(conn, id, userId);
+        return Ok(new { data = await ListVersionsAsync(conn, "v.dashboard_id = @Id", new { Id = id }, MaxVersions) });
+    }
+
+    /// <summary>One earlier state with its Dashboard JSON, to look at before restoring it.</summary>
+    [HttpGet("{id:long}/versions/{versionId:long}")]
+    public async Task<IActionResult> Version(long id, long versionId)
+    {
+        var userId = UserId();
+        using var conn = await _systemPool.GetConnectionAsync();
+        await GetVisibleAsync(conn, id, userId);
+        var version = await GetVersionAsync(conn, versionId);
+        if (version.DashboardId != id)
+            throw new ApiNotFoundException($"Version {versionId} not found.");
+        using var json = JsonDocument.Parse(version.DashboardJson);
+        return Ok(new { data = new { version.Id, version.Name, dashboard = json.RootElement.Clone() } });
+    }
+
+    /// <summary>Back to an earlier state; the state before the restore is kept, so it can be undone too.</summary>
+    [HttpPost("{id:long}/versions/{versionId:long}/restore")]
+    public async Task<IActionResult> Restore(long id, long versionId)
+    {
+        var userId = UserId();
+        using var conn = await _systemPool.GetConnectionAsync();
+        var existing = await GetVisibleAsync(conn, id, userId);
+        if (existing.OwnerUserId != userId)
+            throw new ApiForbiddenException("Only the owner can restore this dashboard.");
+        var version = await GetVersionAsync(conn, versionId);
+        if (version.DashboardId != id)
+            throw new ApiNotFoundException($"Version {versionId} not found.");
+
+        await RecordVersionAsync(conn, existing, "restore", $"Restored the state of {version.CreatedAt}");
+        await conn.ExecuteAsync(
+            $"UPDATE {Table} SET name = @Name, dashboard_json = {JsonParam}, is_shared = @IsShared, updated_at = {NowParam} WHERE id = @Id",
+            new { Id = id, version.Name, Json = version.DashboardJson, version.IsShared, Now = UtcNowIso() });
+        return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
+    }
+
+    /// <summary>The user's deleted dashboards that can be brought back.</summary>
+    [HttpGet("deleted")]
+    public async Task<IActionResult> Deleted()
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var versions = await ListVersionsAsync(conn,
+            $"v.action = 'delete' AND v.owner_user_id = @UserId AND NOT EXISTS (SELECT 1 FROM {Table} d WHERE d.id = v.dashboard_id)",
+            new { UserId = UserId() }, 50);
+        return Ok(new { data = versions });
+    }
+
+    /// <summary>Brings a deleted dashboard back under its old id.</summary>
+    [HttpPost("deleted/{versionId:long}/restore")]
+    public async Task<IActionResult> RestoreDeleted(long versionId)
+    {
+        var userId = UserId();
+        using var conn = await _systemPool.GetConnectionAsync();
+        var version = await GetVersionAsync(conn, versionId);
+        if (version.Action != "delete" || version.OwnerUserId != userId)
+            throw new ApiNotFoundException($"Deleted dashboard {versionId} not found.");
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Table} WHERE id = @Id", new { Id = version.DashboardId }) > 0)
+            throw new ApiConflictException("This dashboard exists again already.");
+
+        await conn.ExecuteAsync(
+            $"""
+            INSERT INTO {Table} (id, name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Id, @Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            """,
+            new { Id = version.DashboardId, version.Name, Json = version.DashboardJson, OwnerId = userId, version.IsShared, Now = UtcNowIso() });
+        if (_systemPool.Provider == DatabaseProvider.Postgres)
+            await conn.ExecuteAsync($"SELECT setval(pg_get_serial_sequence('{Table}', 'id'), GREATEST((SELECT MAX(id) FROM {Table}), 1))");
+        return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, version.DashboardId, userId), userId) });
+    }
+
+    /// <summary>
+    /// Recent changes to the user's dashboards made by apps and keys (Claude,
+    /// ChatGPT, scripts) — the AI page lists them with an undo.
+    /// </summary>
+    [HttpGet("changes")]
+    public async Task<IActionResult> Changes([FromQuery] int limit = 30)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var versions = await ListVersionsAsync(conn, "v.via IS NOT NULL AND v.owner_user_id = @UserId", new { UserId = UserId() }, Math.Clamp(limit, 1, 100));
+        return Ok(new { data = versions });
+    }
+
+    private sealed class VersionRow
+    {
+        public long Id { get; init; }
+        public long DashboardId { get; init; }
+        public string Name { get; init; } = "";
+        public string DashboardJson { get; init; } = "{}";
+        public bool IsShared { get; init; }
+        public long? OwnerUserId { get; init; }
+        public string Action { get; init; } = "";
+        public string? ChangedBy { get; init; }
+        public string? Via { get; init; }
+        public string? Note { get; init; }
+        public string CreatedAt { get; init; } = "";
+    }
+
+    private string VersionColumns =>
+        "v.id, v.dashboard_id AS DashboardId, v.name, v.dashboard_json AS DashboardJson, v.is_shared AS IsShared, v.owner_user_id AS OwnerUserId, " +
+        $"v.action, u.username AS ChangedBy, v.via, v.note, {SystemSqlDialect.TimestampText(_systemPool.Provider, "v.created_at")} AS CreatedAt";
+
+    private async Task<IReadOnlyList<VersionResponse>> ListVersionsAsync(System.Data.IDbConnection conn, string where, object parameters, int limit)
+    {
+        var rows = await conn.QueryAsync<VersionRow>(
+            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE {where} ORDER BY v.created_at DESC, v.id DESC LIMIT {limit}",
+            parameters);
+        return rows.Select(r => new VersionResponse(r.Id, r.DashboardId, r.Name, CountWidgets(r.DashboardJson), r.Action, r.ChangedBy, r.Via, r.Note, r.CreatedAt)).ToList();
+    }
+
+    private async Task<VersionRow> GetVersionAsync(System.Data.IDbConnection conn, long versionId) =>
+        await conn.QuerySingleOrDefaultAsync<VersionRow>(
+            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE v.id = @Id", new { Id = versionId })
+        ?? throw new ApiNotFoundException($"Version {versionId} not found.");
+
+    /// <summary>Keeps the state before a change, with who changed it and through which app.</summary>
+    private async Task RecordVersionAsync(System.Data.IDbConnection conn, DashboardRow existing, string action, string? note)
+    {
+        var via = User.FindFirstValue("auth_method") switch
+        {
+            "oauth" => User.FindFirstValue("oauth_client") ?? "MCP client",
+            "api_key" => "API key #" + User.FindFirstValue("api_key_id"),
+            _ => null
+        };
+        await conn.ExecuteAsync(
+            $"""
+            INSERT INTO {VersionsTable} (dashboard_id, name, dashboard_json, is_shared, owner_user_id, action, changed_by, via, note, created_at)
+            VALUES (@DashboardId, @Name, {JsonParam}, @IsShared, @OwnerId, @Action, @ChangedBy, @Via, @Note, {NowParam})
+            """,
+            new
+            {
+                DashboardId = existing.Id, existing.Name, Json = existing.DashboardJson, existing.IsShared, OwnerId = existing.OwnerUserId,
+                Action = action, ChangedBy = UserId(), Via = via, Note = note is { Length: > 500 } ? note[..500] : note, Now = UtcNowIso()
+            });
+        await conn.ExecuteAsync(
+            $"""
+            DELETE FROM {VersionsTable} WHERE dashboard_id = @Id AND action <> 'delete' AND id NOT IN (
+                SELECT id FROM {VersionsTable} WHERE dashboard_id = @Id ORDER BY created_at DESC, id DESC LIMIT {MaxVersions})
+            """,
+            new { Id = existing.Id });
+    }
+
+    private static int CountWidgets(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty("widgets", out var widgets) && widgets.ValueKind == JsonValueKind.Array ? widgets.GetArrayLength() : 0;
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
 
     // ── Validation ───────────────────────────────────────────────────────
 
@@ -219,6 +406,8 @@ public sealed class DashboardsController : ControllerBase
     private long? UserId() => HttpContext.User.GetUserId();
 
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboards" : "dashboards";
+    private string VersionsTable => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboard_versions" : "dashboard_versions";
+    private string Users => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.users" : "users";
     private string SharedTrue => _systemPool.Provider == DatabaseProvider.Postgres ? "" : "= 1";
     private string JsonParam => SystemSqlDialect.JsonParam(_systemPool.Provider, "@Json");
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");

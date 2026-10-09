@@ -381,10 +381,14 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 | `GET` | `/api/v1/dashboards` | List dashboards |
 | `POST` | `/api/v1/dashboards` | Create a dashboard |
 | `GET` | `/api/v1/dashboards/:dashboardId` | Get dashboard config |
-| `PATCH` | `/api/v1/dashboards/:dashboardId` | Update dashboard |
-| `DELETE` | `/api/v1/dashboards/:dashboardId` | Delete dashboard |
-
-> **Not yet implemented** — planned for Phase 3.
+| `PUT` | `/api/v1/dashboards/:dashboardId` | Update dashboard: `{ name?, isShared?, dashboard?, note? }`. The state before is kept as a version |
+| `DELETE` | `/api/v1/dashboards/:dashboardId` | Delete dashboard; the last state is kept and can be restored |
+| `GET` | `/api/v1/dashboards/:dashboardId/versions` | Earlier states, newest first: `{ id, name, widgets, action (update, delete, restore), changedBy, via (the app or key, e.g. "Claude"), note, createdAt }`. Up to 100 per dashboard |
+| `GET` | `/api/v1/dashboards/:dashboardId/versions/:versionId` | One earlier state with its Dashboard JSON |
+| `POST` | `/api/v1/dashboards/:dashboardId/versions/:versionId/restore` | Back to that state (owner). The state before the restore is kept too |
+| `GET` | `/api/v1/dashboards/deleted` | The user's deleted dashboards |
+| `POST` | `/api/v1/dashboards/deleted/:versionId/restore` | Bring a deleted dashboard back under its id |
+| `GET` | `/api/v1/dashboards/changes?limit=30` | Recent changes to the user's dashboards made by apps and keys |
 
 ---
 
@@ -435,6 +439,21 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
   - 429 when rate-limited
   - 422 for a refusal
 - Each call is recorded with its cost, whether it worked or failed.
+
+### Describe (Step 4.9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/ai/describe/widget` | `{ language, sentence, dashboard?, widget, range?: { from, to }, variables?: [{ name, value }], otherWidgets? }` → `{ widget, note, model, costUsd, toolCalls, durationMs }` |
+| `POST` | `/api/v1/ai/describe/formula` | `{ language, sentence, table, kind: column \| measure, current?, resultType? }` → `{ formula, note, model, costUsd, toolCalls, durationMs }` |
+
+- Both run the read-only MCP tools as the calling user and finish with a submit tool that Bento checks:
+  - widgets: Bento runs the widget's query for the given range, the way the dashboard runs it
+  - column formulas: `formulas/validate`
+  - measure formulas: run as a query measure
+- A failed check goes back to the model to fix. Nothing is saved.
+- When the model does not submit (e.g. the data cannot answer the sentence), `widget`/`formula` is null and `note` says why.
+- Usage is recorded as `describe_widget` and `describe_formula`. The same refusals apply as for explain (no key, AI off, budget used up, API keys and OAuth apps).
 
 ### Categorise (Step 4.8)
 

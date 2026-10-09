@@ -184,9 +184,45 @@ export async function createDashboard(name: string, dashboard: DashboardDocument
 
 export async function updateDashboard(
   id: number,
-  changes: { name?: string; isShared?: boolean; dashboard?: DashboardDocument },
+  changes: { name?: string; isShared?: boolean; dashboard?: DashboardDocument; note?: string },
 ): Promise<Dashboard> {
   return (await apiClient.put<DataEnvelope<Dashboard>>(`/dashboards/${id}`, changes)).data;
+}
+
+/** An earlier state of a dashboard (Step 4.9): kept before every change, with who made it and through which app. */
+export type DashboardVersion = {
+  id: number;
+  dashboardId: number;
+  name: string;
+  widgets: number;
+  action: "update" | "delete" | "restore";
+  changedBy: string | null;
+  /** The app or key that made the change (e.g. Claude over MCP); null for a change in Bento itself. */
+  via: string | null;
+  note: string | null;
+  createdAt: string;
+};
+
+export async function listDashboardVersions(id: number): Promise<DashboardVersion[]> {
+  return (await apiClient.get<DataEnvelope<DashboardVersion[]>>(`/dashboards/${id}/versions`)).data;
+}
+
+/** Back to an earlier state; the state before is kept, so this can be undone as well. */
+export async function restoreDashboardVersion(id: number, versionId: number): Promise<Dashboard> {
+  return (await apiClient.post<DataEnvelope<Dashboard>>(`/dashboards/${id}/versions/${versionId}/restore`, {})).data;
+}
+
+export async function listDeletedDashboards(): Promise<DashboardVersion[]> {
+  return (await apiClient.get<DataEnvelope<DashboardVersion[]>>("/dashboards/deleted")).data;
+}
+
+export async function restoreDeletedDashboard(versionId: number): Promise<Dashboard> {
+  return (await apiClient.post<DataEnvelope<Dashboard>>(`/dashboards/deleted/${versionId}/restore`, {})).data;
+}
+
+/** Recent changes to the user's dashboards made by apps and keys (Claude, ChatGPT, scripts). */
+export async function listDashboardChanges(limit = 30): Promise<DashboardVersion[]> {
+  return (await apiClient.get<DataEnvelope<DashboardVersion[]>>(`/dashboards/changes?limit=${limit}`)).data;
 }
 
 export async function deleteDashboard(id: number): Promise<void> {

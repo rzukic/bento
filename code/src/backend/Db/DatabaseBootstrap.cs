@@ -399,6 +399,20 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TIMESTAMPTZ NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_category_rules_table ON _system.category_rules(table_name, target_column);
+            CREATE TABLE IF NOT EXISTS _system.dashboard_versions (
+                id              SERIAL PRIMARY KEY,
+                dashboard_id    INTEGER NOT NULL,
+                name            VARCHAR(255) NOT NULL,
+                dashboard_json  JSONB NOT NULL,
+                is_shared       BOOLEAN NOT NULL,
+                owner_user_id   INTEGER,
+                action          VARCHAR(20) NOT NULL,
+                changed_by      INTEGER,
+                via             VARCHAR(255),
+                note            TEXT,
+                created_at      TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON _system.dashboard_versions(dashboard_id, created_at);
             """);
     }
 
@@ -782,6 +796,20 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_category_rules_table ON category_rules(table_name, target_column);
+            CREATE TABLE IF NOT EXISTS dashboard_versions (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                dashboard_id    INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                dashboard_json  TEXT NOT NULL,
+                is_shared       INTEGER NOT NULL,
+                owner_user_id   INTEGER,
+                action          TEXT NOT NULL,
+                changed_by      INTEGER,
+                via             TEXT,
+                note            TEXT,
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON dashboard_versions(dashboard_id, created_at);
             """);
     }
 }

@@ -38,6 +38,8 @@ import {
   type SlotId,
 } from "./model";
 import "./Lens.css";
+import { DescribeWidget } from "../../ai/DescribeWidget";
+import { useAiEnabled } from "../../ai/useAiEnabled";
 
 const FIELD_DRAG = "application/x-bento-field";
 
@@ -73,6 +75,9 @@ export function LensEditor({
   range,
   refreshToken,
   tokens,
+  dashboardName,
+  otherWidgets = [],
+  onDescribed,
   onChange,
   onClose,
 }: {
@@ -86,9 +91,15 @@ export function LensEditor({
   range: ResolvedRange;
   refreshToken: number;
   tokens: ChartTokens;
+  dashboardName?: string;
+  /** The other widgets' titles, as context for the AI. */
+  otherWidgets?: string[];
+  /** The widget was built from a sentence (Step 4.9), for the dashboard's history. */
+  onDescribed?: (sentence: string) => void;
   onChange: (widget: DashboardWidget) => void;
   onClose: () => void;
 }) {
+  const aiEnabled = useAiEnabled();
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [tab, setTab] = useState<"data" | "style">("data");
   const [editing, setEditing] = useState<Editing>(null);
@@ -252,6 +263,21 @@ export function LensEditor({
         </aside>
 
         <main className="lens__workspace" onDragOver={allowDrop} onDrop={drop()}>
+          {aiEnabled ? (
+            <DescribeWidget
+              widget={widget}
+              dashboard={dashboardName}
+              otherWidgets={otherWidgets}
+              range={range}
+              variables={variables}
+              values={values}
+              onApply={(next, sentence) => {
+                setEditing(null);
+                set(next);
+                if (sentence) onDescribed?.(sentence);
+              }}
+            />
+          ) : null}
           <div className={`lens__preview lens__preview--${widget.type}`} aria-label="Preview">
             <WidgetContent widget={widget} range={range} refreshToken={refreshToken} tokens={tokens} variables={variableResults} annotations={annotations} />
           </div>

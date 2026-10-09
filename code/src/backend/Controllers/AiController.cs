@@ -18,11 +18,13 @@ public sealed class AiController : ControllerBase
 {
     private readonly AiSettingsService _settings;
     private readonly ExplainService _explain;
+    private readonly DescribeService _describe;
 
-    public AiController(AiSettingsService settings, ExplainService explain)
+    public AiController(AiSettingsService settings, ExplainService explain, DescribeService describe)
     {
         _settings = settings;
         _explain = explain;
+        _describe = describe;
     }
 
     /// <summary>Whether the AI actions should show, and with which model.</summary>
@@ -77,6 +79,29 @@ public sealed class AiController : ControllerBase
         {
             var caller = McpController.Caller(HttpContext);
             return Ok(new { data = await _explain.ExplainAsync(caller, request, ct) });
+        }
+        catch (AiProviderException ex)
+        {
+            return StatusCode(ex.Status, new { error = new { code = "AI_FAILED", message = ex.Message } });
+        }
+    }
+
+    /// <summary>A sentence → a checked widget for the Lens editor (Step 4.9); nothing is saved.</summary>
+    [HttpPost("describe/widget")]
+    public Task<IActionResult> DescribeWidget([FromBody] DescribeService.WidgetRequest request, CancellationToken ct) =>
+        RunAsync(caller => _describe.DescribeWidgetAsync(caller, request, ct));
+
+    /// <summary>A sentence → a checked formula for a computed column or a widget measure (Step 4.9).</summary>
+    [HttpPost("describe/formula")]
+    public Task<IActionResult> DescribeFormula([FromBody] DescribeService.FormulaRequest request, CancellationToken ct) =>
+        RunAsync(caller => _describe.DescribeFormulaAsync(caller, request, ct));
+
+    private async Task<IActionResult> RunAsync<T>(Func<Services.Mcp.McpCaller, Task<T>> run)
+    {
+        EnsureSignedInUser();
+        try
+        {
+            return Ok(new { data = await run(McpController.Caller(HttpContext)) });
         }
         catch (AiProviderException ex)
         {
