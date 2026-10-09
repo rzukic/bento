@@ -42,6 +42,7 @@ import {
   getRelatedDrillIns,
 } from "./relationNavigation";
 import "./DataExplorer.css";
+import { categorisableColumns } from "./categorise/useCategorise";
 
 const BULK_DELETE_CONCURRENCY = 4;
 
@@ -977,6 +978,20 @@ export function TableDetailPage() {
                     <span className="data-controls__menu-button-label">Import</span>
                   </span>
                 </Button>
+                {categorisableColumns(resolvedTable).length > 0 ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="data-controls__menu-button"
+                    aria-label="Categorise rows"
+                    onClick={() => navigate(`/data/${encodeURIComponent(resolvedTable.name)}/categorise`)}
+                  >
+                    <span className="data-controls__menu-button-content">
+                      <Icon name="sparkles" size={14} />
+                      <span className="data-controls__menu-button-label">Categorise</span>
+                    </span>
+                  </Button>
+                ) : null}
                 <div className="data-controls__export" ref={exportMenuRef}>
                   <Button
                     type="button"

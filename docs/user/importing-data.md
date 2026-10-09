@@ -33,6 +33,31 @@ Change names, types and what is stored how, then choose **Create table and conti
 
 Rows with problems are skipped, not imported half-way. Fix the file (or add the missing category) and import it again — the rows that went in the first time are recognised as already there.
 
+## Categories, Filled In For You
+
+If the table has a link or choice column such as **Category**, the review fills it for the new rows. This happens only when the file does not bring the value itself.
+
+**Fill in** picks the column; a column named like a category is chosen by default. The values come from three places, in this order:
+
+1. **Rules**: "payee contains *REWE*" → Groceries. Rules are your own and cost nothing.
+2. **Earlier rows**: a payee you categorised before gets the same category again, as long as at least two thirds of its rows agree.
+3. **✨ Suggest the rest**: Bento's AI chooses for the rows that are still open, using your categories and your earlier choices as examples. Each suggestion shows how sure it is. Unsure ones (below 60 %) are outlined, so check those first. The line above the rows shows what the AI cost. This needs Bento's AI to be set up (see [AI](ai.md)).
+
+Next to each value you see where it came from: **Rule**, **Earlier**, **AI 92 %** or **You**. Change any of them in its row.
+
+When you import, Bento remembers two kinds of choice as rules:
+
+- **Your corrections**: Bento remembers the payee as a rule. Untick **Rule for “…”** under the row to skip one.
+- **The AI's sure choices** (80 % and up, with a clear keyword such as *Netflix*): the checkbox above the rows switches this off.
+
+Next month those payees are filled in by their rules, without asking the AI. **Rules (N)** above the rows lists the table's rules; delete one with the bin.
+
+Without the AI you can still pick the values by hand; your choices become rules for the next import the same way.
+
+### Rows Already In The Table
+
+**Categorise** in the table's toolbar lists the newest rows (up to 200) that have no value yet. It works the same way: rules, earlier rows, ✨ for the rest. **Save N rows** writes the values and keeps your corrections as rules.
+
 ## Duplicates And Key Columns
 
 The **Key** checkboxes decide when a row counts as already in the table: all key columns must match an existing row. By default every mapped column except links to other tables is a key column (booking date, counterparty, purpose, amount).

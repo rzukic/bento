@@ -1,6 +1,6 @@
 # AI
 
-Bento's AI works where you work. It does not open a chat window. It explains the numbers on your dashboards, and it runs as **you**: it only sees what you can see, and it only reads.
+Bento's AI works where you work. It does not open a chat window. It explains the numbers on your dashboards and categorises bank bookings. It runs as **you**: it only sees what you can see, and it never changes anything without your OK.
 
 For a full conversation with your data, connect your own Claude over MCP (see [Connections → Claude](connections.md)).
 
@@ -42,6 +42,14 @@ Text widgets have no ✨ button. In edit mode the button is hidden as well.
 
 If the AI is switched off, has no key, or this month's limit is used up, the panel says so and makes no call.
 
+## Categorise Bank Bookings
+
+The AI also helps when you import a bank export. In the import review, **✨ Suggest the rest** fills the category for the rows that your rules and earlier rows could not fill. **Categorise** in a table's toolbar does the same for rows already in the table.
+
+It sees your categories, a sample of rows you categorised before, and the open rows (payee, purpose, amount, date). It uses no other data and changes nothing until you import or save.
+
+Your corrections, and the AI's sure choices, become rules. Next month those payees need no AI at all. See [Importing Data](importing-data.md#categories-filled-in-for-you).
+
 ## Recent AI Calls
 
 The AI page lists every call. For each call it shows:
@@ -56,5 +64,4 @@ Viewers and editors see their own calls; admins see everyone's.
 
 ## What Comes Next
 
-- **Categorise on import**: the AI suggests a category for each new booking in the import preview.
 - **Describe instead of click**: describe a widget or a formula in a sentence; Bento shows a live preview before saving, and you can undo it.

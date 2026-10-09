@@ -131,7 +131,28 @@ public sealed class PostgresTestDatabase : IAsyncDisposable
             $"DROP DATABASE IF EXISTS {QuoteIdentifier(DatabaseName)};");
     }
 
+    // Tests start in parallel; concurrent CREATE/ALTER ROLE fails with "tuple concurrently updated".
+    private static readonly SemaphoreSlim RolesLock = new(1, 1);
+    private static bool _rolesReady;
+
     private static async Task EnsureRolesAsync(IDbConnection connection, PostgresTestSettings settings)
+    {
+        await RolesLock.WaitAsync();
+        try
+        {
+            if (!_rolesReady)
+            {
+                await CreateRolesAsync(connection, settings);
+                _rolesReady = true;
+            }
+        }
+        finally
+        {
+            RolesLock.Release();
+        }
+    }
+
+    private static async Task CreateRolesAsync(IDbConnection connection, PostgresTestSettings settings)
     {
         await connection.ExecuteAsync(
             $"""

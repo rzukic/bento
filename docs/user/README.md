@@ -16,8 +16,8 @@ If you want to get Bento running and try the current product without reading the
 - [Formulas](formulas.md) — computed columns with spreadsheet-style formulas, links to other tables and sums over related rows, live in the explorer; your own JavaScript functions with `CUSTOM(…)`
 - [Forms](forms.md) — quick entry into a table, e.g. "Add transaction" on the phone: −/+ for amounts, accounts and categories as buttons, today's date, the account used last time; from the sidebar and from dashboards
 - [Live Prices](live-prices.md) — prices from an API of your choice (e.g. Yahoo Finance, no key) kept as history in your table, current when a dashboard opens; API keys in the credential vault
-- [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile
-- [AI](ai.md) — explain any number on a dashboard (✨ on a widget): what it is made of and what changed; your own Anthropic key with a monthly limit
+- [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile; categories filled in by your rules, earlier rows and the AI
+- [AI](ai.md) — explain any number on a dashboard (✨ on a widget), categorise bank bookings on import; your own Anthropic key with a monthly limit
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 
 ---

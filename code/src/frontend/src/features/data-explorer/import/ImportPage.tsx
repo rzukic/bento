@@ -45,6 +45,10 @@ import {
   type MappingState,
 } from "./importMapping";
 import { FileDrop, ReadSettings } from "./ImportSections";
+import { getAiStatus } from "../../../api/ai";
+import type { CategoriseRow } from "../../../api/categorise";
+import { CategoriseBar, CategoryCell } from "../categorise/CategoriseControls";
+import { categorisableColumns, defaultCategoryColumn, useCategorise } from "../categorise/useCategorise";
 import "./ImportPage.css";
 
 /**
@@ -118,6 +122,17 @@ export function ImportPage() {
   const [busy, setBusy] = useState<"analyze" | "preview" | "import" | "profile" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const categoryColumns = useMemo(() => categorisableColumns(table), [table]);
+  const [categoryColumn, setCategoryColumn] = useState<string | null>(null);
+  const activeCategoryColumn = categoryColumn ?? defaultCategoryColumn(table);
+  const categorising = useCategorise(tableId, activeCategoryColumn);
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [rulesNotice, setRulesNotice] = useState<string | null>(null);
+  useEffect(() => {
+    getAiStatus()
+      .then((status) => setAiEnabled(status.enabled && status.configured))
+      .catch(() => setAiEnabled(false));
+  }, []);
   const mappingRef = useRef(mapping);
   const keyColumnsRef = useRef(keyColumns);
   mappingRef.current = mapping;
@@ -226,6 +241,22 @@ export function ImportPage() {
     if (content && profile) void analyze(content, profile.config.settings ?? {}, profile.config, file?.name);
   };
 
+  // New rows without a value in the column to categorise: these get suggestions.
+  const categoryRows = useMemo<CategoriseRow[]>(() => {
+    if (!preview || result || !activeCategoryColumn) return [];
+    return preview.rows
+      .filter((row) => row.status === "new" && !row.display[activeCategoryColumn])
+      .map((row) => ({
+        key: String(row.line),
+        values: Object.fromEntries(Object.entries(row.display).filter(([name]) => name !== activeCategoryColumn)),
+      }));
+  }, [preview, result, activeCategoryColumn]);
+
+  const startCategorising = categorising.start;
+  useEffect(() => {
+    if (categoryRows.length > 0) void startCategorising(categoryRows);
+  }, [categoryRows, startCategorising]);
+
   const payload = (): ImportRunPayload | null =>
     content
       ? {
@@ -234,6 +265,14 @@ export function ImportPage() {
           settings,
           mapping: toMappingPayload(mapping),
           keyColumns: keyColumns.filter((k) => mapping[k]),
+          ...(activeCategoryColumn && Object.keys(categorising.choices).length > 0
+            ? {
+                assign: {
+                  column: activeCategoryColumn,
+                  values: Object.fromEntries(Object.entries(categorising.choices).map(([line, choice]) => [line, choice.value])),
+                },
+              }
+            : {}),
         }
       : null;
 
@@ -271,6 +310,18 @@ export function ImportPage() {
       if (done.inserted > 0) useExplorerStore.getState().markTableStale(tableId);
       setResult(done);
       setPreview(done);
+      // Corrections become rules for the next import ("REWE" → Groceries).
+      try {
+        const imported = new Set(done.rows.filter((r) => r.status === "new").map((r) => String(r.line)));
+        const saved = await categorising.saveRules([...imported]);
+        setRulesNotice(
+          saved.length > 0
+            ? `Saved ${saved.length} ${saved.length === 1 ? "rule" : "rules"} for the next import: ${saved.map((r) => `“${r.pattern}”`).join(", ")}.`
+            : null,
+        );
+      } catch {
+        setRulesNotice("The rows are imported, but your corrections could not be saved as rules.");
+      }
     } catch (cause) {
       setError(errorMessage(cause, "The import failed; no rows were written."));
     } finally {
@@ -329,6 +380,9 @@ export function ImportPage() {
     [analysis],
   );
   const reviewRows = (preview?.rows ?? []).filter((row) => reviewFilter === "all" || row.status === reviewFilter);
+  const categoryDef = categoryColumns.find((c) => c.name === activeCategoryColumn) ?? null;
+  const categoryLabel = categoryDef ? (categoryDef.displayName ?? categoryDef.name) : "";
+  const reviewColumns = categoryDef ? mappedColumns.filter((c) => c.name !== categoryDef.name) : mappedColumns;
 
   if (schemaStatus !== "ready" && !snapshot) {
     return (
@@ -491,7 +545,16 @@ export function ImportPage() {
             <Alert
               tone="success"
               title={`${countRows(result.inserted)} imported into ${displayName}`}
-              message={skippedSummary(result)}
+              message={rulesNotice ? `${skippedSummary(result)} ${rulesNotice}` : skippedSummary(result)}
+            />
+          ) : categoryColumns.length > 0 ? (
+            <CategoriseBar
+              columns={categoryColumns}
+              column={activeCategoryColumn}
+              onColumnChange={setCategoryColumn}
+              categorising={categorising}
+              rows={categoryRows}
+              aiEnabled={aiEnabled}
             />
           ) : null}
 
@@ -508,9 +571,10 @@ export function ImportPage() {
                 <tr>
                   <th scope="col">Line</th>
                   <th scope="col">Status</th>
-                  {mappedColumns.map((column) => (
+                  {reviewColumns.map((column) => (
                     <th key={column.name} scope="col">{column.displayName ?? column.name}</th>
                   ))}
+                  {categoryDef ? <th scope="col">{categoryLabel}</th> : null}
                 </tr>
               </thead>
               <tbody>
@@ -531,7 +595,7 @@ export function ImportPage() {
                           </ul>
                         ) : null}
                       </td>
-                      {mappedColumns.map((column) => (
+                      {reviewColumns.map((column) => (
                         <td
                           key={column.name}
                           className={errorFields.has(column.name) ? "import-review__cell import-review__cell--error" : "import-review__cell"}
@@ -539,6 +603,21 @@ export function ImportPage() {
                           {row.display[column.name] ?? <span className="import-review__empty">—</span>}
                         </td>
                       ))}
+                      {categoryDef ? (
+                        <td className={errorFields.has(categoryDef.name) ? "import-review__cell import-review__cell--error" : "import-review__cell"}>
+                          {!result && row.status === "new" && !row.display[categoryDef.name] ? (
+                            <CategoryCell
+                              rowKey={String(row.line)}
+                              label={categoryLabel}
+                              options={categorising.options}
+                              choice={categorising.choices[String(row.line)]}
+                              categorising={categorising}
+                            />
+                          ) : (
+                            (row.display[categoryDef.name] ?? <span className="import-review__empty">—</span>)
+                          )}
+                        </td>
+                      ) : null}
                     </tr>
                   );
                 })}

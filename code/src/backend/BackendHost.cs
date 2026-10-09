@@ -138,6 +138,7 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Services.Ai.AiSettingsService>();
         services.AddSingleton<Bento.Api.Services.Ai.AiAgent>();
         services.AddSingleton<Bento.Api.Services.Ai.ExplainService>();
+        services.AddSingleton<Bento.Api.Services.Ai.CategoriseService>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();
 

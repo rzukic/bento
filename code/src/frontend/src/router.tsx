@@ -3,7 +3,7 @@ import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react
 import { App } from "./App";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { ShellLayout } from "./components/layout/ShellLayout";
-import { DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
+import { CategorisePage, DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
 import { Spinner } from "./components/ui/Spinner";
 
@@ -82,6 +82,15 @@ const shellRoutes: RouteObject[] = [
     element: <ImportPage />,
     handle: {
       title: ({ tableId }) => `Import into ${tableId ?? "table"}`,
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Data Explorer", to: "/data" }
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "data/:tableId/categorise",
+    element: <CategorisePage />,
+    handle: {
+      title: ({ tableId }) => `Categorise ${tableId ?? "table"}`,
       hidePageHeader: true,
       breadcrumbParent: { label: "Data Explorer", to: "/data" }
     } satisfies AppRouteHandle

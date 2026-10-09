@@ -49,6 +49,8 @@ export type ImportRunPayload = {
   keyColumns: string[];
   /** Also skip repeats within the file (filling a lookup table once per value). */
   distinctKeys?: boolean;
+  /** Values chosen per row in the review, by file line — e.g. categories (Step 4.8); they win over the file. */
+  assign?: { column: string; values: Record<string, string> };
 };
 
 export type ImportRowStatus = "new" | "duplicate" | "invalid";

@@ -47,6 +47,18 @@ public sealed record ImportRunRequest
     /// filling a lookup table (one category per name) from a column.
     /// </summary>
     public bool DistinctKeys { get; init; }
+    /// <summary>
+    /// Values chosen per row for one column, by file line — e.g. the categories
+    /// picked in the review (Step 4.8). They win over the file's value.
+    /// </summary>
+    public ImportAssign? Assign { get; init; }
+}
+
+public sealed record ImportAssign
+{
+    public string? Column { get; init; }
+    /// <summary>File line → value (a record's id or name for a link).</summary>
+    public IReadOnlyDictionary<string, string?>? Values { get; init; }
 }
 
 /// <summary>

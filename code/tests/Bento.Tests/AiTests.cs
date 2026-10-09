@@ -243,24 +243,24 @@ public sealed class AiTests
         return host;
     }
 
-    private static async Task<string> ViewerTokenAsync(ApiIntegrationTestHost host, string admin)
+    internal static async Task<string> ViewerTokenAsync(ApiIntegrationTestHost host, string admin)
     {
         (await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/auth/register", admin, new { username = "viewer", password = "anotherpass", role = "viewer" })).EnsureSuccessStatusCode();
         using var login = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new { username = "viewer", password = "anotherpass" });
         return (await login.Content.ReadFromJsonAsync<Bento.Api.Models.AuthTokenResponse>())!.AccessToken;
     }
 
-    private static async Task<JsonElement> DataAsync(HttpResponseMessage response)
+    internal static async Task<JsonElement> DataAsync(HttpResponseMessage response)
     {
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(response.IsSuccessStatusCode, body);
         return JsonDocument.Parse(body).RootElement.GetProperty("data").Clone();
     }
 
-    private static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
+    internal static JsonElement Json(object value) => JsonSerializer.SerializeToElement(value);
 
     /// <summary>A model that answers from a script and remembers what it was asked.</summary>
-    private sealed class ScriptedModel : IAiModel
+    internal sealed class ScriptedModel : IAiModel
     {
         public Queue<Func<AiRequest, AiResponse>> Script { get; } = new();
         public List<AiRequest> Requests { get; } = [];
@@ -268,8 +268,11 @@ public sealed class AiTests
         public Task<AiResponse> SendAsync(string apiKey, AiRequest request, CancellationToken cancellationToken)
         {
             Assert.Equal("sk-ant-test-123", apiKey);
-            Requests.Add(request with { Messages = request.Messages.ToList() });
-            return Task.FromResult(Script.Dequeue()(request));
+            lock (Script)
+            {
+                Requests.Add(request with { Messages = request.Messages.ToList() });
+                return Task.FromResult(Script.Dequeue()(request));
+            }
         }
     }
 
