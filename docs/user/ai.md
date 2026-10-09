@@ -2,7 +2,7 @@
 
 Bento's AI works where you work. It does not open a chat window. It explains the numbers on your dashboards and categorises bank bookings. It runs as **you**: it only sees what you can see, and it never changes anything without your OK.
 
-For a full conversation with your data, connect your own Claude over MCP (see [Connections → Claude](connections.md)).
+For a full conversation with your data, connect your own Claude over MCP (see [Connections → AI apps](connections.md)).
 
 ## Setting It Up (Admins)
 
