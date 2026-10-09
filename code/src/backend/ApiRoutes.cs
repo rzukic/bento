@@ -28,5 +28,6 @@ public static class ApiRoutes
     public const string OAuthToken = OAuth + "/token";
     public const string Mcp = "mcp";
     public const string McpConnections = Prefix + "/mcp";
+    public const string McpBundle = McpConnections + "/bento.mcpb";
     public const string AdminHealthDetails = AdminHealth + "/details";
 }

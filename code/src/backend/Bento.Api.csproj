@@ -16,6 +16,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Claude Desktop extension (.mcpb) Bento hands out with its own address filled in (Step 4.6). -->
+    <Content Remove="McpBundle\**" />
+    <None Remove="McpBundle\**" />
+    <EmbeddedResource Include="McpBundle\manifest.json" LogicalName="Bento.Api.McpBundle.manifest.json" />
+    <EmbeddedResource Include="McpBundle\icon.png" LogicalName="Bento.Api.McpBundle.icon.png" />
+    <EmbeddedResource Include="McpBundle\server\index.js" LogicalName="Bento.Api.McpBundle.server.index.js" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Dapper" Version="2.1.72" />
     <PackageReference Include="Jint" Version="4.16.4" />
