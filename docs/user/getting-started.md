@@ -71,6 +71,17 @@ See [Schema Designer](schema-designer.md) for the designer walkthrough.
 docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml --env-file code/.env up -d --build
 ```
 
+### On Coolify
+
+`code/docker-compose.coolify.yml` runs the whole stack with Postgres on a [Coolify](https://coolify.io) server, which provides HTTPS and redeploys on every push:
+
+1. **New resource** → your Git repository (private repositories through Coolify's GitHub App), branch e.g. `dev` or `main`.
+2. **Build pack** *Docker Compose*, **Base directory** `/code`, **Docker Compose file** `/docker-compose.coolify.yml`.
+3. Set the domain on the **proxy** service (`https://bento.example.com`) and point its DNS record (A or CNAME) at the server.
+4. **Deploy**, open the domain and finish the setup wizard.
+
+Coolify generates the Postgres passwords and the JWT secret on the first deploy and keeps them. The data lives in named volumes, so redeploys and updates keep it; with automatic deploys on, each push to the branch updates Bento.
+
 ### Stopping
 
 ```bash
