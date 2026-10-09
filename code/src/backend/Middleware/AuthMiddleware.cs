@@ -81,7 +81,7 @@ public sealed class AuthMiddleware
             if (!_runtimeOptions.IsStandardAuthMode)
                 throw Unauthorized("This auth mode is not available yet.");
             var grant = await oauth.AuthenticateAsync(bearer!);
-            if (enforceScope) EnsureScopeAllows(grant.Scope, context.Request);
+            if (enforceScope) EnsurePermissionAllows(grant, context.Request);
             context.User = CreateOAuthPrincipal(grant);
             return true;
         }
@@ -146,14 +146,31 @@ public sealed class AuthMiddleware
             : null;
     }
 
+    /// <summary>
+    /// An app's token may only make the calls its permissions cover; areas apps never
+    /// reach (users, keys, credentials, connections) are refused outright.
+    /// </summary>
+    private static void EnsurePermissionAllows(OAuthService.OAuthIdentity grant, HttpRequest request)
+    {
+        var required = McpPermissions.RequiredFor(request.Method, request.Path.Value ?? "");
+        if (required is null)
+            throw new ApiForbiddenException("Connected apps cannot use this part of Bento.", new Dictionary<string, object?> { ["path"] = request.Path.Value });
+        if (!grant.Permissions.Contains(required))
+            throw new ApiForbiddenException(
+                $"This connection was not allowed to do that (needs \"{required}\"). Connect again and tick it on Bento's sign-in page.",
+                new Dictionary<string, object?> { ["permission"] = required });
+    }
+
+    /// <summary>The user's own role (the API's role checks apply as for them); the permissions narrow it further.</summary>
     private static ClaimsPrincipal CreateOAuthPrincipal(OAuthService.OAuthIdentity grant)
     {
         return new ClaimsPrincipal(new ClaimsIdentity(
         [
             new Claim(ClaimTypes.NameIdentifier, grant.UserId.ToString(CultureInfo.InvariantCulture)),
             new Claim(ClaimTypes.Name, grant.Username),
-            new Claim(ClaimTypes.Role, grant.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"),
+            new Claim(ClaimTypes.Role, grant.Role),
             new Claim("auth_method", "oauth"),
+            new Claim("oauth_permissions", string.Join(' ', grant.Permissions)),
             new Claim("oauth_grant_id", grant.GrantId.ToString(CultureInfo.InvariantCulture)),
             new Claim("oauth_client", grant.ClientName)
         ], "OAuth"));

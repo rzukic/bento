@@ -5,11 +5,16 @@ using System.Text.Json.Nodes;
 
 namespace Bento.Api.Services.Mcp;
 
-/// <summary>Who is calling and what they may do; the credentials are passed on to the REST API.</summary>
-public sealed record McpCaller(long? UserId, string Via, string? Credential, bool CanWrite, BentoSelfClient.Credentials Credentials);
+/// <summary>Who is calling and what they may do (<see cref="McpPermissions"/>); the credentials are passed on to the REST API.</summary>
+public sealed record McpCaller(long? UserId, string Via, string? Credential, IReadOnlyCollection<string> Permissions, BentoSelfClient.Credentials Credentials)
+{
+    public bool Allows(string permission) => Permissions.Contains(permission);
+}
 
 public sealed record McpToolResult(string Text, bool IsError);
 
+/// <param name="Permission">What the caller needs to see and use the tool (<see cref="McpPermissions"/>).</param>
+/// <param name="Destructive">The tool can delete data (rows, a dashboard, columns).</param>
 public sealed record McpTool(
     string Name,
     string Title,
@@ -17,15 +22,17 @@ public sealed record McpTool(
     JsonObject InputSchema,
     bool ReadOnly,
     bool Idempotent,
-    Func<McpCaller, JsonElement, CancellationToken, Task<McpToolResult>> Run);
+    Func<McpCaller, JsonElement, CancellationToken, Task<McpToolResult>> Run,
+    string Permission = McpPermissions.Read,
+    bool Destructive = false);
 
 /// <summary>
 /// The tools Bento offers over MCP (Step 4.6). Each one is a call to the REST API
-/// as the caller. Reads cover the model, rows, aggregations, saved queries,
-/// dashboards and forms; with write access the caller can add and change rows.
-/// Schema, dashboard and form changes come later, as proposals for review (4.9).
+/// as the caller, so the caller's role and, for apps, the permissions ticked on the
+/// consent page apply. Reads cover everything; writes cover rows, dashboards, saved
+/// queries, forms, the schema and functions, each behind its own permission.
 /// </summary>
-public sealed class McpTools
+public sealed partial class McpTools
 {
     /// <summary>Tool output beyond this many characters is cut, with a hint to narrow the request.</summary>
     private const int MaxResultLength = 60_000;
@@ -36,7 +43,7 @@ public sealed class McpTools
     public McpTools(BentoSelfClient api)
     {
         _api = api;
-        All = Build();
+        All = [.. Build(), .. BuildManagement()];
     }
 
     public IReadOnlyList<McpTool> All { get; }
@@ -44,12 +51,15 @@ public sealed class McpTools
     public McpTool? Find(string name) => All.FirstOrDefault(tool => tool.Name == name);
 
     public const string Instructions = """
-        Bento is the user's own data workspace: tables they designed (for example accounts, transactions, categories, trades, prices), dashboards and forms.
+        Bento is the user's own data workspace: tables they designed (for example accounts, transactions, categories, trades, prices), dashboards, forms, formulas and JavaScript functions.
+        - bento_guide explains how Bento works and the exact JSON formats (schema, formulas, queries, dashboards, forms, functions, the finance template). Read the matching topic before building or changing something, and when the user asks how Bento works.
         - Start with describe_schema to learn the tables, their columns and links; call it with a table name for the details of one table.
         - For totals, averages and counts over time use aggregate: it filters, groups by columns, linked records or date buckets (month, quarter, year) and computes measures in one call. Use list_rows to look at individual rows.
         - A link column (type reference) stores the id of a row in another table. aggregate returns <column>_label with the linked record's name; list_rows can include the linked record. To filter by a linked record, find its id first (list_rows with search on the linked table).
         - In finance setups money going out is negative (expenses < 0) unless the schema says otherwise. Dates are ISO (YYYY-MM-DD).
         - Before adding a row, look up the ids for its link columns (account, category, …) and use today's date unless the user says otherwise. Confirm amounts and the target table with the user when anything is ambiguous.
+        - Changing the schema can delete data: always preview_schema_change first, tell the user what it does, and only apply after they agree. Deleting rows, dashboards or forms also needs the user's go-ahead.
+        - You see only the tools this connection may use; if the user wants more, they reconnect and tick it on Bento's sign-in page.
         """;
 
     private List<McpTool> Build() =>
@@ -156,7 +166,7 @@ public sealed class McpTools
                 ["table"] = Prop("string", "Table name."),
                 ["values"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true, ["description"] = "Column values, e.g. {\"booked_on\": \"2026-10-09\", \"amount\": -12.40, \"category_id\": 3}." }
             }, "table", "values"),
-            ReadOnly: false, Idempotent: false, CreateRowAsync),
+            ReadOnly: false, Idempotent: false, CreateRowAsync, Permission: McpPermissions.WriteRows),
 
         new("update_row", "Change a row",
             "Changes some columns of one row (the others stay) and returns the row.",
@@ -166,7 +176,7 @@ public sealed class McpTools
                 ["id"] = Prop("string", "The row's id."),
                 ["values"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true, ["description"] = "The columns to change." }
             }, "table", "id", "values"),
-            ReadOnly: false, Idempotent: true, UpdateRowAsync)
+            ReadOnly: false, Idempotent: true, UpdateRowAsync, Permission: McpPermissions.WriteRows)
     ];
 
     // --- Tools ---------------------------------------------------------------------
@@ -293,14 +303,12 @@ public sealed class McpTools
 
     private Task<McpToolResult> CreateRowAsync(McpCaller caller, JsonElement args, CancellationToken ct)
     {
-        if (!caller.CanWrite) return Task.FromResult(ReadOnlyRefusal());
         var values = Object(args, "values");
         return PassAsync(caller, HttpMethod.Post, $"{Api}/data/{Uri.EscapeDataString(Required(args, "table"))}", values, ct);
     }
 
     private Task<McpToolResult> UpdateRowAsync(McpCaller caller, JsonElement args, CancellationToken ct)
     {
-        if (!caller.CanWrite) return Task.FromResult(ReadOnlyRefusal());
         var values = Object(args, "values");
         return PassAsync(caller, HttpMethod.Patch, $"{Api}/data/{Uri.EscapeDataString(Required(args, "table"))}/{Uri.EscapeDataString(Required(args, "id"))}", values, ct);
     }
@@ -314,8 +322,9 @@ public sealed class McpTools
         return response.Body is { } json ? Success(JsonNode.Parse(json.GetRawText())) : new McpToolResult(response.RawBody, false);
     }
 
-    private static McpToolResult ReadOnlyRefusal() =>
-        new("This connection can only read. Reconnect with read and write access (or use a read-write API key) to change data.", true);
+    /// <summary>A tool the connection was not allowed: what to tick when connecting again.</summary>
+    public static McpToolResult Refusal(string permission) =>
+        new($"This connection may not do that (it needs \"{permission}\"). Reconnect to Bento and tick it on the sign-in page, or use an API key or role that allows it.", true);
 
     private static McpToolResult Success(JsonNode? node)
     {

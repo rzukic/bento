@@ -3,6 +3,36 @@ import type { ApiKeyScope } from "./connections";
 
 type DataEnvelope<T> = { data: T };
 
+/** What a connected app may do, area by area (Step 4.6); the user ticks them on the consent page. */
+export type McpPermission =
+  | "data.read"
+  | "data.write"
+  | "data.delete"
+  | "dashboards.write"
+  | "forms.write"
+  | "schema.write"
+  | "functions.write";
+
+export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string; needs: "viewer" | "editor" | "admin"; danger?: boolean }[] = [
+  { id: "data.read", label: "Read everything", detail: "Tables and rows, the schema, dashboards, forms, saved queries and functions; run analyses.", needs: "viewer" },
+  { id: "data.write", label: "Add and change rows", detail: "For example a new transaction; also CSV imports.", needs: "editor" },
+  { id: "data.delete", label: "Delete rows", detail: "Remove records from your tables.", needs: "editor", danger: true },
+  { id: "dashboards.write", label: "Dashboards and saved queries", detail: "Create, change and delete them.", needs: "viewer" },
+  { id: "forms.write", label: "Forms", detail: "Create, change and delete entry forms.", needs: "editor" },
+  { id: "schema.write", label: "Tables and columns", detail: "Change the schema — this can delete data.", needs: "admin", danger: true },
+  { id: "functions.write", label: "Functions and price sources", detail: "Write JavaScript functions and run price sources.", needs: "admin" },
+];
+
+/** OAuth scope text → permissions: the ids, and "write" for adding and changing rows. Read is always in. */
+export function permissionsFromScope(scope: string | null): McpPermission[] {
+  const wanted = new Set<McpPermission>(["data.read"]);
+  for (const part of (scope ?? "").split(/\s+/)) {
+    if (part === "write") wanted.add("data.write");
+    else if (MCP_PERMISSIONS.some((p) => p.id === part)) wanted.add(part as McpPermission);
+  }
+  return MCP_PERMISSIONS.map((p) => p.id).filter((id) => wanted.has(id));
+}
+
 /** GET /api/v1/mcp — where clients connect, and whether sign-in with OAuth is available. */
 export type McpInfo = { endpoint: string; oauth: boolean; canWrite: boolean };
 
@@ -12,6 +42,7 @@ export type McpConnection = {
   clientName: string;
   username: string | null;
   scope: ApiKeyScope;
+  permissions: McpPermission[];
   createdAt: string;
   lastUsedAt: string | null;
 };
@@ -47,7 +78,7 @@ export async function listMcpCalls(limit = 50): Promise<McpCall[]> {
 }
 
 /** What the consent page shows before the user decides. */
-export type AuthorizeInfo = { clientName: string; redirectHost: string; canWrite: boolean };
+export type AuthorizeInfo = { clientName: string; redirectHost: string; canWrite: boolean; allowed: McpPermission[] };
 
 export async function getAuthorizeInfo(clientId: string, redirectUri: string): Promise<AuthorizeInfo> {
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
@@ -59,7 +90,7 @@ export type AuthorizeDecision = {
   redirectUri: string;
   codeChallenge: string;
   codeChallengeMethod: string;
-  scope: ApiKeyScope;
+  permissions: McpPermission[];
   state: string | null;
   approve: boolean;
 };

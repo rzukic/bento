@@ -24,6 +24,9 @@ Ask your own Claude about your data — in the app, on the web, on the phone or 
 - **Sign in with your Bento account**: Claude opens Bento's sign-in, you choose *Read only* or *Read and write*; API keys work too
 - **Connections → Claude**: the address and the steps per client, connected apps with *Disconnect*, and every call Claude made
 - `PUBLIC_URL` for installations behind a proxy; Coolify sets it
+- **Claude Desktop extension**: Connections → Claude → *Download bento.mcpb*, with your address built in; it signs in through the browser like the connector
+- **Everything over MCP, permission by permission**: Claude can also build dashboards and forms, change the schema (after a preview) and write functions — the sign-in page lists what it may do (add rows, delete rows, dashboards, forms, tables and columns, functions), and Bento checks every call against it
+- **A guide for Claude** (`bento_guide`): how Bento works and the exact formats of schema, formulas, queries, dashboards, forms, the finance template and functions
 
 ### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
 

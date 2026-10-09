@@ -406,7 +406,8 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 | `GET` | `/api/v1/mcp/bento.mcpb` | Claude Desktop extension (MCP bundle: manifest, icon, a stdio bridge to `/mcp` that signs in through the browser with OAuth and keeps the tokens in `~/.bento`), its address set to this installation. Public; holds no secret |
 
 - `/mcp` accepts an OAuth access token (`Bearer bento_at_…`), an API key or a session token. Without valid credentials it answers 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`.
-- An access token lasts one hour and acts as its user within its scope, like an API key: `read`, or `read-write` for editors and admins. Tokens never reach admin routes or the connection settings.
+- An access token lasts one hour and acts as its user with the permissions ticked on the consent page (`data.read`, `data.write`, `data.delete`, `dashboards.write`, `forms.write`, `schema.write`, `functions.write`; capped by the role; also the token's `scope`). Every call is checked against them; users, keys, credentials, connections and sign-in are never reachable with a token.
+- `POST /api/v1/oauth/authorize` takes `permissions` (a list of those ids); `GET` returns `allowed`, what the user's role permits.
 - Each tool is a call to this REST API with the caller's credentials, so the same roles, scopes and validation apply.
 - `PUBLIC_URL` sets the address used in the metadata; without it the request's scheme and host are used.
 

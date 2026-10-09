@@ -109,7 +109,9 @@ public sealed class OAuthController : ControllerBase
         public string? RedirectUri { get; init; }
         public string? CodeChallenge { get; init; }
         public string? CodeChallengeMethod { get; init; }
-        /// <summary>read or read-write; what the user picked on the consent page.</summary>
+        /// <summary>What the user ticked on the consent page (<see cref="McpPermissions"/> ids); capped by the user's role.</summary>
+        public List<string>? Permissions { get; init; }
+        /// <summary>Older form: read or read-write, used when <see cref="Permissions"/> is missing.</summary>
         public string? Scope { get; init; }
         public string? State { get; init; }
         public bool Approve { get; init; }
@@ -131,7 +133,9 @@ public sealed class OAuthController : ControllerBase
                 {
                     clientName = client.Name,
                     redirectHost = new Uri(redirectUri!).Authority is { Length: > 0 } host ? host : new Uri(redirectUri!).Scheme,
-                    canWrite = role is "admin" or "editor"
+                    canWrite = role is "admin" or "editor",
+                    // What this user may grant at all; the page greys out the rest.
+                    allowed = McpPermissions.ForRole(role)
                 }
             });
         }
@@ -174,8 +178,11 @@ public sealed class OAuthController : ControllerBase
             {
                 try
                 {
-                    var scope = ApiKeyService.NormalizeScope(request.Scope ?? ApiKeyService.ReadScope);
-                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", scope);
+                    var wanted = request.Permissions ?? (ApiKeyService.NormalizeScope(request.Scope ?? ApiKeyService.ReadScope) == ApiKeyService.ReadWriteScope
+                        ? [McpPermissions.Read, McpPermissions.WriteRows]
+                        : [McpPermissions.Read]);
+                    var permissions = McpPermissions.Cap(wanted, User.GetRole());
+                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", permissions);
                 }
                 catch (OAuthException ex)
                 {

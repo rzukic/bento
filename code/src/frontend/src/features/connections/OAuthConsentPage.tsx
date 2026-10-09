@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
-import type { ApiKeyScope } from "../../api/connections";
-import { decideAuthorization, getAuthorizeInfo, type AuthorizeInfo } from "../../api/mcp";
+import { decideAuthorization, getAuthorizeInfo, MCP_PERMISSIONS, permissionsFromScope, type AuthorizeInfo, type McpPermission } from "../../api/mcp";
 import { Glyph, Sky } from "../../components/common/Atmosphere";
 import { Icon } from "../../components/common/Icon";
 import { ThemeSwitch } from "../../components/common/ThemeSwitch";
@@ -14,8 +13,9 @@ import "./OAuthConsent.css";
 
 /**
  * /oauth/authorize (Step 4.6): an MCP client such as Claude asks to use Bento
- * as the signed-in user. The user picks read-only or read-and-write access and
- * is sent back to the client with a code (or with access_denied).
+ * as the signed-in user. The user ticks what it may do, area by area (reading
+ * is always in; the role limits the rest), and is sent back to the client with
+ * a code (or with access_denied).
  */
 export function OAuthConsentPage() {
   useDocumentTitle("Connect an app · Bento");
@@ -27,12 +27,12 @@ export function OAuthConsentPage() {
   const codeChallenge = params.get("code_challenge") ?? "";
   const codeChallengeMethod = params.get("code_challenge_method") ?? "S256";
   const state = params.get("state");
-  const requestedWrite = (params.get("scope") ?? "").split(/\s+/).includes("write");
+  const scopeParam = params.get("scope");
   const responseType = params.get("response_type");
 
   const [info, setInfo] = useState<AuthorizeInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [scope, setScope] = useState<ApiKeyScope>("read");
+  const [granted, setGranted] = useState<McpPermission[]>(["data.read"]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -45,7 +45,8 @@ export function OAuthConsentPage() {
       .then((next) => {
         if (cancelled) return;
         setInfo(next);
-        setScope(requestedWrite && next.canWrite ? "read-write" : "read");
+        // What the app asked for, as far as the user's role allows it.
+        setGranted(permissionsFromScope(scopeParam).filter((id) => next.allowed.includes(id)));
       })
       .catch((cause) => {
         if (!cancelled) setError(cause instanceof ApiClientError ? cause.message : "The app could not be checked. Try again.");
@@ -53,13 +54,13 @@ export function OAuthConsentPage() {
     return () => {
       cancelled = true;
     };
-  }, [clientId, redirectUri, codeChallenge, responseType, requestedWrite]);
+  }, [clientId, redirectUri, codeChallenge, responseType, scopeParam]);
 
   const decide = async (approve: boolean) => {
     setBusy(true);
     setError(null);
     try {
-      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, scope, state, approve });
+      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, permissions: granted, state, approve });
       window.location.assign(redirectTo);
     } catch (cause) {
       setError(cause instanceof ApiClientError ? cause.message : "That did not work. Try again.");
@@ -119,31 +120,51 @@ export function OAuthConsentPage() {
             {info ? (
               <>
                 <fieldset className="oauth-consent__choices" disabled={busy}>
-                  <legend>Access</legend>
-                  <label className="oauth-consent__choice">
-                    <input type="radio" name="scope" value="read" checked={scope === "read"} onChange={() => setScope("read")} />
-                    <span>
-                      <strong>Read only</strong>
-                      <small>Look at tables, rows, dashboards and forms, and run analyses.</small>
+                  <legend>
+                    What it may do
+                    <span className="oauth-consent__quick">
+                      <button
+                        type="button"
+                        onClick={() => setGranted(MCP_PERMISSIONS.map((p) => p.id).filter((id) => info.allowed.includes(id)))}
+                      >
+                        All
+                      </button>
+                      <button type="button" onClick={() => setGranted(["data.read"])}>
+                        Read only
+                      </button>
                     </span>
-                  </label>
-                  <label className={`oauth-consent__choice${info.canWrite ? "" : " oauth-consent__choice--off"}`}>
-                    <input
-                      type="radio"
-                      name="scope"
-                      value="read-write"
-                      checked={scope === "read-write"}
-                      disabled={!info.canWrite}
-                      onChange={() => setScope("read-write")}
-                    />
-                    <span>
-                      <strong>Read and write</strong>
-                      <small>{info.canWrite ? "Also add and change rows, e.g. a new transaction." : "Your role can only read."}</small>
-                    </span>
-                  </label>
+                  </legend>
+                  {MCP_PERMISSIONS.map((permission) => {
+                    const allowed = info.allowed.includes(permission.id);
+                    const always = permission.id === "data.read";
+                    const checked = granted.includes(permission.id);
+                    return (
+                      <label
+                        key={permission.id}
+                        className={`oauth-consent__choice${allowed ? "" : " oauth-consent__choice--off"}${permission.danger ? " oauth-consent__choice--danger" : ""}`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          disabled={always || !allowed}
+                          onChange={() =>
+                            setGranted((current) =>
+                              current.includes(permission.id)
+                                ? current.filter((id) => id !== permission.id)
+                                : MCP_PERMISSIONS.map((p) => p.id).filter((id) => id === permission.id || current.includes(id)),
+                            )
+                          }
+                        />
+                        <span>
+                          <strong>{permission.label}</strong>
+                          <small>{allowed ? permission.detail : `Needs the ${permission.needs} role.`}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
                 </fieldset>
                 <p className="oauth-consent__note">
-                  It never changes the schema, users or keys, and nothing is deleted. Disconnect it any time under Connections → Claude.
+                  It acts as you and never manages users or keys. Disconnect it or change what it may do (connect again) any time under Connections → Claude.
                 </p>
                 <div className="login__row oauth-consent__actions">
                   <button type="button" className="btn btn--ghost btn--lg" disabled={busy} onClick={() => void decide(false)}>

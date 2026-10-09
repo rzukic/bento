@@ -95,8 +95,8 @@ public sealed class McpServer
         };
     }
 
-    /// <summary>Read-only connections do not see the write tools at all.</summary>
-    private IEnumerable<McpTool> VisibleTools(McpCaller caller) => _tools.All.Where(tool => tool.ReadOnly || caller.CanWrite);
+    /// <summary>A connection sees only the tools its permissions allow.</summary>
+    private IEnumerable<McpTool> VisibleTools(McpCaller caller) => _tools.All.Where(tool => caller.Allows(tool.Permission));
 
     private static JsonNode Describe(McpTool tool) => new JsonObject
     {
@@ -108,7 +108,7 @@ public sealed class McpServer
         {
             ["title"] = tool.Title,
             ["readOnlyHint"] = tool.ReadOnly,
-            ["destructiveHint"] = false,
+            ["destructiveHint"] = tool.Destructive,
             ["idempotentHint"] = tool.Idempotent,
             ["openWorldHint"] = false
         }
@@ -130,7 +130,7 @@ public sealed class McpServer
         McpToolResult result;
         try
         {
-            result = await tool.Run(caller, arguments, ct);
+            result = caller.Allows(tool.Permission) ? await tool.Run(caller, arguments, ct) : McpTools.Refusal(tool.Permission);
         }
         catch (McpArgumentException ex)
         {
