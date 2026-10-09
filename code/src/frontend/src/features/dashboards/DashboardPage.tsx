@@ -23,6 +23,10 @@ import type { SavedForm } from "../../api/forms";
 import { Dialog } from "../../components/ui/Dialog";
 import { FormFill } from "../forms/FormFill";
 import { formsForDashboard } from "../forms/quickAdd";
+import { defaultBudget } from "./budget";
+import { BudgetEditor } from "./BudgetEditor";
+import { QuickAddEditor } from "./QuickAddEditor";
+import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
 import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
 import type { LayoutItem } from "./layout";
@@ -66,6 +70,7 @@ export function DashboardPage() {
   const [variablesOpen, setVariablesOpen] = useState(false);
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +110,8 @@ export function DashboardPage() {
   const range: DashboardDateRange = rangeFromSearch(searchParams) ?? document?.dateRange ?? { preset: "last-12-months" };
   // The chosen filter values (from the address) travel with the range into every query.
   const selection = selectionFromSearch(searchParams);
+  // Step 4.5: intervals viewers chose for charts by date.
+  const intervals = intervalsFromSearch(searchParams);
   const selectionKey = JSON.stringify(selection);
   const filterDefs = document?.filters;
   const filtersKey = JSON.stringify(filterDefs ?? []);
@@ -244,7 +251,7 @@ export function DashboardPage() {
     const candidates = dataTables(tables);
     const used = [...widgets].reverse().map((w) => w.data?.query?.source).find(Boolean);
     const table = candidates.find((t) => t.name === used) ?? candidates.find(isFinanceTable) ?? candidates[0];
-    const widget = newWidget(type, table, layout);
+    const widget = newWidget(type, table, layout, type === "budget" ? defaultBudget(candidates, snapshot) : undefined);
     updateDocument((doc) => ({ ...doc, widgets: [...doc.widgets, widget] }));
     setAddOpen(false);
     setEditingWidgetId(widget.id);
@@ -381,6 +388,7 @@ export function DashboardPage() {
                       setVariablesOpen(false);
                       setAnnotationsOpen(false);
                       setFiltersOpen(false);
+                      setQuickAddOpen(false);
                     }}
                   >
                     Cancel
@@ -438,6 +446,7 @@ export function DashboardPage() {
               setVariablesOpen((open) => !open);
               setAnnotationsOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -452,6 +461,7 @@ export function DashboardPage() {
               setAnnotationsOpen((open) => !open);
               setVariablesOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -466,10 +476,26 @@ export function DashboardPage() {
               setFiltersOpen((open) => !open);
               setVariablesOpen(false);
               setAnnotationsOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
             Filters{(document?.filters ?? []).length > 0 ? ` (${document!.filters!.length})` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="plus" size={13} />}
+            aria-expanded={quickAddOpen}
+            onClick={() => {
+              setQuickAddOpen((open) => !open);
+              setVariablesOpen(false);
+              setAnnotationsOpen(false);
+              setFiltersOpen(false);
+              setEditingWidgetId(null);
+            }}
+          >
+            Quick add{document?.quickAdd === "none" ? ": none" : Array.isArray(document?.quickAdd) ? ` (${document!.quickAdd.length})` : ""}
           </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
@@ -490,14 +516,34 @@ export function DashboardPage() {
           editing={editing}
           onLayoutChange={setLayout}
           renderItem={(widgetId) => {
-            const widget = widgets.find((w) => w.id === widgetId)!;
+            const own = widgets.find((w) => w.id === widgetId)!;
+            const options = editing ? [] : intervalOptions(own);
+            const widget = editing ? own : withInterval(own, intervals[own.id]);
+            const current = widget.data?.query?.groupBy?.find((g) => g.bucket)?.bucket;
             return (
               <article className={editingWidgetId === widget.id ? "widget-frame widget-frame--selected" : "widget-frame"} aria-label={widget.title || widget.type}>
                 <header className="widget-frame__header" data-drag-handle={editing ? "" : undefined}>
                   <h2 className="widget-frame__title">{widget.title}</h2>
+                  {options.length > 0 ? (
+                    <span className="widget-interval" role="group" aria-label={`${widget.title || "Chart"}: interval`}>
+                      {options.map((bucket) => (
+                        <button
+                          key={bucket}
+                          type="button"
+                          className="widget-interval__option"
+                          aria-pressed={bucket === current}
+                          aria-label={INTERVAL_LABELS[bucket].long}
+                          title={INTERVAL_LABELS[bucket].long}
+                          onClick={() => setSearchParams(intervalToSearch(own, bucket, searchParams), { replace: true })}
+                        >
+                          {INTERVAL_LABELS[bucket].short}
+                        </button>
+                      ))}
+                    </span>
+                  ) : null}
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); }}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); setQuickAddOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -533,7 +579,15 @@ export function DashboardPage() {
         />
       )}
 
-      {editing && editingWidget ? (
+      {editing && editingWidget?.type === "budget" ? (
+        <BudgetEditor
+          widget={editingWidget}
+          tables={dataTables(tables)}
+          snapshot={snapshot}
+          onChange={setWidget}
+          onClose={() => setEditingWidgetId(null)}
+        />
+      ) : editing && editingWidget ? (
         <LensEditor
           widget={editingWidget}
           tables={tables}
@@ -566,6 +620,14 @@ export function DashboardPage() {
           tables={dataTables(tables)}
           onChange={(next) => updateDocument((doc) => ({ ...doc, filters: next.length > 0 ? next : undefined }))}
           onClose={() => setFiltersOpen(false)}
+        />
+      ) : null}
+      {editing && quickAddOpen && document ? (
+        <QuickAddEditor
+          document={document}
+          forms={forms ?? []}
+          onChange={(quickAdd) => updateDocument((doc) => ({ ...doc, quickAdd }))}
+          onClose={() => setQuickAddOpen(false)}
         />
       ) : null}
       {quickForm ? (

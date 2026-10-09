@@ -129,6 +129,30 @@ describe("form model", () => {
     expect(formsForDashboard([saved], dashboard("accounts", "SUM(balance + SUM(transactions.amount))"))).toEqual([saved]);
     expect(formsForDashboard([saved], dashboard("accounts", "SUM(my_transactions.amount)"))).toEqual([]);
     expect(formsForDashboard([{ ...saved, form: { ...addTransaction, pinned: false } }], dashboard("transactions"))).toEqual([]);
+    // Step 4.5: a dashboard's own choice — none, or named forms (also unpinned ones, for any table), in its order.
+    const other: SavedForm = { ...saved, id: 8, name: "Add trade", table: "trades", form: { ...addTransaction, table: "trades", pinned: false } };
+    expect(formsForDashboard([saved, other], { ...dashboard("transactions"), quickAdd: "none" })).toEqual([]);
+    expect(formsForDashboard([saved, other], { ...dashboard("transactions"), quickAdd: [8, 7] }).map((f) => f.name)).toEqual(["Add trade", "Add transaction"]);
+    expect(formsForDashboard([saved, other], { ...dashboard("transactions"), quickAdd: "auto" })).toEqual([saved]);
+  });
+
+  it("lets the dashboard choose its form buttons", async () => {
+    const { QuickAddEditor } = await import("../features/dashboards/QuickAddEditor");
+    const other: SavedForm = { ...saved, id: 8, name: "Add trade", table: "trades", form: { ...addTransaction, table: "trades", pinned: false } };
+    const document = { widgets: [{ id: "w", type: "kpi" as const, title: "", position: { x: 0, y: 0, w: 3, h: 2 }, data: { query: { source: "transactions" } } }] };
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    const { rerender } = render(<QuickAddEditor document={document} forms={[saved, other]} onChange={onChange} onClose={() => {}} />);
+    expect(screen.getByRole("radio", { name: /Automatic/ })).toBeChecked();
+    expect(screen.getByText(/: Add transaction$/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("radio", { name: "These forms" }));
+    expect(onChange).toHaveBeenLastCalledWith([7]);
+    rerender(<QuickAddEditor document={{ ...document, quickAdd: [7] }} forms={[saved, other]} onChange={onChange} onClose={() => {}} />);
+    await user.click(screen.getByRole("checkbox", { name: "Add trade" }));
+    expect(onChange).toHaveBeenLastCalledWith([7, 8]);
+    await user.click(screen.getByRole("radio", { name: "None" }));
+    expect(onChange).toHaveBeenLastCalledWith("none");
   });
 });
 

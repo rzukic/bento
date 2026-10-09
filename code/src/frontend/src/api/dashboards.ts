@@ -1,7 +1,25 @@
 import { apiClient } from "./client";
 import type { AggregationQuery } from "./query";
 
-export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text";
+export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text" | "budget";
+
+/**
+ * A budget widget (Step 4.5): spending rows (e.g. transactions) linked to
+ * categories, and a column there with each category's monthly limit.
+ */
+export type BudgetConfig = {
+  source: string;
+  amount: string;
+  date: string;
+  /** The link column to the categories table. */
+  category: string;
+  /** The categories table's column with the monthly limit. */
+  limit: string;
+  /** How the source stores spending: as negative amounts (a bank account) or positive ones (an expenses table). */
+  expenses?: "negative" | "positive";
+  /** "month" (default): the last month of the dashboard's range, e.g. this month; "range": the whole range, limits times its months. */
+  period?: "month" | "range";
+};
 
 /** levels: flows between consecutive groups; cashflow: income categories → income → expense categories (and saved). */
 export type SankeyMode = "levels" | "cashflow";
@@ -22,6 +40,8 @@ export type WidgetData = {
   rows?: WidgetRows;
   /** Charts by date: the same measures over the period before or the same period a year earlier, as dashed lines. */
   timeShift?: TimeShift;
+  /** Budget widgets. */
+  budget?: BudgetConfig;
 };
 
 export type TimeShift = "previous" | "year";
@@ -78,6 +98,8 @@ export type WidgetDisplay = {
   sankey?: SankeyMode;
   /** Sankey: node labels as shares (%) of the first column instead of amounts. */
   shares?: boolean;
+  /** Donut (Step 4.5): a column of the same table; a slice then shows its rows grouped by it, e.g. main category → category. */
+  drill?: string;
 };
 
 export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
@@ -126,6 +148,11 @@ export type DashboardDocument = {
   annotations?: DashboardAnnotation[];
   /** Filters in the bar above the widgets (Part 9 R9.6): each narrows every widget whose table has the column. */
   filters?: DashboardFilter[];
+  /**
+   * Form buttons in the header (Step 4.5): missing or "auto" — the forms in
+   * Quick add whose table the dashboard shows; a list — these forms, by id; "none" — no buttons.
+   */
+  quickAdd?: "auto" | "none" | number[];
 };
 
 /** A dashboard filter on a column name, e.g. `konto_id`; the chosen values live in the address. */

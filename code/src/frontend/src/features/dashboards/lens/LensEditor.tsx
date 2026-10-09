@@ -748,6 +748,21 @@ function StyleSettings({
           Colour by sign (green above 0, red below)
         </label>
       ) : null}
+      {widget.type === "donut" && table && (widget.data?.query?.groupBy ?? []).length === 1 ? (
+        <label className="lens-field" title="Clicking a slice shows its rows grouped by this column inside the donut, e.g. main category → category; a click there opens the rows">
+          <span className="lens-field__label">Drill into</span>
+          <select className="field__control field__control--compact" aria-label="Drill into" value={display.drill ?? ""} onChange={(event) => setDisplay({ drill: event.target.value || undefined })}>
+            <option value="">Nothing — a slice opens its rows</option>
+            {table.columns
+              .filter((c) => !c.primaryKey && c.name !== widget.data?.query?.groupBy?.[0]?.column && ["reference", "enum", "text", "computed"].includes(c.type))
+              .map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.displayName ?? c.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
       {widget.type === "sankey" ? (
         <label className="lens-check" title="Labels show each node's share of the first column — for a cash flow, of the income">
           <input type="checkbox" checked={display.shares ?? false} onChange={(event) => setDisplay({ shares: event.target.checked || undefined })} />

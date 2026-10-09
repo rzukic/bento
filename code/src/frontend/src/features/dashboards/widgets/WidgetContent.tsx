@@ -16,6 +16,7 @@ import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
 import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
 import { useSchemaStore } from "../../../stores/schemaStore";
+import { BudgetWidget } from "./BudgetWidget";
 
 /** Re-reads the chart colors whenever the light/dark theme changes. */
 export function useChartTokens(): ChartTokens {
@@ -59,11 +60,21 @@ export function WidgetContent({
   onDrill?: (target: DrillTarget) => void;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
-  const state = useWidgetResult(widget, range, refreshToken, values);
+  // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
+  const [level, setLevel] = useState<{ value: unknown; label: string } | null>(null);
+  const shown = useMemo(() => (level ? drilledWidget(widget, level.value) : widget), [widget, level]);
+  const state = useWidgetResult(shown, range, refreshToken, values);
 
   if (widget.type === "text") return <TextWidget text={widget.display?.text ?? ""} />;
   if (widget.type === "kpi" && widget.data?.variable) {
     return <VariableKpi widget={widget} name={widget.data.variable} variables={variables} />;
+  }
+  if (widget.type === "budget") {
+    return widget.data?.budget ? (
+      <BudgetWidget config={widget.data.budget} range={range} refreshToken={refreshToken} onDrill={onDrill} />
+    ) : (
+      <p className="widget-note">Choose the spending table and the limits in the widget's settings.</p>
+    );
   }
   if (widget.type === "table" && widget.data?.rows) {
     return <RowsTable widget={widget} range={range} refreshToken={refreshToken} />;
@@ -99,6 +110,37 @@ export function WidgetContent({
     case "sankey":
       return <SankeyWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} onDrill={onDrill} />;
     default:
+      if (widget.type === "donut" && widget.display?.drill) {
+        return (
+          <div className="widget-drill">
+            <nav className="widget-drill__path" aria-label="Level">
+              {level ? (
+                <>
+                  <button type="button" className="widget-drill__up" onClick={() => setLevel(null)}>
+                    All
+                  </button>
+                  <span aria-hidden="true">›</span>
+                  <span aria-current="true">{level.label}</span>
+                </>
+              ) : (
+                <span className="widget-drill__hint">Click a slice to see what is in it</span>
+              )}
+            </nav>
+            <ChartWidget
+              onDrill={onDrill}
+              onDrillDown={level ? undefined : (value, label) => setLevel({ value, label })}
+              widget={shown}
+              result={state.result}
+              query={state.query}
+              range={range}
+              tokens={tokens}
+              refreshToken={refreshToken}
+              values={values}
+              annotations={annotations}
+            />
+          </div>
+        );
+      }
       return (
         <ChartWidget
           onDrill={onDrill}
@@ -125,6 +167,7 @@ function ChartWidget({
   values,
   annotations,
   onDrill,
+  onDrillDown,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
@@ -135,6 +178,8 @@ function ChartWidget({
   values: Record<string, VariableValue>;
   annotations?: DashboardAnnotation[];
   onDrill?: (target: DrillTarget) => void;
+  /** Donuts with "drill into": a slice opens its next level instead of its rows. */
+  onDrillDown?: (value: unknown, label: string) => void;
 }) {
   const display = widget.display;
   const stacked = display?.stacked ?? false;
@@ -185,7 +230,12 @@ function ChartWidget({
   // A bar, point or slice opens its rows: the period or category, and the breakdown's value.
   const onItemClick = useCallback(
     (click: ChartClick) => {
-      if (!onDrill || click.componentType !== "series") return;
+      if (click.componentType !== "series") return;
+      if (widget.type === "donut" && onDrillDown) {
+        const pick = model.categoryPicks?.[model.categories.indexOf(String(click.name))];
+        if (pick && !pick.other) return onDrillDown(pick.value, String(click.name));
+      }
+      if (!onDrill) return;
       let picks: (GroupPick | null | undefined)[];
       if (widget.type === "donut") {
         picks = [model.categoryPicks?.[model.categories.indexOf(String(click.name))]];
@@ -198,10 +248,10 @@ function ChartWidget({
       const target = drillTarget(query, widget.data, range, picks.filter((p): p is GroupPick => Boolean(p)));
       if (target) onDrill(target);
     },
-    [onDrill, widget.type, widget.data, model, query, range],
+    [onDrill, onDrillDown, widget.type, widget.data, model, query, range],
   );
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill ? onItemClick : undefined} />;
+  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill || onDrillDown ? onItemClick : undefined} />;
 }
 
 function SankeyWidget({
@@ -555,4 +605,22 @@ function TextWidget({ text }: { text: string }) {
   }
   flush();
   return <div className="widget-text">{blocks.length > 0 ? blocks : <p className="widget-note">Add some text.</p>}</div>;
+}
+
+/**
+ * A donut one level down (Step 4.5): the rows of the clicked slice, grouped
+ * by the "drill into" column — e.g. the subcategories of "Food".
+ */
+export function drilledWidget(widget: DashboardWidget, value: unknown): DashboardWidget {
+  const query = widget.data?.query;
+  const first = query?.groupBy?.[0];
+  const drill = widget.display?.drill;
+  if (!query || !first || !drill) return widget;
+  return {
+    ...widget,
+    data: {
+      ...widget.data,
+      query: { ...query, filter: { ...query.filter, [first.column]: value === undefined || value === "" ? null : value }, groupBy: [{ ...first, column: drill, as: undefined }] },
+    },
+  };
 }

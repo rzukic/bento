@@ -22,12 +22,12 @@ Adding rows needs the editor or admin role; viewers can open shared forms but no
 
 **Forms → New form**, choose a table, **Start**. The form starts with every column you can fill (not computed columns or keys the database assigns): dates start today, links at the value used last time.
 
-- **Order**: move fields with the arrows. **Section** adds a heading, e.g. "More" for rarely used fields.
+- **Order**: drag a field by its grip (⋮⋮), or move it with the arrows. **Section** adds a heading, e.g. "More" for rarely used fields.
 - **Label** and **Help**: what the field says, and a line under it.
 - **Starts with**: empty, **Today**, **Now**, **Last used** (in this browser) or a **Fixed value**.
 - **+/− switch** for numbers: starts at − (spending) or +.
 - **Hidden**: not shown, filled by its default. This needs Today, Now or a fixed value, e.g. a source column that is always "phone".
-- **Quick add** lists the form in the sidebar and on every dashboard that shows its table, as a source or through a link in a measure.
+- **Quick add** lists the form in the sidebar and on every dashboard that shows its table, as a source or through a link in a measure. A dashboard can choose differently: in edit mode, **Quick add** sets its buttons to automatic, to forms you pick (any form, also ones not in Quick add), or to none.
 - **Shared** makes it available to everyone who signs in; only you change it.
 
 The preview beside the form shows it as it will be filled. A column the table requires (not empty, no default) must be in the form, visible or hidden with a default; the builder says which one is missing.

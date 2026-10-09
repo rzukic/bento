@@ -1,3 +1,4 @@
+/* Recessed panels (code, results, examples) use a neutral grey mixed from the text colour; the sunken surface is warm in the light theme. */
 /* Functions (Step 4.1): list, editor, test run. */
 
 .functions-page {
@@ -156,7 +157,7 @@
     margin: 0;
     padding: 0.75rem 1rem;
     border-radius: var(--r-md);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
     color: var(--text);
     font-size: var(--fs-sm);
     line-height: 1.6;
@@ -298,7 +299,7 @@
 .function-code {
     border: 1px solid var(--border);
     border-radius: var(--r-md);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
     overflow: hidden;
 }
 
@@ -384,7 +385,7 @@
     padding: 0.625rem 0.875rem;
     border: 1px solid var(--line);
     border-radius: var(--r-md);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
     font-size: var(--fs-sm);
 }
 
@@ -422,7 +423,7 @@
     padding: 0.5rem 0.5rem 0.5rem 0.875rem;
     border: 1px solid var(--line);
     border-radius: var(--r-md);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
 }
 
 .function-snippet code {
@@ -567,7 +568,7 @@
     padding: 0.3rem 0.7rem;
     border: 1px solid var(--line);
     border-radius: var(--r-pill);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
     color: var(--text);
     font: inherit;
     font-size: var(--fs-sm);
@@ -594,7 +595,7 @@
     padding: 0.2rem 0.35rem 0.2rem 0.6rem;
     border: 1px solid var(--line);
     border-radius: var(--r-pill);
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, var(--surface));
     font-size: var(--fs-sm);
 }
 

@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
+
+Daily use of the cash-flow dashboard: how the month's budgets stand, any chart by quarter or year, and what is inside "Food".
+
+**Highlights:**
+- A **Budgets** widget: monthly limits from a column of the categories, spent this month (or in the whole range), bars that turn amber from 80 % and red when over; a row opens its bookings
+- **M Q Y** on charts by date for everyone, kept in the address
+- Donuts **drill into** a second column: a slice shows its subcategories inside the donut
+- Wealth template: main categories, monthly budgets, *Budgets this month* and spending by main category on the cash-flow dashboard
+
 ### 2026-10-07 — Quick Entry Forms: Add A Transaction On The Phone
 
 > **Phase**: Phase 4 — Intelligence
