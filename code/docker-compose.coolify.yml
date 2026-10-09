@@ -50,6 +50,8 @@ services:
       # HTTP mode behind Coolify, so the backend sees http:// and would otherwise
       # reject the browser's https:// Origin as cross-origin.
       ALLOWED_ORIGINS: ${SERVICE_URL_PROXY}
+      # Links the backend hands out (MCP address, OAuth metadata) use the public URL.
+      PUBLIC_URL: ${SERVICE_URL_PROXY}
       # Forwarded headers from Caddy (and Coolify's proxy) on the private Docker networks.
       TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8
       DATABASE_PROVIDER: Postgres

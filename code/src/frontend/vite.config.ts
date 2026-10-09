@@ -14,6 +14,13 @@ export default defineConfig({
       "/ws": {
         target: "ws://127.0.0.1:5000",
         ws: true
+      },
+      // MCP and its OAuth discovery (Step 4.6); /oauth/authorize stays in the SPA.
+      "^/mcp$": {
+        target: "http://127.0.0.1:5000"
+      },
+      "/.well-known": {
+        target: "http://127.0.0.1:5000"
       }
     }
   },

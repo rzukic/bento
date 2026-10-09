@@ -80,6 +80,16 @@ public sealed class AuthRateLimitMiddleware
             return RateLimitCategory.None;
         }
 
+        // OAuth registration and tokens (MCP clients) are public; a token request needs
+        // a code or refresh token of 256 bits, so they get the generous session limit.
+        if (request.Path.StartsWithSegments("/" + ApiRoutes.OAuth, StringComparison.OrdinalIgnoreCase))
+        {
+            return request.Path.Equals("/" + ApiRoutes.OAuthToken, StringComparison.OrdinalIgnoreCase) ||
+                   request.Path.Equals("/" + ApiRoutes.OAuthRegister, StringComparison.OrdinalIgnoreCase)
+                ? RateLimitCategory.Session
+                : RateLimitCategory.None;
+        }
+
         // Public first-run setup endpoints (TASK-144) share the credential limit.
         if (request.Path.StartsWithSegments("/" + ApiRoutes.Setup, StringComparison.OrdinalIgnoreCase))
         {

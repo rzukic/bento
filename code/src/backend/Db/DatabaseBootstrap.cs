@@ -316,6 +316,51 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON _system.price_source_runs(source_id, started_at);
             """);
+        // MCP (Step 4.6): OAuth clients registered by MCP clients, the grants users
+        // approved for them, their codes and tokens (hashed), and the call log.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.oauth_clients (
+                id              SERIAL PRIMARY KEY,
+                client_id       VARCHAR(64) NOT NULL UNIQUE,
+                name            VARCHAR(255) NOT NULL,
+                redirect_uris   JSONB NOT NULL DEFAULT '[]',
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS _system.oauth_grants (
+                id              SERIAL PRIMARY KEY,
+                client_id       VARCHAR(64) NOT NULL,
+                user_id         INTEGER NOT NULL REFERENCES _system.users(id),
+                scope           VARCHAR(20) NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                last_used_at    TIMESTAMPTZ,
+                revoked_at      TIMESTAMPTZ
+            );
+            CREATE TABLE IF NOT EXISTS _system.oauth_tokens (
+                id              SERIAL PRIMARY KEY,
+                grant_id        INTEGER NOT NULL,
+                kind            VARCHAR(10) NOT NULL,
+                token_hash      VARCHAR(64) NOT NULL UNIQUE,
+                redirect_uri    TEXT,
+                code_challenge  VARCHAR(128),
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at      TIMESTAMPTZ NOT NULL,
+                used_at         TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON _system.oauth_tokens(grant_id);
+            CREATE TABLE IF NOT EXISTS _system.mcp_calls (
+                id              SERIAL PRIMARY KEY,
+                called_at       TIMESTAMPTZ NOT NULL,
+                user_id         INTEGER,
+                via             VARCHAR(20) NOT NULL,
+                credential      VARCHAR(255),
+                tool            VARCHAR(100) NOT NULL,
+                arguments       TEXT,
+                ok              BOOLEAN NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON _system.mcp_calls(called_at);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -608,6 +653,50 @@ public class DatabaseBootstrap : IHostedService
                 error           TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON price_source_runs(source_id, started_at);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS oauth_clients (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id       TEXT NOT NULL UNIQUE,
+                name            TEXT NOT NULL,
+                redirect_uris   TEXT NOT NULL DEFAULT '[]',
+                created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS oauth_grants (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id       TEXT NOT NULL,
+                user_id         INTEGER NOT NULL REFERENCES users(id),
+                scope           TEXT NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                last_used_at    TEXT,
+                revoked_at      TEXT
+            );
+            CREATE TABLE IF NOT EXISTS oauth_tokens (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                grant_id        INTEGER NOT NULL,
+                kind            TEXT NOT NULL,
+                token_hash      TEXT NOT NULL UNIQUE,
+                redirect_uri    TEXT,
+                code_challenge  TEXT,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at      TEXT NOT NULL,
+                used_at         TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_oauth_tokens_grant ON oauth_tokens(grant_id);
+            CREATE TABLE IF NOT EXISTS mcp_calls (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                called_at       TEXT NOT NULL,
+                user_id         INTEGER,
+                via             TEXT NOT NULL,
+                credential      TEXT,
+                tool            TEXT NOT NULL,
+                arguments       TEXT,
+                ok              INTEGER NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON mcp_calls(called_at);
             """);
     }
 }

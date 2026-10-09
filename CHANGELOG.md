@@ -12,6 +12,19 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-09 — Claude Connects To Bento (MCP), With Your Bento Account
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md)
+
+Ask your own Claude about your data — in the app, on the web, on the phone or in Claude Code — and let it add a transaction.
+
+**Highlights:**
+- Bento is an **MCP server** at `/mcp`: schema, rows, aggregations, saved queries, dashboards and forms to read; with write access, add and change rows (never delete, never the schema)
+- **Sign in with your Bento account**: Claude opens Bento's sign-in, you choose *Read only* or *Read and write*; API keys work too
+- **Connections → Claude**: the address and the steps per client, connected apps with *Disconnect*, and every call Claude made
+- `PUBLIC_URL` for installations behind a proxy; Coolify sets it
+
 ### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
 
 > **Phase**: Phase 4 — Intelligence

@@ -1,0 +1,86 @@
+/* Consent page for MCP clients (/oauth/authorize); the frame is the login page's. */
+
+.oauth-consent__host {
+  padding: 0.05rem 0.4rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--text) 6%, var(--surface));
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+.oauth-consent__form {
+  gap: 1rem;
+}
+
+.oauth-consent__choices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.oauth-consent__choices legend {
+  margin-bottom: 0.5rem;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.oauth-consent__choice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.875rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition: border-color 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.oauth-consent__choice:hover {
+  border-color: var(--line-2);
+}
+
+.oauth-consent__choice:has(input:checked) {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.oauth-consent__choice input {
+  margin-top: 0.2rem;
+  accent-color: var(--accent);
+}
+
+.oauth-consent__choice span {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.oauth-consent__choice small {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.oauth-consent__choice--off {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.oauth-consent__note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+/* Stacked on narrow screens: Allow first, under the thumb. */
+@media (max-width: 960px) {
+  .oauth-consent__actions {
+    flex-direction: column-reverse;
+  }
+}
