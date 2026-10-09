@@ -142,7 +142,7 @@ public sealed class McpServer
         {
             await _log.WriteAsync(new McpCallLog.Entry(
                 caller.UserId, caller.Via, caller.Credential, name, JsonSerializer.Serialize(arguments, LogJson),
-                !result.IsError, result.IsError ? result.Text : null, (int)watch.ElapsedMilliseconds));
+                !result.IsError, result.IsError ? result.Text : null, (int)watch.ElapsedMilliseconds, caller.GrantId));
         }
         catch (Exception ex)
         {

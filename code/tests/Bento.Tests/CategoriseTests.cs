@@ -255,6 +255,8 @@ public sealed class CategoriseTests
     }
 }
 
+[Trait("Category", "Postgres")]
+[Collection(PostgresCollection.Name)]
 public sealed class PostgresCategoriseTests
 {
     [PostgresFact]

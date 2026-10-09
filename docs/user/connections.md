@@ -63,7 +63,13 @@ On the sign-in page you tick what the app may do, area by area (**All** and **Re
 | Tables and columns | Changing the schema — this can delete data | admin |
 | Functions and price sources | JavaScript functions, running price sources | admin |
 
-The app acts as you and never does more than your role allows; Bento checks every call it makes against what you ticked, so an app allowed to add rows cannot change the schema even when you are an admin. Users, API keys, credentials and connections are never reachable for apps. Each connected app appears under **Connected apps** with its permissions and when it was last used; **Disconnect** ends its access at once; to change what it may do, connect again. Admins see every user's apps.
+The app acts as you and never does more than your role allows; Bento checks every call it makes against what you ticked, so an app allowed to add rows cannot change the schema even when you are an admin. Users, API keys, credentials and connections are never reachable for apps. Each connected app appears under **Connected apps** with its permissions and when it was last used. Admins see every user's apps.
+
+Click an app to open it:
+
+- **What it may do**: the same checklist as when connecting. Tick or untick areas and choose **Save permissions**. The change applies to the app's next call; Claude shows newly allowed tools once it reconnects (for example after restarting Claude Desktop). What your role does not allow stays greyed out.
+- **Calls**: every call this app made, newest first, with how many failed. Click a call to see its full arguments and the error.
+- **Disconnect** ends its access at once.
 
 Claude also gets a **guide** (`bento_guide`): how Bento works and the exact formats of the schema, formulas, queries, dashboards, forms, the finance template and functions. It reads the matching part before building something, and asks before changing the schema or deleting.
 

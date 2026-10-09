@@ -22,7 +22,7 @@ public sealed class McpCallLog
         _systemPool = systemPool;
     }
 
-    public sealed record Entry(long? UserId, string Via, string? Credential, string Tool, string? Arguments, bool Ok, string? Error, int DurationMs);
+    public sealed record Entry(long? UserId, string Via, string? Credential, string Tool, string? Arguments, bool Ok, string? Error, int DurationMs, long? GrantId = null);
 
     public sealed class CallRow
     {
@@ -48,16 +48,38 @@ public sealed class McpCallLog
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (called_at, user_id, via, credential, tool, arguments, ok, error, duration_ms)
-            VALUES ({Ts("@Now")}, @UserId, @Via, @Credential, @Tool, @Arguments, @Ok, @Error, @DurationMs)
+            INSERT INTO {Table} (called_at, user_id, via, credential, tool, arguments, ok, error, duration_ms, grant_id)
+            VALUES ({Ts("@Now")}, @UserId, @Via, @Credential, @Tool, @Arguments, @Ok, @Error, @DurationMs, @GrantId)
             """,
-            new { Now = Iso(now), entry.UserId, entry.Via, entry.Credential, entry.Tool, Arguments = arguments, entry.Ok, Error = error, entry.DurationMs });
+            new { Now = Iso(now), entry.UserId, entry.Via, entry.Credential, entry.Tool, Arguments = arguments, entry.Ok, Error = error, entry.DurationMs, entry.GrantId });
 
         if (now - _lastPrune >= PruneInterval)
         {
             _lastPrune = now;
             await conn.ExecuteAsync($"DELETE FROM {Table} WHERE called_at < {Ts("@Cutoff")}", new { Cutoff = Iso(now - Retention) });
         }
+    }
+
+    /// <summary>
+    /// The calls of one connected app. Calls logged before the connection was
+    /// recorded with each call count when app name, user and time fit.
+    /// </summary>
+    public async Task<IReadOnlyList<CallRow>> ListForGrantAsync(long grantId, long grantUserId, string clientName, string grantCreatedAt, int limit)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var rows = await conn.QueryAsync<CallRow>(
+            $"""
+            SELECT c.id, {SystemSqlDialect.TimestampText(_systemPool.Provider, "c.called_at")} AS CalledAt, c.user_id AS UserId, u.username,
+                   c.via, c.credential, c.tool, c.arguments, c.ok, c.error, c.duration_ms AS DurationMs
+            FROM {Table} c
+            LEFT JOIN {Users} u ON u.id = c.user_id
+            WHERE c.grant_id = @GrantId
+               OR (c.grant_id IS NULL AND c.via = 'oauth' AND c.credential = @ClientName AND c.user_id = @UserId AND c.called_at >= {Ts("@Since")})
+            ORDER BY c.called_at DESC, c.id DESC
+            LIMIT @Limit
+            """,
+            new { GrantId = grantId, ClientName = clientName, UserId = grantUserId, Since = grantCreatedAt, Limit = Math.Clamp(limit, 1, 500) });
+        return rows.ToList();
     }
 
     /// <summary>The newest calls: the user's own, or everyone's for an admin.</summary>

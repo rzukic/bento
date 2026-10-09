@@ -43,6 +43,8 @@ export type McpConnection = {
   username: string | null;
   scope: ApiKeyScope;
   permissions: McpPermission[];
+  /** What the user behind the app could grant it (their role). */
+  allowed: McpPermission[];
   createdAt: string;
   lastUsedAt: string | null;
 };
@@ -71,6 +73,16 @@ export async function listMcpConnections(): Promise<McpConnection[]> {
 
 export async function revokeMcpConnection(id: number): Promise<void> {
   await apiClient.delete<void>(`/mcp/connections/${id}`);
+}
+
+/** PUT /api/v1/mcp/connections/{id} — change what a connected app may do; applies to its next call. */
+export async function updateMcpConnection(id: number, permissions: McpPermission[]): Promise<McpConnection> {
+  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, { permissions })).data;
+}
+
+/** The calls made through one connected app, newest first. */
+export async function listMcpConnectionCalls(id: number, limit = 100): Promise<McpCall[]> {
+  return (await apiClient.get<DataEnvelope<McpCall[]>>(`/mcp/connections/${id}/calls?limit=${limit}`)).data;
 }
 
 export async function listMcpCalls(limit = 50): Promise<McpCall[]> {

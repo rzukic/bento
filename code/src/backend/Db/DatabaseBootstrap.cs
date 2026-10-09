@@ -361,6 +361,8 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_mcp_calls_called_at ON _system.mcp_calls(called_at);
             ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS permissions TEXT;
+            ALTER TABLE _system.mcp_calls ADD COLUMN IF NOT EXISTS grant_id INTEGER;
+            CREATE INDEX IF NOT EXISTS idx_mcp_calls_grant ON _system.mcp_calls(grant_id);
             """);
 
         // AI (Step 4.7): settings (key/value) and every model call with its tokens and cost.
@@ -740,6 +742,12 @@ public class DatabaseBootstrap : IHostedService
         var grantColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('oauth_grants');")).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (!grantColumns.Contains("permissions"))
             await conn.ExecuteAsync("ALTER TABLE oauth_grants ADD COLUMN permissions TEXT;");
+
+        // Calls remember the connected app they came through, for its detail view.
+        var callColumns = (await conn.QueryAsync<string>("SELECT name FROM pragma_table_info('mcp_calls');")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!callColumns.Contains("grant_id"))
+            await conn.ExecuteAsync("ALTER TABLE mcp_calls ADD COLUMN grant_id INTEGER;");
+        await conn.ExecuteAsync("CREATE INDEX IF NOT EXISTS idx_mcp_calls_grant ON mcp_calls(grant_id);");
 
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS ai_settings (
