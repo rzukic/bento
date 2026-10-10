@@ -12,6 +12,56 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+## Phase 4 — Intelligence
+
+### 2026-10-10 — Fast Weekly Charts, Results Kept In The Browser
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
+
+A weekly portfolio chart over three years took over 30 seconds and then failed. It now takes a fraction of a second, and dashboards you have seen show at once.
+
+**Highlights:**
+- Bento adds the indexes its formulas need, e.g. for `LOOKUP_ASOF` and related rows: the weekly depot chart went from 30+ s to 0.14 s.
+- Results stay in the browser: switching M ↔ Q or going back to a dashboard shows them at once, and nothing is asked twice within 30 s or before data changes.
+- A query you switch away from stops in the database too; a timeout says so instead of "unexpected error".
+- Admins find slow queries, timeouts and errors under **Settings → Problems**.
+
+### 2026-10-10 — The Beta Feedback, Worked Through
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#package-1--quick-fixes)
+
+21 of 23 points from a beta user who built a finance workspace over MCP and the API.
+
+**Highlights:**
+- **Formulas**:
+  - `IN`, parentheses after `WHERE`, `LAST`/`FIRST`, `WEEKDAY`, `NPER`, `ROLLING_SUM`/`ROLLING_AVG`, `MIN`/`MAX` on text.
+  - JS functions get 1 s and 20 arguments.
+- **Dashboards**:
+  - Forecasts into the future, a widget's own range.
+  - Gaps instead of 0, the value axis near the data.
+  - Format, +/− and colour per table column.
+  - Assumptions viewers change with a slider.
+  - A table row that opens another dashboard.
+- **API and MCP**:
+  - Schema changes as small operations with compact previews.
+  - Up to 1000 rows per call with upsert.
+  - API keys with chosen permissions (also schema and functions).
+  - Widget options checked and documented.
+- **Number format** per workspace and per browser (e.g. `€ 1.250,00` for Austria), with the workspace's currency.
+
+### 2026-10-10 — Polish: Sidebar, Notices, Tables, Loading
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#polish)
+
+**Highlights:**
+- Hovering the collapsed sidebar no longer shifts icons, mascot or account.
+- Tables scroll with a sticky header.
+- The interval switch shows a spinner while it loads.
+- Formula widgets wait for the dashboard's variables instead of showing "Column … not found".
+
 ### 2026-10-09 — The Interval Switch On Tables, And Per Widget
 
 > **Phase**: Phase 4 — Intelligence
