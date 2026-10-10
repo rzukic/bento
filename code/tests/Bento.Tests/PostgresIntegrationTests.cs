@@ -331,7 +331,7 @@ public sealed class PostgresIntegrationTests
         Assert.Equal(HttpStatusCode.Conflict, second.StatusCode);
     }
 
-    [Fact]
+    [PostgresFact]
     public async Task SavedViewsAndPreferences_RoundTripAgainstPostgres()
     {
         // system_views.config is JSONB and the timestamps are TIMESTAMPTZ on Postgres;

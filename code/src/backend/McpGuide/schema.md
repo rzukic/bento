@@ -1,6 +1,29 @@
 # Schema (Model JSON)
 
-Read it with `get_model`; change it with `preview_schema_change` then `apply_schema_change` (admin). Always send the **whole** model: tables left out are dropped.
+Read it with `get_model`; change it with `preview_schema_change` then `apply_schema_change` (admin). Send either **operations** (small changes, preferred) or the **whole** model (tables left out of a whole model are dropped).
+
+## Operations
+
+A list of changes to the current schema, applied in order, then checked like a whole model:
+
+```json
+{ "operations": [
+  { "op": "addColumn", "table": "trades", "column": { "name": "note", "type": "text" }, "after": "price" },
+  { "op": "changeColumn", "table": "trades", "column": "fees", "set": { "displayName": "Fees", "nullable": false } },
+  { "op": "renameColumn", "table": "trades", "column": "fees", "to": "costs" },
+  { "op": "addTable", "table": { "name": "goals", "columns": [ { "name": "id", "type": "integer", "primaryKey": true }, { "name": "target", "type": "currency" } ] } },
+  { "op": "addRelation", "relation": { "name": "account_goals", "type": "1:N", "from": "accounts", "to": "goals", "column": "account_id" } }
+] }
+```
+
+| op | Fields |
+|---|---|
+| `addTable`, `changeTable`, `renameTable`, `removeTable` | `table` (the table object for add, else its name); `set` for change; `to` for rename |
+| `addColumn`, `changeColumn`, `renameColumn`, `removeColumn` | `table`, `column` (the column object for add, else its name); `after` (add); `set` (change; `null` removes an option); `to` (rename) |
+| `addRelation`, `changeRelation`, `removeRelation` | `relation` (object for add, else its name); `set` for change |
+| `addIndex`, `removeIndex` | `table`, `index` (`{name, columns}` for add, else its name) |
+
+Renames keep the data (they set `renamedFrom`). The preview is compact: the changes, errors and warnings, without the whole model. REST: `POST /admin/schema/patch/preview`, `PATCH /admin/schema?confirm_destructive=true`.
 
 ```json
 {
