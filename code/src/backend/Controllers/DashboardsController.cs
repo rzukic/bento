@@ -361,6 +361,7 @@ public sealed class DashboardsController : ControllerBase
             WidgetOptions.Check(widget, path);
         }
 
+        WidgetOptions.CheckVariables(dashboard);
         return dashboard.GetRawText();
     }
 

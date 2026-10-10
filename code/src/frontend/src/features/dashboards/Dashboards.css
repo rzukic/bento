@@ -1250,3 +1250,46 @@ button.budget__row:focus-visible {
 .dashboards-deleted__list .dashboards-list__meta {
     flex: 1;
 }
+
+/* Variables viewers change: a field, a slider or a choice (beta feedback). */
+.dashboard-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.dashboard-input__label {
+    white-space: nowrap;
+}
+
+.dashboard-input__number {
+    width: 7rem;
+}
+
+.dashboard-input__value {
+    min-width: 3rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.dashboard-input input[type="range"] {
+    width: 9rem;
+    accent-color: var(--text);
+}
+
+/* display.link: a row opens another dashboard filtered by it. */
+.widget-table__link {
+    cursor: pointer;
+}
+
+.widget-table__link:hover td,
+.widget-table__link:focus-visible td {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.widget-table__link:focus-visible {
+    outline: 2px solid var(--focus, var(--text));
+    outline-offset: -2px;
+}

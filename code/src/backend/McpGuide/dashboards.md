@@ -67,6 +67,7 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `shares` | true: node labels as % of the first column | sankey |
 | `drill` | a column of the same table to open a slice into | donut |
 | `text` | markdown (`#` headings, `-` lists) | text |
+| `link` | `{dashboard: id, column, filter?}`: a click on a row opens that dashboard filtered by the row's value of `column` (as its filter `filter`, by default the same column; it applies even without a menu there); the range goes along | table |
 | `columns` | per column name (a measure, or a column of `data.rows`): `{format?, signed?, colorBySign?}` — e.g. `{"xirr": {"format": "percent", "signed": true, "colorBySign": true}}` writes +22,2 % in green next to amounts | table |
 | `yAxis` | `{min: "auto"}` starts the value axis near the data (prices, values over time), `"zero"` always at 0, or a number | line, area, bar |
 | `emptyPeriods` | `zero` (default: an empty period is 0), `gap` (left empty) or `connect` (the line runs over it); with gap and connect the periods before the first value are left out, e.g. a depot before the first purchase | charts by date |
@@ -82,7 +83,7 @@ Saving checks these values: an unknown one (`"sankey": "xyz"`) is an error that 
 ## Dashboard level
 
 - `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
-- `variables`: `{name, label?, source?, formula, dateColumn?}` (a key figure showing it writes `label` under the value) — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
+- `variables`: `{name, label?, source?, formula, dateColumn?, input?}` (a key figure showing it writes `label` under the value). With `input` `{kind: "number"|"slider"|"select", min?, max?, step?, options?}` and no `source`, viewers change it above the widgets (an assumption such as a return); `formula` is the default (`0.07`, `"base"`), and the chosen value is in the address (`?var.rate=0.05`). — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
 - `filters`: `{column, label?}` — a menu narrowing every widget whose table has the column.
 - `annotations`: `{date, to?, label, color?}` (`gray blue teal amber rose violet`) on charts by date.
 - `refreshSeconds`: 0 (off), 30, 60, 300.
