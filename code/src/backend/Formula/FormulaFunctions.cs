@@ -176,5 +176,5 @@ public static class FormulaFunctions
         ByName.GetValueOrDefault(Aliases.GetValueOrDefault(name, name));
 
     /// <summary>The keywords and literals the editor highlights.</summary>
-    public static readonly IReadOnlyList<string> Keywords = ["AND", "OR", "NOT", "TRUE", "FALSE", "NULL"];
+    public static readonly IReadOnlyList<string> Keywords = ["AND", "OR", "NOT", "IN", "WHERE", "TRUE", "FALSE", "NULL"];
 }

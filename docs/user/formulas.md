@@ -29,7 +29,8 @@ The leading `=` is optional. Spaces and line breaks do not matter.
 | `%`, `^` | remainder of whole numbers, power (`-2^2` is −4) |
 | `&` | joins text: `counterparty & " (" & YEAR(booked_on) & ")"`; numbers appear without trailing zeros, empty values as nothing |
 | `=` or `==`, `<>` or `!=`, `< <= > >=` | comparisons; text ignores upper/lower case, including umlauts |
-| `AND` / `&&`, `OR` / `\|\|`, `NOT` / `!` | combine conditions; also as functions `AND(a, b)` |
+| `AND` / `&&`, `OR` / `\|\|`, `NOT` / `!` | combine conditions, with parentheses as needed: `(a OR b) AND c`; also as functions `AND(a, b)` |
+| `IN`, `NOT IN` | one of a list: `category IN ("Rent", "Food")`, the same as `category = "Rent" OR category = "Food"` (text ignores case) |
 | `,` or `;` | separate function arguments |
 
 ## Links And Related Rows
@@ -168,7 +169,7 @@ return volatility > 0.15 ? "medium" : "low";
 
 When the function fails on a row (it throws, runs too long, returns the wrong type), that value stays empty. The Functions page lists the computed columns with failed rows and the first error; in dashboards the widget names the failure.
 
-**Safety.** Functions run sandboxed on the server: no files, no access to Bento itself, no `eval`. Each call stops after 100 ms, 16 MB of memory or very deep recursion.
+**Safety.** Functions run sandboxed on the server: no files, no access to Bento itself, no `eval`. Each call stops after 1 second (5 seconds for functions over rows), after allocating 256 MB, or at very deep recursion. That is enough for a Monte Carlo of a few hundred paths over 20 years in monthly steps. A function takes at most 20 arguments.
 
 **Calling APIs.** A function may list hosts under **Internet**. It then gets `fetch` for those hosts (https only, never the server's own network) and can read stored API keys as `credentials.name`. Such functions run as price sources — see [Live Prices](live-prices.md) — not in formulas, and may take up to 30 seconds.
 

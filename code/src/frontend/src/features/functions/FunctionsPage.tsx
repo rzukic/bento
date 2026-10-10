@@ -298,7 +298,7 @@ function FunctionsIntro({ canCreate, hasFunctions, onCreate }: { canCreate: bool
         background when rows or the function change. In dashboards, <code>CUSTOM("score", SUM(amount))</code> runs on each result.
       </p>
       <p className="functions-intro__note">
-        Functions run sandboxed on the server: no files, no access to Bento, at most 100 ms and 16 MB per call. A function may
+        Functions run sandboxed on the server: no files, no access to Bento, at most 1 s per call (5 s for functions over rows, 30 s with network). A function may
         call the hosts you list with <code>fetch</code> — then it runs as a <strong>price source</strong> rather than in formulas.
       </p>
       {canCreate ? (

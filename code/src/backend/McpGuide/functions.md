@@ -18,7 +18,7 @@
 - `name`: small letters, digits, `_`; cannot change later.
 - `arguments[].type` and `resultType`: `float`, `integer`, `currency`, `text`, `boolean`, `date`, `datetime`, `any` (a result of `any` is only for price sources).
 - `code` is the body of a JavaScript function whose parameters are the arguments. Dates arrive as `"yyyy-MM-dd"`, empty values as `null`. Return the declared type (`null` = empty).
-- Sandbox: no files, no Bento access; 100 ms, 16 MB per call.
+- Sandbox: no files, no Bento access. Per call: 1 s and 256 MB allocated (rows mode 5 s / 512 MB, network 30 s / 512 MB); freed memory counts too, so keep big loops lean. At most 20 arguments.
 - `mode: "rows"`: called once per group with a list per argument; returns a list with one value per row. Used as `CUSTOM_ROWS("name", PARTITION(account_id), ORDER(date, id), amount)` in computed columns only (e.g. running totals, average cost).
 - `allowedHosts` + `credentials`: the function may `fetch` those hosts (https) and read `credentials.name`; such functions run only as price sources.
 - Use `test_function` with `values` (one per argument; a list per argument in rows mode) before saving.

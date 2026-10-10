@@ -222,6 +222,11 @@ public sealed class CrudIntegrationTests
         Assert.True(order.TryGetProperty("customer", out var emb));
         Assert.Equal("Alice", emb.GetProperty("name").GetString());
 
+        // The reference column names the link too, as in filters and formulas; the record comes under the link name, next to the id.
+        var byColumn = (await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/data/orders?include=customer_id")).GetProperty("data")[0];
+        Assert.Equal("Alice", byColumn.GetProperty("customer").GetProperty("name").GetString());
+        Assert.Equal(customerId, byColumn.GetProperty("customer_id").GetInt64());
+
         // Sub-resource endpoint: GET /customers/{id}/customer_orders
         var subResp = await host.Client.GetFromJsonAsync<JsonElement>(
             $"/api/v1/data/customers/{customerId}/customer_orders");

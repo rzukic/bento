@@ -9,18 +9,32 @@ namespace Bento.Api.Formula.Sandbox;
 /// <summary>The limits every call of a custom function runs under (Part 5 R5.5).</summary>
 public sealed record JsSandboxLimits
 {
-    public TimeSpan Timeout { get; init; } = TimeSpan.FromMilliseconds(100);
-    public long MemoryBytes { get; init; } = 16 * 1024 * 1024;
+    /// <summary>
+    /// Wall time per call. 1 s fits a Monte Carlo of 400 paths over 20 years in
+    /// monthly steps; it was 100 ms, which stopped such a loop at ~20,000 steps.
+    /// </summary>
+    public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// Bytes the call may <i>allocate</i>, freed ones included: Jint counts every
+    /// allocation of the call, not what is held. At 16 MB a loop that kept
+    /// nothing stopped after ~20,000 steps as "too much memory".
+    /// </summary>
+    public long MemoryBytes { get; init; } = 256 * 1024 * 1024;
     public int RecursionDepth { get; init; } = 200;
     public int MaxLogLines { get; init; } = 50;
 
     public static readonly JsSandboxLimits Default = new();
 
     /// <summary>Functions that call APIs (Step 4.2): the clock includes waiting for answers.</summary>
-    public static readonly JsSandboxLimits Network = new() { Timeout = TimeSpan.FromSeconds(30), MemoryBytes = 64 * 1024 * 1024 };
+    public static readonly JsSandboxLimits Network = new() { Timeout = TimeSpan.FromSeconds(30), MemoryBytes = 512 * 1024 * 1024 };
 
     /// <summary>Functions over rows (Step 4.3b): one call handles a whole group.</summary>
-    public static readonly JsSandboxLimits Rows = new() { Timeout = TimeSpan.FromSeconds(2), MemoryBytes = 64 * 1024 * 1024 };
+    public static readonly JsSandboxLimits Rows = new() { Timeout = TimeSpan.FromSeconds(5), MemoryBytes = 512 * 1024 * 1024 };
+
+    /// <summary>"1 s and 256 MB", for messages and docs.</summary>
+    public string TimeText => Timeout.TotalSeconds >= 1 ? $"{Timeout.TotalSeconds:0.#} s" : $"{Timeout.TotalMilliseconds:0} ms";
+    public string MemoryText => $"{MemoryBytes / (1024 * 1024)} MB";
 }
 
 /// <summary>One call's outcome: a value of the declared type, or an error.</summary>
@@ -122,7 +136,7 @@ public sealed class JsFunction : IDisposable
         }
         catch (Exception e)
         {
-            return (null, Describe(e));
+            return (null, Describe(e, limits ?? JsSandboxLimits.Default));
         }
     }
 
@@ -347,16 +361,18 @@ public sealed class JsFunction : IDisposable
 
     // ── Errors ───────────────────────────────────────────────────────────
 
-    private static string Describe(Exception e) => e switch
+    private string Describe(Exception e) => Describe(e, _limits);
+
+    private static string Describe(Exception e, JsSandboxLimits limits) => e switch
     {
         ParseErrorException parse => SyntaxMessage(parse),
         JsFetchException fetch => fetch.Message,
         _ when e.GetType().Name == "PromiseRejectedException" &&
                e.GetType().GetProperty("RejectedValue")?.GetValue(e) is JsValue rejected => RejectedText(rejected),
         JavaScriptException js => $"{ErrorText(js)}{Line(js.Location.Start.Line)}",
-        TimeoutException => "The function took too long and was stopped (time limit).",
+        TimeoutException => $"The function took longer than {limits.TimeText} and was stopped (time limit).",
         ExecutionCanceledException => "The function was stopped.",
-        _ when e.GetType().Name == "MemoryLimitExceededException" => "The function used too much memory and was stopped.",
+        _ when e.GetType().Name == "MemoryLimitExceededException" => $"The function allocated more than {limits.MemoryText} and was stopped (memory limit).",
         _ when e.GetType().Name == "RecursionDepthOverflowException" => "The function calls itself too deeply and was stopped.",
         _ when e.GetType().Name == "StatementsCountOverflowException" => "The function ran too many steps and was stopped.",
         JintException => e.Message,
