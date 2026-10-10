@@ -11,7 +11,8 @@ import {
   type WidgetType,
 } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
-import { evaluateVariables } from "../../api/query";
+import { evaluateVariables, type QueryVariableResult } from "../../api/query";
+import { loadCached, peekCached } from "../../api/queryCache";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -196,6 +197,7 @@ export function DashboardPage() {
     };
   }, []);
   const variablesKey = JSON.stringify(variables);
+  const lastVariablesToken = useRef(refreshToken);
   // The widgets get the variables once every one has a result: right after the
   // dashboard loads, an earlier, empty result would let a formula such as
   // "depot" run without its variable and fail as an unknown column.
@@ -212,10 +214,20 @@ export function DashboardPage() {
       setVariableResults({});
       return;
     }
+    // Kept in the browser like widget results: a dashboard opened again shows its variables at once.
+    const requests = variableRequests(definitions, resolved);
+    const requestKey = JSON.stringify(["variables", requests]);
+    const force = refreshToken !== lastVariablesToken.current;
+    lastVariablesToken.current = refreshToken;
+    const cached = peekCached<QueryVariableResult[]>(requestKey);
+    if (cached) {
+      setVariableResults(Object.fromEntries(cached.value.map((r) => [r.name, r])));
+      if (cached.fresh && !force) return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(
       () => {
-        evaluateVariables(variableRequests(definitions, resolved))
+        loadCached(requestKey, () => evaluateVariables(requests), force)
           .then((results) => {
             if (!cancelled) setVariableResults(Object.fromEntries(results.map((r) => [r.name, r])));
           })

@@ -61,6 +61,12 @@ The range at the top (last 7 days, this month, last 3/6/12 months, this year, la
 
 Widgets refresh when you come back to the tab and with the refresh button; in edit mode you can let the dashboard refresh every 30 seconds, minute or 5 minutes.
 
+Numbers you have seen stay in the browser. Switching the interval (W, M, Q, Y) back and forth or returning to a dashboard shows them at once:
+- Within 30 seconds, Bento does not ask the server again.
+- After that, the old numbers stay visible with a small spinner while new ones load.
+- After you change data in Bento (a row, an import, the schema), the next look always loads again.
+- The refresh button always asks the server.
+
 ## Edit A Dashboard
 
 Choose **Edit**:
