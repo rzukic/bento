@@ -14,7 +14,18 @@ namespace Bento.Api.Formula;
 /// Set when the formula is a return over a series (Step 4.3: XIRR, IRR, TWR,
 /// REBASE): its parts as SQL, for the query to compute after the database.
 /// </param>
-public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null, SeriesCall? Series = null);
+public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null, SeriesCall? Series = null)
+{
+    /// <summary>The LOOKUP_ASOF searches the SQL makes, so an index can serve them (see <see cref="Services.LookupIndexes"/>).</summary>
+    public IReadOnlyList<LookupTarget> Lookups { get; init; } = [];
+}
+
+/// <summary>
+/// One LOOKUP_ASOF search: rows of <paramref name="Table"/> whose <paramref name="Match"/>
+/// equals a value (compared lower-cased when <paramref name="Lower"/>), latest
+/// <paramref name="Date"/> first.
+/// </summary>
+public sealed record LookupTarget(string Table, string Match, bool Lower, string Date);
 
 /// <summary>
 /// XIRR/IRR over cash flows, TWR over values and flows at period ends, REBASE
@@ -116,6 +127,8 @@ public sealed class FormulaCompiler
         public FormulaContext Context { get; } = context;
         /// <summary>"table.column" of the computed columns being compiled, for cycle errors.</summary>
         public List<string> Chain { get; } = [];
+        /// <summary>LOOKUP_ASOF searches, the computed columns' included.</summary>
+        public List<LookupTarget> Lookups { get; } = [];
         private int _aliases;
         public string NextAlias(string prefix) => $"__{prefix}{++_aliases}";
     }
@@ -164,8 +177,13 @@ public sealed class FormulaCompiler
         var shared = new Shared(schema, provider == DatabaseProvider.Postgres, context ?? new FormulaContext());
         if (column is not null)
             shared.Chain.Add($"{table.Name}.{column}");
-        return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected, column);
+        return WithLookups(new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected, column), shared);
     }
+
+    private static FormulaCheck WithLookups(FormulaCheck check, Shared shared) =>
+        check.Result is { } result && shared.Lookups.Count > 0
+            ? check with { Result = result with { Lookups = shared.Lookups.Distinct().ToList() } }
+            : check;
 
     /// <summary>
     /// A measure over the rows of a group (a widget's value per month, per
@@ -201,7 +219,7 @@ public sealed class FormulaCompiler
             check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a return; TWR(…) already accumulates over the periods.", root.Start, root.End)]);
         if (running && check.Result is { } result && !FormulaTypes.IsNumeric(result.Type))
             check = new FormulaCheck(null, [new FormulaError($"RUNNING_SUM needs a number, not {FormulaTypes.Describe(result.Type)}.", root.Start, root.End)]);
-        return new MeasureCheck(check, running);
+        return new MeasureCheck(WithLookups(check, shared), running);
     }
 
     /// <param name="stored">The computed column the formula belongs to: there, CUSTOM(…) reads the stored value.</param>
@@ -1447,6 +1465,11 @@ public sealed class FormulaCompiler
         var onOrBefore = Compare(dateColumn, "<=", atDate, args[4]);
         if (match is null || onOrBefore is null)
             return null;
+        // Stored columns only; text matches compare lower-cased, so the index uses the same expression.
+        ColumnDef? Stored(string name) => target.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (Stored(matchName) is { Type: ColumnType.Text or ColumnType.Integer or ColumnType.Reference } key &&
+            Stored(dateName) is { Type: ColumnType.Date or ColumnType.DateTime } when)
+            _shared.Lookups.Add(new LookupTarget(target.Name, key.Name, key.Type == ColumnType.Text, when.Name));
 
         return new Expr(
             $"(SELECT {valueColumn.Sql} FROM {Q(target.Name)} {alias} WHERE {match.Sql} AND {onOrBefore.Sql} ORDER BY {dateColumn.Sql} DESC LIMIT 1)",

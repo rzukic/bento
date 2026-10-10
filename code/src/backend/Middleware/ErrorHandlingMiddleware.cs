@@ -63,6 +63,16 @@ public sealed class ErrorHandlingMiddleware
                     MergeDetails(apiException.Details, requestId))));
         }
 
+        if (IsTimeout(exception))
+        {
+            return new MappedError(
+                StatusCodes.Status504GatewayTimeout,
+                new ApiErrorEnvelope(new ApiError(
+                    ApiErrorCode.Timeout.ToStringCode(),
+                    "The database took too long and stopped the query. Try a coarser period (month instead of week) or a shorter range.",
+                    MergeDetails(null, requestId))));
+        }
+
         var details = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
             ["requestId"] = requestId
@@ -80,6 +90,17 @@ public sealed class ErrorHandlingMiddleware
                 ApiErrorCode.InternalError.ToStringCode(),
                 "An unexpected error occurred.",
                 details)));
+    }
+
+    /// <summary>The command timeout (Npgsql) or a statement timeout (Postgres cancels with 57014).</summary>
+    private static bool IsTimeout(Exception exception)
+    {
+        for (Exception? e = exception; e is not null; e = e.InnerException)
+        {
+            if (e is TimeoutException or Npgsql.PostgresException { SqlState: "57014" })
+                return true;
+        }
+        return false;
     }
 
     private static IReadOnlyDictionary<string, object?> MergeDetails(

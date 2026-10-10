@@ -77,6 +77,23 @@ public sealed class ErrorHandlingMiddlewareTests
     }
 
     [Fact]
+    public async Task ErrorHandlingMiddleware_MapsDatabaseTimeouts_ToTimeout()
+    {
+        var middleware = CreateMiddleware(
+            _ => throw new InvalidOperationException("Exception while reading from stream", new TimeoutException("Timeout during reading attempt")),
+            Environments.Production);
+        var context = CreateHttpContext("req_timeout");
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(StatusCodes.Status504GatewayTimeout, context.Response.StatusCode);
+        var payload = await ReadErrorAsync(context);
+        Assert.Equal("TIMEOUT", payload.Error.Code);
+        Assert.Contains("took too long", payload.Error.Message);
+        Assert.Equal("req_timeout", payload.Error.Details!["requestId"].GetString());
+    }
+
+    [Fact]
     public async Task ErrorHandlingMiddleware_IncludesDebugDetails_ForUnhandledExceptionsInDevelopment()
     {
         var middleware = CreateMiddleware(_ => throw new InvalidOperationException("boom"), Environments.Development);

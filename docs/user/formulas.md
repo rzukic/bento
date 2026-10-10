@@ -107,7 +107,7 @@ Outside an aggregate a measure cannot use a single row's value: `amount * 2` is 
 
 **By period end** (see [Dashboards](dashboards.md#values-at-the-end-of-each-period)), `BUCKET_START()` and `BUCKET_END()` are the first and last day of each period: `SUM(amount WHERE booked_on <= BUCKET_END())` is the balance at each month end.
 
-**`LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)`** finds the latest row on or before a date — a price at a month end: `LOOKUP_ASOF("prices", "ticker", ticker, "date", BUCKET_END(), "price")`. It also works in computed columns, e.g. the price of a holding today with `TODAY()`.
+**`LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)`** finds the latest row on or before a date — a price at a month end: `LOOKUP_ASOF("prices", "ticker", ticker, "date", BUCKET_END(), "price")`. It also works in computed columns, e.g. the price of a holding today with `TODAY()`. On Postgres, Bento adds an index for each lookup the first time it runs, so even weekly charts over years of prices stay fast.
 
 `WHERE` also works in aggregates over related rows: `SUM(transactions.amount WHERE transactions.amount < 0)`.
 

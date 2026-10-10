@@ -31,9 +31,11 @@ public sealed class AggregationQueryService
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
     private readonly ComputedColumns _computed;
+    private readonly LookupIndexes _lookupIndexes;
 
-    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed)
+    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, LookupIndexes lookupIndexes)
     {
+        _lookupIndexes = lookupIndexes;
         _schemaCache = schemaCache;
         _queryService = queryService;
         _dbConfig = dbConfig;
@@ -55,7 +57,10 @@ public sealed class AggregationQueryService
     /// <param name="Fn">count, sum, … or "formula" (then <paramref name="Type"/> is the formula's result).</param>
     /// <param name="Custom">A CUSTOM(…) formula (Step 4.1): its arguments are selected as hidden columns and the function runs on each result row.</param>
     /// <param name="Series">XIRR/IRR/TWR/REBASE (Step 4.3): the parts are selected as hidden columns and the return computed afterwards.</param>
-    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null, SeriesCall? Series = null);
+    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null, SeriesCall? Series = null)
+    {
+        public IReadOnlyList<LookupTarget> Lookups { get; init; } = [];
+    }
 
     /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
     /// <param name="Base">The first period is only a base for TWR/REBASE (the end of the period before the range) and is dropped from the result.</param>
@@ -83,6 +88,7 @@ public sealed class AggregationQueryService
         IReadOnlyDictionary<string, FormulaValue>? variables)
     {
         var plan = Resolve(request, extraFilter, variables);
+        await _lookupIndexes.EnsureAsync(plan.Measures.SelectMany(m => m.Lookups).Concat(plan.Computed.Values.SelectMany(c => c.Lookups)));
         await using var scope = await _queryService.UseDataAsync();
 
         var (sql, parameters) = BuildSql(plan, scope);
@@ -327,7 +333,7 @@ public sealed class AggregationQueryService
             throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
 
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom, series);
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom, series) { Lookups = check.Result.Lookups };
     }
 
     private const int MaxPeriods = 1000;
@@ -502,6 +508,7 @@ public sealed class AggregationQueryService
             if (!check.IsValid)
                 return new QueryVariableResult(name, null, null, check.Errors[0].Message);
 
+            await _lookupIndexes.EnsureAsync(check.Result!.Lookups);
             await using var scope = await _queryService.UseDataAsync();
             if (check.Result!.Custom is { } custom)
             {

@@ -341,6 +341,21 @@ public sealed class FormulaEngineTests
     }
 
     [Fact]
+    public void LookupAsOf_NamesTheSearchItMakes_ForAnIndex()
+    {
+        // The match compares lower-cased text, so the index must use lower(ticker) as well.
+        var check = Check("LOOKUP_ASOF(\"Prices\", \"TICKER\", note, \"date\", booked_on, \"price\") * 2", DatabaseProvider.Postgres);
+        Assert.Equal([new LookupTarget("prices", "ticker", true, "date")], check.Result!.Lookups);
+        Assert.Contains("lower(__a1.\"ticker\") = lower(t.\"note\")", check.Result.Sql);
+        Assert.Equal("bento_lookup_prices_ticker_date", Bento.Api.Services.LookupIndexes.IndexName(check.Result.Lookups[0]));
+
+        Assert.Empty(Check("amount * 2", DatabaseProvider.Postgres).Result!.Lookups);
+        var name = Bento.Api.Services.LookupIndexes.IndexName(new LookupTarget(new string('p', 40), new string('m', 30), true, "date"));
+        Assert.Equal(63, name.Length);
+        Assert.StartsWith("bento_lookup_pppp", name);
+    }
+
+    [Fact]
     public void AColumnUsingItself_IsACycle()
     {
         var check = Check("= opening_balance + balance", table: Accounts, column: "balance");
