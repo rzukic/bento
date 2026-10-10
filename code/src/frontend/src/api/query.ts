@@ -117,7 +117,14 @@ export async function getSavedQuery(id: number): Promise<SavedQuery> {
 
 export type QueryVariable = { name: string; source?: string; formula: string; filter?: QueryFilter };
 
-export type QueryVariableResult = { name: string; type: string | null; value: VariableValue; error: string | null };
+export type QueryVariableResult = {
+  name: string;
+  type: string | null;
+  value: VariableValue;
+  error: string | null;
+  /** The variable's label from the dashboard (added by the page, not the server): shown under a key figure. */
+  label?: string;
+};
 
 /** POST /api/v1/query/variables — values in the order given; a broken one has an error. */
 export async function evaluateVariables(variables: QueryVariable[]): Promise<QueryVariableResult[]> {

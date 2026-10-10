@@ -207,13 +207,22 @@ public sealed class FormulaParser
         string.Equals(Peek.Text, keyword, StringComparison.OrdinalIgnoreCase) &&
         _tokens[_position + 1].Kind != TokenKind.LeftParen;
 
+    /// <summary>
+    /// AND, OR, IN and WHERE after an operand: always the keyword, also before
+    /// a parenthesis — <c>c AND (a OR b)</c>, <c>SUM(x WHERE (a OR b) AND c)</c>.
+    /// (Before an operand, <c>AND(a, b)</c> stays the function.)
+    /// </summary>
+    private bool IsInfixKeyword(string keyword) =>
+        Peek.Kind == TokenKind.Identifier &&
+        string.Equals(Peek.Text, keyword, StringComparison.OrdinalIgnoreCase);
+
     private bool IsOperator(params string[] operators) =>
         Peek.Kind == TokenKind.Operator && operators.Contains(Peek.Text);
 
     private FormulaNode ParseOr()
     {
         var left = ParseAnd();
-        while (IsOperator("||") || IsKeyword("OR"))
+        while (IsOperator("||") || IsInfixKeyword("OR"))
         {
             var op = Next();
             var right = ParseAnd();
@@ -225,7 +234,7 @@ public sealed class FormulaParser
     private FormulaNode ParseAnd()
     {
         var left = ParseNot();
-        while (IsOperator("&&") || IsKeyword("AND"))
+        while (IsOperator("&&") || IsInfixKeyword("AND"))
         {
             var op = Next();
             var right = ParseNot();
@@ -248,6 +257,9 @@ public sealed class FormulaParser
     private FormulaNode ParseComparison()
     {
         var left = ParseConcat();
+        if (IsInfixKeyword("IN") || (IsInfixKeyword("NOT") && _tokens[_position + 1] is { Kind: TokenKind.Identifier } after &&
+                                     string.Equals(after.Text, "IN", StringComparison.OrdinalIgnoreCase)))
+            return ParseIn(left);
         if (Peek.Kind == TokenKind.Operator && Comparisons.Contains(Peek.Text))
         {
             var op = Next();
@@ -258,6 +270,40 @@ public sealed class FormulaParser
                 throw FormulaLexer.Error("Comparisons cannot be chained; combine them with AND.", Peek.Start, Peek.End);
         }
         return left;
+    }
+
+    /// <summary>
+    /// <c>category IN ("Rent", "Food")</c> and <c>NOT IN</c>: the same as
+    /// <c>category = "Rent" OR category = "Food"</c>, so text ignores case as with =.
+    /// </summary>
+    private FormulaNode ParseIn(FormulaNode left)
+    {
+        var not = IsInfixKeyword("NOT") ? Next() : null;
+        var @in = Next();
+        if (Peek.Kind != TokenKind.LeftParen)
+            throw FormulaLexer.Error("IN takes a list in parentheses: category IN (\"Rent\", \"Food\").", @in.Start, @in.End);
+        var open = Next();
+        var values = new List<FormulaNode>();
+        while (true)
+        {
+            if (Peek.Kind is TokenKind.Comma or TokenKind.RightParen)
+                throw FormulaLexer.Error(values.Count == 0 ? "IN needs at least one value." : "A value is missing here.", Peek.Start, Peek.End);
+            values.Add(ParseConcat());
+            if (Peek.Kind != TokenKind.Comma)
+                break;
+            Next();
+        }
+        if (Peek.Kind != TokenKind.RightParen)
+        {
+            throw Peek.Kind == TokenKind.End
+                ? FormulaLexer.Error("IN ( is never closed.", @in.Start, open.End)
+                : FormulaLexer.Error($"Expected , or ) in IN (…), not '{Describe(Peek)}'.", Peek.Start, Peek.End);
+        }
+        var close = Next();
+        var any = values
+            .Select(value => (FormulaNode)new BinaryExpression("=", left, value, @in.Start, left.Start, value.End))
+            .Aggregate((a, b) => new BinaryExpression("OR", a, b, @in.Start, left.Start, close.End));
+        return not is null ? any : new UnaryExpression("NOT", any, not.Start, close.End);
     }
 
     private FormulaNode ParseConcat()
@@ -407,9 +453,9 @@ public sealed class FormulaParser
             {
                 if (Peek.Kind is TokenKind.Comma or TokenKind.RightParen)
                     throw FormulaLexer.Error("An argument is missing here.", Peek.Start, Peek.End);
-                if (!IsKeyword("WHERE"))
+                if (!IsInfixKeyword("WHERE"))
                     arguments.Add(ParseOr());
-                if (IsKeyword("WHERE"))
+                if (IsInfixKeyword("WHERE"))
                 {
                     // SUM(amount WHERE amount > 0), COUNT(WHERE paid): the condition ends the call.
                     var where = Next();

@@ -51,7 +51,7 @@ public sealed record CustomFunctionDef(
 /// <summary>Names, types and the rules both the API and the compiler check.</summary>
 public static partial class CustomFunctionRules
 {
-    public const int MaxArguments = 10;
+    public const int MaxArguments = 20;
     public const int MaxCodeLength = 50_000;
 
     public static readonly IReadOnlyList<string> ResultTypes = ["float", "integer", "currency", "text", "boolean", "date", "datetime", "any"];

@@ -447,9 +447,12 @@ public sealed class IncludeService
                 };
             }
 
-            // Check toAccessor (table must be the "to" table)
+            // Check toAccessor (table must be the "to" table). The reference column
+            // names it too (include=category_id, as in filters and formulas); the
+            // linked record still comes under the link name, next to the id.
             if (string.Equals(def.To, tableName, StringComparison.OrdinalIgnoreCase)
-                && string.Equals(rel.ToAccessor, accessorName, StringComparison.OrdinalIgnoreCase))
+                && (string.Equals(rel.ToAccessor, accessorName, StringComparison.OrdinalIgnoreCase)
+                    || (def.Type == RelationType.OneToMany && string.Equals(def.Column, accessorName, StringComparison.OrdinalIgnoreCase))))
             {
                 return new ResolvedInclude
                 {

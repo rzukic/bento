@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
 using Bento.Api.Db;
 using Bento.Api.Exceptions;
+using Bento.Api.Services;
 
 namespace Bento.Api.Controllers;
 
@@ -321,9 +322,10 @@ public sealed class DashboardsController : ControllerBase
     // ── Validation ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// The layout must hold together: widgets with unique ids, a known type
-    /// and a position inside the 12-column grid. Widget queries are checked
-    /// when they run (a renamed column shows on the widget, not here).
+    /// The layout must hold together: widgets with unique ids, a known type,
+    /// a position inside the 12-column grid and known display and data options
+    /// (<see cref="WidgetOptions"/>). Widget queries are checked when they run
+    /// (a renamed column shows on the widget, not here).
     /// </summary>
     private static string SerializeDashboard(JsonElement dashboard)
     {
@@ -356,6 +358,7 @@ public sealed class DashboardsController : ControllerBase
             var (x, y, w, h) = (Read("x"), Read("y"), Read("w"), Read("h"));
             if (x < 0 || y < 0 || w < 1 || h < 1 || x + w > GridColumns || h > 24)
                 throw Invalid($"{path}.position", $"The widget does not fit the {GridColumns}-column grid.");
+            WidgetOptions.Check(widget, path);
         }
 
         return dashboard.GetRawText();

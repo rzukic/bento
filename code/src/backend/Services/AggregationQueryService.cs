@@ -725,6 +725,13 @@ public sealed class AggregationQueryService
         if (plan.Calendar is not null)
             groupBy.AddRange([$"b.{Q("bucket")}", $"b.{Q("bucket_end")}"]);
 
+        // Without groups the answer is one row. An aggregate makes it so even when no
+        // measure adds up rows (a constant, a variable, CUSTOM("f", rate)): those ran
+        // once per row before (a CUSTOM 291 times), or not at all on an empty table.
+        // XIRR(amount, date) and the like read the rows themselves, so they keep them.
+        if (groupBy.Count == 0 && plan.Measures.All(m => m.Series is null))
+            select.Add($"COUNT(*) AS {Q("__rows")}");
+
         var grouped = new StringBuilder()
             .Append("SELECT ").Append(string.Join(", ", select))
             .Append(" FROM ");

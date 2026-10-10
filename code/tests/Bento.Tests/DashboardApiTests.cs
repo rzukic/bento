@@ -62,6 +62,17 @@ public sealed class DashboardApiTests
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "pie", "position": { "x": 0, "y": 0, "w": 2, "h": 2 } } ] } }""", "dashboard.widgets[0].type")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "kpi", "position": { "x": 10, "y": 0, "w": 4, "h": 2 } } ] } }""", "dashboard.widgets[0].position")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "kpi", "position": { "x": 0, "y": 0, "w": 2, "h": 2 } }, { "id": "a", "type": "kpi", "position": { "x": 2, "y": 0, "w": 2, "h": 2 } } ] } }""", "dashboard.widgets[1].id")]
+    // Widget options (beta feedback: "sankey": "xyz" was saved without a word).
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "sankey", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "sankey": "xyz" } } ] } }""", "dashboard.widgets[0].display.sankey")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "format": "euro" } } ] } }""", "dashboard.widgets[0].display.format")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "bar", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "stacked": "yes" } } ] } }""", "dashboard.widgets[0].display.stacked")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "bar", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "intervals": ["month", "decade"] } } ] } }""", "dashboard.widgets[0].display.intervals[1]")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "bar", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "referenceLines": [ { "label": "x" } ] } } ] } }""", "dashboard.widgets[0].display.referenceLines[0]")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "timeShift": "lastyear" } } ] } }""", "dashboard.widgets[0].data.timeShift")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "budget", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "budget": { "source": "t", "amount": "a", "date": "d", "category": "c" } } } ] } }""", "dashboard.widgets[0].data.budget.limit")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "budget", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "budget": { "source": "t", "amount": "a", "date": "d", "category": "c", "limit": "l", "period": "week" } } } ] } }""", "dashboard.widgets[0].data.budget.period")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "rows": { "columns": ["a"], "limit": 5000 } } } ] } }""", "dashboard.widgets[0].data.rows.limit")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "query": { "source": "t", "measures": [ { "name": "x", "fn": "sum", "column": "a", "axis": "left" } ] } } } ] } }""", "dashboard.widgets[0].data.query.measures[0].axis")]
     [InlineData("""{ "name": " ", "dashboard": { "widgets": [] } }""", "name")]
     public async Task Invalid_DashboardsNameTheField(string body, string field)
     {

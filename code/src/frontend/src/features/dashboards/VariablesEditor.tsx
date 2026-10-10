@@ -116,6 +116,16 @@ export function VariablesEditor({
                   />
                 </label>
                 <label className="widget-editor__field">
+                  <span className="widget-editor__label">Label</span>
+                  <input
+                    className="field__control field__control--compact"
+                    value={variable.label ?? ""}
+                    placeholder="Shown under a key figure"
+                    aria-label={`Label of variable ${index + 1}`}
+                    onChange={(event) => update(index, { label: event.target.value || undefined })}
+                  />
+                </label>
+                <label className="widget-editor__field">
                   <span className="widget-editor__label">From</span>
                   <select
                     className="field__control field__control--compact"

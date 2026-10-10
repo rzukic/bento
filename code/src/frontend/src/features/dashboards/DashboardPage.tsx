@@ -219,9 +219,11 @@ export function DashboardPage() {
     const requestKey = JSON.stringify(["variables", requests]);
     const force = refreshToken !== lastVariablesToken.current;
     lastVariablesToken.current = refreshToken;
+    const byName = (results: QueryVariableResult[]) =>
+      Object.fromEntries(results.map((r) => [r.name, { ...r, label: definitions.find((d) => d.name === r.name)?.label || undefined }]));
     const cached = peekCached<QueryVariableResult[]>(requestKey);
     if (cached) {
-      setVariableResults(Object.fromEntries(cached.value.map((r) => [r.name, r])));
+      setVariableResults(byName(cached.value));
       if (cached.fresh && !force) return;
     }
     let cancelled = false;
@@ -229,7 +231,7 @@ export function DashboardPage() {
       () => {
         loadCached(requestKey, () => evaluateVariables(requests), force)
           .then((results) => {
-            if (!cancelled) setVariableResults(Object.fromEntries(results.map((r) => [r.name, r])));
+            if (!cancelled) setVariableResults(byName(results));
           })
           .catch((cause) => {
             if (cancelled) return;
