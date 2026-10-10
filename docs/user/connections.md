@@ -21,7 +21,7 @@ Filters on list endpoints take `column=value&column[op]=value`, e.g. `betrag_eur
 
 Admins create keys under **API keys**:
 
-1. Give the key a name (what uses it), choose **Read** or **Read and write**, and optionally an expiry
+1. Give the key a name (what uses it), choose **Read**, **Read and write** or **Choose…**, and optionally an expiry
 2. **Create key** shows the key **once** — copy it now; Bento keeps only a fingerprint and cannot show it again
 3. Use it in the `X-API-Key` header (or `Authorization: Bearer bento_…`):
 
@@ -33,8 +33,9 @@ Admins create keys under **API keys**:
 |--------|--------|
 | Read | Reading records, the schema and dashboards; running queries |
 | Read and write | Also creating, changing and deleting records, importing files, saving queries and dashboards |
+| Choose… | What you tick, like for a connected app: also **Tables and columns** (the schema) and **Functions and price sources**, e.g. for a script that adds a column or runs a price source |
 
-No key can change the schema, manage users or manage keys — that needs a sign-in. A key acts as the admin who created it and never does more than that user may.
+No key can manage users, keys or credentials — that needs a sign-in. A key acts as the admin who created it and never does more than that user may.
 
 The list shows when each key was created and last used, when it expires, and its status. **Revoke** stops a key immediately; it stays in the list as revoked. To replace a key, create a new one and revoke the old one.
 
@@ -112,7 +113,7 @@ A read key only reads; a read-write key may also add and change rows.
 | `preview_schema_change`, `apply_schema_change` | Schema changes, previewed first | tables and columns |
 | `save_function`, `test_function`, `delete_function`, `run_price_source` | Functions and price sources | functions |
 
-A connection only sees the tools it may use. API keys work like a connection with read only (read keys) or with rows, dashboards and forms (read-write keys).
+A connection only sees the tools it may use. API keys work like a connection with read only (read keys), with rows, dashboards and forms (read-write keys), or with what was ticked for them (keys made with **Choose…**).
 
 **Recent calls** lists every tool call: when, which tool and arguments, through which app or key, the result and how long it took. Calls are kept 90 days.
 

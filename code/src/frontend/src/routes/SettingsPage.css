@@ -60,3 +60,8 @@
   font-weight: 600;
   font-size: var(--fs-md);
 }
+
+.settings__select {
+  width: auto;
+  max-width: 100%;
+}

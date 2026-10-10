@@ -1,8 +1,9 @@
 import { getCurrentLocale } from "../features/data-explorer/components/editors/temporalEditing";
+import { currentCurrency } from "./preferences";
 
 /**
- * Amounts are shown in this currency. The model has no currency per column
- * yet; Bento is used in euros first.
+ * Amounts are shown in the workspace's currency (Settings; EUR unless an admin
+ * chose another). The model has no currency per column yet.
  */
 export const DEFAULT_CURRENCY = "EUR";
 
@@ -30,7 +31,7 @@ export function toNumber(value: unknown): number | null {
 }
 
 /** "-1150" → "−1.150,00 €" (de-DE) or "-€1,150.00" (en-US). */
-export function formatAmount(value: number, locale = getCurrentLocale(), currency = DEFAULT_CURRENCY): string {
+export function formatAmount(value: number, locale = getCurrentLocale(), currency = currentCurrency()): string {
   return formatter(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
 }
 
@@ -51,7 +52,7 @@ export function formatNumber(value: number, kind: NumberFormatKind = "number", l
 export function formatCompact(value: number, kind: NumberFormatKind = "number", locale = getCurrentLocale()): string {
   if (kind === "percent") return formatNumber(value, "percent", locale);
   const options: Intl.NumberFormatOptions = { notation: "compact", maximumFractionDigits: 1 };
-  if (kind === "currency") Object.assign(options, { style: "currency", currency: DEFAULT_CURRENCY });
+  if (kind === "currency") Object.assign(options, { style: "currency", currency: currentCurrency() });
   return formatter(locale, options).format(value);
 }
 

@@ -93,7 +93,13 @@ public sealed class AuthMiddleware
         if (!_runtimeOptions.IsStandardAuthMode)
             throw Unauthorized("This auth mode is not available yet.");
         var identity = await apiKeys.AuthenticateAsync(apiKey);
-        if (enforceScope) EnsureScopeAllows(identity.Scope, context.Request);
+        if (enforceScope)
+        {
+            if (identity.Permissions is { } permissions)
+                EnsureKeyPermissionAllows(permissions, context.Request);
+            else
+                EnsureScopeAllows(identity.Scope, context.Request);
+        }
         context.User = CreateApiKeyPrincipal(identity);
         return true;
     }
@@ -161,6 +167,18 @@ public sealed class AuthMiddleware
                 new Dictionary<string, object?> { ["permission"] = required });
     }
 
+    /// <summary>A key with permissions reaches what a connected app with them could, and nothing else (users, keys, credentials).</summary>
+    private static void EnsureKeyPermissionAllows(IReadOnlyList<string> permissions, HttpRequest request)
+    {
+        var required = McpPermissions.RequiredFor(request.Method, request.Path.Value ?? "");
+        if (required is null)
+            throw new ApiForbiddenException("API keys cannot use this part of Bento.", new Dictionary<string, object?> { ["path"] = request.Path.Value });
+        if (!permissions.Contains(required))
+            throw new ApiForbiddenException(
+                $"This API key was not allowed to do that (needs \"{required}\"). Make a key with it under Connections → API keys.",
+                new Dictionary<string, object?> { ["permission"] = required });
+    }
+
     /// <summary>The user's own role (the API's role checks apply as for them); the permissions narrow it further.</summary>
     private static ClaimsPrincipal CreateOAuthPrincipal(OAuthService.OAuthIdentity grant)
     {
@@ -223,14 +241,22 @@ public sealed class AuthMiddleware
 
     private static ClaimsPrincipal CreateApiKeyPrincipal(ApiKeyService.ApiKeyIdentity identity)
     {
-        return new ClaimsPrincipal(new ClaimsIdentity(
-        [
-            new Claim(ClaimTypes.NameIdentifier, identity.UserId.ToString(CultureInfo.InvariantCulture)),
-            new Claim(ClaimTypes.Name, identity.Username),
-            new Claim(ClaimTypes.Role, identity.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"),
-            new Claim("auth_method", "api_key"),
-            new Claim("api_key_id", identity.KeyId.ToString(CultureInfo.InvariantCulture))
-        ], "ApiKey"));
+        // Keys with permissions act with their user's role (an admin's key may change the
+        // schema), narrowed by the permissions checked above; older keys keep api/viewer.
+        var role = identity.Permissions is null
+            ? identity.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"
+            : identity.UserRole ?? "viewer";
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, identity.UserId.ToString(CultureInfo.InvariantCulture)),
+            new(ClaimTypes.Name, identity.Username),
+            new(ClaimTypes.Role, role),
+            new("auth_method", "api_key"),
+            new("api_key_id", identity.KeyId.ToString(CultureInfo.InvariantCulture))
+        };
+        if (identity.Permissions is { } permissions)
+            claims.Add(new Claim("api_key_permissions", string.Join(' ', permissions)));
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "ApiKey"));
     }
 
     private static bool IsVersionedApiRoute(PathString path)

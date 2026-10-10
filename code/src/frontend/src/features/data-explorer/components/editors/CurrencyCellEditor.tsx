@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { EditorShell } from "./editorShell";
+import { getCurrentLocale } from "./temporalEditing";
+import { currentCurrency } from "../../../../lib/preferences";
 import type { CellEditorProps, ColumnSchema } from "./types";
 
 function getCurrencyMeta(column: ColumnSchema): { locale: string; currency: string } {
   const meta = (column as { currency?: { locale?: string; code?: string } }).currency;
   return {
-    locale: meta?.locale ?? "en-US",
-    currency: meta?.code ?? "USD",
+    locale: meta?.locale ?? getCurrentLocale(),
+    currency: meta?.code ?? currentCurrency(),
   };
 }
 

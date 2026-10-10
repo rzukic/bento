@@ -179,6 +179,21 @@ describe("Connections page", () => {
     expect(await screen.findByText("403 Forbidden")).toBeInTheDocument();
   });
 
+  it("creates a key with chosen permissions, e.g. for a schema script", async () => {
+    api.createApiKey.mockResolvedValue({ key: "bento_permissionkey", apiKey: { ...activeKey, id: 3, name: "Schema script", scope: "permissions", permissions: ["data.read", "schema.write"] } });
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/connections?tab=keys"])} />);
+
+    expect(await screen.findByText("Nightly sync")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("e.g. Nightly bank sync"), "Schema script");
+    await user.selectOptions(screen.getByLabelText("Access"), "permissions");
+    await user.click(screen.getByRole("checkbox", { name: /Tables and columns/ }));
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+
+    expect(api.createApiKey).toHaveBeenCalledWith("Schema script", "read-write", undefined, ["data.read", "schema.write"]);
+    expect(await screen.findByLabelText("New API key")).toHaveTextContent("bento_permissionkey");
+  });
+
   it("creates a key, shows it once and revokes keys after confirmation", async () => {
     api.createApiKey.mockResolvedValue({ key: "bento_newsecretkeyvalue", apiKey: { ...activeKey, id: 2, name: "Bank sync", scope: "read-write" } });
     api.revokeApiKey.mockResolvedValue(undefined);

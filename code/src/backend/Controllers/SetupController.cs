@@ -25,6 +25,7 @@ public sealed class SetupController : ControllerBase
     private readonly SchemaService _schemaService;
     private readonly SchemaCache _schemaCache;
     private readonly CrudService _crudService;
+    private readonly WorkspaceSettings _workspaceSettings;
 
     public SetupController(
         BackendRuntimeOptions runtimeOptions,
@@ -35,7 +36,8 @@ public sealed class SetupController : ControllerBase
         AuthService authService,
         SchemaService schemaService,
         SchemaCache schemaCache,
-        CrudService crudService)
+        CrudService crudService,
+        WorkspaceSettings workspaceSettings)
     {
         _runtimeOptions = runtimeOptions;
         _runtimeInfo = runtimeInfo;
@@ -46,6 +48,7 @@ public sealed class SetupController : ControllerBase
         _schemaService = schemaService;
         _schemaCache = schemaCache;
         _crudService = crudService;
+        _workspaceSettings = workspaceSettings;
     }
 
     /// <summary>
@@ -89,6 +92,7 @@ public sealed class SetupController : ControllerBase
         // account is what completes setup (same check AuthService uses for the
         // bootstrap registration, so the two can never disagree).
         var initialized = _runtimeOptions.IsOpenAuthMode || hasUsers;
+        var format = await _workspaceSettings.GetAsync();
 
         return Ok(new SetupStatusResponse(
             Initialized: initialized,
@@ -100,7 +104,9 @@ public sealed class SetupController : ControllerBase
             // The one-time sample data loader only works on an empty
             // installation; advertise it only while that is still the case.
             SampleDataAvailable: SampleDataLoader.IsAvailable(schemaVersion),
-            Version: _runtimeInfo.Version));
+            Version: _runtimeInfo.Version,
+            Locale: format.Locale,
+            Currency: format.Currency));
     }
 
     private async Task<bool> HasAnyUsersAsync(CancellationToken cancellationToken)

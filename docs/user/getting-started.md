@@ -258,3 +258,9 @@ Try these checks first:
 5. For Postgres, confirm you replaced the placeholder passwords in `code/.env`
 
 For a deeper technical validation path, see [../backend/packaged-mvp1-validation.md](../backend/packaged-mvp1-validation.md).
+
+## Numbers, Dates And Currency
+
+Bento writes numbers, dates and amounts the way your browser's language does, e.g. `-1.250,00 €` in German and `-€1,250.00` in English.
+- **Settings → Appearance → Numbers and dates** picks another way for this browser.
+- Admins set the default for everyone under **Settings → Workspace**: the language and region, e.g. Deutsch (Österreich), and the currency of amounts.

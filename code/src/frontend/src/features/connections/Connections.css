@@ -846,3 +846,10 @@
     text-overflow: ellipsis;
     white-space: nowrap;
 }
+
+/* API keys made with chosen permissions (like a connected app) */
+.api-keys__permissions {
+    display: grid;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
