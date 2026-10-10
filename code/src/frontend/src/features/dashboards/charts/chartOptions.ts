@@ -167,6 +167,14 @@ export type ChartOptions = {
   colorBySign?: boolean;
   /** The dashboard's events on this axis: lines at a period, shaded spans. */
   annotations?: PlacedAnnotations;
+  /**
+   * Where the value axis starts: "zero", near the data ("auto"; prices and
+   * values over time are not squeezed at the top), or a number. Missing:
+   * ECharts' default, which includes 0 unless a reference line pins the range.
+   */
+  yMin?: "auto" | "zero" | number;
+  /** Lines run over empty periods instead of leaving a gap. */
+  connectNulls?: boolean;
 };
 
 /** Annotation colours from the chart's tokens; gray is the ink, so it never looks like a series. */
@@ -197,7 +205,7 @@ export function namedColor(color: SeriesColor | undefined, tokens: ChartTokens):
 }
 
 export function buildChartOption(type: WidgetType, model: ChartModel, tokens: ChartTokens, options: ChartOptions = {}): EChartsCoreOption {
-  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false, annotations = { points: [], ranges: [] } } = options;
+  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false, annotations = { points: [], ranges: [] }, yMin, connectNulls = false } = options;
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
   const tooltip = {
     trigger: type === "donut" ? "item" : "axis",
@@ -290,6 +298,9 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
           max: (extent: { max: number }) => Math.max(extent.max, ...references),
         }
       : {}),
+    ...(yMin === "auto" ? { scale: true } : {}),
+    ...(yMin === "zero" ? { min: (extent: { min: number }) => Math.min(0, extent.min, ...references) } : {}),
+    ...(typeof yMin === "number" ? { min: yMin } : {}),
   };
   const seriesFormat = (index: number) => {
     const own = model.series[index]?.format;
@@ -411,7 +422,7 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
         stack: stacked && !shifted && !onRight ? "total" : undefined,
         showSymbol: !shifted && model.categories.length <= 16,
         symbolSize: 5,
-        connectNulls: false,
+        connectNulls,
         barMaxWidth: 28,
         lineStyle: kind === "line" ? { width: shifted ? 1.5 : 2, type: shifted ? "dashed" : "solid" } : undefined,
         areaStyle: type === "area" && !shifted ? { opacity: 0.16 } : undefined,
