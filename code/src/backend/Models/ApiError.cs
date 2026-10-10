@@ -9,6 +9,7 @@ public enum ApiErrorCode
     Conflict,
     UnprocessableEntity,
     TooManyRequests,
+    Timeout,
     InternalError
 }
 
@@ -32,6 +33,7 @@ public static class ApiErrorCodeExtensions
             ApiErrorCode.Conflict => "CONFLICT",
             ApiErrorCode.UnprocessableEntity => "UNPROCESSABLE_ENTITY",
             ApiErrorCode.TooManyRequests => "TOO_MANY_REQUESTS",
+            ApiErrorCode.Timeout => "TIMEOUT",
             ApiErrorCode.InternalError => "INTERNAL_ERROR",
             _ => throw new ArgumentOutOfRangeException(nameof(code), code, null)
         };

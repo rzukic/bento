@@ -114,6 +114,7 @@ public static class BackendHost
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
+        services.AddSingleton<LookupIndexes>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();
