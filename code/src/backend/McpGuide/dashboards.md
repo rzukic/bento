@@ -48,6 +48,7 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 - `asOf: true`: values at the end of each period of the date group (balances, net worth).
 - `timeShift`: `previous` or `year` — the same series for the period before / a year earlier, dashed.
 - `variable` (kpi), `rows` (table), `budget` (budget).
+- `range`: the widget's own date range instead of the dashboard's, `{preset}` or `{from, to}` — e.g. a forecast `{"preset": "next-20-years"}` with `asOf` and `BUCKET_END()` in the future, on a dashboard of the last 12 months.
 
 ## `display`
 
@@ -66,6 +67,9 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `shares` | true: node labels as % of the first column | sankey |
 | `drill` | a column of the same table to open a slice into | donut |
 | `text` | markdown (`#` headings, `-` lists) | text |
+| `columns` | per column name (a measure, or a column of `data.rows`): `{format?, signed?, colorBySign?}` — e.g. `{"xirr": {"format": "percent", "signed": true, "colorBySign": true}}` writes +22,2 % in green next to amounts | table |
+| `yAxis` | `{min: "auto"}` starts the value axis near the data (prices, values over time), `"zero"` always at 0, or a number | line, area, bar |
+| `emptyPeriods` | `zero` (default: an empty period is 0), `gap` (left empty) or `connect` (the line runs over it); with gap and connect the periods before the first value are left out, e.g. a depot before the first purchase | charts by date |
 
 Per measure (in `data.query.measures`, charts only, not sent to the query):
 - `show`: `change` (from the period before) or `moving_average`, with `window` (periods, default 3).
@@ -77,7 +81,7 @@ Saving checks these values: an unknown one (`"sankey": "xyz"`) is an error that 
 
 ## Dashboard level
 
-- `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years all`, or `{from, to}`.
+- `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
 - `variables`: `{name, label?, source?, formula, dateColumn?}` (a key figure showing it writes `label` under the value) — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
 - `filters`: `{column, label?}` — a menu narrowing every widget whose table has the column.
 - `annotations`: `{date, to?, label, color?}` (`gray blue teal amber rose violet`) on charts by date.

@@ -73,6 +73,12 @@ public sealed class DashboardApiTests
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "budget", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "budget": { "source": "t", "amount": "a", "date": "d", "category": "c", "limit": "l", "period": "week" } } } ] } }""", "dashboard.widgets[0].data.budget.period")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "rows": { "columns": ["a"], "limit": 5000 } } } ] } }""", "dashboard.widgets[0].data.rows.limit")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "query": { "source": "t", "measures": [ { "name": "x", "fn": "sum", "column": "a", "axis": "left" } ] } } } ] } }""", "dashboard.widgets[0].data.query.measures[0].axis")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "yAxis": { "min": "data" } } } ] } }""", "dashboard.widgets[0].display.yAxis.min")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "emptyPeriods": "skip" } } ] } }""", "dashboard.widgets[0].display.emptyPeriods")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "columns": { "xirr": { "format": "pct" } } } } ] } }""", "dashboard.widgets[0].display.columns.xirr.format")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "columns": { "xirr": { "signed": "yes" } } } } ] } }""", "dashboard.widgets[0].display.columns.xirr.signed")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "range": { "preset": "next-100-years" } } } ] } }""", "dashboard.widgets[0].data.range.preset")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "range": { "from": "2026-01-01", "to": "2045" } } } ] } }""", "dashboard.widgets[0].data.range")]
     [InlineData("""{ "name": " ", "dashboard": { "widgets": [] } }""", "name")]
     public async Task Invalid_DashboardsNameTheField(string body, string field)
     {
@@ -83,6 +89,27 @@ public sealed class DashboardApiTests
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         var payload = await response.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal(field, payload.GetProperty("error").GetProperty("details").GetProperty("field").GetString());
+    }
+
+    [Fact]
+    public async Task DisplayOptions_FromBetaFeedback_AreStored()
+    {
+        await using var host = await CreateHostAsync();
+        const string body = """
+            { "name": "Forecast", "dashboard": { "widgets": [
+              { "id": "f", "type": "line", "position": { "x": 0, "y": 0, "w": 6, "h": 4 },
+                "data": { "range": { "preset": "next-20-years" }, "asOf": true },
+                "display": { "yAxis": { "min": "auto" }, "emptyPeriods": "connect" } },
+              { "id": "t", "type": "table", "position": { "x": 6, "y": 0, "w": 6, "h": 4 },
+                "data": { "range": { "from": "2026-01-01", "to": "2045-12-31" } },
+                "display": { "columns": { "xirr": { "format": "percent", "signed": true, "colorBySign": true } }, "yAxis": { "min": 100 } } }
+            ] } }
+            """;
+        using var response = await host.Client.PostAsync("/api/v1/dashboards", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        var stored = (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data").GetProperty("dashboard").GetProperty("widgets");
+        Assert.Equal("next-20-years", stored[0].GetProperty("data").GetProperty("range").GetProperty("preset").GetString());
+        Assert.True(stored[1].GetProperty("display").GetProperty("columns").GetProperty("xirr").GetProperty("signed").GetBoolean());
     }
 
     [Fact]

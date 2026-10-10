@@ -30,20 +30,22 @@ export function toNumber(value: unknown): number | null {
 }
 
 /** "-1150" → "−1.150,00 €" (de-DE) or "-€1,150.00" (en-US). */
-export function formatAmount(value: number, locale = getCurrentLocale(), currency = DEFAULT_CURRENCY): string {
-  return formatter(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(value);
+export function formatAmount(value: number, locale = getCurrentLocale(), currency = DEFAULT_CURRENCY, signed = false): string {
+  return formatter(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2, ...(signed ? { signDisplay: "exceptZero" } : {}) }).format(value);
 }
 
-export function formatNumber(value: number, kind: NumberFormatKind = "number", locale = getCurrentLocale()): string {
+/** `signed`: a + in front of positive values too (+10 %, +1.250,00 €), for changes. */
+export function formatNumber(value: number, kind: NumberFormatKind = "number", locale = getCurrentLocale(), signed = false): string {
+  const sign: Intl.NumberFormatOptions = signed ? { signDisplay: "exceptZero" } : {};
   switch (kind) {
     case "currency":
-      return formatAmount(value, locale);
+      return formatAmount(value, locale, DEFAULT_CURRENCY, signed);
     case "integer":
-      return formatter(locale, { maximumFractionDigits: 0 }).format(value);
+      return formatter(locale, { maximumFractionDigits: 0, ...sign }).format(value);
     case "percent":
-      return formatter(locale, { style: "percent", maximumFractionDigits: 1 }).format(value);
+      return formatter(locale, { style: "percent", maximumFractionDigits: 1, ...sign }).format(value);
     default:
-      return formatter(locale, { maximumFractionDigits: 2 }).format(value);
+      return formatter(locale, { maximumFractionDigits: 2, ...sign }).format(value);
   }
 }
 

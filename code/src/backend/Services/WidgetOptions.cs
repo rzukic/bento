@@ -19,6 +19,12 @@ public static class WidgetOptions
     private static readonly string[] TimeShifts = ["previous", "year"];
     private static readonly string[] Shows = ["change", "moving_average"];
     private static readonly string[] Colors = ["blue", "teal", "amber", "violet", "rose", "green", "red", "gray"];
+    private static readonly string[] EmptyPeriods = ["zero", "gap", "connect"];
+    private static readonly string[] Presets =
+    [
+        "last-7-days", "this-month", "last-3-months", "last-6-months", "last-12-months", "this-year", "last-year",
+        "last-3-years", "last-5-years", "next-12-months", "next-5-years", "next-10-years", "next-20-years", "all"
+    ];
     private static readonly string[] Flags =
         ["stacked", "compare", "higherIsBetter", "trend", "summary", "totalLine", "colorBySign", "annotations", "shares"];
 
@@ -35,6 +41,29 @@ public static class WidgetOptions
         RequireObject(display, path);
         OneOf(display, "format", Formats, path);
         OneOf(display, "sankey", SankeyModes, path);
+        OneOf(display, "emptyPeriods", EmptyPeriods, path);
+        if (display.TryGetProperty("yAxis", out var yAxis) && yAxis.ValueKind != JsonValueKind.Null)
+        {
+            RequireObject(yAxis, $"{path}.yAxis");
+            if (yAxis.TryGetProperty("min", out var min) && min.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null) &&
+                !(min.ValueKind == JsonValueKind.String && min.GetString() is "auto" or "zero"))
+                throw Invalid($"{path}.yAxis.min", "yAxis.min is \"auto\" (near the data), \"zero\" or a number.");
+        }
+        if (display.TryGetProperty("columns", out var columns) && columns.ValueKind != JsonValueKind.Null)
+        {
+            RequireObject(columns, $"{path}.columns");
+            foreach (var column in columns.EnumerateObject())
+            {
+                var columnPath = $"{path}.columns.{column.Name}";
+                RequireObject(column.Value, columnPath);
+                OneOf(column.Value, "format", Formats, columnPath);
+                foreach (var flag in new[] { "signed", "colorBySign" })
+                {
+                    if (column.Value.TryGetProperty(flag, out var value) && value.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null))
+                        throw Invalid($"{columnPath}.{flag}", $"{flag} is true or false.");
+                }
+            }
+        }
         foreach (var flag in Flags)
         {
             if (display.TryGetProperty(flag, out var value) && value.ValueKind is not (JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null))
@@ -69,6 +98,14 @@ public static class WidgetOptions
     {
         RequireObject(data, path);
         OneOf(data, "timeShift", TimeShifts, path);
+        if (data.TryGetProperty("range", out var range) && range.ValueKind != JsonValueKind.Null)
+        {
+            RequireObject(range, $"{path}.range");
+            if (range.TryGetProperty("preset", out _))
+                OneOf(range, "preset", Presets, $"{path}.range");
+            else if (!IsDay(range, "from") || !IsDay(range, "to"))
+                throw Invalid($"{path}.range", "range is { preset } or { from, to } with days like \"2026-01-01\".");
+        }
 
         if (data.TryGetProperty("budget", out var budget) && budget.ValueKind != JsonValueKind.Null)
         {
@@ -119,6 +156,10 @@ public static class WidgetOptions
 
     private const string BudgetHelp =
         "{ source, amount, date, category (the link column to the categories), limit (the categories' monthly limit column), expenses?: \"negative\"|\"positive\", period?: \"month\"|\"range\" }.";
+
+    private static bool IsDay(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&
+        DateOnly.TryParseExact(value.GetString(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out _);
 
     private static void OneOf(JsonElement element, string name, string[] allowed, string path)
     {

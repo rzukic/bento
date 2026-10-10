@@ -19,6 +19,8 @@ export type WidgetResultState = {
   error: string | null;
   /** A new result is on its way while the previous one is still shown (e.g. after switching M → Q). */
   refreshing: boolean;
+  /** The range the shown result is for (rangeKey of the request), to tell a wider range still loading from a plain refresh. */
+  forRange?: string;
 };
 
 /**
@@ -58,6 +60,7 @@ export function useWidgetResult(
       return;
     }
 
+    const rangeId = JSON.stringify([range.from, range.to]);
     const force = refreshToken !== lastToken.current;
     lastToken.current = refreshToken;
     const saved = data.savedQueryId;
@@ -80,7 +83,7 @@ export function useWidgetResult(
 
     const cached = peekCached<Loaded>(requestKey);
     if (cached) {
-      setState({ status: "ready", result: cached.value.result, query: cached.value.query, error: null, refreshing: !cached.fresh || force });
+      setState({ status: "ready", result: cached.value.result, query: cached.value.query, error: null, refreshing: !cached.fresh || force, forRange: rangeId });
       if (cached.fresh && !force) return;
     } else {
       setState((current) => ({ ...current, status: current.result ? current.status : "loading", error: null, refreshing: current.result !== null }));
@@ -89,7 +92,7 @@ export function useWidgetResult(
     let cancelled = false;
     loadCached(requestKey, load, force).then(
       ({ result, query }) => {
-        if (!cancelled) setState({ status: "ready", result, query, error: null, refreshing: false });
+        if (!cancelled) setState({ status: "ready", result, query, error: null, refreshing: false, forRange: rangeId });
       },
       (cause) => {
         if (!cancelled) {
