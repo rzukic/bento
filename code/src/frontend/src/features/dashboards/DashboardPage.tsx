@@ -42,6 +42,8 @@ import { appliedFilters, clearSelection, selectionFromSearch, selectionToSearch 
 import { FilterBar, FiltersEditor } from "./FilterBar";
 import { drillUrl, type DrillTarget } from "./drill";
 import { VariablesEditor } from "./VariablesEditor";
+import { VariableInputs } from "./VariableInputs";
+import { clearInputs, inputToSearch, inputValuesFromSearch, withInputs } from "./inputValues";
 import { quoteTime, usePriceRefresh } from "./priceRefresh";
 import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
@@ -138,7 +140,14 @@ export function DashboardPage() {
   // Step 4.5: intervals viewers chose for charts by date.
   const intervals = intervalsFromSearch(searchParams);
   const selectionKey = JSON.stringify(selection);
-  const filterDefs = document?.filters;
+  // A filter in the address on a column the dashboard has no menu for (a row link from another
+  // dashboard) applies too, and shows in the bar so it can be cleared.
+  const filterDefs = useMemo(() => {
+    const declared = document?.filters ?? [];
+    const extra = Object.keys(selection).filter((column) => !declared.some((f) => f.column === column));
+    return extra.length > 0 ? [...declared, ...extra.map((column) => ({ column }))] : declared;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document?.filters, selectionKey]);
   const filtersKey = JSON.stringify(filterDefs ?? []);
   const resolved = useMemo(
     () => {
@@ -196,7 +205,12 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, []);
-  const variablesKey = JSON.stringify(variables);
+  // Variables viewers changed (?var.rate=0.07) replace their defaults for this view.
+  const inputValues = inputValuesFromSearch(searchParams);
+  const inputKey = JSON.stringify(inputValues);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const computedVariables = useMemo(() => withInputs(variables, inputValues), [variables, inputKey]);
+  const variablesKey = JSON.stringify(computedVariables);
   const lastVariablesToken = useRef(refreshToken);
   // The widgets get the variables once every one has a result: right after the
   // dashboard loads, an earlier, empty result would let a formula such as
@@ -508,8 +522,15 @@ export function DashboardPage() {
         />
       ) : null}
 
+      <VariableInputs
+        variables={variables}
+        values={inputValues}
+        onChange={(name, value) => setSearchParams((current) => inputToSearch(name, value, current), { replace: true })}
+        onReset={() => setSearchParams((current) => clearInputs(current), { replace: true })}
+      />
+
       <FilterBar
-        filters={document?.filters ?? []}
+        filters={editing ? (document?.filters ?? []) : filterDefs}
         widgets={widgets}
         tables={dataTables(tables)}
         selection={selection}

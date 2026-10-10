@@ -70,6 +70,21 @@ export type DashboardVariable = {
   formula: string;
   /** The date column the dashboard's range filters; none = all rows. */
   dateColumn?: string;
+  /**
+   * Viewers change it on the dashboard (an assumption: a return, a savings rate);
+   * `formula` is then the default value, e.g. `0.07` or `"base"`.
+   */
+  input?: VariableInput;
+};
+
+/** A control for a variable: a number field, a slider, or a choice of values. */
+export type VariableInput = {
+  kind: "number" | "slider" | "select";
+  min?: number;
+  max?: number;
+  step?: number;
+  /** select: the values to choose from. */
+  options?: (string | number)[];
 };
 
 /** How a table writes one column (Step: beta feedback): a return beside amounts, +/− with colours. */
@@ -117,6 +132,11 @@ export type WidgetDisplay = {
    * when the widget itself is by day or week).
    */
   intervals?: false | QueryBucket[];
+  /**
+   * Tables: a click on a row opens another dashboard, filtered by the row's value
+   * of `column` (as the filter `filter` there, by default the same column name).
+   */
+  link?: { dashboard: number; column: string; filter?: string };
   /** Tables: per column (a measure or a row column), how it is written. */
   columns?: Record<string, ColumnDisplay>;
   /** Charts: where the value axis starts — at 0 (default), near the data (auto), or at a number. */

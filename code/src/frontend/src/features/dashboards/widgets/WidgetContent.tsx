@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { DashboardAnnotation, DashboardWidget } from "../../../api/dashboards";
 import type { AggregationQuery, QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
@@ -578,7 +579,7 @@ function TableWidget({
         </thead>
         <tbody>
           {result.data.map((row, index) => (
-            <tr key={index}>
+            <TableRow key={index} widget={widget} value={linkValue(widget, row, otherKeyOf(result, widget.display?.link?.column ?? ""))}>
               {columns.map((column) => {
                 const number = column.role === "measure" ? toNumber(row[column.name]) : null;
                 const className =
@@ -589,7 +590,7 @@ function TableWidget({
                   </td>
                 );
               })}
-            </tr>
+            </TableRow>
           ))}
         </tbody>
         {total && total.data[0] ? (
@@ -639,7 +640,7 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
         </thead>
         <tbody>
           {state.rows.map((row, index) => (
-            <tr key={index}>
+            <TableRow key={index} widget={widget} value={linkValue(widget, row)}>
               {columns.map((column) => {
                 // A column set to a format (display.columns) writes its number that way; others as in the data view.
                 const number = widget.display?.columns?.[column.name] ? toNumber(row[column.name]) : null;
@@ -650,7 +651,7 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
                   </td>
                 );
               })}
-            </tr>
+            </TableRow>
           ))}
         </tbody>
       </table>
@@ -660,6 +661,53 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** The value a row passes to the linked dashboard (display.link); none for "Other" and empty values. */
+function linkValue(widget: DashboardWidget, row: Record<string, unknown>, otherKey?: string): string | null {
+  const column = widget.display?.link?.column;
+  if (!column || (otherKey && row[otherKey] === true)) return null;
+  const value = row[column];
+  return value === null || value === undefined || value === "" ? null : String(value);
+}
+
+/** A table row; with display.link, a click (or Enter) opens the other dashboard filtered by the row's value. */
+function TableRow({ widget, value, children }: { widget: DashboardWidget; value: string | null; children: ReactNode }) {
+  const link = widget.display?.link;
+  if (!link || value === null) return <tr>{children}</tr>;
+  return (
+    <LinkedRow dashboard={link.dashboard} filter={link.filter || link.column} value={value}>
+      {children}
+    </LinkedRow>
+  );
+}
+
+/** Kept apart so tables without a link need no router. The dashboard's range goes along. */
+function LinkedRow({ dashboard, filter, value, children }: { dashboard: number; filter: string; value: string; children: ReactNode }) {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const open = () => {
+    const next = new URLSearchParams();
+    for (const key of ["range", "from", "to"]) {
+      const kept = params.get(key);
+      if (kept) next.set(key, kept);
+    }
+    next.set(`filter.${filter}`, value);
+    navigate(`/dashboards/${dashboard}?${next.toString()}`);
+  };
+  return (
+    <tr
+      className="widget-table__link"
+      tabIndex={0}
+      title="Open in the linked dashboard"
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") open();
+      }}
+    >
+      {children}
+    </tr>
   );
 }
 

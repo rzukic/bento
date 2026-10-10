@@ -79,6 +79,9 @@ public sealed class DashboardApiTests
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "columns": { "xirr": { "signed": "yes" } } } } ] } }""", "dashboard.widgets[0].display.columns.xirr.signed")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "range": { "preset": "next-100-years" } } } ] } }""", "dashboard.widgets[0].data.range.preset")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "range": { "from": "2026-01-01", "to": "2045" } } } ] } }""", "dashboard.widgets[0].data.range")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "link": { "dashboard": 3 } } } ] } }""", "dashboard.widgets[0].display.link")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [], "variables": [ { "name": "rate", "formula": "0.07", "input": { "kind": "dial" } } ] } }""", "dashboard.variables[0].input.kind")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [], "variables": [ { "name": "case", "formula": "\"base\"", "input": { "kind": "select" } } ] } }""", "dashboard.variables[0].input.options")]
     [InlineData("""{ "name": " ", "dashboard": { "widgets": [] } }""", "name")]
     public async Task Invalid_DashboardsNameTheField(string body, string field)
     {
@@ -102,8 +105,8 @@ public sealed class DashboardApiTests
                 "display": { "yAxis": { "min": "auto" }, "emptyPeriods": "connect" } },
               { "id": "t", "type": "table", "position": { "x": 6, "y": 0, "w": 6, "h": 4 },
                 "data": { "range": { "from": "2026-01-01", "to": "2045-12-31" } },
-                "display": { "columns": { "xirr": { "format": "percent", "signed": true, "colorBySign": true } }, "yAxis": { "min": 100 } } }
-            ] } }
+                "display": { "columns": { "xirr": { "format": "percent", "signed": true, "colorBySign": true } }, "yAxis": { "min": 100 }, "link": { "dashboard": 9, "column": "isin" } } }
+            ], "variables": [ { "name": "rate", "label": "Return", "formula": "0.07", "input": { "kind": "slider", "min": 0, "max": 0.15, "step": 0.005 } } ] } }
             """;
         using var response = await host.Client.PostAsync("/api/v1/dashboards", new StringContent(body, System.Text.Encoding.UTF8, "application/json"));
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
