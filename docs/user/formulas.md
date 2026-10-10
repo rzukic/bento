@@ -44,7 +44,8 @@ A dot follows a link to another table:
 |---|---|
 | `SUM(transactions.amount)` | the total; 0 when there are none |
 | `COUNT(transactions)`, `COUNT(transactions.note)` | the number of rows, or of non-empty values |
-| `AVG(transactions.amount)`, `MIN(…)`, `MAX(transactions.booked_on)` | average, smallest, largest (numbers and dates); empty when there are none |
+| `AVG(transactions.amount)`, `MIN(…)`, `MAX(transactions.booked_on)` | average, smallest, largest (numbers, dates, and text in character order); empty when there are none |
+| `LAST(trades.price, trades.date)`, `FIRST(…)` | the value of the related row with the latest (earliest) date, e.g. the last price paid; with `WHERE` only some rows |
 | `MEDIAN(transactions.amount)`, `PERCENTILE(transactions.amount, 90)` | the middle value, or the value 90 % of the rows stay below (interpolated between neighbours) |
 | `SUM(transactions.amount, transactions.amount < 0)` or `SUMIF(…)` | only the rows meeting the condition; also `COUNTIF`, `AVGIF` |
 | `SUM(transactions.amount * -1)` | an expression over each related row |
@@ -66,11 +67,11 @@ Every formula has a result type, which is checked while you type: text, whole nu
 | Logic | `IF(condition, then, [else])`, `AND`, `OR`, `NOT`, `SWITCH(value, match1, result1, …, [default])`, `COALESCE(a, b, …)`, `ISBLANK(value)` |
 | Math | `ROUND(number, [digits])`, `FLOOR`, `CEIL`, `ABS`, `MOD(number, divisor)`, `POWER(number, exponent)`, `SQRT` |
 | Text | `CONCAT(a, b, …)`, `LEFT(text, count)`, `RIGHT(text, count)`, `MID(text, start, count)`, `LEN`, `UPPER`, `LOWER`, `TRIM`, `REPLACE(text, search, replacement)`, `SEARCH(search, text)`, `CONTAINS(text, search)` |
-| Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `MEDIAN`, `PERCENTILE`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
+| Related rows | `SUM`, `COUNT`, `AVG`, `MIN`, `MAX`, `MEDIAN`, `PERCENTILE`, `LAST`, `FIRST`, `SUMIF`, `COUNTIF`, `AVGIF` (see above) |
 | Lookup | `LOOKUP_ASOF(table, match_column, match_value, date_column, date, value_column)` |
-| Dashboards | `RUNNING_SUM(measure)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
-| Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
-| Finance | `PMT(rate, periods, present_value, [future_value], [at_start])`, `FV(rate, periods, payment, [present_value], [at_start])`, `PV(rate, periods, payment, [future_value], [at_start])`, `NPV(rate, value1, …)` — like Excel |
+| Dashboards | `RUNNING_SUM(measure)`, `ROLLING_SUM(measure, periods)`, `ROLLING_AVG(measure, periods)`, `BUCKET_START()`, `BUCKET_END()` (see below) |
+| Dates | `TODAY()`, `NOW()`, `YEAR`, `MONTH`, `DAY`, `HOUR`, `MINUTE`, `WEEKDAY` (1 Monday … 7 Sunday), `DATEDIFF(start, end, "days" \| "weeks" \| "months" \| "years")`, `DATEADD(date, count, unit)` |
+| Finance | `PMT(rate, periods, present_value, [future_value], [at_start])`, `FV(rate, periods, payment, [present_value], [at_start])`, `PV(rate, periods, payment, [future_value], [at_start])`, `NPV(rate, value1, …)`, `NPER(rate, payment, present_value, [future_value], [at_start])` (periods until a goal, e.g. months until 250,000) — like Excel |
 | Returns (dashboards) | `XIRR`, `IRR`, `FLOWS`, `TWR`, `REBASE` (see [below](#returns)) |
 | Custom | `CUSTOM("name", argument, …)` — your own JavaScript (see [below](#your-own-functions)); `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` over a group of rows (see [below](#functions-over-a-group-of-rows)) |
 
@@ -101,6 +102,8 @@ A widget value or a dashboard variable can be a formula over many rows — a **m
 | `(SUM(amount WHERE amount > 0) + SUM(amount WHERE amount < 0)) / SUM(amount WHERE amount > 0)` | a savings rate |
 | `MEDIAN(amount WHERE amount < 0)`, `PERCENTILE(amount, 90 WHERE amount < 0)` | a typical expense; a large one (90th percentile) |
 | `RUNNING_SUM(SUM(amount))` | a running total over the months, e.g. a balance |
+| `ROLLING_SUM(SUM(amount WHERE amount < 0), 12)`, `ROLLING_AVG(SUM(amount), 3)` | the last 12 months together, a 3-month average (periods without bookings do not count; with values at period ends every period counts) |
+| `LAST(amount, booked_on)` | the value of the group's latest row |
 | `SUM(SUM(transactions.amount))` on accounts | an aggregate of related rows inside one over the group |
 | `SUM(amount) / months` | with the dashboard variable `months` |
 

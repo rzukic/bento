@@ -89,7 +89,14 @@ public sealed record FormulaContext
 }
 
 /// <summary>A compiled measure: <c>RUNNING_SUM(…)</c> around the whole formula makes it a running total.</summary>
-public sealed record MeasureCheck(FormulaCheck Check, bool Running);
+public sealed record MeasureCheck(FormulaCheck Check, bool Running)
+{
+    /// <summary>ROLLING_SUM / ROLLING_AVG(measure, periods): the measure over the last periods of the date group.</summary>
+    public RollingWindow? Rolling { get; init; }
+}
+
+/// <summary>A window over the last <paramref name="Periods"/> periods (this one included); an average or a sum.</summary>
+public sealed record RollingWindow(int Periods, bool Average);
 
 /// <summary>
 /// Type-checks a parsed formula against a table and compiles it into a SQL
@@ -151,6 +158,8 @@ public sealed class FormulaCompiler
     private bool _inGroup;
     /// <summary>The fraction PERCENTILE asked for while its call binds (MEDIAN: 0.5).</summary>
     private double _percentile = 0.5;
+    /// <summary>LAST/FIRST: the order column, bound by the aggregate in the rows' scope.</summary>
+    private FormulaNode? _orderBy;
     private readonly List<FormulaError> _errors = [];
     private readonly List<string> _columns = [];
 
@@ -210,6 +219,21 @@ public sealed class FormulaCompiler
         catch (FormulaSyntaxException e)
         {
             return new MeasureCheck(new FormulaCheck(null, [e.Error]), false);
+        }
+
+        // ROLLING_SUM(measure, 12) / ROLLING_AVG(measure, 3): the measure inside, the window around it.
+        if (root is FunctionCall rolling && rolling.Name.ToUpperInvariant() is "ROLLING_SUM" or "ROLLING_AVG")
+        {
+            var average = rolling.Name.Equals("ROLLING_AVG", StringComparison.OrdinalIgnoreCase);
+            var usage = $"Write {rolling.Name.ToUpperInvariant()}(measure, periods), e.g. {rolling.Name.ToUpperInvariant()}(SUM(amount), 12).";
+            if (rolling.Arguments.Count != 2 || rolling.HasWhere)
+                return new MeasureCheck(new FormulaCheck(null, [new FormulaError(usage, root.Start, root.End)]), false);
+            if (rolling.Arguments[1] is not NumberLiteral { Value: >= 2 and <= 366 } periods || periods.Value != Math.Floor(periods.Value))
+                return new MeasureCheck(new FormulaCheck(null, [new FormulaError("The periods are a whole number from 2 to 366, e.g. 12.", rolling.Arguments[1].Start, rolling.Arguments[1].End)]), false);
+            var inner = compiler.RunNode(rolling.Arguments[0], (formula ?? "").Length, null, null);
+            if (inner.Result is { } value && (value.Custom is not null || value.Series is not null || !FormulaTypes.IsNumeric(value.Type)))
+                inner = new FormulaCheck(null, [new FormulaError($"{rolling.Name.ToUpperInvariant()} needs a number such as SUM(amount), not a return, CUSTOM(…) or {FormulaTypes.Describe(value.Type)}.", root.Start, root.End)]);
+            return new MeasureCheck(WithLookups(inner, shared), false) { Rolling = new RollingWindow((int)periods.Value, average) };
         }
 
         var running = root is FunctionCall { Arguments.Count: 1, HasWhere: false } call &&
@@ -929,12 +953,16 @@ public sealed class FormulaCompiler
             return Fail(call, "FLOWS(amount, date) is an argument of XIRR or IRR: XIRR(FLOWS(-invested, date), SUM(value), TODAY()).");
         if (name == "PERCENTILE")
             return BindPercentile(call);
+        if (name is "LAST" or "FIRST")
+            return BindLastFirst(call, name);
         if (info.Category == FormulaFunctions.RelatedRows)
             return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(call, name) : BindAggregate(call, name);
         if (call.HasWhere)
             return Fail(call, $"WHERE only works inside SUM, COUNT, AVG, MIN, MAX, MEDIAN or PERCENTILE, not in {name}.");
         if (name == "RUNNING_SUM")
             return Fail(call, "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).");
+        if (name is "ROLLING_SUM" or "ROLLING_AVG")
+            return Fail(call, $"{name} wraps a whole measure: {name}(SUM(amount), 12).");
         if (name == "LOOKUP_ASOF")
             return BindLookupAsOf(call);
 
@@ -1086,6 +1114,23 @@ public sealed class FormulaCompiler
                     $"ELSE -({rate} * ({future} + {present} * {growth})) / ((1 + {rate} * {due}) * ({growth} - 1)) END)",
                     FormulaType.Number, call);
             }
+            case "NPER":
+            {
+                // Excel: periods until payments reach future_value; empty when they never do.
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, payment, present) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var future = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var paid = $"({payment} * (1 + {rate} * {due}))";
+                var ratio = $"(({paid} - {future} * {rate}) / NULLIF({paid} + {present} * {rate}, 0))";
+                return new Expr(
+                    $"(CASE WHEN {rate} <= -1 THEN NULL " +
+                    $"WHEN {rate} = 0 THEN -({present} + {future}) / NULLIF({payment}, 0) " +
+                    $"WHEN {ratio} <= 0 THEN NULL " +
+                    $"ELSE ln({ratio}) / ln(1 + {rate}) END)",
+                    FormulaType.Number, call);
+            }
             case "NPV":
             {
                 if (!Arity(call, 2, int.MaxValue) || args.Any(a => !RequireNumber(a, name)))
@@ -1183,6 +1228,15 @@ public sealed class FormulaCompiler
                     return null;
                 return new Expr(Part(value, name), FormulaType.Integer, call);
             }
+            case "WEEKDAY":
+            {
+                // ISO: Monday 1 … Sunday 7. SQLite's %w counts Sunday as 0.
+                if (!Arity(call, 1, 1) || RequireTemporal(args[0], name) is not { } value)
+                    return null;
+                return new Expr(_pg
+                    ? $"CAST(EXTRACT(ISODOW FROM {value.Sql}) AS BIGINT)"
+                    : $"((CAST(strftime('%w', {value.Sql}) AS INTEGER) + 6) % 7 + 1)", FormulaType.Integer, call);
+            }
             case "DATEDIFF":
             {
                 if (!Arity(call, 3, 3))
@@ -1225,10 +1279,13 @@ public sealed class FormulaCompiler
             return Fail(call, $"{name} cannot be used inside another aggregate.");
 
         var frame = new AggregateFrame(_scope);
+        var orderNode = _orderBy;
+        _orderBy = null;
         _aggregate = frame;
         var args = call.Arguments.Select(Bind).ToList();
+        var order = orderNode is null ? null : Bind(orderNode);
         _aggregate = null;
-        if (args.Any(a => a is null))
+        if (args.Any(a => a is null) || (orderNode is not null && !RequireOrder(order, name)))
             return null;
 
         if (frame.Navigation is null || frame.Rows is null)
@@ -1263,11 +1320,17 @@ public sealed class FormulaCompiler
                 type = value.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
                 aggregate = PercentileSql(value.Sql, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
                 break;
+            case "LAST" or "FIRST":
+                // Not an aggregate: the row itself, latest (earliest) first; built below.
+                type = value.Type == FormulaType.Null ? FormulaType.Text : value.Type;
+                aggregate = value.Sql;
+                break;
             default:
-                if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type)))
-                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type) || value.Type == FormulaType.Text))
+                    return Fail(value.Node, $"{name} needs numbers, dates or text, not {FormulaTypes.Describe(value.Type)}.");
                 type = value.Type;
-                aggregate = $"{fn}({value.Sql})";
+                // Text in character order, as in comparisons (Postgres would sort by locale).
+                aggregate = value.Type == FormulaType.Text && _pg ? $"{fn}({value.Sql} COLLATE \"C\")" : $"{fn}({value.Sql})";
                 break;
         }
 
@@ -1300,6 +1363,12 @@ public sealed class FormulaCompiler
         }
         if (condition is not null)
             from += $" AND {condition.Sql}";
+        if (fn is "LAST" or "FIRST")
+        {
+            var direction = fn == "LAST" ? "DESC" : "ASC";
+            var collate = order!.Type == FormulaType.Text && _pg ? " COLLATE \"C\"" : "";
+            return new Expr($"(SELECT {aggregate} {from} AND {order.Sql} IS NOT NULL ORDER BY {order.Sql}{collate} {direction} LIMIT 1)", type, call);
+        }
 
         return new Expr($"(SELECT {aggregate} {from})", type, call);
     }
@@ -1324,11 +1393,14 @@ public sealed class FormulaCompiler
                 : $"Write {fn}(column) or {fn}(column WHERE condition), e.g. {fn}(amount WHERE amount < 0).");
         }
 
+        var orderNode = _orderBy;
+        _orderBy = null;
         _inGroup = true;
         var value = valueCount == 1 ? Bind(call.Arguments[0]) : null;
         var condition = hasCondition ? Bind(call.Arguments[^1]) : null;
+        var order = orderNode is null ? null : Bind(orderNode);
         _inGroup = false;
-        if ((valueCount == 1 && value is null) || (hasCondition && condition is null))
+        if ((valueCount == 1 && value is null) || (hasCondition && condition is null) || (orderNode is not null && !RequireOrder(order, name)))
             return null;
         if (condition is not null && !RequireBoolean(condition, $"The condition of {name}"))
             return null;
@@ -1360,11 +1432,22 @@ public sealed class FormulaCompiler
                 type = value!.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
                 aggregate = PercentileSql(guarded, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
                 break;
+            case "LAST" or "FIRST":
+            {
+                // The value of the group's row with the latest (earliest) order value.
+                type = value!.Type == FormulaType.Null ? FormulaType.Text : value.Type;
+                var kept = condition is null ? $"{order!.Sql} IS NOT NULL" : $"{order!.Sql} IS NOT NULL AND {condition.Sql}";
+                var collate = order.Type == FormulaType.Text && _pg ? " COLLATE \"C\"" : "";
+                aggregate = _pg
+                    ? $"(array_agg({value.Sql} ORDER BY {order.Sql}{collate} {(fn == "LAST" ? "DESC" : "ASC")}) FILTER (WHERE {kept}))[1]"
+                    : $"bento_{fn.ToLowerInvariant()}({value.Sql}, CASE WHEN {kept} THEN {order.Sql} END)";
+                break;
+            }
             default:
-                if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type)))
-                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type) || value.Type == FormulaType.Text))
+                    return Fail(value.Node, $"{name} needs numbers, dates or text, not {FormulaTypes.Describe(value.Type)}.");
                 type = value.Type;
-                aggregate = $"{fn}({guarded})";
+                aggregate = value.Type == FormulaType.Text && _pg ? $"{fn}({guarded} COLLATE \"C\")" : $"{fn}({guarded})";
                 break;
         }
         if (type == FormulaType.Integer && fn != "COUNT")
@@ -1396,6 +1479,41 @@ public sealed class FormulaCompiler
         {
             _percentile = previous;
         }
+    }
+
+    /// <summary>
+    /// LAST(column, date [WHERE condition]) / FIRST(…): the value of the row with the
+    /// latest (earliest) date — the order column is taken out, the rest binds like MAX.
+    /// </summary>
+    private Expr? BindLastFirst(FunctionCall call, string name)
+    {
+        var usage = $"Write {name}(column, date) or {name}(column, date WHERE condition), e.g. {name}(trades.price, trades.date).";
+        if (call.Arguments.Count != (call.HasWhere ? 3 : 2))
+            return Fail(call, usage);
+        var rest = call with { Arguments = [call.Arguments[0], .. call.Arguments.Skip(2)] };
+        var previous = _orderBy;
+        _orderBy = call.Arguments[1];
+        try
+        {
+            return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(rest, name) : BindAggregate(rest, name);
+        }
+        finally
+        {
+            _orderBy = previous;
+        }
+    }
+
+    /// <summary>The order column of LAST/FIRST must be a date, a number or text.</summary>
+    private bool RequireOrder(Expr? order, string name)
+    {
+        if (order is null)
+            return false;
+        if (order.IsRows || !(FormulaTypes.IsNumeric(order.Type) || FormulaTypes.IsTemporal(order.Type) || order.Type == FormulaType.Text))
+        {
+            Fail(order.Node, $"{name} orders the rows by a date, a number or text, e.g. {name}(trades.price, trades.date).");
+            return false;
+        }
+        return true;
     }
 
     /// <summary>

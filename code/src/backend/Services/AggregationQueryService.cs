@@ -69,6 +69,8 @@ public sealed class AggregationQueryService
     /// <param name="Series">XIRR/IRR/TWR/REBASE (Step 4.3): the parts are selected as hidden columns and the return computed afterwards.</param>
     private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null, SeriesCall? Series = null)
     {
+        /// <summary>ROLLING_SUM / ROLLING_AVG: a window over the last periods instead of all before (with Running).</summary>
+        public RollingWindow? Rolling { get; init; }
         public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
     }
 
@@ -322,7 +324,9 @@ public sealed class AggregationQueryService
     private Measure FormulaMeasure(QueryMeasure spec, string path, TableDef source, FormulaContext context, List<Group> groups, HashSet<string> outputs)
     {
         var schema = FormulaSchema.From(_schemaCache.Current);
-        var (check, running) = FormulaCompiler.CompileMeasure(spec.Formula!, source, schema, _dbConfig.Provider, "t", context);
+        var compiled = FormulaCompiler.CompileMeasure(spec.Formula!, source, schema, _dbConfig.Provider, "t", context);
+        var (check, running) = compiled;
+        var rolling = compiled.Rolling;
         if (!check.IsValid)
         {
             var error = check.Errors[0];
@@ -333,7 +337,14 @@ public sealed class AggregationQueryService
             });
         }
 
-        running |= spec.Running;
+        if (rolling is not null)
+        {
+            if (spec.Running || spec.CarryIn)
+                throw Invalid($"{path}.running", "A rolling window is not also a running total; use one of them.");
+            if (groups.Count(g => g.Bucket is not null) != 1)
+                throw Invalid($"{path}.formula", "Rolling windows need exactly one date group (day, week, month, quarter or year).");
+        }
+        running |= spec.Running || rolling is not null;
         var custom = check.Result!.Custom;
         if (custom is not null && (running || spec.CarryIn))
             throw Invalid($"{path}.running", "A CUSTOM(…) value cannot be a running total; add up its inputs instead.");
@@ -357,7 +368,9 @@ public sealed class AggregationQueryService
             throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
 
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom, series) { Indexes = check.Result.Indexes };
+        // An average of currency stays currency; of anything else it is a number.
+        var type = rolling is { Average: true } && check.Result.Type != FormulaType.Currency ? FormulaType.Number : check.Result.Type;
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, type, custom, series) { Indexes = check.Result.Indexes, Rolling = rolling };
     }
 
     private const int MaxPeriods = 1000;
@@ -754,12 +767,13 @@ public sealed class AggregationQueryService
             var partitions = plan.Groups.Where(g => g.Bucket is null)
                 .SelectMany(g => g.OtherOutput is null ? [$"g.{Q(g.Output)}"] : new[] { $"g.{Q(g.Output)}", $"g.{Q(g.OtherOutput)}" })
                 .ToList();
-            var over = (partitions.Count > 0 ? $"PARTITION BY {string.Join(", ", partitions)} " : "")
-                + $"ORDER BY g.{Q(bucket.Output)} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW";
+            string Over(RollingWindow? window) => (partitions.Count > 0 ? $"PARTITION BY {string.Join(", ", partitions)} " : "")
+                + $"ORDER BY g.{Q(bucket.Output)} ROWS BETWEEN {(window is null ? "UNBOUNDED" : (window.Periods - 1).ToString(CultureInfo.InvariantCulture))} PRECEDING AND CURRENT ROW";
             for (var i = 0; i < plan.Measures.Count; i++)
             {
-                if (plan.Measures[i].Running)
-                    outer.Append($", SUM(g.{Q($"__r{i}")}) OVER ({over}) AS {Q(plan.Measures[i].Output)}");
+                var measure = plan.Measures[i];
+                if (measure.Running)
+                    outer.Append($", {(measure.Rolling is { Average: true } ? "AVG" : "SUM")}(g.{Q($"__r{i}")}) OVER ({Over(measure.Rolling)}) AS {Q(measure.Output)}");
             }
         }
         outer.Append(" FROM (").Append(grouped).Append(") g");
