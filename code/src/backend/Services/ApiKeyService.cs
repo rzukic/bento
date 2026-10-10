@@ -29,7 +29,12 @@ public sealed class ApiKeyService
         _systemPool = systemPool;
     }
 
-    public sealed record ApiKeyIdentity(long KeyId, long UserId, string Username, string Scope);
+    /// <param name="Permissions">
+    /// Keys made with chosen permissions (beta feedback: scripts for schema and price
+    /// sources): what the key may do, like a connected app, capped by its user's role.
+    /// Null for read and read-write keys.
+    /// </param>
+    public sealed record ApiKeyIdentity(long KeyId, long UserId, string Username, string Scope, IReadOnlyList<string>? Permissions = null, string? UserRole = null);
 
     /// <summary>A key never does more than its user: a read-write key of a viewer only reads.</summary>
     private static string Effective(string scope, string? userRole) =>
@@ -49,13 +54,16 @@ public sealed class ApiKeyService
         public string? RevokedAt { get; init; }
 
         public string Scope => ReadScopes(Scopes);
+
+        /// <summary>The chosen permissions of a key made with them; null for read and read-write keys.</summary>
+        public IReadOnlyList<string>? Permissions => ReadPermissions(Scopes);
     }
 
     public static bool LooksLikeKey(string? value) =>
         value is not null && value.StartsWith(KeyPrefix, StringComparison.Ordinal) && value.Length > KeyPrefix.Length + 8;
 
     /// <summary>Creates a key; the plain key is returned once and never stored.</summary>
-    public async Task<(ApiKeyRow Row, string Key)> CreateAsync(string name, string scope, int? expiresInDays, long userId)
+    public async Task<(ApiKeyRow Row, string Key)> CreateAsync(string name, string scope, int? expiresInDays, long userId, IReadOnlyList<string>? permissions = null)
     {
         var key = KeyPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
         var now = DateTime.UtcNow;
@@ -74,7 +82,7 @@ public sealed class ApiKeyService
                 Name = name,
                 Hash = Hash(key),
                 Prefix = key[..(KeyPrefix.Length + 6)],
-                Scopes = JsonSerializer.Serialize(ScopesFor(scope)),
+                Scopes = JsonSerializer.Serialize(permissions is null ? ScopesFor(scope) : McpPermissions.Normalize(permissions).ToArray()),
                 UserId = userId,
                 Now = Iso(now),
                 Expires = expires is null ? null : Iso(expires.Value)
@@ -138,7 +146,12 @@ public sealed class ApiKeyService
                 new { row.Id, Now = Iso(now) });
         }
 
-        return new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", Effective(ReadScopes(row.Scopes), row.UserRole));
+        var permissions = ReadPermissions(row.Scopes);
+        return permissions is null
+            ? new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", Effective(ReadScopes(row.Scopes), row.UserRole))
+            // A key never does more than its user: the role caps the chosen permissions.
+            : new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", ReadScopes(row.Scopes),
+                permissions.Intersect(McpPermissions.ForRole(row.UserRole)).ToList(), row.UserRole);
     }
 
     private sealed class KeyLookupRow
@@ -167,11 +180,27 @@ public sealed class ApiKeyService
         try
         {
             var scopes = JsonSerializer.Deserialize<string[]>(json) ?? [];
-            return scopes.Contains("write", StringComparer.OrdinalIgnoreCase) ? ReadWriteScope : ReadScope;
+            return scopes.Contains("write", StringComparer.OrdinalIgnoreCase) || scopes.Any(s => s != McpPermissions.Read && s.Contains('.'))
+                ? ReadWriteScope
+                : ReadScope;
         }
         catch (JsonException)
         {
             return ReadScope;
+        }
+    }
+
+    /// <summary>Keys made with permissions store them ("data.read", "schema.write"); older keys store "read"/"write".</summary>
+    private static IReadOnlyList<string>? ReadPermissions(string json)
+    {
+        try
+        {
+            var scopes = JsonSerializer.Deserialize<string[]>(json) ?? [];
+            return scopes.Any(s => s.Contains('.')) ? McpPermissions.Normalize(scopes) : null;
+        }
+        catch (JsonException)
+        {
+            return null;
         }
     }
 

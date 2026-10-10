@@ -29,7 +29,30 @@ public static class SqliteFormulaFunctions
             },
             values => values is null ? null : Percentile(values.Numbers, values.Fraction),
             isDeterministic: true);
+        // LAST/FIRST over a group: the value of the row with the latest (earliest) order value.
+        connection.CreateAggregate<object?, object?, Picked?, object?>(
+            "bento_last", null, (picked, value, order) => Pick(picked, value, order, latest: true), picked => picked?.Value, isDeterministic: true);
+        connection.CreateAggregate<object?, object?, Picked?, object?>(
+            "bento_first", null, (picked, value, order) => Pick(picked, value, order, latest: false), picked => picked?.Value, isDeterministic: true);
     }
+
+    public sealed record Picked(object? Value, object Order);
+
+    private static Picked? Pick(Picked? picked, object? value, object? order, bool latest)
+    {
+        if (order is null)
+            return picked;
+        if (picked is null)
+            return new Picked(value, order);
+        var compared = CompareOrder(order, picked.Order);
+        return (latest ? compared > 0 : compared < 0) ? new Picked(value, order) : picked;
+    }
+
+    /// <summary>Numbers by value, everything else (dates are yyyy-MM-dd text) in character order, as SQLite sorts.</summary>
+    private static int CompareOrder(object a, object b) =>
+        a is long or double && b is long or double
+            ? Convert.ToDouble(a, CultureInfo.InvariantCulture).CompareTo(Convert.ToDouble(b, CultureInfo.InvariantCulture))
+            : string.CompareOrdinal(Convert.ToString(a, CultureInfo.InvariantCulture), Convert.ToString(b, CultureInfo.InvariantCulture));
 
     public sealed record PercentileValues(double Fraction)
     {

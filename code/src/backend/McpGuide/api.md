@@ -18,4 +18,4 @@ Every tool is a call to `/api/v1`. `call_api` makes any other call with this con
 | Problems | `GET /admin/problems?limit=` — slow queries (with the query and SQL), timeouts and server errors, newest first (admin) |
 | Description | `GET /openapi.json` — every endpoint of this installation with fields |
 
-Users, API keys, credentials and connected apps are not reachable for connected apps.
+Users, API keys, credentials and connected apps are not reachable for connected apps, nor for API keys. Admins set how numbers are written for everyone with `PUT /admin/settings` `{locale: "de-AT" | null, currency: "EUR"}`.

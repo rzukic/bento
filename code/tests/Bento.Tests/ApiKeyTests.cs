@@ -169,6 +169,63 @@ public sealed class ApiKeyTests
         Assert.Equal(["customers"], schemas.GetProperty("AggregationQuery").GetProperty("properties").GetProperty("source").GetProperty("enum").EnumerateArray().Select(v => v.GetString()));
     }
 
+    [Fact]
+    public async Task KeysWithPermissions_DoWhatTheyAllow_AlsoAdminTasks()
+    {
+        await using var host = await CreateHostAsync();
+        var admin = await AdminTokenAsync(host);
+
+        // Beta feedback: scripts for the schema and price sources need more than read-write.
+        using var created = await SendAsync(host, HttpMethod.Post, "/api/v1/admin/api-keys", admin, new { name = "Schema script", permissions = new[] { "schema.write", "functions.write" } });
+        Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        var payload = await created.Content.ReadFromJsonAsync<JsonElement>();
+        var key = payload.GetProperty("key").GetString()!;
+        Assert.Equal("permissions", payload.GetProperty("data").GetProperty("scope").GetString());
+        Assert.Equal(["data.read", "schema.write", "functions.write"], payload.GetProperty("data").GetProperty("permissions").EnumerateArray().Select(p => p.GetString()));
+
+        // Allowed: read, and change the schema — an admin-only endpoint.
+        Assert.Equal(HttpStatusCode.OK, (await SendAsync(host, HttpMethod.Get, "/api/v1/data/customers", key)).StatusCode);
+        using (var patch = await SendAsync(host, HttpMethod.Patch, "/api/v1/admin/schema", key, new { operations = new object[] { new { op = "addColumn", table = "customers", column = new { name = "note", type = "text" } } } }))
+            Assert.Equal(HttpStatusCode.OK, patch.StatusCode);
+
+        // Not allowed: rows (no data.write), and never users or keys.
+        using (var write = await SendAsync(host, HttpMethod.Post, "/api/v1/data/customers", key, new { name = "Nope" }))
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, write.StatusCode);
+            Assert.Contains("data.write", await write.Content.ReadAsStringAsync());
+        }
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, HttpMethod.Get, "/api/v1/admin/api-keys", key)).StatusCode);
+
+        // Unknown permissions are refused.
+        using var unknown = await SendAsync(host, HttpMethod.Post, "/api/v1/admin/api-keys", admin, new { name = "X", permissions = new[] { "users.write" } });
+        Assert.Equal(HttpStatusCode.BadRequest, unknown.StatusCode);
+    }
+
+    [Fact]
+    public async Task WorkspaceFormat_IsSetByAdmins_AndShownToEveryone()
+    {
+        await using var host = await CreateHostAsync();
+        var admin = await AdminTokenAsync(host);
+
+        var before = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/setup/status");
+        Assert.Equal(JsonValueKind.Null, before.GetProperty("locale").ValueKind);
+        Assert.Equal("EUR", before.GetProperty("currency").GetString());
+
+        using (var saved = await SendAsync(host, HttpMethod.Put, "/api/v1/admin/settings", admin, new { locale = "de-at", currency = "chf" }))
+            Assert.Equal(HttpStatusCode.OK, saved.StatusCode);
+        var after = await host.Client.GetFromJsonAsync<JsonElement>("/api/v1/setup/status");
+        Assert.Equal("de-AT", after.GetProperty("locale").GetString());
+        Assert.Equal("CHF", after.GetProperty("currency").GetString());
+
+        using (var badLocale = await SendAsync(host, HttpMethod.Put, "/api/v1/admin/settings", admin, new { locale = "klingon", currency = "EUR" }))
+            Assert.Equal(HttpStatusCode.BadRequest, badLocale.StatusCode);
+        using (var badCurrency = await SendAsync(host, HttpMethod.Put, "/api/v1/admin/settings", admin, new { locale = (string?)null, currency = "euro" }))
+            Assert.Equal(HttpStatusCode.BadRequest, badCurrency.StatusCode);
+        // Not for keys or other roles.
+        var readKey = await CreateKeyAsync(host, admin, "read-write");
+        Assert.Equal(HttpStatusCode.Forbidden, (await SendAsync(host, HttpMethod.Put, "/api/v1/admin/settings", readKey, new { locale = "en-US", currency = "USD" })).StatusCode);
+    }
+
     // ── Helpers ──
 
     internal static async Task<string> CreateKeyAsync(ApiIntegrationTestHost host, string admin, string scope, int? expiresInDays = null)

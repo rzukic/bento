@@ -9,7 +9,8 @@ namespace Bento.Api.Controllers;
 /// <summary>
 /// API key management (Part 3 R3.3, Part 6 R6.6): admins create keys for
 /// themselves, see every key without its secret, and revoke keys. Keys
-/// cannot manage keys — they never carry the admin role.
+/// cannot manage keys: read and read-write keys never carry the admin role,
+/// and keys with permissions only reach what a connected app could.
 /// </summary>
 [ApiController]
 [Route(ApiRoutes.ApiKeys)]
@@ -35,6 +36,8 @@ public sealed class ApiKeysController : ControllerBase
         public string? Scope { get; init; }
         /// <summary>Days until the key stops working; none = no expiry.</summary>
         public int? ExpiresInDays { get; init; }
+        /// <summary>Instead of a scope: what the key may do, like a connected app (data.read, schema.write, …).</summary>
+        public IReadOnlyList<string>? Permissions { get; init; }
     }
 
     public sealed record ApiKeyResponse(
@@ -47,7 +50,8 @@ public sealed class ApiKeysController : ControllerBase
         string? ExpiresAt,
         string? LastUsedAt,
         string? RevokedAt,
-        string Status);
+        string Status,
+        IReadOnlyList<string>? Permissions = null);
 
     [HttpGet]
     public async Task<IActionResult> List() =>
@@ -69,7 +73,16 @@ public sealed class ApiKeysController : ControllerBase
         if (request.ExpiresInDays is < 1 or > MaxExpiryDays)
             throw Invalid("expiresInDays", $"Expiry must be between 1 and {MaxExpiryDays} days.");
 
-        var (row, key) = await _apiKeys.CreateAsync(name, ApiKeyService.NormalizeScope(request.Scope), request.ExpiresInDays, userId);
+        IReadOnlyList<string>? permissions = null;
+        if (request.Permissions is { } chosen)
+        {
+            var unknown = chosen.FirstOrDefault(p => !McpPermissions.All.Contains(p));
+            if (unknown is not null)
+                throw Invalid("permissions", $"Unknown permission '{unknown}'; use {string.Join(", ", McpPermissions.All)}.");
+            permissions = McpPermissions.Normalize(chosen);
+        }
+        var scope = permissions is null ? ApiKeyService.NormalizeScope(request.Scope) : ApiKeyService.ReadWriteScope;
+        var (row, key) = await _apiKeys.CreateAsync(name, scope, request.ExpiresInDays, userId, permissions);
         // The only time the key is ever sent.
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(row), key });
     }
@@ -88,7 +101,7 @@ public sealed class ApiKeysController : ControllerBase
             : row.ExpiresAt is not null && DateTimeOffset.Parse(row.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture) <= DateTimeOffset.UtcNow
                 ? "expired"
                 : "active";
-        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Scope, row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status);
+        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Permissions is null ? row.Scope : "permissions", row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status, row.Permissions);
     }
 
     private static ApiValidationException Invalid(string field, string message) =>

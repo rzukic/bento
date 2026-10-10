@@ -60,3 +60,10 @@
   font-weight: 600;
   font-size: var(--fs-md);
 }
+
+/* Number format menus sit beside their label, like the theme switch. */
+.settings__row .settings__select {
+  width: auto;
+  flex: 0 1 20rem;
+  min-width: 0;
+}

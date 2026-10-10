@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { ApiClientError } from "../../api/client";
 import type { SetupStatus } from "../../types/setup";
 import { getSetupStatus } from "./api";
+import { setWorkspaceFormat } from "../../lib/preferences";
 
 /**
  * Installation state lifecycle:
@@ -46,6 +47,7 @@ export const useSetupStore = create<SetupStoreState>((set, get) => ({
     set({ status: "loading", error: null });
     try {
       const info = await getSetupStatus();
+      setWorkspaceFormat(info.locale, info.currency);
       set({ status: "ready", info, error: null });
       return info;
     } catch (cause) {

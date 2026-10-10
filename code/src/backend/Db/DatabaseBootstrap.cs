@@ -371,6 +371,10 @@ public class DatabaseBootstrap : IHostedService
                 key             VARCHAR(100) PRIMARY KEY,
                 value           TEXT
             );
+            CREATE TABLE IF NOT EXISTS _system.workspace_settings (
+                key             VARCHAR(100) PRIMARY KEY,
+                value           TEXT
+            );
             CREATE TABLE IF NOT EXISTS _system.ai_usage (
                 id                  SERIAL PRIMARY KEY,
                 called_at           TIMESTAMPTZ NOT NULL,
@@ -780,6 +784,10 @@ public class DatabaseBootstrap : IHostedService
 
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS ai_settings (
+                key             TEXT PRIMARY KEY,
+                value           TEXT
+            );
+            CREATE TABLE IF NOT EXISTS workspace_settings (
                 key             TEXT PRIMARY KEY,
                 value           TEXT
             );

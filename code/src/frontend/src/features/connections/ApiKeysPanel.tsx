@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { createApiKey, listApiKeys, revokeApiKey, type ApiKey, type ApiKeyScope } from "../../api/connections";
+import { MCP_PERMISSIONS, type McpPermission } from "../../api/mcp";
+import { PermissionChecklist } from "./PermissionChecklist";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -31,7 +33,9 @@ export function ApiKeysPanel() {
   const [keys, setKeys] = useState<ApiKey[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const [scope, setScope] = useState<ApiKeyScope>("read");
+  const [scope, setScope] = useState<ApiKeyScope | "permissions">("read");
+  // Keys for scripts that change the schema, functions or price sources: chosen like a connected app's.
+  const [permissions, setPermissions] = useState<McpPermission[]>(["data.read"]);
   const [expiry, setExpiry] = useState("");
   const [creating, setCreating] = useState(false);
   const [created, setCreated] = useState<{ key: string; name: string } | null>(null);
@@ -55,7 +59,8 @@ export function ApiKeysPanel() {
     setError(null);
     setCopied(false);
     try {
-      const result = await createApiKey(name.trim(), scope, expiry ? Number(expiry) : undefined);
+      const days = expiry ? Number(expiry) : undefined;
+      const result = scope === "permissions" ? await createApiKey(name.trim(), "read-write", days, permissions) : await createApiKey(name.trim(), scope, days);
       setCreated({ key: result.key, name: result.apiKey.name });
       setName("");
       await reload();
@@ -80,8 +85,8 @@ export function ApiKeysPanel() {
     <div className="api-keys">
       <p className="api-keys__intro">
         A key lets a script or another tool use the API as you. <strong>Read</strong> keys read data and run queries;{" "}
-        <strong>read-write</strong> keys also create, change and delete records and import files. No key can change the schema or
-        manage users or keys.
+        <strong>read-write</strong> keys also create, change and delete records and import files. With <strong>Choose…</strong> you tick
+        what a key may do, also the schema and functions. No key can manage users, keys or credentials.
       </p>
 
       {error ? <Alert tone="error" message={error} /> : null}
@@ -134,9 +139,10 @@ export function ApiKeysPanel() {
         </label>
         <label className="api-keys__field">
           <span>Access</span>
-          <select className="field__control field__control--compact" value={scope} onChange={(event) => setScope(event.target.value as ApiKeyScope)}>
+          <select className="field__control field__control--compact" value={scope} onChange={(event) => setScope(event.target.value as ApiKeyScope | "permissions")}>
             <option value="read">Read</option>
             <option value="read-write">Read and write</option>
+            <option value="permissions">Choose…</option>
           </select>
         </label>
         <label className="api-keys__field">
@@ -153,6 +159,12 @@ export function ApiKeysPanel() {
           {creating ? "Creating…" : "Create key"}
         </Button>
       </form>
+      {scope === "permissions" ? (
+        <div className="api-keys__permissions">
+          <PermissionChecklist allowed={MCP_PERMISSIONS.map((p) => p.id)} granted={permissions} onChange={setPermissions} disabled={creating} />
+          <p className="api-keys__empty">The key does what you allow here, and never more than you as its owner. It cannot manage users, keys or credentials.</p>
+        </div>
+      ) : null}
 
       {keys === null ? (
         <Spinner label="Loading keys" />
@@ -183,7 +195,13 @@ export function ApiKeysPanel() {
                   <td>
                     <code>{key.prefix ? `${key.prefix}…` : "—"}</code>
                   </td>
-                  <td>{key.scope === "read" ? "Read" : "Read and write"}</td>
+                  <td>
+                    {key.permissions
+                      ? key.permissions.map((p) => MCP_PERMISSIONS.find((m) => m.id === p)?.label ?? p).join(", ")
+                      : key.scope === "read"
+                        ? "Read"
+                        : "Read and write"}
+                  </td>
                   <td>{formatWhen(key.createdAt)}</td>
                   <td>{key.lastUsedAt ? formatWhen(key.lastUsedAt) : "Never"}</td>
                   <td>{key.expiresAt ? formatWhen(key.expiresAt) : "Never"}</td>

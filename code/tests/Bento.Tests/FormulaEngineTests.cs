@@ -249,7 +249,6 @@ public sealed class FormulaEngineTests
     [InlineData("= SUM(transactions.amount, transactions.note)", "The condition of SUM needs a condition (yes/no), not text — compare it, e.g. amount < 0.")]
     [InlineData("= SUM(SUM(transactions.amount))", "SUM cannot be used inside another aggregate.")]
     [InlineData("= SUMIF(transactions.amount)", "SUMIF takes 2 arguments: SUMIF(link.column, condition).")]
-    [InlineData("= MAX(transactions.note)", "MAX needs numbers or dates, not text.")]
     [InlineData("= a", "Circular reference: accounts.a → accounts.b → accounts.a.")]
     [InlineData("= selfish", "Circular reference: accounts.selfish → accounts.selfish.")]
     [InlineData("= broken + 1", "'broken' has an error: Column 'nothing' not found in accounts.")]

@@ -103,7 +103,9 @@ public sealed class McpController : ControllerBase
         var permissions = method switch
         {
             "oauth" => (IReadOnlyList<string>)(user.FindFirstValue("oauth_permissions") ?? "").Split(' ', StringSplitOptions.RemoveEmptyEntries),
-            "api_key" => McpPermissions.ForApiKeyScope(role == "api" ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope),
+            "api_key" => user.FindFirstValue("api_key_permissions") is { } chosen
+                ? chosen.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                : McpPermissions.ForApiKeyScope(role == "api" ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope),
             _ => McpPermissions.ForRole(role)
         };
 

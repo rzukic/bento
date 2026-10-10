@@ -117,6 +117,7 @@ public static class BackendHost
         services.AddHttpContextAccessor();
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
+        services.AddSingleton<WorkspaceSettings>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();

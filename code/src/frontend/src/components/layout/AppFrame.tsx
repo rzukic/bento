@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { NavLink, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { useFormatStore } from "../../lib/preferences";
 import { useAppStore } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
 import { pinnedForms, useFormsStore } from "../../stores/formsStore";
@@ -59,6 +60,7 @@ const navSections: NavSection[] = [
 export function AppFrame({ children }: AppFrameProps) {
   const matches = useMatches();
   const navigate = useNavigate();
+  const formatVersion = useFormatStore((state) => state.version);
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
 
@@ -338,7 +340,8 @@ export function AppFrame({ children }: AppFrameProps) {
                 : "shell__page-body"
             }
           >
-            {children}
+            {/* A new number format (Settings) renders the page again with it. */}
+            <Fragment key={formatVersion}>{children}</Fragment>
           </div>
         </div>
       </main>

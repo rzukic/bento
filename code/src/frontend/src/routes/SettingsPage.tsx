@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
 import { ProblemsPanel } from "../features/problems/ProblemsPanel";
+import { BrowserFormatRow, WorkspaceFormatPanel } from "../features/settings/FormatSettings";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useAuthStore } from "../stores/authStore";
 import "./SettingsPage.css";
@@ -28,6 +29,7 @@ export function SettingsPage() {
           <span className="settings__label">Theme</span>
           <ThemeSwitch />
         </div>
+        <BrowserFormatRow />
       </Panel>
 
       <Panel title="About">
@@ -40,6 +42,8 @@ export function SettingsPage() {
           ))}
         </dl>
       </Panel>
+
+      {user?.role === "admin" ? <WorkspaceFormatPanel /> : null}
 
       {user?.role === "admin" ? <ProblemsPanel /> : null}
 
