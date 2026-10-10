@@ -32,14 +32,22 @@ export function useWidgetResult(
   range: ResolvedRange,
   refreshToken: number,
   variables: Record<string, VariableValue> = noVariables,
+  /** False while the dashboard's variables are still being computed and the widget's formulas may use them. */
+  ready = true,
 ): WidgetResultState {
   const [state, setState] = useState<WidgetResultState>({ status: "loading", result: null, query: null, error: null, refreshing: false });
-  const key = JSON.stringify([widget.type, widget.data, range, refreshToken, variables]);
+  const key = JSON.stringify([widget.type, widget.data, range, refreshToken, variables, ready]);
 
   useEffect(() => {
     const data = widget.data;
     if (widget.type === "text" || !data || data.variable || data.rows || (!data.query && data.savedQueryId === undefined)) {
       setState({ status: "ready", result: null, query: null, error: null, refreshing: false });
+      return;
+    }
+
+    // Wait for the variables: without them a formula like "depot" reads as a column and fails.
+    if (!ready) {
+      setState((current) => ({ ...current, status: current.result ? current.status : "loading", error: null, refreshing: current.result !== null }));
       return;
     }
 

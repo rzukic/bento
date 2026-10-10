@@ -196,6 +196,13 @@ export function DashboardPage() {
     };
   }, []);
   const variablesKey = JSON.stringify(variables);
+  // The widgets get the variables once every one has a result: right after the
+  // dashboard loads, an earlier, empty result would let a formula such as
+  // "depot" run without its variable and fail as an unknown column.
+  const widgetVariables = useMemo(
+    () => (variableResults && variables.every((v) => v.name in variableResults) ? variableResults : undefined),
+    [variableResults, variables],
+  );
 
   // Variables are evaluated together (they may use each other), with the
   // range on their date column; while editing, after a pause in typing.
@@ -665,7 +672,8 @@ export function DashboardPage() {
                     range={resolved}
                     refreshToken={refreshToken}
                     tokens={tokens}
-                    variables={variableResults}
+                    variables={widgetVariables}
+                    variablesPending={widgetVariables === undefined && variables.length > 0}
                     annotations={annotations}
                     onDrill={editing ? undefined : openRows}
                     onResult={(result) => widgetResults.current.set(widget.id, result)}
