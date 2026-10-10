@@ -96,12 +96,14 @@ describe("Describe a widget", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
 
-    await user.click(await screen.findByRole("button", { name: "Add widgets" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Add widgets" }));
     await user.click(screen.getByRole("button", { name: "Add widget" }));
     await user.click(screen.getByRole("menuitem", { name: "Key figure" }));
     const editor = await screen.findByRole("dialog", { name: "Edit widget" });
 
-    await user.type(await within(editor).findByRole("textbox", { name: "Describe the widget" }), "Expenses by main category, without rent");
+    // Pasted, not typed: typing a sentence key by key re-renders the editor for each character, slow under parallel load.
+    await user.click(await within(editor).findByRole("textbox", { name: "Describe the widget" }));
+    await user.paste("Expenses by main category, without rent");
     await user.click(within(editor).getByRole("button", { name: "Build" }));
 
     expect(await within(editor).findByText("Spending per main category, rent left out.")).toBeInTheDocument();
@@ -131,7 +133,7 @@ describe("Describe a widget", () => {
     dashboardsApi.getDashboard.mockResolvedValue(dashboard({ widgets: [] }));
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
-    await user.click(await screen.findByRole("button", { name: "Add widgets" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Add widgets" }));
     await user.click(screen.getByRole("button", { name: "Add widget" }));
     await user.click(screen.getByRole("menuitem", { name: "Key figure" }));
     const editor = await screen.findByRole("dialog", { name: "Edit widget" });
@@ -148,7 +150,9 @@ describe("Describe a formula", () => {
     render(<DescribeFormula table="trades" kind="measure" current="SUM(price)" onFormula={onFormula} />);
 
     await user.click(await screen.findByRole("button", { name: /Describe it instead/ }));
-    await user.type(screen.getByRole("textbox", { name: "Describe the formula" }), "average cost per share{Enter}");
+    await user.click(screen.getByRole("textbox", { name: "Describe the formula" }));
+    await user.paste("average cost per share");
+    await user.keyboard("{Enter}");
     expect(await screen.findByText("Average price of the buys.")).toBeInTheDocument();
     expect(aiApi.describeFormula).toHaveBeenCalledWith(expect.objectContaining({ table: "trades", kind: "measure", sentence: "average cost per share", current: "SUM(price)" }));
     expect(onFormula).toHaveBeenLastCalledWith("AVG(price WHERE kind = \"buy\")");
@@ -171,7 +175,7 @@ describe("History", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
 
-    await user.click(await screen.findByRole("button", { name: "History" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "History" }));
     const dialog = await screen.findByRole("dialog", { name: "History" });
     expect(await within(dialog).findByText("Changed by Claude Desktop")).toBeInTheDocument();
     expect(within(dialog).getByText("Changed by you")).toBeInTheDocument();
@@ -191,7 +195,7 @@ describe("History", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards"])} />);
 
-    const section = await screen.findByRole("region", { name: "Recently deleted" }, { timeout: 5000 });
+    const section = await screen.findByRole("region", { name: "Recently deleted" });
     expect(within(section).getByText(/Deleted by Claude Desktop/)).toBeInTheDocument();
     await user.click(within(section).getByRole("button", { name: "Bring back" }));
     expect(dashboardsApi.restoreDeletedDashboard).toHaveBeenCalledWith(20);
@@ -206,7 +210,7 @@ describe("History", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/ai"])} />);
 
-    const section = await screen.findByRole("region", { name: "Changes by AI apps" }, { timeout: 5000 });
+    const section = await screen.findByRole("region", { name: "Changes by AI apps" });
     const rows = within(section).getAllByRole("row").slice(1);
     await user.click(within(rows[0]).getByRole("button", { name: "Undo" }));
     expect(dashboardsApi.restoreDashboardVersion).toHaveBeenCalledWith(7, 12);

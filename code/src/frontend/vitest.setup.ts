@@ -1,4 +1,11 @@
 import "@testing-library/jest-dom/vitest";
+import { configure } from "@testing-library/react";
+
+// Under parallel load (the whole suite on every core) a route with lazily loaded
+// chunks can take longer than Testing Library's default 1 s to appear, and the
+// longest flows more than Vitest's 5 s (see vite.config.ts). A test that is
+// really broken still fails, only later.
+configure({ asyncUtilTimeout: 5000 });
 
 // React Router's data routers (including createMemoryRouter) construct a
 // `new Request(url, { signal })` on every navigation. Under vitest's jsdom
