@@ -85,8 +85,8 @@ export function ApiKeysPanel() {
     <div className="api-keys">
       <p className="api-keys__intro">
         A key lets a script or another tool use the API as you. <strong>Read</strong> keys read data and run queries;{" "}
-        <strong>read-write</strong> keys also create, change and delete records and import files. No key can change the schema or
-        manage users or keys.
+        <strong>read-write</strong> keys also create, change and delete records and import files. With <strong>Choose…</strong> you tick
+        what a key may do, also the schema and functions. No key can manage users, keys or credentials.
       </p>
 
       {error ? <Alert tone="error" message={error} /> : null}

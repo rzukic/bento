@@ -61,7 +61,9 @@
   font-size: var(--fs-md);
 }
 
-.settings__select {
+/* Number format menus sit beside their label, like the theme switch. */
+.settings__row .settings__select {
   width: auto;
-  max-width: 100%;
+  flex: 0 1 20rem;
+  min-width: 0;
 }
