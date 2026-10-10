@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardAnnotation, DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
+import type { ColumnDisplay, DashboardAnnotation, DashboardDateRange, DashboardVariable, DashboardWidget, DateRangePreset, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
 import { listSavedQueries, type QueryBucket, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { formatKindForType, formatNumber, toNumber } from "../../../lib/format";
 import type { ModelSnapshot, ModelTable } from "../../../types/api";
 import type { ChartTokens } from "../charts/chartOptions";
-import type { ResolvedRange } from "../dateRange";
+import { DATE_RANGE_PRESETS, type ResolvedRange } from "../dateRange";
 import { variableValues, type VariableResults } from "../formulaQueries";
 import { WIDGET_LABELS, dataTables, defaultQuery } from "../starter";
 import { useWidgetResult } from "../useWidgetResult";
@@ -584,7 +584,46 @@ function DataSettings({
           </select>
         </label>
       ) : null}
+      {!widget.data?.variable && widget.data?.dateColumn !== null ? <OwnRange widget={widget} onChange={onChange} /> : null}
     </div>
+  );
+}
+
+/** The widget's own date range (a forecast to 2045) instead of the dashboard's. */
+function OwnRange({ widget, onChange }: { widget: DashboardWidget; onChange: (widget: DashboardWidget) => void }) {
+  const own = widget.data?.range;
+  const set = (range: DashboardDateRange | undefined) => onChange({ ...widget, data: { ...widget.data, range } });
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <>
+      <label className="lens-field" title="A widget with its own range ignores the dashboard's, e.g. a forecast over the next 20 years">
+        <span className="lens-field__label">Date range</span>
+        <select
+          className="field__control field__control--compact"
+          aria-label="Date range of this widget"
+          value={!own ? "" : "preset" in own ? own.preset : "custom"}
+          onChange={(event) => {
+            const value = event.target.value;
+            set(value === "" ? undefined : value === "custom" ? { from: today.slice(0, 8) + "01", to: `${Number(today.slice(0, 4)) + 10}-12-31` } : { preset: value as DateRangePreset });
+          }}
+        >
+          <option value="">The dashboard's</option>
+          {DATE_RANGE_PRESETS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+          <option value="custom">From … to …</option>
+        </select>
+      </label>
+      {own && "from" in own ? (
+        <div className="lens-range">
+          <input className="field__control field__control--compact" type="date" aria-label="Widget range from" value={own.from} onChange={(event) => set({ ...own, from: event.target.value })} />
+          <span aria-hidden="true">–</span>
+          <input className="field__control field__control--compact" type="date" aria-label="Widget range to" value={own.to} onChange={(event) => set({ ...own, to: event.target.value })} />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -850,6 +889,45 @@ function StyleSettings({
       ) : null}
       <IntervalSetting widget={widget} setDisplay={setDisplay} />
       {isChart ? <ReferenceLines lines={display.referenceLines ?? []} variables={variables} onChange={(referenceLines) => setDisplay({ referenceLines: referenceLines.length > 0 ? referenceLines : undefined })} /> : null}
+      {isChart ? (
+        <label className="lens-field" title="Prices and values over time read better near their data than squeezed above 0">
+          <span className="lens-field__label">Value axis starts at</span>
+          <div className="lens-goal">
+            <select
+              className="field__control field__control--compact"
+              aria-label="Value axis starts at"
+              value={display.yAxis?.min === undefined ? "" : typeof display.yAxis.min === "number" ? "number" : display.yAxis.min}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDisplay({ yAxis: value === "" ? undefined : { min: value === "number" ? 0 : (value as "auto" | "zero") } });
+              }}
+            >
+              <option value="">Automatic (0)</option>
+              <option value="zero">0, always</option>
+              <option value="auto">Near the data</option>
+              <option value="number">A number</option>
+            </select>
+            {typeof display.yAxis?.min === "number" ? (
+              <input className="field__control field__control--compact" type="number" aria-label="Value axis minimum" value={display.yAxis.min} onChange={(event) => setDisplay({ yAxis: { min: Number(event.target.value) } })} />
+            ) : null}
+          </div>
+        </label>
+      ) : null}
+      {isChart && (widget.data?.query?.groupBy ?? []).some((g) => g.bucket) ? (
+        <label className="lens-field" title="Periods without a value — also those before the first one, e.g. a depot before the first purchase">
+          <span className="lens-field__label">Periods without a value</span>
+          <select
+            className="field__control field__control--compact"
+            aria-label="Periods without a value"
+            value={display.emptyPeriods ?? "zero"}
+            onChange={(event) => setDisplay({ emptyPeriods: event.target.value === "zero" ? undefined : (event.target.value as "gap" | "connect") })}
+          >
+            <option value="zero">Count as 0</option>
+            <option value="gap">Leave a gap (and start at the first value)</option>
+            <option value="connect">Connect the line (and start at the first value)</option>
+          </select>
+        </label>
+      ) : null}
       {widget.type === "kpi" ? (
         <>
           <label className="lens-check">
@@ -907,6 +985,7 @@ function StyleSettings({
           Total row
         </label>
       ) : null}
+      {widget.type === "table" ? <ColumnFormats widget={widget} table={table} setDisplay={setDisplay} /> : null}
       {rows ? (
         <>
           <label className="lens-field">
@@ -952,6 +1031,54 @@ function StyleSettings({
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Tables: how each number column is written — its own format, a + for gains, green and red by sign. */
+function ColumnFormats({ widget, table, setDisplay }: { widget: DashboardWidget; table: ModelTable | undefined; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const rows = widget.data?.rows;
+  const numberTypes = ["integer", "float", "currency", "number"];
+  const names = rows
+    ? rows.columns.filter((name) => numberTypes.includes(fieldsOf(table).find((f) => f.name === name)?.type ?? ""))
+    : (widget.data?.query?.measures ?? []).map((m) => m.name);
+  if (names.length === 0) return null;
+  const columns = widget.display?.columns ?? {};
+  const update = (name: string, patch: Partial<ColumnDisplay>) => {
+    const next: ColumnDisplay = { ...columns[name], ...patch };
+    (Object.keys(next) as (keyof ColumnDisplay)[]).forEach((key) => (next[key] === undefined || next[key] === false || next[key] === "auto") && delete next[key]);
+    const all = { ...columns, [name]: next };
+    if (Object.keys(next).length === 0) delete all[name];
+    setDisplay({ columns: Object.keys(all).length > 0 ? all : undefined });
+  };
+  return (
+    <fieldset className="lens-columns">
+      <legend className="lens-field__label">Columns</legend>
+      {names.map((name) => {
+        const own = columns[name] ?? {};
+        const label = fieldsOf(table).find((f) => f.name === name)?.label ?? name;
+        return (
+          <div key={name} className="lens-columns__row">
+            <span className="lens-columns__name" title={name}>
+              {label}
+            </span>
+            <select className="field__control field__control--compact" aria-label={`Format of ${label}`} value={own.format ?? "auto"} onChange={(event) => update(name, { format: event.target.value as ColumnDisplay["format"] })}>
+              {FORMATS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.value === "auto" ? "As the table" : f.label}
+                </option>
+              ))}
+            </select>
+            <label className="lens-check" title="A + in front of positive values: +10 %">
+              <input type="checkbox" checked={own.signed ?? false} onChange={(event) => update(name, { signed: event.target.checked })} />+/−
+            </label>
+            <label className="lens-check" title="Green above 0, red below">
+              <input type="checkbox" aria-label={`Colour ${label} by sign`} checked={own.colorBySign ?? false} onChange={(event) => update(name, { colorBySign: event.target.checked })} />
+              Colour
+            </label>
+          </div>
+        );
+      })}
+    </fieldset>
   );
 }
 

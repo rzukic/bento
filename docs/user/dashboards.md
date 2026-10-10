@@ -55,7 +55,9 @@ A deleted dashboard appears under **Recently deleted** in the list of dashboards
 
 ## Date Range And Refresh
 
-The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
+The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
+
+A widget can have its own range under **Data → Date range**, e.g. a forecast over the next 20 years on a dashboard of the last 12 months.
 
 **Filters**: in edit mode, **Filters** adds menus above the widgets for a column — an account, a category, a status. Choosing values narrows every widget, variable and drill-down whose table has that column (other widgets stay as they are); several values mean "one of these". The choice is part of the address (`?filter.kategorie_id=2`), so a bookmark keeps it, and **Reset filters** clears it. A widget's own condition on the same column is replaced by the bar's choice.
 
@@ -94,7 +96,10 @@ Choose **Edit**:
     - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other** (a breakdown starts with the top 5)
   - **Only rows where** conditions, and which date the dashboard's range applies to
   - **Compare with** (charts by date without a breakdown): **the period before** or **the same period a year earlier** — each value again for that range, dashed (lighter bars in a bar chart); needs a range with a start and an end
-  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below
+  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below. Charts also have:
+    - **Value axis starts at**: 0, near the data (prices and values over time are not squeezed at the top), or a number.
+    - **Periods without a value** (charts by date): count as 0, leave a gap, or connect the line. With a gap or a connected line, the periods before the first value are left out, e.g. a depot before its first purchase.
+    - **Tables → Columns**: per number column, its own format (a return in percent next to amounts), **+/−** for a sign in front of gains, and **Colour** for green above 0 and red below.
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
 

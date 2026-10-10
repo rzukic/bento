@@ -8,13 +8,14 @@ import { EChart, type ChartClick } from "../charts/EChart";
 import { buildChartOption, buildSankeyOption, formatBucketLabel, formatBucketTitle, readChartTokens, type ChartTokens } from "../charts/chartOptions";
 import { drillTarget, signFilter, type DrillTarget, type GroupPick } from "../drill";
 import { sankeyMode, toSankeyModel } from "../sankey";
-import type { ResolvedRange } from "../dateRange";
+import { rangeKey, resolveRange, type ResolvedRange } from "../dateRange";
 import { runnableQuery, variableValues, type VariableResults } from "../formulaQueries";
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
 import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
+import { valueTypeOf } from "../../../lib/columns";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { BudgetWidget } from "./BudgetWidget";
 import { INTERVAL_LABELS } from "../interval";
@@ -40,6 +41,17 @@ function overrideFormat(widget: DashboardWidget): NumberFormatKind | undefined {
   return format && format !== "auto" ? format : undefined;
 }
 
+/**
+ * A table cell's number as its column is set to show it (display.columns):
+ * its own format, a + for positive values, green or red by sign.
+ */
+function numberCell(widget: DashboardWidget, column: string, value: number, fallback: NumberFormatKind): { text: string; className: string } {
+  const own = widget.display?.columns?.[column];
+  const kind = own?.format && own.format !== "auto" ? own.format : fallback;
+  const sign = own?.colorBySign && value !== 0 ? (value > 0 ? " widget-table__number--positive" : " widget-table__number--negative") : "";
+  return { text: formatNumber(value, kind, undefined, own?.signed ?? false), className: `widget-table__number${sign}` };
+}
+
 const LOADING_DELAY_MS = 150;
 
 /**
@@ -54,7 +66,7 @@ export function variableErrorFor(error: string | null, variables: VariableResult
 
 export function WidgetContent({
   widget,
-  range,
+  range: dashboardRange,
   refreshToken,
   tokens,
   variables,
@@ -82,6 +94,14 @@ export function WidgetContent({
   variablesPending?: boolean;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
+  // A widget with its own range (a forecast to 2045) ignores the dashboard's; the dashboard's filters still apply.
+  const ownRange = widget.data?.range;
+  const ownRangeKey = ownRange ? rangeKey(ownRange) : null;
+  const range = useMemo(
+    () => (ownRange ? { ...resolveRange(ownRange), filters: dashboardRange.filters } : dashboardRange),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ownRangeKey, dashboardRange],
+  );
   // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
   const [level, setLevel] = useState<{ value: unknown; label: string } | null>(null);
   const shown = useMemo(() => (level ? drilledWidget(widget, level.value) : widget), [widget, level]);
@@ -174,6 +194,7 @@ export function WidgetContent({
               refreshToken={refreshToken}
               values={values}
               annotations={annotations}
+              stale={state.refreshing && state.forRange !== JSON.stringify([range.from, range.to])}
             />
           </div>
         );
@@ -189,6 +210,7 @@ export function WidgetContent({
           refreshToken={refreshToken}
           values={values}
           annotations={annotations}
+          stale={state.refreshing && state.forRange !== JSON.stringify([range.from, range.to])}
         />
       );
   }
@@ -205,6 +227,7 @@ function ChartWidget({
   annotations,
   onDrill,
   onDrillDown,
+  stale = false,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
@@ -217,6 +240,8 @@ function ChartWidget({
   onDrill?: (target: DrillTarget) => void;
   /** Donuts with "drill into": a slice opens its next level instead of its rows. */
   onDrillDown?: (value: unknown, label: string) => void;
+  /** A new result is loading (1y → 3y): periods the shown one does not cover stay empty, not 0. */
+  stale?: boolean;
 }) {
   const display = widget.display;
   const stacked = display?.stacked ?? false;
@@ -234,13 +259,14 @@ function ChartWidget({
   const model = useMemo(() => {
     const format = overrideFormat(widget);
     const measures = query?.measures ?? [];
-    let next = withMeasureColors(applyMeasureShows(toChartModel(result, query ?? undefined, range, format), measures, hasBreakdown), measures, hasBreakdown);
+    const empty = { emptyPeriods: display?.emptyPeriods, stale };
+    let next = withMeasureColors(applyMeasureShows(toChartModel(result, query ?? undefined, range, format, undefined, empty), measures, hasBreakdown), measures, hasBreakdown);
     if (shift && earlier && shiftedResult) {
-      next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format), measures, false), shift);
+      next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format, undefined, empty), measures, false), shift);
     }
     if (stacked && display?.totalLine) next = withTotal(next);
     return next;
-  }, [result, query, range, widget, shift, earlier, shiftedResult, stacked, hasBreakdown, display?.totalLine]);
+  }, [result, query, range, widget, shift, earlier, shiftedResult, stacked, hasBreakdown, display?.totalLine, display?.emptyPeriods, stale]);
 
   // The series under the pointer, read by the tooltip when it renders.
   const hovered = useRef<number | null>(null);
@@ -258,8 +284,10 @@ function ChartWidget({
         referenceLines,
         colorBySign: display?.colorBySign ?? false,
         annotations: placed,
+        yMin: display?.yAxis?.min,
+        connectNulls: display?.emptyPeriods === "connect",
       }),
-    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign, placed],
+    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign, placed, display?.yAxis?.min, display?.emptyPeriods],
   );
   const onHoverSeries = useCallback((index: number | null) => {
     hovered.current = index;
@@ -528,7 +556,7 @@ function TableWidget({
     const value = row[column.name];
     if (dateGroup?.bucket && column.name === dateKey && typeof value === "string") return formatBucketTitle(value.slice(0, 10), dateGroup.bucket);
     const number = column.role === "measure" ? toNumber(value) : null;
-    if (number !== null) return formatNumber(number, format ?? formatKindForType(column.type));
+    if (number !== null) return numberCell(widget, column.name, number, format ?? formatKindForType(column.type)).text;
     const group = column.role === "label" ? column.labelOf! : column.name;
     if (column.role === "group" || column.role === "label") {
       const shown = labelOf(row, group, column.role === "label" ? column.name : undefined, otherKeyOf(result, group));
@@ -551,11 +579,16 @@ function TableWidget({
         <tbody>
           {result.data.map((row, index) => (
             <tr key={index}>
-              {columns.map((column) => (
-                <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                  {cell(row, column)}
-                </td>
-              ))}
+              {columns.map((column) => {
+                const number = column.role === "measure" ? toNumber(row[column.name]) : null;
+                const className =
+                  number !== null ? numberCell(widget, column.name, number, format ?? formatKindForType(column.type)).className : column.role === "measure" ? "widget-table__number" : undefined;
+                return (
+                  <td key={column.name} className={className}>
+                    {cell(row, column)}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>
@@ -564,9 +597,10 @@ function TableWidget({
             <tr>
               {columns.map((column, index) => {
                 const number = column.role === "measure" ? toNumber(total.data[0][column.name]) : null;
+                const shown = number !== null ? numberCell(widget, column.name, number, format ?? formatKindForType(column.type)) : null;
                 return (
-                  <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                    {number !== null ? formatNumber(number, format ?? formatKindForType(column.type)) : index === 0 ? "Total" : ""}
+                  <td key={column.name} className={shown?.className ?? (column.role === "measure" ? "widget-table__number" : undefined)}>
+                    {shown ? shown.text : index === 0 ? "Total" : ""}
                   </td>
                 );
               })}
@@ -606,9 +640,16 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
         <tbody>
           {state.rows.map((row, index) => (
             <tr key={index}>
-              {columns.map((column) => (
-                <td key={column.name}>{renderCellValue(column, row[column.name])}</td>
-              ))}
+              {columns.map((column) => {
+                // A column set to a format (display.columns) writes its number that way; others as in the data view.
+                const number = widget.display?.columns?.[column.name] ? toNumber(row[column.name]) : null;
+                const shown = number !== null ? numberCell(widget, column.name, number, formatKindForType(valueTypeOf(column))) : null;
+                return (
+                  <td key={column.name} className={shown?.className}>
+                    {shown ? shown.text : renderCellValue(column, row[column.name])}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

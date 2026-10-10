@@ -621,6 +621,15 @@
     font-variant-numeric: tabular-nums;
 }
 
+/* display.columns colorBySign: a return or a change, green above 0, red below. */
+.widget-table__number--positive {
+    color: var(--success);
+}
+
+.widget-table__number--negative {
+    color: var(--danger);
+}
+
 .widget-text {
     height: 100%;
     overflow: auto;

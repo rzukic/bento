@@ -42,6 +42,8 @@ export type WidgetData = {
   timeShift?: TimeShift;
   /** Budget widgets. */
   budget?: BudgetConfig;
+  /** The widget's own date range instead of the dashboard's, e.g. a forecast to 2045 on a dashboard of the last 12 months. */
+  range?: DashboardDateRange;
 };
 
 export type TimeShift = "previous" | "year";
@@ -68,6 +70,15 @@ export type DashboardVariable = {
   formula: string;
   /** The date column the dashboard's range filters; none = all rows. */
   dateColumn?: string;
+};
+
+/** How a table writes one column (Step: beta feedback): a return beside amounts, +/− with colours. */
+export type ColumnDisplay = {
+  format?: "auto" | "currency" | "number" | "integer" | "percent";
+  /** A + in front of positive values: +10 %, +1.250 €. */
+  signed?: boolean;
+  /** Positive values green, negative ones red. */
+  colorBySign?: boolean;
 };
 
 export type WidgetDisplay = {
@@ -106,6 +117,16 @@ export type WidgetDisplay = {
    * when the widget itself is by day or week).
    */
   intervals?: false | QueryBucket[];
+  /** Tables: per column (a measure or a row column), how it is written. */
+  columns?: Record<string, ColumnDisplay>;
+  /** Charts: where the value axis starts — at 0 (default), near the data (auto), or at a number. */
+  yAxis?: { min?: "auto" | "zero" | number };
+  /**
+   * Charts by date: periods without a value count as 0 (default), leave a gap,
+   * or are skipped by the line (connect). With gap and connect, periods before
+   * the first value (a range reaching back before the data) are left out.
+   */
+  emptyPeriods?: "zero" | "gap" | "connect";
 };
 
 export const ANNOTATION_COLORS = ["gray", "blue", "teal", "amber", "rose", "violet"] as const;
@@ -139,6 +160,10 @@ export type DateRangePreset =
   | "last-year"
   | "last-3-years"
   | "last-5-years"
+  | "next-12-months"
+  | "next-5-years"
+  | "next-10-years"
+  | "next-20-years"
   | "all";
 
 export type DashboardDateRange = { preset: DateRangePreset } | { from: string; to: string };
