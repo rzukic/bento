@@ -195,7 +195,7 @@ In edit mode, **Variables** holds named values for the whole dashboard, e.g.:
 | `cash` | Girokonto | `SUM(betrag_eur)` |
 | `runway` | other variables | `cash / burn_rate` |
 
-Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable), and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
+Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable); the variable's **Label** appears under the value, and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
 
 ## Amounts
 

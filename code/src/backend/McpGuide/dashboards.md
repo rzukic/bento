@@ -51,12 +51,34 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 
 ## `display`
 
-`format` (`auto currency number integer percent`), `intervals` (charts and summarized tables by date: `false` hides the viewer's M Q Y switch, or a list such as `["quarter", "year"]`; the widget's own interval always stays), `stacked`, `totalLine`, `colorBySign`, `compare`, `higherIsBetter`, `trend`, `goal` (number or variable name), `summary` (table total row), `referenceLines` `[{value, label}]`, `annotations` (false hides them), `sankey`, `shares`, `drill`, `text`.
+| Option | Values | Widgets |
+|---|---|---|
+| `format` | `auto` (from the column type), `currency`, `number`, `integer`, `percent` (0.22 → 22 %) | all; tables: every measure column |
+| `intervals` | `false` hides the viewer's switch (M Q Y), or a list like `["quarter", "year"]`; the widget's own interval always stays | charts and summarized tables by date |
+| `stacked`, `totalLine` | true/false; `totalLine` draws the stack's total (the net with mixed signs) | line, area, bar |
+| `colorBySign` | true: positive green, negative red | one-series line, area, bar |
+| `referenceLines` | `[{value, label?}]`, value a number or a variable's name | charts |
+| `annotations` | false hides the dashboard's events | charts by date |
+| `compare`, `higherIsBetter`, `trend` | true/false: the change against the period or range before; green when up (false for costs); a small trend line | kpi |
+| `goal` | a number or a variable's name, shown as progress | kpi |
+| `summary` | true: a total row | table (grouped) |
+| `sankey` | `levels` (flows between consecutive groups) or `cashflow` (income categories → income → expense categories and saved) | sankey |
+| `shares` | true: node labels as % of the first column | sankey |
+| `drill` | a column of the same table to open a slice into | donut |
+| `text` | markdown (`#` headings, `-` lists) | text |
+
+Per measure (in `data.query.measures`, charts only, not sent to the query):
+- `show`: `change` (from the period before) or `moving_average`, with `window` (periods, default 3).
+- `color`: `blue teal amber violet rose green red gray`.
+- `axis`: `right`, a second value axis, e.g. a return next to a value.
+- `format`: how that axis and the tooltip write it (`currency number integer percent`).
+
+Saving checks these values: an unknown one (`"sankey": "xyz"`) is an error that names the field.
 
 ## Dashboard level
 
 - `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years all`, or `{from, to}`.
-- `variables`: `{name, label?, source?, formula, dateColumn?}` — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
+- `variables`: `{name, label?, source?, formula, dateColumn?}` (a key figure showing it writes `label` under the value) — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
 - `filters`: `{column, label?}` — a menu narrowing every widget whose table has the column.
 - `annotations`: `{date, to?, label, color?}` (`gray blue teal amber rose violet`) on charts by date.
 - `refreshSeconds`: 0 (off), 30, 60, 300.

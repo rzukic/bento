@@ -261,7 +261,7 @@ curl -fsS "$API_ROOT/data/orders?filter[status]=paid&sort=-total&page=1&per_page
 
 ## Includes And Related Data
 
-To include the related customer while listing orders:
+To include the related customer while listing orders (`include=customer`, or by the link column, `include=customer_id`; the customer appears under `customer` either way):
 
 ```bash
 curl -fsS "$API_ROOT/data/orders?include=customer" \

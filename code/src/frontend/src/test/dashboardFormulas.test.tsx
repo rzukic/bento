@@ -143,7 +143,7 @@ describe("dashboards with formulas", () => {
   const document: DashboardDocument = {
     dateRange: { preset: "last-3-months" },
     variables: [
-      { name: "runway", formula: "cash / burn_rate" },
+      { name: "runway", label: "months of cash", formula: "cash / burn_rate" },
       { name: "broken", formula: "nothing + 1" },
     ],
     widgets: [
@@ -159,6 +159,9 @@ describe("dashboards with formulas", () => {
 
     const runway = await screen.findByRole("article", { name: "Runway" });
     await waitFor(() => expect(runway.textContent).toMatch(/5[.,]3/));
+    // Under the value: the variable's label, not its formula name (beta feedback).
+    expect(within(runway).getByText("months of cash")).toBeInTheDocument();
+    expect(within(runway).queryByText("runway")).toBeNull();
     expect(within(await screen.findByRole("article", { name: "Broken" })).getByRole("alert").textContent).toContain("Column 'nothing' not found");
 
     const rate = await screen.findByRole("article", { name: "Savings rate" });

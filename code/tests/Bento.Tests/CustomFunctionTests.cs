@@ -13,9 +13,11 @@ public sealed class JsSandboxTests
     private static CustomFunctionDef Def(string code, string result = "float", params (string Name, string Type)[] args) =>
         new("f", null, args.Select(a => new CustomFunctionArgument(a.Name, a.Type)).ToList(), result, code, 1);
 
-    private static JsCallResult Run(CustomFunctionDef definition, params object?[] values)
+    private static JsCallResult Run(CustomFunctionDef definition, params object?[] values) => Run(definition, null, values);
+
+    private static JsCallResult Run(CustomFunctionDef definition, JsSandboxLimits? limits, params object?[] values)
     {
-        var (function, error) = JsFunction.Create(definition);
+        var (function, error) = JsFunction.Create(definition, limits);
         Assert.True(function is not null, error);
         using (function)
             return function!.Call(values);
@@ -66,9 +68,15 @@ public sealed class JsSandboxTests
     [Fact]
     public void Limits_StopRunawayCode()
     {
-        Assert.Equal("The function took too long and was stopped (time limit).", Run(Def("while (true) {}")).Error);
-        Assert.Equal("The function used too much memory and was stopped.", Run(Def("const a = []; while (true) a.push(\"x\".repeat(1000000) + a.length);")).Error);
+        Assert.Equal("The function took longer than 1 s and was stopped (time limit).", Run(Def("while (true) {}")).Error);
+        // The memory and time limits on their own, so a slow machine does not hit the other one first.
+        var noClock = JsSandboxLimits.Default with { Timeout = TimeSpan.FromSeconds(60) };
+        Assert.Equal("The function allocated more than 256 MB and was stopped (memory limit).", Run(Def("const a = []; while (true) a.push(\"x\".repeat(1000000) + a.length);"), noClock).Error);
         Assert.Equal("The function calls itself too deeply and was stopped.", Run(Def("function f(n) { return f(n + 1); } return f(0);")).Error);
+
+        // Beta feedback: a loop that keeps nothing ran into "too much memory" after ~20,000 steps,
+        // because every allocation of the call counts. A lean simulation now runs through.
+        Assert.Null(Run(Def("let s = 0; for (let i = 0; i < 500000; i++) { const o = { a: i, b: [i, i] }; s += o.b[1]; } return s;"), noClock).Error);
 
         // The same engine keeps working after a call was stopped.
         var (function, _) = JsFunction.Create(Def("if (n > 0) { while (true) {} } return 7;", "integer", ("n", "integer")));
@@ -185,7 +193,7 @@ public sealed class CustomFunctionTests
         Assert.Equal("2026-10-05:3", test.GetProperty("value").GetString());
         Assert.Equal(["a is 1.5"], test.GetProperty("logs").EnumerateArray().Select(l => l.GetString()));
         var failing = await SendAsync(host, HttpMethod.Post, "/api/v1/functions/test", new { resultType = "float", code = "while (true) {}" });
-        Assert.Equal("The function took too long and was stopped (time limit).", failing.GetProperty("error").GetString());
+        Assert.Equal("The function took longer than 1 s and was stopped (time limit).", failing.GetProperty("error").GetString());
     }
 
     private static async Task StoredValues(ApiIntegrationTestHost host)

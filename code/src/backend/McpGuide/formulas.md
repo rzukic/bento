@@ -17,7 +17,8 @@ The leading `=` is optional. `check_formula` checks a formula against a table an
 | `+ - * /`, `%`, `^` | arithmetic (`/` never rounds; division by 0 is empty), remainder, power |
 | `&` | join text |
 | `=`/`==`, `<>`/`!=`, `< <= > >=` | compare (text ignores case) |
-| `AND`/`&&`, `OR`/`\|\|`, `NOT`/`!` | logic |
+| `AND`/`&&`, `OR`/`\|\|`, `NOT`/`!` | logic; group with parentheses, also right after WHERE: `SUM(x WHERE (a OR b) AND c)` |
+| `IN`, `NOT IN` | `category IN ("Rent", "Food")` = `category = "Rent" OR category = "Food"` |
 
 Dates: `date + 30` is 30 days later, `date - other_date` is days between; `"2026-01-31"` compares as a date. Amounts stay amounts under + − × ÷ by a number.
 

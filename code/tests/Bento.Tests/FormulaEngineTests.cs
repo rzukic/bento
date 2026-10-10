@@ -340,6 +340,37 @@ public sealed class FormulaEngineTests
         }
     }
 
+    [Theory]
+    // Beta feedback: a parenthesis right after WHERE, AND or OR was read as a function call.
+    [InlineData("SUM(amount WHERE (amount > 0 OR quantity > 1) AND note <> \"x\")")]
+    [InlineData("SUM(amount WHERE note <> \"x\" AND (amount > 0 OR quantity > 1))")]
+    [InlineData("COUNT(WHERE (amount > 0 OR quantity > 1))")]
+    [InlineData("SUM(amount WHERE booked_on >= DATEADD(TODAY(), -1, \"year\") AND amount > 0)")]
+    // AND(…) and OR(…) before an operand stay functions.
+    [InlineData("SUM(amount WHERE AND(amount > 0, quantity > 1))")]
+    [InlineData("COUNT(WHERE counterparty IN (\"Billa\", \"spar\"))")]
+    [InlineData("SUM(amount WHERE counterparty NOT IN (\"Billa\") AND (quantity IN (1, 2) OR amount < 0))")]
+    public void Where_TakesParenthesesAndIn(string formula)
+    {
+        var (check, _) = Measure(formula);
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+    }
+
+    [Fact]
+    public void In_IsEqualsForEachValue()
+    {
+        // Text ignores case, as with =.
+        var check = Check("IF(counterparty IN (\"Billa\", \"SPAR\"), 1, 0)");
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+        Assert.Contains("bento_lower(t.\"counterparty\") = 'billa'", check.Result!.Sql);
+        Assert.Contains("bento_lower(t.\"counterparty\") = 'spar'", check.Result.Sql);
+        Assert.Contains("NOT", Check("IF(quantity NOT IN (1, 2), 1, 0)").Result!.Sql);
+
+        Assert.Equal("IN takes a list in parentheses: category IN (\"Rent\", \"Food\").", SingleError("IF(note IN \"a\", 1, 0)").Message);
+        Assert.Equal("IN needs at least one value.", SingleError("IF(note IN (), 1, 0)").Message);
+        Assert.Equal("Cannot compare text with a whole number.", SingleError("IF(note IN (1), 1, 0)").Message);
+    }
+
     [Fact]
     public void Formulas_NameTheSearchesTheyMake_ForIndexes()
     {

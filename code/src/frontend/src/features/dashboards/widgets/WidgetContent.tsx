@@ -478,7 +478,8 @@ function VariableKpi({ widget, name, variables }: { widget: DashboardWidget; nam
       <span className={number !== null && number < 0 && format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value"}>
         {number !== null ? formatNumber(number, format) : result.value === null ? "—" : String(result.value)}
       </span>
-      <span className="widget-kpi__since">{name}</span>
+      {/* The variable's label, not its formula name (plan_net); the card's title says the rest. */}
+      {result.label ? <span className="widget-kpi__since">{result.label}</span> : null}
     </div>
   );
 }
