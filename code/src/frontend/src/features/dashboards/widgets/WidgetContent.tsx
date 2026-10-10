@@ -42,6 +42,16 @@ function overrideFormat(widget: DashboardWidget): NumberFormatKind | undefined {
 
 const LOADING_DELAY_MS = 150;
 
+/**
+ * "Column 'depot' not found …" for a formula naming a dashboard variable that
+ * could not be computed: say what is wrong with the variable instead.
+ */
+export function variableErrorFor(error: string | null, variables: VariableResults | undefined): string | null {
+  const name = error?.match(/Column '([^']+)' not found/)?.[1];
+  const variable = name ? variables?.[name] : undefined;
+  return variable?.error ? `The variable ${name} could not be computed: ${variable.error}` : null;
+}
+
 export function WidgetContent({
   widget,
   range,
@@ -52,6 +62,7 @@ export function WidgetContent({
   onDrill,
   onResult,
   onLoading,
+  variablesPending = false,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -67,12 +78,16 @@ export function WidgetContent({
   onResult?: (result: QueryResult | null) => void;
   /** Whether numbers are on their way — first load or a refresh behind the shown ones (for the interval switch's spinner). */
   onLoading?: (loading: boolean) => void;
+  /** The dashboard is still computing its variables; widgets with formulas wait for them. */
+  variablesPending?: boolean;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
   // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
   const [level, setLevel] = useState<{ value: unknown; label: string } | null>(null);
   const shown = useMemo(() => (level ? drilledWidget(widget, level.value) : widget), [widget, level]);
-  const state = useWidgetResult(shown, range, refreshToken, values);
+  // Formulas may use the dashboard's variables: while those are computed, wait for them.
+  const usesFormulas = (shown.data?.query?.measures ?? []).some((m) => m.formula);
+  const state = useWidgetResult(shown, range, refreshToken, values, !(variablesPending && usesFormulas));
   useEffect(() => {
     onResult?.(state.result);
   }, [onResult, state.result]);
@@ -107,7 +122,7 @@ export function WidgetContent({
   if (state.status === "error") {
     return (
       <p className="widget-note widget-note--error" role="alert">
-        <Icon name="activity" size={13} /> {state.error}
+        <Icon name="activity" size={13} /> {variableErrorFor(state.error, variables) ?? state.error}
       </p>
     );
   }
