@@ -277,6 +277,16 @@ public sealed class RequestBodyValidator
                     {
                         errors.Add(new FieldError(col.Name, $"Column '{col.Name}' expects date string, got {DescribeJsonKind(value)}."));
                     }
+                    // Text that is no date was stored as it is on SQLite and failed in Postgres (500).
+                    // (Loose on purpose: over-padded days like 2026-04-010 are read as dates elsewhere.)
+                    else if (value.GetString() is { Length: > 0 } text &&
+                             !System.Text.RegularExpressions.Regex.IsMatch(text, @"^\d{4}-\d{1,3}-\d{1,3}") &&
+                             !DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out _))
+                    {
+                        errors.Add(new FieldError(col.Name, col.Type == ColumnType.Date
+                            ? $"Column '{col.Name}' expects a date like 2026-10-09, got '{text}'."
+                            : $"Column '{col.Name}' expects a date and time like 2026-10-09T14:30, got '{text}'."));
+                    }
                     break;
 
                 case ColumnType.Json:

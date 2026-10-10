@@ -95,6 +95,20 @@ curl -fsS -X PUT "$API_ROOT/admin/schema" \
 
 Once this succeeds, the data routes become available immediately.
 
+Later changes don't need the whole schema again. Send only the operations (admin; preview first without `?confirm_destructive`):
+
+```bash
+curl -fsS -X POST "$API_ROOT/admin/schema/patch/preview" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"operations":[{"op":"addColumn","table":"orders","column":{"name":"note","type":"text"}}]}'
+
+curl -fsS -X PATCH "$API_ROOT/admin/schema" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"operations":[{"op":"addColumn","table":"orders","column":{"name":"note","type":"text"}}]}'
+```
+
+The operations are `addTable`, `changeTable`, `renameTable`, `removeTable`, `addColumn`, `changeColumn`, `renameColumn`, `removeColumn`, `addRelation`, `changeRelation`, `removeRelation`, `addIndex` and `removeIndex`. Renames keep the data.
+
 That means you can now use:
 - `POST /api/v1/data/customers`
 - `GET /api/v1/data/customers`
@@ -124,6 +138,16 @@ curl -fsS -X POST "$API_ROOT/data/orders" \
 ```
 
 If a required field is missing or a value does not match the schema, the API returns a validation error.
+
+Many rows at once (up to 1000 per call, all or none):
+
+```bash
+curl -fsS -X POST "$API_ROOT/data/orders/bulk" \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"rows":[{"external_id":"A1","customer_id":1,"total":250},{"external_id":"A2","customer_id":1,"total":80}],"upsertOn":["external_id"]}'
+```
+
+With `upsertOn`, a row whose columns match an existing row changes that row, and only the columns you send; the others are added. The answer counts them (`inserted`, `updated`) and gives each row's id. An error names the row, and nothing is written.
 
 ---
 

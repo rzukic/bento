@@ -353,6 +353,24 @@ public sealed class McpTests
         Assert.False(applied.IsError, applied.Text);
         Assert.Contains("vip: boolean", (await CallToolAsync(host, access, "describe_schema", new { })).Text);
 
+        // Small changes as operations; the preview is compact (no whole model).
+        var operations = new object[] { new { op = "addColumn", table = "customers", column = new { name = "code", type = "text" }, after = "name" } };
+        var compact = await CallToolAsync(host, access, "preview_schema_change", new { operations });
+        Assert.False(compact.IsError, compact.Text);
+        Assert.Contains("AddColumn", compact.Text);
+        Assert.DoesNotContain("normalizedModel", compact.Text);
+        Assert.DoesNotContain("normalizedModel", preview.Text);
+        Assert.False((await CallToolAsync(host, access, "apply_schema_change", new { operations })).IsError);
+        Assert.Contains("code: text", (await CallToolAsync(host, access, "describe_schema", new { })).Text);
+
+        // Many rows at once, matched by a column.
+        var bulk = await CallToolAsync(host, access, "upsert_rows", new { table = "customers", rows = new object[] { new { name = "Bulk A", code = "A" }, new { name = "Bulk B", code = "B" } } });
+        Assert.False(bulk.IsError, bulk.Text);
+        var upsert = await CallToolAsync(host, access, "upsert_rows", new { table = "customers", rows = new object[] { new { code = "A", vip = true }, new { name = "Bulk C", code = "C" } }, upsert_on = new[] { "code" } });
+        Assert.False(upsert.IsError, upsert.Text);
+        Assert.Equal(1, JsonDocument.Parse(upsert.Text).RootElement.GetProperty("data").GetProperty("updated").GetInt32());
+        Assert.Equal(1, JsonDocument.Parse(upsert.Text).RootElement.GetProperty("data").GetProperty("inserted").GetInt32());
+
         // Rows incl. delete.
         var row = await CallToolAsync(host, access, "create_row", new { table = "customers", values = new { name = "Temp", vip = true } });
         var rowId = JsonDocument.Parse(row.Text).RootElement.GetProperty("data").GetProperty("id").GetInt64();

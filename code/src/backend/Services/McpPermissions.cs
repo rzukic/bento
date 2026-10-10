@@ -95,7 +95,7 @@ public static class McpPermissions
         // Reads that are POSTs: running queries, checking formulas, previewing a schema.
         if (HttpMethods.IsPost(method) &&
             (p == api + "/query" || p == api + "/query/variables" || (Under("/queries") && p.EndsWith("/run", StringComparison.Ordinal)) ||
-             p == api + "/formulas/validate" || p == api + "/formulas/preview" || p == api + "/admin/schema/preview" ||
+             p == api + "/formulas/validate" || p == api + "/formulas/preview" || p == api + "/admin/schema/preview" || p == api + "/admin/schema/patch/preview" ||
              p == api + "/price-sources/refresh"))
             return Read;
 

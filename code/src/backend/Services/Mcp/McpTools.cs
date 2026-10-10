@@ -176,7 +176,20 @@ public sealed partial class McpTools
                 ["id"] = Prop("string", "The row's id."),
                 ["values"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true, ["description"] = "The columns to change." }
             }, "table", "id", "values"),
-            ReadOnly: false, Idempotent: true, UpdateRowAsync, Permission: McpPermissions.WriteRows)
+            ReadOnly: false, Idempotent: true, UpdateRowAsync, Permission: McpPermissions.WriteRows),
+
+        new("upsert_rows", "Add or change many rows",
+            "Writes up to 1000 rows to one table in one go (all or none). Without upsert_on every row is added. With upsert_on (e.g. [\"external_id\"]) a row matching an existing one on those columns changes only the given columns; the rest are added — also to set links in bulk: rows [{\"external_id\": \"A1\", \"category_id\": 4}]. Returns how many were added and changed.",
+            Schema(new JsonObject
+            {
+                ["table"] = Prop("string", "Table name."),
+                ["rows"] = new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }, ["description"] = "Column values per row, as in create_row." },
+                ["upsert_on"] = new JsonObject { ["type"] = "array", ["items"] = new JsonObject { ["type"] = "string" }, ["description"] = "Columns that identify an existing row, e.g. [\"external_id\"]." }
+            }, "table", "rows"),
+            ReadOnly: false, Idempotent: false,
+            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/data/{Uri.EscapeDataString(Required(args, "table"))}/bulk",
+                new { rows = args.GetProperty("rows"), upsertOn = args.TryGetProperty("upsert_on", out var keys) && keys.ValueKind == JsonValueKind.Array ? keys : default(JsonElement?) }, ct),
+            Permission: McpPermissions.WriteRows)
     ];
 
     // --- Tools ---------------------------------------------------------------------

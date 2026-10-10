@@ -30,7 +30,7 @@ public sealed partial class McpTools
             ReadOnly: true, Idempotent: true, (_, args, _) => Task.FromResult(Guide(Str(args, "topic") ?? "overview"))),
 
         new("get_model", "Get the full schema (Model JSON)",
-            "The complete Model JSON of this Bento — every table, column and relation with all options. Start from it when changing the schema: change it and send the whole document to preview_schema_change.",
+            "The complete Model JSON of this Bento — every table, column and relation with all options. For small changes send operations to preview_schema_change instead of the whole document.",
             Schema(new JsonObject()),
             ReadOnly: true, Idempotent: true, (caller, _, ct) => PassAsync(caller, HttpMethod.Get, $"{Api}/admin/schema/model", null, ct)),
 
@@ -166,19 +166,28 @@ public sealed partial class McpTools
             Permission: McpPermissions.Forms, Destructive: true),
 
         new("preview_schema_change", "Preview a schema change",
-            "What applying this Model JSON would change: tables, columns and relations added, removed, renamed or converted, destructive steps and validation errors. Nothing changes. Send the whole model (get_model, then edit).",
-            Schema(new JsonObject { ["model"] = new JsonObject { ["type"] = "object", ["description"] = "The complete Model JSON.", ["additionalProperties"] = true } }, "model"),
+            "What a schema change would do: tables, columns and relations added, removed, renamed or converted, destructive steps and validation errors. Nothing changes. " +
+            "Prefer operations for small changes, e.g. [{\"op\": \"addColumn\", \"table\": \"trades\", \"column\": {\"name\": \"note\", \"type\": \"text\"}}] " +
+            "(ops: " + string.Join(", ", Bento.Api.Db.Schema.SchemaPatch.Operations) + "; bento_guide topic schema); or send the whole model (get_model, then edit).",
+            Schema(new JsonObject
+            {
+                ["operations"] = SchemaOperations(),
+                ["model"] = new JsonObject { ["type"] = "object", ["description"] = "Or the complete Model JSON.", ["additionalProperties"] = true }
+            }),
             ReadOnly: true, Idempotent: true,
-            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/admin/schema/preview", Object(args, "model"), ct),
+            (caller, args, ct) => args.TryGetProperty("operations", out var operations) && operations.ValueKind == JsonValueKind.Array
+                ? PassAsync(caller, HttpMethod.Post, $"{Api}/admin/schema/patch/preview", new { operations }, ct)
+                : PassAsync(caller, HttpMethod.Post, $"{Api}/admin/schema/preview?compact=true", ModelArgument(args), ct),
             Permission: McpPermissions.Schema),
 
         new("apply_schema_change", "Apply a schema change",
-            "Applies a Model JSON: migrates the database. Preview first and get the user's go-ahead; destructive changes (dropped tables or columns, lossy conversions) also need confirm_destructive: true.",
+            "Applies schema operations (as in preview_schema_change) or a whole Model JSON: migrates the database. Preview first and get the user's go-ahead; destructive changes (dropped tables or columns, lossy conversions) also need confirm_destructive: true.",
             Schema(new JsonObject
             {
-                ["model"] = new JsonObject { ["type"] = "object", ["description"] = "The complete Model JSON.", ["additionalProperties"] = true },
+                ["operations"] = SchemaOperations(),
+                ["model"] = new JsonObject { ["type"] = "object", ["description"] = "Or the complete Model JSON.", ["additionalProperties"] = true },
                 ["confirm_destructive"] = Prop("boolean", "Confirm changes that delete data.")
-            }, "model"),
+            }),
             ReadOnly: false, Idempotent: false, ApplySchemaAsync,
             Permission: McpPermissions.Schema, Destructive: true),
 
@@ -282,8 +291,25 @@ public sealed partial class McpTools
     private Task<McpToolResult> ApplySchemaAsync(McpCaller caller, JsonElement args, CancellationToken ct)
     {
         var confirm = args.TryGetProperty("confirm_destructive", out var c) && c.ValueKind == JsonValueKind.True;
-        return PassAsync(caller, HttpMethod.Put, $"{Api}/admin/schema{(confirm ? "?confirm_destructive=true" : "")}", Object(args, "model"), ct);
+        var query = confirm ? "?confirm_destructive=true" : "";
+        return args.TryGetProperty("operations", out var operations) && operations.ValueKind == JsonValueKind.Array
+            ? PassAsync(caller, HttpMethod.Patch, $"{Api}/admin/schema{query}", new { operations }, ct)
+            : PassAsync(caller, HttpMethod.Put, $"{Api}/admin/schema{query}", ModelArgument(args), ct);
     }
+
+    private static JsonObject SchemaOperations() => new()
+    {
+        ["type"] = "array",
+        ["description"] = "Changes to the current schema, in order. Each is { op, … }: addTable {table: {name, columns, …}}, changeTable {table, set}, renameTable {table, to}, removeTable {table}, " +
+                          "addColumn {table, column: {name, type, …}, after?}, changeColumn {table, column, set: {displayName?, formula?, nullable?, …; null removes}}, renameColumn {table, column, to}, removeColumn {table, column}, " +
+                          "addRelation {relation: {…}}, changeRelation {relation, set}, removeRelation {relation}, addIndex {table, index: {name, columns}}, removeIndex {table, index}.",
+        ["items"] = new JsonObject { ["type"] = "object", ["additionalProperties"] = true }
+    };
+
+    private static JsonElement ModelArgument(JsonElement args) =>
+        args.ValueKind == JsonValueKind.Object && args.TryGetProperty("model", out var model) && model.ValueKind == JsonValueKind.Object
+            ? model
+            : throw new McpArgumentException("Send operations (a list of changes) or model (the complete Model JSON).");
 
     /// <summary>A new function is created; an existing one gets a new version.</summary>
     private async Task<McpToolResult> SaveFunctionAsync(McpCaller caller, JsonElement args, CancellationToken ct)
