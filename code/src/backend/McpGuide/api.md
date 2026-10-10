@@ -15,6 +15,7 @@ Every tool is a call to `/api/v1`. `call_api` makes any other call with this con
 | Price sources | `GET /price-sources`, `GET /price-sources/{id}`, `GET /price-sources/{id}/runs`, `POST /price-sources/refresh` `{tables}`, `POST/PUT/DELETE /price-sources/{id}`, `POST /price-sources/{id}/run?kind=latest|history|daily` |
 | Import | `POST /import/analyze` `{content: base64}`, `POST /import/{table}/preview`, `POST /import/{table}` `{content, settings, mapping, keyColumns}`, profiles under `/import/{table}/profiles` |
 | Explorer views | `GET /views/{table}`, `POST /views`, `PUT/DELETE /views/{id}` |
+| Problems | `GET /admin/problems?limit=` — slow queries (with the query and SQL), timeouts and server errors, newest first (admin) |
 | Description | `GET /openapi.json` — every endpoint of this installation with fields |
 
 Users, API keys, credentials and connected apps are not reachable for connected apps.

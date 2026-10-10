@@ -16,16 +16,18 @@ namespace Bento.Api.Formula;
 /// </param>
 public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null, SeriesCall? Series = null)
 {
-    /// <summary>The LOOKUP_ASOF searches the SQL makes, so an index can serve them (see <see cref="Services.LookupIndexes"/>).</summary>
-    public IReadOnlyList<LookupTarget> Lookups { get; init; } = [];
+    /// <summary>The searches the SQL makes per row — related rows, LOOKUP_ASOF — so indexes can serve them (see <see cref="Services.QueryIndexes"/>).</summary>
+    public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
 }
 
 /// <summary>
-/// One LOOKUP_ASOF search: rows of <paramref name="Table"/> whose <paramref name="Match"/>
-/// equals a value (compared lower-cased when <paramref name="Lower"/>), latest
-/// <paramref name="Date"/> first.
+/// A search the compiled SQL makes per row, which an index on
+/// <paramref name="Table"/> serves (see <see cref="Services.QueryIndexes"/>):
+/// the related rows of a link (<c>trades.security_id = securities.id</c>), or a
+/// LOOKUP_ASOF (<c>lower(isin) = …</c>, latest <paramref name="Then"/> first).
 /// </summary>
-public sealed record LookupTarget(string Table, string Match, bool Lower, string Date);
+/// <param name="Lower">The column is compared lower-cased (text), so the index is on <c>lower(column)</c>.</param>
+public sealed record IndexTarget(string Table, string Column, bool Lower = false, string? Then = null);
 
 /// <summary>
 /// XIRR/IRR over cash flows, TWR over values and flows at period ends, REBASE
@@ -127,8 +129,8 @@ public sealed class FormulaCompiler
         public FormulaContext Context { get; } = context;
         /// <summary>"table.column" of the computed columns being compiled, for cycle errors.</summary>
         public List<string> Chain { get; } = [];
-        /// <summary>LOOKUP_ASOF searches, the computed columns' included.</summary>
-        public List<LookupTarget> Lookups { get; } = [];
+        /// <summary>Searches per row (related rows, LOOKUP_ASOF), the computed columns' included.</summary>
+        public List<IndexTarget> Indexes { get; } = [];
         private int _aliases;
         public string NextAlias(string prefix) => $"__{prefix}{++_aliases}";
     }
@@ -181,8 +183,8 @@ public sealed class FormulaCompiler
     }
 
     private static FormulaCheck WithLookups(FormulaCheck check, Shared shared) =>
-        check.Result is { } result && shared.Lookups.Count > 0
-            ? check with { Result = result with { Lookups = shared.Lookups.Distinct().ToList() } }
+        check.Result is { } result && shared.Indexes.Count > 0
+            ? check with { Result = result with { Indexes = shared.Indexes.Distinct().ToList() } }
             : check;
 
     /// <summary>
@@ -590,6 +592,7 @@ public sealed class FormulaCompiler
             return null;
         }
         var related = $"(SELECT {Concat(text)} FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {_scope.Alias}.{Q(key.Name)})";
+        _shared.Indexes.Add(new IndexTarget(rows.Table.Name, navigation.ForeignKey!));
         return Concat(related);
     }
 
@@ -1286,6 +1289,7 @@ public sealed class FormulaCompiler
         if (navigation.Kind == NavigationKind.Children)
         {
             from = $"FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {outer.Alias}.{Q(key.Name)}";
+            _shared.Indexes.Add(new IndexTarget(rows.Table.Name, navigation.ForeignKey!));
         }
         else
         {
@@ -1469,7 +1473,7 @@ public sealed class FormulaCompiler
         ColumnDef? Stored(string name) => target.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
         if (Stored(matchName) is { Type: ColumnType.Text or ColumnType.Integer or ColumnType.Reference } key &&
             Stored(dateName) is { Type: ColumnType.Date or ColumnType.DateTime } when)
-            _shared.Lookups.Add(new LookupTarget(target.Name, key.Name, key.Type == ColumnType.Text, when.Name));
+            _shared.Indexes.Add(new IndexTarget(target.Name, key.Name, key.Type == ColumnType.Text, when.Name));
 
         return new Expr(
             $"(SELECT {valueColumn.Sql} FROM {Q(target.Name)} {alias} WHERE {match.Sql} AND {onOrBefore.Sql} ORDER BY {dateColumn.Sql} DESC LIMIT 1)",

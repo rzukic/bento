@@ -84,6 +84,12 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
     body = JSON.stringify(init.json);
   }
 
+  // The page the request comes from (e.g. /dashboards/6?interval.net=week), for the
+  // server's problem log when a query is slow or fails.
+  if (typeof window !== "undefined" && !headers.has("X-Bento-Source")) {
+    headers.set("X-Bento-Source", encodeURIComponent(window.location.pathname + window.location.search));
+  }
+
   if (!init.anonymous) {
     const accessToken = useAuthStore.getState().accessToken;
     if (accessToken && !headers.has("Authorization")) {

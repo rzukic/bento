@@ -13,8 +13,8 @@ namespace Bento.Api.Formula;
 /// <param name="Custom">A CUSTOM(…) column (Step 4.1): <see cref="Sql"/> reads the stored value; the arguments feed the recalculation.</param>
 public sealed record ComputedColumn(ColumnDef Column, string Sql, FormulaType Type, string? Error, CustomCall? Custom = null)
 {
-    /// <summary>The LOOKUP_ASOF searches the formula makes.</summary>
-    public IReadOnlyList<LookupTarget> Lookups { get; init; } = [];
+    /// <summary>The searches per row the formula makes (related rows, LOOKUP_ASOF).</summary>
+    public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
 
     /// <summary>The column type the value behaves like (formatting, filters, aggregation).</summary>
     public ColumnType ValueType => FormulaTypes.ToColumnType(Type);
@@ -85,7 +85,7 @@ public sealed class ComputedColumns
                 context: new FormulaContext { Functions = _functions });
             if (check.IsValid)
             {
-                result[column.Name] = new ComputedColumn(column, check.Result!.Sql, check.Result.Type, null, check.Result.Custom) { Lookups = check.Result.Lookups };
+                result[column.Name] = new ComputedColumn(column, check.Result!.Sql, check.Result.Type, null, check.Result.Custom) { Indexes = check.Result.Indexes };
                 continue;
             }
 

@@ -1,5 +1,6 @@
 using Bento.Api.Exceptions;
 using Bento.Api.Models;
+using Bento.Api.Services;
 
 namespace Bento.Api.Middleware;
 
@@ -21,18 +22,36 @@ public sealed class ErrorHandlingMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         try
         {
             await _next(context);
         }
         catch (Exception ex)
         {
+            // The browser went away (a widget switched from M to Q): its query was
+            // cancelled in the database; nobody waits for an answer.
+            if (context.RequestAborted.IsCancellationRequested)
+            {
+                _logger.LogDebug("HTTP {Method} {Path} cancelled by the client after {Ms} ms", context.Request.Method, context.Request.Path.Value ?? "/", watch.ElapsedMilliseconds);
+                if (!context.Response.HasStarted)
+                    context.Response.StatusCode = StatusCodeClientClosedRequest;
+                return;
+            }
+
             if (context.Response.HasStarted)
             {
                 throw;
             }
 
             var mapped = MapException(ex, context.TraceIdentifier);
+            if (mapped.StatusCode >= 500 && context.RequestServices?.GetService(typeof(ProblemLog)) is ProblemLog problems && !context.Items.ContainsKey(ProblemLog.LoggedItem))
+            {
+                var timeout = mapped.Response.Error.Code == ApiErrorCode.Timeout.ToStringCode();
+                var query = context.Items.TryGetValue(ProblemLog.QueryItem, out var q) ? q as string : null;
+                var detail = timeout ? query : (query is null ? "" : $"Query: {query}\n\n") + ex;
+                await problems.RecordAsync(timeout ? "timeout" : "error", timeout ? mapped.Response.Error.Message : $"{ex.GetType().Name}: {ex.Message}", detail, watch.ElapsedMilliseconds, mapped.StatusCode);
+            }
 
             _logger.LogError(
                 ex,
@@ -50,6 +69,9 @@ public sealed class ErrorHandlingMiddleware
             await context.Response.WriteAsJsonAsync(mapped.Response);
         }
     }
+
+    /// <summary>nginx's "client closed request": the answer was not wanted any more.</summary>
+    private const int StatusCodeClientClosedRequest = 499;
 
     private MappedError MapException(Exception exception, string? requestId)
     {

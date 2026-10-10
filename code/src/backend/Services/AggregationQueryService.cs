@@ -31,11 +31,21 @@ public sealed class AggregationQueryService
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
     private readonly ComputedColumns _computed;
-    private readonly LookupIndexes _lookupIndexes;
+    private readonly QueryIndexes _indexes;
+    private readonly ProblemLog _problems;
+    private readonly IHttpContextAccessor _http;
 
-    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, LookupIndexes lookupIndexes)
+    private static readonly JsonSerializerOptions ProblemJson = new(JsonSerializerDefaults.Web)
     {
-        _lookupIndexes = lookupIndexes;
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, QueryIndexes indexes,
+        ProblemLog problems, IHttpContextAccessor http)
+    {
+        _indexes = indexes;
+        _problems = problems;
+        _http = http;
         _schemaCache = schemaCache;
         _queryService = queryService;
         _dbConfig = dbConfig;
@@ -59,7 +69,7 @@ public sealed class AggregationQueryService
     /// <param name="Series">XIRR/IRR/TWR/REBASE (Step 4.3): the parts are selected as hidden columns and the return computed afterwards.</param>
     private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null, SeriesCall? Series = null)
     {
-        public IReadOnlyList<LookupTarget> Lookups { get; init; } = [];
+        public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
     }
 
     /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
@@ -88,13 +98,21 @@ public sealed class AggregationQueryService
         IReadOnlyDictionary<string, FormulaValue>? variables)
     {
         var plan = Resolve(request, extraFilter, variables);
-        await _lookupIndexes.EnsureAsync(plan.Measures.SelectMany(m => m.Lookups).Concat(plan.Computed.Values.SelectMany(c => c.Lookups)));
+        // For the problem log: the query this request ran, if it fails or times out.
+        var json = ProblemQueryJson(request, extraFilter, variables);
+        if (_http.HttpContext is { } context)
+            context.Items[ProblemLog.QueryItem] = json;
+        await _indexes.EnsureAsync(plan.Measures.SelectMany(m => m.Indexes).Concat(plan.Computed.Values.SelectMany(c => c.Indexes)));
         await using var scope = await _queryService.UseDataAsync();
 
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var (sql, parameters) = BuildSql(plan, scope);
-        var rows = (await scope.Db.Connection.QueryAsync(sql, parameters))
+        var rows = (await scope.Db.Connection.QueryAsync(new CommandDefinition(sql, parameters, cancellationToken: Aborted)))
             .Cast<IDictionary<string, object?>>()
             .ToList();
+        if (watch.ElapsedMilliseconds > _problems.SlowMs)
+            await _problems.RecordAsync("slow", $"Query on {plan.Table.Name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s ({rows.Count} rows).",
+                $"{json}\n\nSQL:\n{sql}", watch.ElapsedMilliseconds);
 
         var truncated = rows.Count > plan.Limit;
         if (truncated)
@@ -117,6 +135,12 @@ public sealed class AggregationQueryService
             data = SortInMemory(plan, data);
         return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated, warnings.Count > 0 ? warnings : null));
     }
+
+    /// <summary>Stops the database work when the browser no longer waits for the answer.</summary>
+    private CancellationToken Aborted => _http.HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    private static string ProblemQueryJson(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables) =>
+        JsonSerializer.Serialize(new { query = request, extraFilter, variables = variables?.ToDictionary(v => v.Key, v => v.Value.Value) }, ProblemJson);
 
     private Plan Resolve(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables)
     {
@@ -333,7 +357,7 @@ public sealed class AggregationQueryService
             throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
 
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom, series) { Lookups = check.Result.Lookups };
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type, custom, series) { Indexes = check.Result.Indexes };
     }
 
     private const int MaxPeriods = 1000;
@@ -508,14 +532,14 @@ public sealed class AggregationQueryService
             if (!check.IsValid)
                 return new QueryVariableResult(name, null, null, check.Errors[0].Message);
 
-            await _lookupIndexes.EnsureAsync(check.Result!.Lookups);
+            await _indexes.EnsureAsync(check.Result!.Indexes);
             await using var scope = await _queryService.UseDataAsync();
             if (check.Result!.Custom is { } custom)
             {
                 var row = custom.Arguments.Count == 0
                     ? new Dictionary<string, object?>()
-                    : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(
-                        $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}"));
+                    : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(new CommandDefinition(
+                        $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}", cancellationToken: Aborted)));
                 var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
                 using (function)
                 {
@@ -525,7 +549,11 @@ public sealed class AggregationQueryService
                         : new QueryVariableResult(name, null, null, result?.Error ?? syntax);
                 }
             }
-            var raw = await scope.Db.Connection.ExecuteScalarAsync($"SELECT {check.Result!.Sql} AS {Q("value")}");
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var raw = await scope.Db.Connection.ExecuteScalarAsync(new CommandDefinition($"SELECT {check.Result!.Sql} AS {Q("value")}", cancellationToken: Aborted));
+            if (watch.ElapsedMilliseconds > _problems.SlowMs)
+                await _problems.RecordAsync("slow", $"Variable {name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s.",
+                    JsonSerializer.Serialize(new { variable = name, formula = definition.Formula }, ProblemJson), watch.ElapsedMilliseconds);
             return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
         }
         catch (ApiException e)
@@ -770,7 +798,7 @@ public sealed class AggregationQueryService
         if (partitions.Count > 0)
             sql.Append(" GROUP BY ").Append(string.Join(", ", partitions.Select(g => g.Expression)));
 
-        foreach (IDictionary<string, object?> row in await scope.Db.Connection.QueryAsync(sql.ToString(), parameters))
+        foreach (IDictionary<string, object?> row in await scope.Db.Connection.QueryAsync(new CommandDefinition(sql.ToString(), parameters, cancellationToken: Aborted)))
         {
             var key = PartitionKey(partitions, row);
             foreach (var measure in measures)

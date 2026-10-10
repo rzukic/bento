@@ -21,6 +21,7 @@ public static class ApiRoutes
     public const string AdminHealth = Admin + "/health";
     public const string ApiKeys = Admin + "/api-keys";
     public const string Credentials = Admin + "/credentials";
+    public const string Problems = Admin + "/problems";
     public const string PriceSources = Prefix + "/price-sources";
     public const string OpenApi = Prefix + "/openapi.json";
     public const string OAuth = Prefix + "/oauth";
