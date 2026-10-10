@@ -193,9 +193,10 @@ describe("Dashboards", () => {
     expect(balance.measures![0]).toMatchObject({ fn: "sum", column: "betrag_eur", running: true, carryIn: true });
     expect(balance.groupBy![0]).toMatchObject({ column: "buchungstag", bucket: "month" });
 
-    // The new dashboard opens with every widget asking for its numbers in the range.
+    // The new dashboard opens with every widget asking for its numbers in the range;
+    // the two "Net per month" widgets ask the same, which goes to the server once.
     expect(await screen.findByRole("heading", { name: "Cash flow · Girokonto" })).toBeInTheDocument();
-    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(8));
+    await waitFor(() => expect(queryApi.runQuery).toHaveBeenCalledTimes(7));
     const filtered = queryApi.runQuery.mock.calls.map(([query]) => (query as AggregationQuery).filter?.buchungstag);
     expect(filtered.every((f) => f && typeof f === "object" && "gte" in f && "lt" in f)).toBe(true);
   });

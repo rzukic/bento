@@ -23,3 +23,10 @@ import "@testing-library/jest-dom/vitest";
     globalThis.Request = PatchedRequest as unknown as typeof Request;
   }
 }
+
+// Query results are kept in the browser between renders (src/api/queryCache.ts);
+// each test starts without them. Not imported here: loading app modules in the
+// setup would come before the tests' vi.mock calls.
+import { afterEach } from "vitest";
+
+afterEach(() => (globalThis as { __bentoClearQueryCache?: () => void }).__bentoClearQueryCache?.());

@@ -196,8 +196,11 @@ describe("donut drill", () => {
       ]),
     });
 
+    // Back to the top: its numbers came a moment ago, so they show again without asking the server.
+    const calls = queryApi.runQuery.mock.calls.length;
     await user.click(within(path).getByRole("button", { name: "All" }));
-    await waitFor(() => expect(queryApi.runQuery).toHaveBeenLastCalledWith(expect.objectContaining({ groupBy: [{ column: "main_category" }] })));
+    await waitFor(() => expect(within(path).queryByText("Food")).not.toBeInTheDocument());
+    expect(queryApi.runQuery).toHaveBeenCalledTimes(calls);
   });
 
   it("keeps an empty parent value as 'no value'", () => {

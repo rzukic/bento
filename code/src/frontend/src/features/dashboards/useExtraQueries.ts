@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DashboardWidget } from "../../api/dashboards";
 import { fetchTableRows } from "../../api/data";
 import { runQuery, type AggregationQuery, type QueryFilter, type QueryResult, type VariableValue } from "../../api/query";
+import { loadCached, peekCached } from "../../api/queryCache";
 import type { FilterClause } from "../../types/explorer";
 import type { ResolvedRange } from "./dateRange";
 import { globalFilterClauses } from "./dashboardFilters";
@@ -11,13 +12,24 @@ import { runnableQuery, withoutChartOptions } from "./formulaQueries";
 export function useQueryRun(query: AggregationQuery | null, refreshToken: number): QueryResult | null {
   const [result, setResult] = useState<QueryResult | null>(null);
   const key = JSON.stringify([query, refreshToken]);
+  const lastToken = useRef(refreshToken);
   useEffect(() => {
     if (!query) {
       setResult(null);
       return;
     }
+    // Kept in the browser like the widget's own result (see useWidgetResult).
+    const force = refreshToken !== lastToken.current;
+    lastToken.current = refreshToken;
+    const runnable = withoutChartOptions(query);
+    const requestKey = JSON.stringify(["query", runnable]);
+    const cached = peekCached<QueryResult>(requestKey);
+    if (cached) {
+      setResult(cached.value);
+      if (cached.fresh && !force) return;
+    }
     let cancelled = false;
-    runQuery(withoutChartOptions(query))
+    loadCached(requestKey, () => runQuery(runnable), force)
       .then((r) => !cancelled && setResult(r))
       .catch(() => !cancelled && setResult(null));
     return () => {
@@ -91,16 +103,27 @@ export function useRows(widget: DashboardWidget, range: ResolvedRange, refreshTo
   const rows = widget.data?.rows;
   const source = widget.data?.query?.source;
   const key = JSON.stringify([rows, source, widget.data?.query?.filter, widget.data?.dateColumn, range, refreshToken]);
+  const lastToken = useRef(refreshToken);
   useEffect(() => {
     if (!rows || !source) return;
-    let cancelled = false;
+    const force = refreshToken !== lastToken.current;
+    lastToken.current = refreshToken;
     const filters = toFilterClauses(widget.data?.query?.filter);
     const dateColumn = widget.data?.dateColumn;
     if (dateColumn && range.from) filters.push({ column: dateColumn, op: "gte", value: range.from });
     if (dateColumn && range.to) filters.push({ column: dateColumn, op: "lt", value: range.to });
     filters.push(...globalFilterClauses(source, range));
     const sort = rows.sort ? [{ column: rows.sort.replace(/^-/, ""), dir: rows.sort.startsWith("-") ? ("desc" as const) : ("asc" as const) }] : [];
-    fetchTableRows(source, { page: 1, perPage: Math.min(rows.limit ?? 25, 1000), sort, search: "", filters })
+    const request = { page: 1, perPage: Math.min(rows.limit ?? 25, 1000), sort, search: "", filters };
+    const requestKey = JSON.stringify(["rows", source, request]);
+    type Loaded = Awaited<ReturnType<typeof fetchTableRows>>;
+    const cached = peekCached<Loaded>(requestKey);
+    if (cached) {
+      setState({ status: "ready", rows: cached.value.data, total: cached.value.meta.total, error: null });
+      if (cached.fresh && !force) return;
+    }
+    let cancelled = false;
+    loadCached(requestKey, () => fetchTableRows(source, request), force)
       .then((response) => !cancelled && setState({ status: "ready", rows: response.data, total: response.meta.total, error: null }))
       .catch((cause) => !cancelled && setState({ status: "error", rows: [], total: 0, error: cause instanceof Error ? cause.message : "The rows could not be loaded." }));
     return () => {
