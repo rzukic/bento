@@ -1,0 +1,130 @@
+.problems__empty {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.problems__wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.problems__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+}
+
+.problems__table th,
+.problems__table td {
+  padding: 0.55rem 0.875rem;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: top;
+}
+
+.problems__table th {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.problems__table tr:last-child td {
+  border-bottom: 0;
+}
+
+.problems__row {
+  cursor: pointer;
+}
+
+.problems__row:hover td {
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.problems__where {
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.problems__via {
+  color: var(--text-3);
+}
+
+.problems__message {
+  max-width: 24rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-2);
+}
+
+.problems__toggle {
+  display: inline-flex;
+  margin-right: 0.25rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+.problems__kind {
+  display: inline-block;
+  padding: 0.05rem 0.45rem;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.problems__kind--slow {
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-2);
+}
+
+.problems__kind--timeout {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--warning);
+}
+
+.problems__kind--error {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.problems__details td {
+  white-space: normal;
+}
+
+.problems__details dl {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0 0 0.5rem;
+}
+
+.problems__details dt {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.problems__details dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.problems__details pre {
+  max-height: 22rem;
+  margin: 0;
+  overflow: auto;
+  padding: 0.75rem;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

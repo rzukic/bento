@@ -4,6 +4,7 @@ import { ThemeSwitch } from "../components/common/ThemeSwitch";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
+import { ProblemsPanel } from "../features/problems/ProblemsPanel";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useAuthStore } from "../stores/authStore";
 import "./SettingsPage.css";
@@ -39,6 +40,8 @@ export function SettingsPage() {
           ))}
         </dl>
       </Panel>
+
+      {user?.role === "admin" ? <ProblemsPanel /> : null}
 
       <Panel title="Account">
         <div className="settings__row">

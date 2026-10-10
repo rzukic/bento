@@ -94,6 +94,24 @@ public sealed class ErrorHandlingMiddlewareTests
     }
 
     [Fact]
+    public async Task ErrorHandlingMiddleware_EndsQuietly_WhenTheClientWentAway()
+    {
+        using var aborted = new CancellationTokenSource();
+        var middleware = CreateMiddleware(_ =>
+        {
+            aborted.Cancel();
+            throw new OperationCanceledException(aborted.Token);
+        }, Environments.Production);
+        var context = CreateHttpContext("req_aborted");
+        context.RequestAborted = aborted.Token;
+
+        await middleware.InvokeAsync(context);
+
+        Assert.Equal(499, context.Response.StatusCode);
+        Assert.Equal(0, context.Response.Body.Length);
+    }
+
+    [Fact]
     public async Task ErrorHandlingMiddleware_IncludesDebugDetails_ForUnhandledExceptionsInDevelopment()
     {
         var middleware = CreateMiddleware(_ => throw new InvalidOperationException("boom"), Environments.Development);

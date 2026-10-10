@@ -67,6 +67,17 @@ Numbers you have seen stay in the browser. Switching the interval (W, M, Q, Y) b
 - After you change data in Bento (a row, an import, the schema), the next look always loads again.
 - The refresh button always asks the server.
 
+### When A Widget Is Slow
+
+When you switch away from a widget that is still loading (another interval, another dashboard), the server stops working on it too.
+
+Admins find slow queries (over 3 seconds), timeouts and server errors under **Settings → Problems**. Each entry shows:
+- when it happened, and the page or app it came from
+- how long it took
+- the query, which can be expanded
+
+The entries stay on your server for 90 days. Nothing is sent anywhere. The threshold is the setting `Backend:SlowQueryMs` (environment variable `Backend__SlowQueryMs`).
+
 ## Edit A Dashboard
 
 Choose **Edit**:

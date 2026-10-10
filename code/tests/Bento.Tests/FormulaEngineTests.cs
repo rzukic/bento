@@ -341,16 +341,21 @@ public sealed class FormulaEngineTests
     }
 
     [Fact]
-    public void LookupAsOf_NamesTheSearchItMakes_ForAnIndex()
+    public void Formulas_NameTheSearchesTheyMake_ForIndexes()
     {
         // The match compares lower-cased text, so the index must use lower(ticker) as well.
         var check = Check("LOOKUP_ASOF(\"Prices\", \"TICKER\", note, \"date\", booked_on, \"price\") * 2", DatabaseProvider.Postgres);
-        Assert.Equal([new LookupTarget("prices", "ticker", true, "date")], check.Result!.Lookups);
+        Assert.Equal([new IndexTarget("prices", "ticker", true, "date")], check.Result!.Indexes);
         Assert.Contains("lower(__a1.\"ticker\") = lower(t.\"note\")", check.Result.Sql);
-        Assert.Equal("bento_lookup_prices_ticker_date", Bento.Api.Services.LookupIndexes.IndexName(check.Result.Lookups[0]));
+        Assert.Equal("bento_lookup_prices_ticker_date", Bento.Api.Services.QueryIndexes.IndexName(check.Result.Indexes[0]));
 
-        Assert.Empty(Check("amount * 2", DatabaseProvider.Postgres).Result!.Lookups);
-        var name = Bento.Api.Services.LookupIndexes.IndexName(new LookupTarget(new string('p', 40), new string('m', 30), true, "date"));
+        Assert.Empty(Check("amount * 2", DatabaseProvider.Postgres).Result!.Indexes);
+
+        // The related rows of each account: by the link column.
+        var related = Check("opening_balance + SUM(transactions.amount)", table: Accounts);
+        Assert.Equal([new IndexTarget("transactions", "account_id")], related.Result!.Indexes);
+        Assert.Equal("bento_ref_transactions_account_id", Bento.Api.Services.QueryIndexes.IndexName(related.Result.Indexes[0]));
+        var name = Bento.Api.Services.QueryIndexes.IndexName(new IndexTarget(new string('p', 40), new string('m', 30), true, "date"));
         Assert.Equal(63, name.Length);
         Assert.StartsWith("bento_lookup_pppp", name);
     }

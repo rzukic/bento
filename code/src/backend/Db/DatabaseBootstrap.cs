@@ -388,6 +388,21 @@ public class DatabaseBootstrap : IHostedService
                 duration_ms         INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON _system.ai_usage(called_at);
+            CREATE TABLE IF NOT EXISTS _system.problem_log (
+                id              SERIAL PRIMARY KEY,
+                logged_at       TIMESTAMPTZ NOT NULL,
+                kind            VARCHAR(10) NOT NULL,
+                method          VARCHAR(10),
+                path            VARCHAR(500),
+                status          INTEGER,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                user_id         INTEGER,
+                via             VARCHAR(100),
+                source          VARCHAR(500),
+                message         TEXT NOT NULL,
+                detail          TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_problem_log_logged_at ON _system.problem_log(logged_at);
             CREATE TABLE IF NOT EXISTS _system.category_rules (
                 id              SERIAL PRIMARY KEY,
                 table_name      VARCHAR(255) NOT NULL,
@@ -785,6 +800,21 @@ public class DatabaseBootstrap : IHostedService
                 duration_ms         INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_ai_usage_called_at ON ai_usage(called_at);
+            CREATE TABLE IF NOT EXISTS problem_log (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                logged_at       TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                method          TEXT,
+                path            TEXT,
+                status          INTEGER,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                user_id         INTEGER,
+                via             TEXT,
+                source          TEXT,
+                message         TEXT NOT NULL,
+                detail          TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_problem_log_logged_at ON problem_log(logged_at);
             CREATE TABLE IF NOT EXISTS category_rules (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 table_name      TEXT NOT NULL,
