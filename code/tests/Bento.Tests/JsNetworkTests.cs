@@ -31,15 +31,22 @@ public sealed class FakeQuoteServer : IDisposable
                     return;
                 }
                 Requests.Add($"{context.Request.HttpMethod} {context.Request.Url!.PathAndQuery} ua={context.Request.UserAgent} key={context.Request.Headers["X-Key"]}");
-                var (status, body, location) = handle(context.Request);
-                context.Response.StatusCode = status;
-                if (location is not null)
-                    context.Response.RedirectLocation = location;
-                context.Response.ContentType = "application/json; charset=utf-8";
-                var bytes = Encoding.UTF8.GetBytes(body);
-                context.Response.ContentLength64 = bytes.Length;
-                await context.Response.OutputStream.WriteAsync(bytes);
-                context.Response.Close();
+                try
+                {
+                    var (status, body, location) = handle(context.Request);
+                    context.Response.StatusCode = status;
+                    if (location is not null)
+                        context.Response.RedirectLocation = location;
+                    context.Response.ContentType = "application/json; charset=utf-8";
+                    var bytes = Encoding.UTF8.GetBytes(body);
+                    context.Response.ContentLength64 = bytes.Length;
+                    await context.Response.OutputStream.WriteAsync(bytes);
+                    context.Response.Close();
+                }
+                catch
+                {
+                    // The client gave up (a timeout, an answer too large): serve the next request.
+                }
             }
         });
     }
@@ -78,21 +85,31 @@ public sealed class JsNetworkTests : IDisposable
             "/moved" => (302, "", "/quote"),
             "/away" => (302, "", "https://evil.example.org/steal"),
             "/big" => (200, new string('x', 20_000), null),
-            "/slow" => SlowAnswer(),
+            "/slow" => NoAnswerUntilDone(),
             _ => (200, JsonSerializer.Serialize(new { method = request.HttpMethod }), null)
         });
     }
 
-    private static (int, string, string?) SlowAnswer()
+    private readonly ManualResetEventSlim _done = new();
+
+    /// <summary>
+    /// Answers only when the test is over, so the 2 s timeout always wins. A fixed
+    /// 3 s sleep raced it: on a busy CI machine the timeout's timer waits for a free
+    /// thread-pool thread (it fired after 6 s in a local test with the pool full), and
+    /// the 3 s answer came first.
+    /// </summary>
+    private (int, string, string?) NoAnswerUntilDone()
     {
-        Thread.Sleep(3000);
+        _done.Wait(TimeSpan.FromSeconds(60));
         return (200, "{}", null);
     }
 
     public void Dispose()
     {
+        _done.Set();
         _server.Dispose();
         _local.Dispose();
+        _done.Dispose();
     }
 
     private CustomFunctionDef Def(string code, string result = "any", string[]? credentials = null, params string[] hosts) =>
