@@ -99,6 +99,7 @@ Choose **Edit**:
   - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below. Charts also have:
     - **Value axis starts at**: 0, near the data (prices and values over time are not squeezed at the top), or a number.
     - **Periods without a value** (charts by date): count as 0, leave a gap, or connect the line. With a gap or a connected line, the periods before the first value are left out, e.g. a depot before its first purchase.
+    - **Tables → A click on a row opens**: another dashboard, filtered by the row's value of a column, e.g. a position opens the asset's dashboard for that security. The date range goes along. The filter applies there even without a menu for it, and shows in its filter bar.
     - **Tables → Columns**: per number column, its own format (a return in percent next to amounts), **+/−** for a sign in front of gains, and **Colour** for green above 0 and red below.
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
@@ -199,6 +200,8 @@ In edit mode, **Variables** holds named values for the whole dashboard, e.g.:
 | `burn_rate` | other variables | `spent / months` |
 | `cash` | Girokonto | `SUM(betrag_eur)` |
 | `runway` | other variables | `cash / burn_rate` |
+
+A variable without a table can be an **assumption viewers change**: tick **Viewers can change it** and choose a number field, a slider (from, to, step) or a choice of values. The formula is then its default, e.g. `0.07`. Above the widgets everyone can change it, e.g. the expected return of a forecast; the chosen value is part of the address (`?var.rate=0.05`), and **Reset to defaults** goes back.
 
 Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable); the variable's **Label** appears under the value, and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
 

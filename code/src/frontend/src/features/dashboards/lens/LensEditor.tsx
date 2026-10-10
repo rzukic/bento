@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { listDashboards, type Dashboard } from "../../../api/dashboards";
 import type { ColumnDisplay, DashboardAnnotation, DashboardDateRange, DashboardVariable, DashboardWidget, DateRangePreset, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
 import { listSavedQueries, type QueryBucket, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
@@ -986,6 +987,7 @@ function StyleSettings({
         </label>
       ) : null}
       {widget.type === "table" ? <ColumnFormats widget={widget} table={table} setDisplay={setDisplay} /> : null}
+      {widget.type === "table" ? <RowLinkSetting widget={widget} table={table} setDisplay={setDisplay} /> : null}
       {rows ? (
         <>
           <label className="lens-field">
@@ -1031,6 +1033,62 @@ function StyleSettings({
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Tables: a click on a row opens another dashboard, filtered by the row's value of a column. */
+function RowLinkSetting({ widget, table, setDisplay }: { widget: DashboardWidget; table: ModelTable | undefined; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const [dashboards, setDashboards] = useState<Dashboard[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listDashboards()
+      .then((list) => !cancelled && setDashboards(list))
+      .catch(() => !cancelled && setDashboards([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const link = widget.display?.link;
+  const rows = widget.data?.rows;
+  const columns = rows ? rows.columns : (widget.data?.query?.groupBy ?? []).filter((g) => !g.bucket).map((g) => g.as ?? g.column);
+  if (columns.length === 0) return null;
+  const label = (name: string) => fieldsOf(table).find((f) => f.name === name)?.label ?? name;
+  return (
+    <label className="lens-field" title="E.g. a position opens the asset's dashboard for that security. The range goes along.">
+      <span className="lens-field__label">A click on a row opens</span>
+      <div className="lens-goal">
+        <select
+          className="field__control field__control--compact"
+          aria-label="Dashboard a row opens"
+          value={link?.dashboard ?? ""}
+          onChange={(event) => {
+            const id = Number(event.target.value);
+            setDisplay({ link: event.target.value ? { dashboard: id, column: link?.column ?? columns[0] } : undefined });
+          }}
+        >
+          <option value="">Nothing</option>
+          {(dashboards ?? []).map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        {link ? (
+          <select
+            className="field__control field__control--compact"
+            aria-label="Filtered by the row's"
+            value={link.column}
+            onChange={(event) => setDisplay({ link: { ...link, column: event.target.value } })}
+          >
+            {columns.map((name) => (
+              <option key={name} value={name}>
+                by {label(name)}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+    </label>
   );
 }
 

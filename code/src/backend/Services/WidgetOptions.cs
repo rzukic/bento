@@ -28,6 +28,33 @@ public static class WidgetOptions
     private static readonly string[] Flags =
         ["stacked", "compare", "higherIsBetter", "trend", "summary", "totalLine", "colorBySign", "annotations", "shares"];
 
+    /// <summary>Dashboard variables viewers change: <c>input</c> is { kind: number | slider | select, min?, max?, step?, options? }.</summary>
+    public static void CheckVariables(JsonElement dashboard)
+    {
+        if (!dashboard.TryGetProperty("variables", out var variables) || variables.ValueKind != JsonValueKind.Array)
+            return;
+        var i = 0;
+        foreach (var variable in variables.EnumerateArray())
+        {
+            var path = $"dashboard.variables[{i++}]";
+            if (variable.ValueKind != JsonValueKind.Object || !variable.TryGetProperty("input", out var input) || input.ValueKind == JsonValueKind.Null)
+                continue;
+            RequireObject(input, $"{path}.input");
+            if (!input.TryGetProperty("kind", out var kind) || kind.ValueKind != JsonValueKind.String)
+                throw Invalid($"{path}.input.kind", "input.kind is \"number\", \"slider\" or \"select\".");
+            OneOf(input, "kind", ["number", "slider", "select"], $"{path}.input");
+            foreach (var bound in new[] { "min", "max", "step" })
+            {
+                if (input.TryGetProperty(bound, out var value) && value.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null))
+                    throw Invalid($"{path}.input.{bound}", $"input.{bound} is a number.");
+            }
+            if (kind.GetString() == "select" &&
+                (!input.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array || options.GetArrayLength() == 0 ||
+                 options.EnumerateArray().Any(o => o.ValueKind is not (JsonValueKind.String or JsonValueKind.Number))))
+                throw Invalid($"{path}.input.options", "A choice needs options: a list of texts or numbers.");
+        }
+    }
+
     public static void Check(JsonElement widget, string path)
     {
         if (widget.TryGetProperty("display", out var display) && display.ValueKind != JsonValueKind.Null)
@@ -48,6 +75,14 @@ public static class WidgetOptions
             if (yAxis.TryGetProperty("min", out var min) && min.ValueKind is not (JsonValueKind.Number or JsonValueKind.Null) &&
                 !(min.ValueKind == JsonValueKind.String && min.GetString() is "auto" or "zero"))
                 throw Invalid($"{path}.yAxis.min", "yAxis.min is \"auto\" (near the data), \"zero\" or a number.");
+        }
+        if (display.TryGetProperty("link", out var link) && link.ValueKind != JsonValueKind.Null)
+        {
+            if (link.ValueKind != JsonValueKind.Object || !link.TryGetProperty("dashboard", out var target) || !target.TryGetInt64(out _) ||
+                !link.TryGetProperty("column", out var by) || by.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(by.GetString()))
+                throw Invalid($"{path}.link", "link is { dashboard: its id, column: the row's column, filter?: the filter there }.");
+            if (link.TryGetProperty("filter", out var filter) && filter.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                throw Invalid($"{path}.link.filter", "link.filter is a column name.");
         }
         if (display.TryGetProperty("columns", out var columns) && columns.ValueKind != JsonValueKind.Null)
         {
