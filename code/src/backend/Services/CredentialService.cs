@@ -152,6 +152,12 @@ public sealed class CredentialService
 
     // ── Encryption ───────────────────────────────────────────────────────
 
+    /// <summary>Encrypts a secret kept elsewhere (e.g. a notification channel's password) under the vault's key.</summary>
+    public string Protect(string value) => Encrypt(value);
+
+    /// <summary>A secret from <see cref="Protect"/>, or null when it cannot be read (the server's secret changed).</summary>
+    public string? Unprotect(string stored) => Decrypt(stored);
+
     private string Encrypt(string value)
     {
         var key = _key ?? throw new ApiUnprocessableEntityException("The server has no JWT secret, so credentials cannot be stored.");

@@ -17,6 +17,7 @@ If you want to get Bento running and try the current product without reading the
 - [Forms](forms.md) — quick entry into a table, e.g. "Add transaction" on the phone: −/+ for amounts, accounts and categories as buttons, today's date, the account used last time; from the sidebar and from dashboards
 - [Live Prices](live-prices.md) — prices from an API of your choice (e.g. Yahoo Finance, no key) kept as history in your table, current when a dashboard opens; API keys in the credential vault
 - [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile; categories filled in by your rules, earlier rows and the AI
+- [Notifications](notifications.md) — email, Slack or a signed webhook (n8n, Home Assistant); a test send and a log per channel
 - [AI](ai.md) — explain any number on a dashboard (✨ on a widget), categorise bank bookings on import; your own Anthropic key with a monthly limit
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 

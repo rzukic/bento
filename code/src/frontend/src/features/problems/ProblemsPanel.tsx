@@ -9,7 +9,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 import "./Problems.css";
 
-const kindLabels: Record<Problem["kind"], string> = { slow: "slow", timeout: "timeout", error: "error", import: "import" };
+const kindLabels: Record<Problem["kind"], string> = { slow: "slow", timeout: "timeout", error: "error", import: "import", notify: "notify" };
 
 function formatWhen(value: string): string {
   const date = new Date(value);
