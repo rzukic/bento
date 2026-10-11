@@ -3,8 +3,12 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   analyzeImport,
   createImportProfile,
+  createImportSource,
   deleteImportProfile,
+  fetchImportFile,
   listImportProfiles,
+  listImportSources,
+  updateImportSource,
   previewImport,
   readFileAsBase64,
   runImport,
@@ -17,7 +21,10 @@ import {
   type ImportRowStatus,
   type ImportRunPayload,
   type ImportRunResult,
+  type ImportSchedule,
+  type ImportSource,
 } from "../../../api/import";
+import { useAuthStore } from "../../../stores/authStore";
 import { ApiClientError } from "../../../api/client";
 import { Icon } from "../../../components/common/Icon";
 import { Alert } from "../../../components/ui/Alert";
@@ -45,6 +52,7 @@ import {
   type MappingState,
 } from "./importMapping";
 import { FileDrop, ReadSettings } from "./ImportSections";
+import { SavedImportsList, SaveScheduleForm, UrlSourceForm, type UrlSource } from "./SavedImports";
 import { getAiStatus } from "../../../api/ai";
 import type { CategoriseRow } from "../../../api/categorise";
 import { CategoriseBar, CategoryCell } from "../categorise/CategoriseControls";
@@ -138,7 +146,15 @@ export function ImportPage() {
   const [preview, setPreview] = useState<ImportRunResult | null>(null);
   const [result, setResult] = useState<ImportRunResult | null>(null);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
-  const [busy, setBusy] = useState<"analyze" | "preview" | "import" | "profile" | null>(null);
+  const [busy, setBusy] = useState<"analyze" | "fetch" | "preview" | "import" | "profile" | "schedule" | null>(null);
+  // Step 5.1: the file can come from a URL, and be saved as an import that runs on its own.
+  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  const [origin, setOrigin] = useState<"file" | "url">("file");
+  const [urlSource, setUrlSource] = useState<UrlSource>({ url: "", headers: [] });
+  const [fetchedFrom, setFetchedFrom] = useState<UrlSource | null>(null);
+  const [sources, setSources] = useState<ImportSource[]>([]);
+  const [editingSource, setEditingSource] = useState<ImportSource | null>(null);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const categoryColumns = useMemo(() => categorisableColumns(table), [table]);
@@ -166,6 +182,14 @@ export function ImportPage() {
       .then(setProfiles)
       .catch(() => setProfiles([]));
   }, [tableId]);
+
+  const reloadSources = useCallback(() => {
+    if (!tableId) return;
+    listImportSources(tableId)
+      .then(setSources)
+      .catch(() => setSources([]));
+  }, [tableId]);
+  useEffect(reloadSources, [reloadSources]);
 
   // Any change to how the file is read or mapped makes an earlier check stale.
   const invalidate = useCallback(() => {
@@ -212,6 +236,8 @@ export function ImportPage() {
   const chooseFile = useCallback(
     async (next: File) => {
       setFile(next);
+      setFetchedFrom(null);
+      setEditingSource(null);
       // A new file starts from a fresh suggestion, not the previous mapping.
       mappingRef.current = {};
       keyColumnsRef.current = [];
@@ -227,6 +253,76 @@ export function ImportPage() {
     },
     [analyze, selectedProfile],
   );
+
+  /** Fetches the file at the URL (on the server) and reads it like an upload; a saved import brings its own settings and mapping. */
+  const fetchFromUrl = async (from: UrlSource, preset: ImportProfileConfig | null) => {
+    setBusy("fetch");
+    setError(null);
+    try {
+      const headers = from.headers.filter((h) => h.name.trim());
+      const fetched = await fetchImportFile(from.url.trim(), headers);
+      const bytes = Uint8Array.from(atob(fetched.content), (c) => c.charCodeAt(0));
+      setFile(new File([bytes], fetched.fileName, { type: fetched.contentType ?? "" }));
+      setContent(fetched.content);
+      setFetchedFrom({ url: from.url.trim(), headers });
+      if (!preset) {
+        mappingRef.current = {};
+        keyColumnsRef.current = [];
+      }
+      await analyze(fetched.content, preset?.settings ?? selectedProfile?.config.settings ?? {}, preset ?? selectedProfile?.config ?? null, fetched.fileName);
+    } catch (cause) {
+      setBusy(null);
+      setError(errorMessage(cause, "The file could not be fetched."));
+    }
+  };
+
+  const editSource = (source: ImportSource) => {
+    setOrigin("url");
+    setEditingSource(source);
+    setScheduleNotice(null);
+    const from = { url: source.config.url, headers: source.config.headers ?? [] };
+    setUrlSource(from);
+    if (source.config.categoryColumn) setCategoryColumn(source.config.categoryColumn);
+    void fetchFromUrl(from, {
+      settings: source.config.settings,
+      mapping: source.config.mapping,
+      keyColumns: source.config.keyColumns,
+      updateChanged: source.config.updateChanged,
+    });
+  };
+
+  const saveSchedule = async (name: string, schedule: ImportSchedule, asNew: boolean) => {
+    if (!fetchedFrom) return;
+    setBusy("schedule");
+    setScheduleNotice(null);
+    const config = {
+      url: fetchedFrom.url,
+      headers: fetchedFrom.headers,
+      settings: profileSettings(),
+      mapping: toMappingPayload(mapping),
+      keyColumns: keyColumns.filter((k) => mapping[k]),
+      updateChanged: updateChanged && keyColumns.some((k) => mapping[k]),
+      categoryColumn: activeCategoryColumn ?? null,
+      schedule,
+    };
+    try {
+      const saved =
+        editingSource && !asNew
+          ? await updateImportSource(tableId, editingSource.id, { name, config })
+          : await createImportSource(tableId, name, config);
+      setEditingSource(saved);
+      reloadSources();
+      setScheduleNotice(
+        schedule.kind === "manual"
+          ? `Saved “${saved.name}”. Run it from the list above whenever a new export is there.`
+          : `Saved “${saved.name}”. It runs ${schedule.kind === "daily" ? `every day at ${schedule.at}` : `every ${schedule.every} hours`}; new rows ${activeCategoryColumn ? "are categorised by your rules and " : ""}show up in ${displayName}.`,
+      );
+    } catch (cause) {
+      setScheduleNotice(errorMessage(cause, "The import could not be saved."));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   // Coming from "New table from CSV": read the same file with the same
   // settings and mapping, then check the rows right away.
@@ -350,6 +446,18 @@ export function ImportPage() {
     }
   };
 
+  /** How the file is read, as a profile or saved import keeps it (the header row is found again in the next export). */
+  const profileSettings = (): ImportFileSettings => ({
+    encoding: settings.encoding,
+    delimiter: settings.delimiter,
+    decimalSeparator: settings.decimalSeparator,
+    dateFormat: settings.dateFormat,
+    format: settings.format,
+    // The sheet and the place of the records, so the next export of the same kind reads the same way.
+    ...(settings.sheet ? { sheet: settings.sheet } : {}),
+    ...(settings.jsonPath ? { jsonPath: settings.jsonPath } : {}),
+  });
+
   const saveProfile = async (asNew: boolean) => {
     const name = profileName.trim();
     if (!name) {
@@ -357,16 +465,7 @@ export function ImportPage() {
       return;
     }
     const config: ImportProfileConfig = {
-      settings: {
-        encoding: settings.encoding,
-        delimiter: settings.delimiter,
-        decimalSeparator: settings.decimalSeparator,
-        dateFormat: settings.dateFormat,
-        format: settings.format,
-        // The sheet and the place of the records, so the next export of the same kind reads the same way.
-        ...(settings.sheet ? { sheet: settings.sheet } : {}),
-        ...(settings.jsonPath ? { jsonPath: settings.jsonPath } : {}),
-      },
+      settings: profileSettings(),
       mapping: toMappingPayload(mapping),
       keyColumns: keyColumns.filter((k) => mapping[k]),
       ...(updateChanged ? { updateChanged: true } : {}),
@@ -447,10 +546,28 @@ export function ImportPage() {
       {error ? <Alert tone="error" message={error} /> : null}
       {notice && !error && !result ? <Alert tone="success" message={notice} /> : null}
 
+      {sources.length > 0 ? (
+        <section className="import-section" aria-labelledby="import-saved-heading">
+          <div className="import-section__head">
+            <h2 id="import-saved-heading" className="import-section__title">Saved imports</h2>
+            <span className="import-section__note">Fetched from their address and imported on their own.</span>
+          </div>
+          <SavedImportsList table={tableId} sources={sources} editingId={editingSource?.id ?? null} onEdit={editSource} onChanged={reloadSources} />
+        </section>
+      ) : null}
+
       <section className="import-section" aria-labelledby="import-file-heading">
         <div className="import-section__head">
           <span className="import-section__step">1</span>
           <h2 id="import-file-heading" className="import-section__title">File</h2>
+          <div className="import-origin" role="tablist" aria-label="Where the file comes from">
+            <button type="button" role="tab" aria-selected={origin === "file"} className={origin === "file" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"} onClick={() => setOrigin("file")}>
+              Upload
+            </button>
+            <button type="button" role="tab" aria-selected={origin === "url"} className={origin === "url" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"} onClick={() => setOrigin("url")}>
+              From a URL
+            </button>
+          </div>
           {profiles.length > 0 ? (
             <div className="import-section__aside">
               <SelectField
@@ -464,12 +581,25 @@ export function ImportPage() {
           ) : null}
         </div>
 
-        <FileDrop
-          file={file}
-          rowCount={analysis?.rowCount ?? null}
-          inputRef={fileInputRef}
-          onChoose={(chosen) => void chooseFile(chosen)}
-        />
+        {origin === "url" ? (
+          <>
+            <UrlSourceForm value={urlSource} onChange={setUrlSource} onFetch={() => void fetchFromUrl(urlSource, null)} busy={busy === "fetch"} isAdmin={isAdmin} />
+            {file && fetchedFrom ? (
+              <p className="import-url__fetched">
+                <Icon name="check" size={13} /> Fetched {file.name} · {analysis ? `${analysis.rowCount} ${analysis.rowCount === 1 ? "row" : "rows"}` : ""}
+                {editingSource ? ` · editing “${editingSource.name}”` : ""}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <FileDrop
+            file={file}
+            rowCount={analysis?.rowCount ?? null}
+            inputRef={fileInputRef}
+            onChoose={(chosen) => void chooseFile(chosen)}
+          />
+        )}
+        {busy === "fetch" ? <Spinner label="Fetching the file" /> : null}
         {busy === "analyze" ? <Spinner label="Reading the file" /> : null}
       </section>
 
@@ -578,6 +708,23 @@ export function ImportPage() {
               </div>
             </div>
             {profileNotice ? <p className="import-profile__notice" role="status">{profileNotice}</p> : null}
+            {fetchedFrom ? (
+              <div className="import-schedule-box">
+                <h3 className="import-schedule-box__title">Fetch and import on its own</h3>
+                <p className="import-section__note">
+                  Saves the address, how the file is read, the columns and keys{activeCategoryColumn ? ` and filling in ${categoryLabel || activeCategoryColumn} by your rules` : ""}. Each run imports what is new{updateChanged ? ", updates what changed" : ""} and keeps a log; a failed run also shows under Settings → Problems.
+                </p>
+                <SaveScheduleForm
+                  key={editingSource?.id ?? "new"}
+                  initialName={editingSource?.name ?? ""}
+                  initialSchedule={editingSource?.config.schedule}
+                  editing={!!editingSource}
+                  busy={busy !== null || mappedColumns.length === 0}
+                  onSave={(name, schedule, asNew) => void saveSchedule(name, schedule, asNew)}
+                />
+                {scheduleNotice ? <p className="import-profile__notice" role="status">{scheduleNotice}</p> : null}
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}

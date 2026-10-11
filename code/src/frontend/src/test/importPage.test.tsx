@@ -20,6 +20,13 @@ const api = vi.hoisted(() => ({
   createImportProfile: vi.fn(),
   updateImportProfile: vi.fn(),
   deleteImportProfile: vi.fn(),
+  fetchImportFile: vi.fn(),
+  listImportSources: vi.fn(),
+  createImportSource: vi.fn(),
+  updateImportSource: vi.fn(),
+  deleteImportSource: vi.fn(),
+  runImportSource: vi.fn(),
+  listImportSourceRuns: vi.fn(),
 }));
 
 const dataApi = vi.hoisted(() => ({ fetchTableRows: vi.fn() }));
@@ -106,6 +113,7 @@ beforeEach(() => {
   });
   useSchemaStore.setState({ status: "ready", snapshot, error: null, lastLoadedAt: Date.now(), inFlight: null });
   api.listImportProfiles.mockResolvedValue([]);
+  api.listImportSources.mockResolvedValue([]);
   api.analyzeImport.mockResolvedValue(analysis);
   api.previewImport.mockResolvedValue(runResult(true));
   api.runImport.mockResolvedValue(runResult(false));
@@ -297,5 +305,66 @@ describe("CSV import page", () => {
     expect(await screen.findByLabelText("File column for Booked on")).toHaveValue("Buchungstag");
     expect(screen.getByLabelText("File column for purpose")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Update profile" })).toBeInTheDocument();
+  });
+
+  it("fetches an export from a URL and saves it as an import that runs every day", async () => {
+    api.fetchImportFile.mockResolvedValue({ content: btoa("x"), fileName: "girokonto.csv", contentType: "text/csv", bytes: 1, finalUrl: "https://bank.example/girokonto.csv" });
+    api.createImportSource.mockImplementation(async (_table: string, name: string, config: unknown) => ({ id: 7, name, tableName: "transactions", config, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    await user.click(await screen.findByRole("tab", { name: "From a URL" }));
+    await user.type(screen.getByLabelText("Address of the export"), "https://bank.example/girokonto.csv");
+    await user.click(screen.getByRole("button", { name: "Add header" }));
+    await user.type(screen.getByLabelText("Header 1 name"), "X-Account");
+    await user.type(screen.getByLabelText("Header 1 value"), "DE12");
+    await user.click(screen.getByRole("button", { name: "Fetch" }));
+
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+    expect(api.fetchImportFile).toHaveBeenCalledWith("https://bank.example/girokonto.csv", [{ name: "X-Account", value: "DE12" }]);
+    expect(api.analyzeImport.mock.calls[0][2]).toBe("girokonto.csv");
+    expect(await screen.findByText(/Fetched girokonto.csv/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Name"), "Girokonto");
+    await user.click(screen.getByRole("button", { name: "Save import" }));
+    await waitFor(() => expect(api.createImportSource).toHaveBeenCalledTimes(1));
+    const [table, name, config] = api.createImportSource.mock.calls[0];
+    expect([table, name]).toEqual(["transactions", "Girokonto"]);
+    expect(config).toMatchObject({
+      url: "https://bank.example/girokonto.csv",
+      headers: [{ name: "X-Account", value: "DE12" }],
+      keyColumns: ["booked_on", "purpose", "amount"],
+      schedule: { kind: "daily", at: "06:00" },
+      settings: { decimalSeparator: "," },
+    });
+    expect(config.mapping).toContainEqual({ source: "Buchungstag", target: "booked_on" });
+    expect(await screen.findByText(/It runs every day at 06:00/)).toBeInTheDocument();
+  });
+
+  it("lists saved imports with their last run, and runs one now", async () => {
+    const source = {
+      id: 3,
+      name: "Depot",
+      tableName: "transactions",
+      config: { url: "https://broker.example/export.xlsx", mapping: [], schedule: { kind: "daily", at: "06:30" } },
+      enabled: true,
+      lastRun: { id: 1, trigger: "schedule", startedAt: "2026-10-11T04:30:00Z", finishedAt: "2026-10-11T04:30:02Z", status: "ok", total: 5, inserted: 3, updated: 1, duplicates: 1, invalid: 0, categorised: 2, bytes: 900, error: null },
+      nextRunAt: "2026-10-12T04:30:00Z",
+      createdAt: "",
+      updatedAt: "",
+    };
+    api.listImportSources.mockResolvedValue([source]);
+    api.runImportSource.mockResolvedValue({ ...source.lastRun, id: 2, trigger: "manual", status: "failed", inserted: 0, updated: 0, categorised: 0, error: "broker.example answered 500 Internal Server Error." });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    expect(await screen.findByText("Depot")).toBeInTheDocument();
+    expect(screen.getByText(/broker.example · Every day at 06:30/)).toBeInTheDocument();
+    expect(screen.getByText(/3 new, 1 updated, 2 categorised/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run now" }));
+    expect(api.runImportSource).toHaveBeenCalledWith("transactions", 3);
+    expect(await screen.findByText("broker.example answered 500 Internal Server Error.")).toBeInTheDocument();
+    expect(api.listImportSources).toHaveBeenCalledTimes(2);
   });
 });

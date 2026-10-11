@@ -162,3 +162,75 @@ public sealed record ImportProfileResponse(
     JsonElement Config,
     string CreatedAt,
     string UpdatedAt);
+
+// ── Import from a URL and scheduled imports (Step 5.1) ──────────────────
+
+/// <summary>Fetch a file for the import page: <c>POST /import/fetch</c>.</summary>
+public sealed record ImportFetchRequest
+{
+    public string? Url { get; init; }
+    /// <summary><c>{{name}}</c> in a value (or the URL) is a credential from the vault.</summary>
+    public IReadOnlyList<Bento.Api.Services.Import.ImportHeader>? Headers { get; init; }
+}
+
+public sealed record ImportFetchResponse(string Content, string FileName, string? ContentType, long Bytes, string FinalUrl);
+
+/// <summary>When a saved import runs on its own: <c>manual</c>, <c>daily</c> at a time, or every few <c>hours</c>.</summary>
+public sealed record ImportSchedule
+{
+    public string? Kind { get; init; }
+    /// <summary>daily: HH:mm in <see cref="TimeZone"/>.</summary>
+    public string? At { get; init; }
+    /// <summary>hours: 1–168.</summary>
+    public int? Every { get; init; }
+    public string? TimeZone { get; init; }
+}
+
+/// <summary>A saved import: where the file comes from, how it is read and mapped, and when it runs.</summary>
+public sealed record ImportSourceConfig
+{
+    public string? Url { get; init; }
+    public IReadOnlyList<Bento.Api.Services.Import.ImportHeader>? Headers { get; init; }
+    public ImportFileSettings? Settings { get; init; }
+    public IReadOnlyList<ImportColumnMapping>? Mapping { get; init; }
+    public IReadOnlyList<string>? KeyColumns { get; init; }
+    public bool UpdateChanged { get; init; }
+    /// <summary>A column new rows get from the categorisation rules and earlier rows (Step 4.8), e.g. category_id.</summary>
+    public string? CategoryColumn { get; init; }
+    public ImportSchedule? Schedule { get; init; }
+}
+
+public sealed record ImportSourceRequest
+{
+    public string? Name { get; init; }
+    public ImportSourceConfig? Config { get; init; }
+    public bool? Enabled { get; init; }
+}
+
+/// <param name="Trigger"><c>schedule</c> or <c>manual</c>.</param>
+/// <param name="Status"><c>running</c>, <c>ok</c> or <c>failed</c>.</param>
+public sealed record ImportSourceRun(
+    long Id,
+    string Trigger,
+    string StartedAt,
+    string? FinishedAt,
+    string Status,
+    int Total,
+    int Inserted,
+    int Updated,
+    int Duplicates,
+    int Invalid,
+    int Categorised,
+    long Bytes,
+    string? Error);
+
+public sealed record ImportSourceResponse(
+    long Id,
+    string Name,
+    string TableName,
+    ImportSourceConfig Config,
+    bool Enabled,
+    ImportSourceRun? LastRun,
+    string? NextRunAt,
+    string CreatedAt,
+    string UpdatedAt);

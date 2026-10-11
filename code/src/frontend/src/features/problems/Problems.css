@@ -91,7 +91,8 @@
   color: var(--warning);
 }
 
-.problems__kind--error {
+.problems__kind--error,
+.problems__kind--import {
   background: color-mix(in srgb, var(--danger) 14%, transparent);
   color: var(--danger);
 }
