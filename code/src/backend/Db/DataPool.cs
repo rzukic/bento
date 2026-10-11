@@ -24,6 +24,7 @@ public class DataPool : IDataPool, IDisposable
             builder.ConnectionStringBuilder.MinPoolSize = config.MinPoolSize;
             builder.ConnectionStringBuilder.MaxPoolSize = config.MaxPoolSize;
             builder.ConnectionStringBuilder.Timeout = config.ConnectionTimeoutSeconds;
+            builder.ConnectionStringBuilder.CommandTimeout = config.QueryTimeoutSeconds;
             _pgDataSource = builder.Build();
             _logger?.LogInformation("DataPool configured for Postgres (pool {Min}-{Max})", config.MinPoolSize, config.MaxPoolSize);
         }

@@ -111,6 +111,19 @@ public sealed class AggregationQueryService
             context.Items[ProblemLog.QueryItem] = json;
         await _indexes.EnsureAsync(plan.Measures.SelectMany(m => m.Indexes).Concat(plan.Computed.Values.SelectMany(c => c.Indexes)));
         await using var scope = await _queryService.UseDataAsync();
+        using var limit = SqliteQueryLimit.Watch(scope.Db.Connection, Aborted, TimeSpan.FromSeconds(_dbConfig.QueryTimeoutSeconds));
+        try
+        {
+            return await RunInScopeAsync(plan, json, scope);
+        }
+        catch (Exception e) when (limit.Translate(e) is { } translated)
+        {
+            throw translated;
+        }
+    }
+
+    private async Task<AggregationQueryResponse> RunInScopeAsync(Plan plan, string json, QueryScope scope)
+    {
         var startWarning = default(string);
         if (plan.Calendar is { OpenUntil: not null })
             (plan, startWarning) = await WithFirstPeriodAsync(plan, scope);
@@ -623,27 +636,35 @@ public sealed class AggregationQueryService
 
             await _indexes.EnsureAsync(check.Result!.Indexes);
             await using var scope = await _queryService.UseDataAsync();
-            if (check.Result!.Custom is { } custom)
+            using var limit = SqliteQueryLimit.Watch(scope.Db.Connection, Aborted, TimeSpan.FromSeconds(_dbConfig.QueryTimeoutSeconds));
+            try
             {
-                var row = custom.Arguments.Count == 0
-                    ? new Dictionary<string, object?>()
-                    : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(new CommandDefinition(
-                        $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}", cancellationToken: Aborted)));
-                var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
-                using (function)
+                if (check.Result!.Custom is { } custom)
                 {
-                    var result = function?.Call(custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__a{k}"], a.Type)).ToList());
-                    return result is { Ok: true }
-                        ? new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(result.Value, check.Result.Type), null)
-                        : new QueryVariableResult(name, null, null, result?.Error ?? syntax);
+                    var row = custom.Arguments.Count == 0
+                        ? new Dictionary<string, object?>()
+                        : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(new CommandDefinition(
+                            $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}", cancellationToken: Aborted)));
+                    var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
+                    using (function)
+                    {
+                        var result = function?.Call(custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__a{k}"], a.Type)).ToList());
+                        return result is { Ok: true }
+                            ? new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(result.Value, check.Result.Type), null)
+                            : new QueryVariableResult(name, null, null, result?.Error ?? syntax);
+                    }
                 }
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var raw = await scope.Db.Connection.ExecuteScalarAsync(new CommandDefinition($"SELECT {check.Result!.Sql} AS {Q("value")}", cancellationToken: Aborted));
+                if (watch.ElapsedMilliseconds > _problems.SlowMs)
+                    await _problems.RecordAsync("slow", $"Variable {name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s.",
+                        JsonSerializer.Serialize(new { variable = name, formula = definition.Formula }, ProblemJson), watch.ElapsedMilliseconds);
+                return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
             }
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            var raw = await scope.Db.Connection.ExecuteScalarAsync(new CommandDefinition($"SELECT {check.Result!.Sql} AS {Q("value")}", cancellationToken: Aborted));
-            if (watch.ElapsedMilliseconds > _problems.SlowMs)
-                await _problems.RecordAsync("slow", $"Variable {name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s.",
-                    JsonSerializer.Serialize(new { variable = name, formula = definition.Formula }, ProblemJson), watch.ElapsedMilliseconds);
-            return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
+            catch (Exception e) when (limit.Translate(e) is { } translated)
+            {
+                throw translated;
+            }
         }
         catch (ApiException e)
         {
