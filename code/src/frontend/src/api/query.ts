@@ -49,7 +49,8 @@ export type QueryMeasure = {
 };
 
 /** Values at the end of each period: one row per period, measures with BUCKET_END(). */
-export type QueryAsOf = { bucket: QueryBucket; from: string; to: string; as?: string };
+/** Without `from` ("all time") the periods begin where the data does, e.g. with the first trade. */
+export type QueryAsOf = { bucket: QueryBucket; from?: string; to: string; as?: string };
 
 export type VariableValue = number | string | boolean | null;
 
