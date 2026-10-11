@@ -12,6 +12,21 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+## Phase 5 — Integration
+
+### 2026-10-11 — Bank Exports Arrive On Their Own
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.1 — Import Extensions](working-steps/5.1-import-extensions.md)
+
+Excel and JSON import like CSV, a booking corrected at the bank is updated instead of skipped, and an export at a URL can be fetched and imported every day without you.
+
+**Highlights:**
+- **Excel and JSON**: the right sheet and header are found, dates and formulas read as Excel shows them; JSON lists are found and nested values flattened.
+- **Update rows that changed**: the preview shows old → new; only what changed is written, a category set by hand stays.
+- **From a URL**: fetched by the server (https, public addresses only), with keys from the vault as `{{name}}` in a header.
+- **Saved imports**: daily at a time or every few hours, categorised by your rules, with a run log; failures show under Settings → Problems.
+
 ## Phase 4 — Intelligence
 
 ### 2026-10-11 — Daily Values Over Years, All Time From The Start

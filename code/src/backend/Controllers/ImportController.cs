@@ -27,13 +27,35 @@ public sealed class ImportController : ControllerBase
     private readonly ISystemPool _systemPool;
     private readonly SchemaCache _schemaCache;
     private readonly ICustomValueRecalculation? _recalculation;
+    private readonly ImportFetcher _fetcher;
 
-    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ICustomValueRecalculation? recalculation = null)
+    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ImportFetcher fetcher, ICustomValueRecalculation? recalculation = null)
     {
         _importService = importService;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
+        _fetcher = fetcher;
         _recalculation = recalculation;
+    }
+
+    /// <summary>The largest file the page can fetch: it goes back to the browser as base64 and returns in the next request.</summary>
+    public const long MaxPageFetchBytes = 7 * 1024 * 1024;
+
+    /// <summary>
+    /// Fetches a file from a URL for the import page (Step 5.1), which then
+    /// analyses and checks it like an upload. Credentials from the vault
+    /// (<c>{{name}}</c>) need <c>admin</c>.
+    /// </summary>
+    [HttpPost("fetch")]
+    public async Task<IActionResult> Fetch([FromBody] ImportFetchRequest request)
+    {
+        if (ImportFetcher.CredentialNames(request.Url, request.Headers).Count > 0 && User.GetRole() != "admin")
+            throw new ApiForbiddenException("Only admins can use credentials from the vault in an import.");
+        var file = await _fetcher.FetchAsync(request.Url, request.Headers, HttpContext.RequestAborted);
+        if (file.Bytes.Length > MaxPageFetchBytes)
+            throw new ApiUnprocessableEntityException(
+                $"The file is {file.Bytes.Length / 1024 / 1024} MB; the import page takes up to {MaxPageFetchBytes / 1024 / 1024} MB. Save it as a scheduled import, which reads up to {_fetcher.Options.MaxBytes / 1024 / 1024} MB.");
+        return Ok(new { data = new ImportFetchResponse(Convert.ToBase64String(file.Bytes), file.FileName, file.ContentType, file.Bytes.Length, file.FinalUrl) });
     }
 
     /// <summary>Detects encoding, delimiter, header and locale, and returns columns with samples.</summary>

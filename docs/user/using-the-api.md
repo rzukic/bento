@@ -436,6 +436,10 @@ curl -fsS "$API_ROOT/import/transactions" -H "Authorization: Bearer $TOKEN" -H "
 - the response has `total`, `new`, `duplicates`, `changed`, `invalid`, `inserted`, `updated` and, per row, `line`, `status` (`new`, `duplicate`, `changed`, `invalid`), `display`, `errors` and for changed rows `before`
 - new and updated rows are written in one transaction
 
+From a URL: `POST $API_ROOT/import/fetch` with `{ "url": "https://…", "headers": [{ "name": "Authorization", "value": "Bearer {{bank_token}}" }] }` returns `content` (base64), `fileName` and `bytes` for the routes above; `{{name}}` is a credential from the vault (admins only), https and public addresses only, up to 7 MB.
+
+Saved imports that run on their own: `GET/POST $API_ROOT/import/<table>/sources`, `GET/PUT/DELETE $API_ROOT/import/<table>/sources/<id>`, `POST …/sources/<id>/run` (runs now; the answer is the run, also a failed one with its `error`), `GET …/sources/<id>/runs`. The body is `{ "name": "...", "enabled": true, "config": { "url", "headers", "settings", "mapping", "keyColumns", "updateChanged", "categoryColumn", "schedule": { "kind": "daily", "at": "06:00", "timeZone": "Europe/Berlin" } } }`; `schedule.kind` is `manual`, `daily` or `hours` with `every` (1–168). A source answers with `lastRun` and `nextRunAt`.
+
 Saved mappings: `GET/POST $API_ROOT/import/<table>/profiles`, `PUT/DELETE $API_ROOT/import/<table>/profiles/<id>` with `{ "name": "...", "config": { "settings": {...}, "mapping": [...], "keyColumns": [...], "updateChanged": false } }`.
 
 ---

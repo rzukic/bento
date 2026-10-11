@@ -76,6 +76,28 @@ Banks correct bookings, and a pending booking gets its final amount. Leave the v
 - An empty cell in the file changes nothing.
 - The option is saved with the profile.
 
+## Import From A URL
+
+If your bank, broker or app offers the export at an address, choose **From a URL** under **File**, enter the address and choose **Fetch**. Bento's server fetches the file and the import continues as with an upload.
+
+- Only `https` addresses, and never addresses inside your own network.
+- Many exports need a key or token. Store it in the vault (**Functions → Credentials**, admins only) and add a header such as `Authorization: Bearer {{bank_token}}`; `{{name}}` is replaced by the stored value on the server and never reaches the browser. The header is sent only to the address's own host.
+- The import page fetches files up to 7 MB; saved imports read up to 20 MB.
+
+## Saved Imports That Run On Their Own
+
+After fetching from a URL and choosing the columns, **Fetch and import on its own** saves the address, how the file is read, the columns and keys, **Update rows that changed** and the column filled in by your rules (e.g. Category). Choose when it runs:
+
+- **Every day** at a time (in Europe/Berlin), for example 06:00. A time that has already passed today starts tomorrow.
+- **Every few hours** (1 to 168); the first run is right away.
+- **Only when I run it**.
+
+Each run fetches the file, fills in categories from your rules and earlier rows (no AI; what stays open you can categorise later), imports what is new, updates what changed if chosen, and keeps a log.
+
+**Saved imports** at the top of the import page lists them with their schedule, the next and the last run. **Run now** runs one at once, **Runs** shows the last ten, **Edit** fetches the file again and loads its settings into the page (change them, then **Update saved import**), **Pause** stops the schedule. A failed run says why (the address no longer works, the key expired, the file changed its columns) and also appears under **Settings → Problems**.
+
+Imports with a key from the vault can only be created, changed or deleted by an admin.
+
 ## Links To Other Tables
 
 A column that links to another table (e.g. **Category**) takes the record's name as it appears in Bento, such as `Lebensmittel`. Names are matched without regard to upper and lower case. A name that does not exist yet is reported as a problem; create the record first, then import again.
@@ -90,8 +112,9 @@ Importing needs the `editor` or `admin` role (or an `api` client). Viewers do no
 
 ## Limits
 
-- CSV, Excel (`.xlsx`, not the older `.xls`) and JSON; importing from a URL and scheduled imports come next
+- CSV, Excel (`.xlsx`, not the older `.xls`) and JSON
+- Scheduled imports fetch plain addresses with headers; exports behind a login page or two-factor approval cannot be fetched
 - Creating a table from a file needs the admin role; importing into an existing table needs `editor`
-- Files up to about 7 MB (the request size limit is 10 MB)
+- Files up to about 7 MB on the import page (the request size limit is 10 MB); saved imports up to 20 MB
 
 For scripts and other clients, see [Import API](using-the-api.md#import-csv-excel-and-json-files).

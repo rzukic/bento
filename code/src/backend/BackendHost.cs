@@ -114,6 +114,11 @@ public static class BackendHost
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
+        services.AddSingleton(sp => new Bento.Api.Services.Import.ImportFetcher(new Bento.Api.Services.Import.ImportFetchOptions
+        {
+            AllowPrivateNetwork = sp.GetRequiredService<IConfiguration>().GetValue("Import:AllowPrivateNetwork", false)
+        }, sp.GetRequiredService<CredentialService>()));
+        services.AddSingleton<Bento.Api.Services.Import.ImportSourceService>();
         services.AddHttpContextAccessor();
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
@@ -153,6 +158,7 @@ public static class BackendHost
         services.AddHostedService<SchemaCacheInitializer>();
         services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
+        services.AddHostedService<Bento.Api.Workers.ImportScheduler>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)

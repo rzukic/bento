@@ -316,6 +316,38 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON _system.price_source_runs(source_id, started_at);
             """);
+
+        // Saved imports from a URL and their runs (Step 5.1).
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.import_sources (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_sources_table ON _system.import_sources(table_name);
+            CREATE TABLE IF NOT EXISTS _system.import_runs (
+                id              SERIAL PRIMARY KEY,
+                source_id       INTEGER NOT NULL,
+                run_trigger     VARCHAR(20) NOT NULL,
+                started_at      TIMESTAMPTZ NOT NULL,
+                finished_at     TIMESTAMPTZ,
+                status          VARCHAR(20) NOT NULL,
+                total           INTEGER NOT NULL DEFAULT 0,
+                inserted        INTEGER NOT NULL DEFAULT 0,
+                updated         INTEGER NOT NULL DEFAULT 0,
+                duplicates      INTEGER NOT NULL DEFAULT 0,
+                invalid         INTEGER NOT NULL DEFAULT 0,
+                categorised     INTEGER NOT NULL DEFAULT 0,
+                bytes           BIGINT NOT NULL DEFAULT 0,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_runs_source ON _system.import_runs(source_id, started_at);
+            """);
         // MCP (Step 4.6): OAuth clients registered by MCP clients, the grants users
         // approved for them, their codes and tokens (hashed), and the call log.
         await conn.ExecuteAsync("""
@@ -725,6 +757,37 @@ public class DatabaseBootstrap : IHostedService
                 error           TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON price_source_runs(source_id, started_at);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS import_sources (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_sources_table ON import_sources(table_name);
+            CREATE TABLE IF NOT EXISTS import_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id       INTEGER NOT NULL,
+                run_trigger     TEXT NOT NULL,
+                started_at      TEXT NOT NULL,
+                finished_at     TEXT,
+                status          TEXT NOT NULL,
+                total           INTEGER NOT NULL DEFAULT 0,
+                inserted        INTEGER NOT NULL DEFAULT 0,
+                updated         INTEGER NOT NULL DEFAULT 0,
+                duplicates      INTEGER NOT NULL DEFAULT 0,
+                invalid         INTEGER NOT NULL DEFAULT 0,
+                categorised     INTEGER NOT NULL DEFAULT 0,
+                bytes           INTEGER NOT NULL DEFAULT 0,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_runs_source ON import_runs(source_id, started_at);
             """);
 
         await conn.ExecuteAsync("""

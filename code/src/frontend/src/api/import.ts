@@ -168,3 +168,95 @@ export function readFileAsBase64(file: Blob): Promise<string> {
     reader.readAsDataURL(file);
   });
 }
+
+// ── Import from a URL and saved imports (Step 5.1) ────────────────────────
+
+/** A header sent with the request; `{{name}}` in the value (or the URL) is a credential from the vault. */
+export type ImportHeader = { name: string; value: string };
+
+export type ImportFetchResult = { content: string; fileName: string; contentType: string | null; bytes: number; finalUrl: string };
+
+/** POST /api/v1/import/fetch — the server fetches the file (https, public addresses only) for the page to read like an upload. */
+export async function fetchImportFile(url: string, headers: ImportHeader[]): Promise<ImportFetchResult> {
+  const response = await apiClient.post<DataEnvelope<ImportFetchResult>>("/import/fetch", { url, headers });
+  return response.data;
+}
+
+/** When a saved import runs on its own. */
+export type ImportSchedule = { kind: "manual" } | { kind: "daily"; at: string; timeZone?: string } | { kind: "hours"; every: number };
+
+export type ImportSourceConfig = {
+  url: string;
+  headers?: ImportHeader[];
+  settings?: ImportFileSettings;
+  mapping: ImportColumnMapping[];
+  keyColumns?: string[];
+  updateChanged?: boolean;
+  /** New rows get this column from the categorisation rules and earlier rows. */
+  categoryColumn?: string | null;
+  schedule?: ImportSchedule;
+};
+
+export type ImportSourceRun = {
+  id: number;
+  trigger: "schedule" | "manual";
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "ok" | "failed";
+  total: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+  invalid: number;
+  categorised: number;
+  bytes: number;
+  error: string | null;
+};
+
+export type ImportSource = {
+  id: number;
+  name: string;
+  tableName: string;
+  config: ImportSourceConfig;
+  enabled: boolean;
+  lastRun: ImportSourceRun | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const sourcesPath = (table: string) => `${tablePath(table)}/sources`;
+
+export async function listImportSources(table: string): Promise<ImportSource[]> {
+  const response = await apiClient.get<DataEnvelope<ImportSource[]>>(sourcesPath(table));
+  return response.data;
+}
+
+export async function createImportSource(table: string, name: string, config: ImportSourceConfig): Promise<ImportSource> {
+  const response = await apiClient.post<DataEnvelope<ImportSource>>(sourcesPath(table), { name, config });
+  return response.data;
+}
+
+export async function updateImportSource(
+  table: string,
+  id: number,
+  changes: { name?: string; config?: ImportSourceConfig; enabled?: boolean },
+): Promise<ImportSource> {
+  const response = await apiClient.put<DataEnvelope<ImportSource>>(`${sourcesPath(table)}/${id}`, changes);
+  return response.data;
+}
+
+export async function deleteImportSource(table: string, id: number): Promise<void> {
+  await apiClient.delete<void>(`${sourcesPath(table)}/${id}`);
+}
+
+/** Fetches and imports now; a failed run comes back with its error, not as an exception. */
+export async function runImportSource(table: string, id: number): Promise<ImportSourceRun> {
+  const response = await apiClient.post<DataEnvelope<ImportSourceRun>>(`${sourcesPath(table)}/${id}/run`, {});
+  return response.data;
+}
+
+export async function listImportSourceRuns(table: string, id: number, limit = 10): Promise<ImportSourceRun[]> {
+  const response = await apiClient.get<DataEnvelope<ImportSourceRun[]>>(`${sourcesPath(table)}/${id}/runs?limit=${limit}`);
+  return response.data;
+}

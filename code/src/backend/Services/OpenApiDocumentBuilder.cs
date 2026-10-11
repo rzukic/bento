@@ -440,6 +440,25 @@ public sealed class OpenApiDocumentBuilder
             ["post"] = Operation("Import", "Import a file", "write", "New, valid rows (and with updateChanged the changed ones) in one transaction.", parameters: new JsonArray(tableParam.DeepClone()),
                 body: importBody.DeepClone(), responses: Responses(200, "Counts and rows by status.", anyObject.DeepClone()))
         };
+        paths["/import/fetch"] = new JsonObject
+        {
+            ["post"] = Operation("Import", "Fetch a file from a URL", "write", "https and public addresses only; {{name}} in the URL or a header is a credential from the vault (admins). Returns the file as base64 for the routes above.",
+                body: Obj(new JsonObject { ["url"] = Str(example: "https://bank.example/export.csv"), ["headers"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["name"] = Str(), ["value"] = Str(example: "Bearer {{bank_token}}") }) } }),
+                responses: Responses(200, "content (base64), fileName, contentType, bytes, finalUrl.", anyObject.DeepClone()))
+        };
+        paths["/import/{table}/sources"] = new JsonObject
+        {
+            ["get"] = Operation("Import", "List saved imports", "read", "Imports from a URL with their schedule, last and next run.", parameters: new JsonArray(tableParam.DeepClone()),
+                responses: Responses(200, "Saved imports.", anyObject.DeepClone())),
+            ["post"] = Operation("Import", "Save an import from a URL", "write", "config: url, headers, settings, mapping, keyColumns, updateChanged, categoryColumn, schedule {kind: manual|daily|hours, at, every, timeZone}.", parameters: new JsonArray(tableParam.DeepClone()),
+                body: anyObject.DeepClone(), responses: Responses(201, "The saved import.", anyObject.DeepClone()))
+        };
+        var sourceParam = new JsonObject { ["name"] = "id", ["in"] = "path", ["required"] = true, ["description"] = "The saved import's id.", ["schema"] = Str(example: "1") };
+        paths["/import/{table}/sources/{id}/run"] = new JsonObject
+        {
+            ["post"] = Operation("Import", "Run a saved import now", "write", "Fetches, categorises by the rules, imports; the answer is the run, also a failed one.", parameters: new JsonArray(tableParam.DeepClone(), sourceParam),
+                responses: Responses(200, "The run: status, counts, error.", anyObject.DeepClone()))
+        };
         paths["/admin/schema"] = new JsonObject
         {
             ["get"] = Operation("Schema", "Get the data model", "read", "Model JSON with tables, columns and relations.",
