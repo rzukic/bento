@@ -82,7 +82,7 @@ Saving checks these values: an unknown one (`"sankey": "xyz"`) is an error that 
 
 ## Dashboard level
 
-- `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
+- `dateRange`: `{preset}` with `last-7-days this-week last-week this-month last-month this-quarter last-quarter last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Weeks, quarters and years start where the workspace says (Settings → Workspace: week start, year start), "today" is in its time zone. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
 - `variables`: `{name, label?, source?, formula, dateColumn?, input?}` (a key figure showing it writes `label` under the value). With `input` `{kind: "number"|"slider"|"select", min?, max?, step?, options?}` and no `source`, viewers change it above the widgets (an assumption such as a return); `formula` is the default (`0.07`, `"base"`), and the chosen value is in the address (`?var.rate=0.05`). — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
 - `filters`: `{column, label?}` — a menu narrowing every widget whose table has the column.
 - `annotations`: `{date, to?, label, color?}` (`gray blue teal amber rose violet`) on charts by date.

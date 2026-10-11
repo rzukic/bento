@@ -4,6 +4,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Bento.Api.Db;
 using Bento.Api.Models;
+using Bento.Api.Services;
 using Bento.Api.Services.Ai;
 using Bento.Api.Services.Notifications;
 using Dapper;
@@ -45,8 +46,10 @@ public sealed class ReportTests
         ["Import:AllowPrivateNetwork"] = "true"
     };
 
-    private static DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow,
-        TimeZoneInfo.FindSystemTimeZoneById(NotificationRuleService.TimeZoneId)).DateTime);
+    /// <summary>Today as reports see it: the workspace sets no time zone, so the server's.</summary>
+    private static DateOnly Today() => DateOnly.FromDateTime(DateTime.Now);
+
+    private static readonly WorkspaceCalendar Plain = WorkspaceCalendar.Default;
 
     private static string Iso(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
@@ -57,23 +60,23 @@ public sealed class ReportTests
     {
         var sunday = new DateOnly(2026, 10, 11);
 
-        var month = ReportBuilder.Periods("month", "last", "previous", new DateOnly(2026, 10, 1));
+        var month = ReportBuilder.Periods("month", "last", "previous", new DateOnly(2026, 10, 1), Plain);
         Assert.Equal((new DateOnly(2026, 9, 1), new DateOnly(2026, 10, 1), "September 2026"), (month.Current.From, month.Current.To, month.Current.Label));
         Assert.Equal((new DateOnly(2026, 8, 1), new DateOnly(2026, 9, 1), "August 2026"), (month.Compare!.From, month.Compare.To, month.Compare.Label));
 
-        var week = ReportBuilder.Periods("week", "last", "previous", new DateOnly(2026, 10, 12));
+        var week = ReportBuilder.Periods("week", "last", "previous", new DateOnly(2026, 10, 12), Plain);
         Assert.Equal("Week 41 (5–11 Oct 2026)", week.Current.Label);
         Assert.Equal("Week 40 (28 Sep – 4 Oct 2026)", week.Compare!.Label);
 
         // So far: the same number of days of the period before.
-        var soFar = ReportBuilder.Periods("month", "current", "previous", sunday);
+        var soFar = ReportBuilder.Periods("month", "current", "previous", sunday, Plain);
         Assert.Equal((new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 12), "October 2026 until 11 Oct"), (soFar.Current.From, soFar.Current.To, soFar.Current.Label));
         Assert.Equal((new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 12), "September 2026 until 11 Sep"), (soFar.Compare!.From, soFar.Compare.To, soFar.Compare.Label));
 
-        var year = ReportBuilder.Periods("quarter", "last", "year", new DateOnly(2026, 10, 1));
+        var year = ReportBuilder.Periods("quarter", "last", "year", new DateOnly(2026, 10, 1), Plain);
         Assert.Equal(("Q3 2026", "Q3 2025"), (year.Current.Label, year.Compare!.Label));
 
-        var day = ReportBuilder.Periods("day", "last", "none", sunday);
+        var day = ReportBuilder.Periods("day", "last", "none", sunday, Plain);
         Assert.Equal("Sat, 10 Oct 2026", day.Current.Label);
         Assert.Null(day.Compare);
     }
@@ -81,7 +84,7 @@ public sealed class ReportTests
     [Fact]
     public void LastOccurrence_IsTheScheduledDayAtItsTime_InBerlin()
     {
-        var zone = TimeZoneInfo.FindSystemTimeZoneById(NotificationRuleService.TimeZoneId);
+        var zone = new WorkspaceCalendar(TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"));
         var monthly = new NotificationRuleConfig { Every = "month", Day = 1, At = "08:00" };
         // 1 Oct 2026, 07:30 in Berlin (CEST, UTC+2): the 1 September report was the last one.
         Assert.Equal(new DateTimeOffset(2026, 9, 1, 6, 0, 0, TimeSpan.Zero),

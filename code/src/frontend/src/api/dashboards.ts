@@ -172,7 +172,12 @@ export type DashboardWidget = {
 
 export type DateRangePreset =
   | "last-7-days"
+  | "this-week"
+  | "last-week"
   | "this-month"
+  | "last-month"
+  | "this-quarter"
+  | "last-quarter"
   | "last-3-months"
   | "last-6-months"
   | "last-12-months"

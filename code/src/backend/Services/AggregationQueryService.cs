@@ -40,9 +40,12 @@ public sealed class AggregationQueryService
         DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
     };
 
+    private readonly WorkspaceSettings? _workspace;
+
     public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, QueryIndexes indexes,
-        ProblemLog problems, IHttpContextAccessor http)
+        ProblemLog problems, IHttpContextAccessor http, WorkspaceSettings? workspace = null)
     {
+        _workspace = workspace;
         _indexes = indexes;
         _problems = problems;
         _http = http;
@@ -53,6 +56,9 @@ public sealed class AggregationQueryService
     }
 
     private bool IsPostgres => _dbConfig.Provider == DatabaseProvider.Postgres;
+
+    /// <summary>The workspace's calendar: where weeks, quarters and years start.</summary>
+    private WorkspaceCalendar Cal => _workspace?.Calendar ?? WorkspaceCalendar.Default;
 
     // ── Resolved query ───────────────────────────────────────────────────
 
@@ -104,6 +110,8 @@ public sealed class AggregationQueryService
         JsonElement? extraFilter,
         IReadOnlyDictionary<string, FormulaValue>? variables)
     {
+        if (_workspace is not null)
+            await _workspace.EnsureLoadedAsync();
         var plan = Resolve(request, extraFilter, variables);
         // For the problem log: the query this request ran, if it fails or times out.
         var json = ProblemQueryJson(request, extraFilter, variables);
@@ -401,7 +409,7 @@ public sealed class AggregationQueryService
     // timeout, cancellation and the problem log guard what is still too much.
     private const int MaxPeriods = 5000;
 
-    private static Calendar ResolveCalendar(QueryAsOf asOf, HashSet<string> outputs)
+    private Calendar ResolveCalendar(QueryAsOf asOf, HashSet<string> outputs)
     {
         var bucket = asOf.Bucket?.Trim().ToLowerInvariant();
         if (bucket is null || !Buckets.Contains(bucket))
@@ -423,24 +431,11 @@ public sealed class AggregationQueryService
     }
 
     /// <summary>The periods from the one holding <paramref name="from"/> to the one holding <paramref name="to"/>; at most one past <see cref="MaxPeriods"/>.</summary>
-    private static List<(DateOnly Start, DateOnly End)> Periods(string bucket, DateOnly from, DateOnly to)
+    private List<(DateOnly Start, DateOnly End)> Periods(string bucket, DateOnly from, DateOnly to)
     {
-        DateOnly Start(DateOnly day) => bucket switch
-        {
-            "day" => day,
-            "week" => day.AddDays(-(((int)day.DayOfWeek + 6) % 7)),
-            "month" => new DateOnly(day.Year, day.Month, 1),
-            "quarter" => new DateOnly(day.Year, (day.Month - 1) / 3 * 3 + 1, 1),
-            _ => new DateOnly(day.Year, 1, 1)
-        };
-        DateOnly Next(DateOnly start) => bucket switch
-        {
-            "day" => start.AddDays(1),
-            "week" => start.AddDays(7),
-            "month" => start.AddMonths(1),
-            "quarter" => start.AddMonths(3),
-            _ => start.AddYears(1)
-        };
+        var calendar = Cal;
+        DateOnly Start(DateOnly day) => calendar.Start(bucket, day);
+        DateOnly Next(DateOnly start) => calendar.Add(bucket, start, 1);
 
         // Counted from the end: "all time" keeps the newest periods.
         var periods = new List<(DateOnly Start, DateOnly End)>();
@@ -449,14 +444,7 @@ public sealed class AggregationQueryService
         periods.Reverse();
         return periods;
 
-        DateOnly Previous(DateOnly start) => bucket switch
-        {
-            "day" => start.AddDays(-1),
-            "week" => start.AddDays(-7),
-            "month" => start.AddMonths(-1),
-            "quarter" => start.AddMonths(-3),
-            _ => start.AddYears(-1)
-        };
+        DateOnly Previous(DateOnly start) => calendar.Add(bucket, start, -1);
     }
 
     /// <summary>
@@ -759,16 +747,38 @@ public sealed class AggregationQueryService
         {
             // A computed date-time already is UTC wall time (timestamp without zone).
             var stamp = column.Type == ColumnType.DateTime && !computed ? $"({col} AT TIME ZONE 'UTC')" : $"CAST({col} AS TIMESTAMP)";
+            // Weeks from another day than Monday, quarters and years from another month than
+            // January: shifted to Monday/January, truncated, shifted back.
+            var shift = bucket switch
+            {
+                "week" when Cal.WeekOffset > 0 => $"interval '{Cal.WeekOffset} days'",
+                "quarter" or "year" when Cal.YearOffset > 0 => $"interval '{Cal.YearOffset} months'",
+                _ => null
+            };
             return bucket == "day"
                 ? $"to_char({stamp}, 'YYYY-MM-DD')"
-                : $"to_char(date_trunc('{bucket}', {stamp}), 'YYYY-MM-DD')";
+                : shift is null
+                    ? $"to_char(date_trunc('{bucket}', {stamp}), 'YYYY-MM-DD')"
+                    : $"to_char(date_trunc('{bucket}', {stamp} - {shift}) + {shift}, 'YYYY-MM-DD')";
         }
 
         var day = $"substr({col}, 1, 10)";
+        // strftime('%w'): 0 Sunday … 6 Saturday; the week's first day by the workspace.
+        var first = (int)Cal.FirstDay;
+        if (bucket is "quarter" or "year" && Cal.YearOffset > 0)
+        {
+            // From the first of the month (date arithmetic on the 31st overflows), back to a
+            // January-based year, truncated there, forward again.
+            var shifted = $"date(substr({col}, 1, 7) || '-01', '-{Cal.YearOffset} months')";
+            var start = bucket == "year"
+                ? $"(substr({shifted}, 1, 4) || '-01-01')"
+                : $"(substr({shifted}, 1, 4) || '-' || printf('%02d', ((CAST(substr({shifted}, 6, 2) AS INTEGER) - 1) / 3) * 3 + 1) || '-01')";
+            return $"date({start}, '+{Cal.YearOffset} months')";
+        }
         return bucket switch
         {
             "day" => day,
-            "week" => $"date({day}, '-' || ((CAST(strftime('%w', {day}) AS INTEGER) + 6) % 7) || ' days')",
+            "week" => $"date({day}, '-' || ((CAST(strftime('%w', {day}) AS INTEGER) + {7 - first}) % 7) || ' days')",
             "month" => $"(substr({col}, 1, 7) || '-01')",
             "quarter" => $"(substr({col}, 1, 4) || '-' || printf('%02d', ((CAST(substr({col}, 6, 2) AS INTEGER) - 1) / 3) * 3 + 1) || '-01')",
             _ => $"(substr({col}, 1, 4) || '-01-01')"
@@ -1037,17 +1047,10 @@ public sealed class AggregationQueryService
     }
 
     /// <summary>The calendar with the period before its first one, as the base of TWR/REBASE.</summary>
-    private static Calendar WithBasePeriod(Calendar calendar)
+    private Calendar WithBasePeriod(Calendar calendar)
     {
         var end = calendar.Periods[0].Start.AddDays(-1);
-        var start = calendar.Bucket switch
-        {
-            "day" => end,
-            "week" => end.AddDays(-6),
-            "month" => new DateOnly(end.Year, end.Month, 1),
-            "quarter" => new DateOnly(end.Year, (end.Month - 1) / 3 * 3 + 1, 1),
-            _ => new DateOnly(end.Year, 1, 1)
-        };
+        var start = Cal.Start(calendar.Bucket, end);
         return calendar with { Periods = [(start, end), .. calendar.Periods], Base = true };
     }
 

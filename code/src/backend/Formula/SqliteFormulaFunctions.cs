@@ -7,12 +7,17 @@ namespace Bento.Api.Formula;
 /// Functions formulas need on SQLite to match Postgres: SQLite's own
 /// <c>lower</c>/<c>upper</c> only change ASCII letters ("Ä" stays "Ä"), and
 /// casting a REAL to text gives "2.0" or "1.0e+20" where Postgres gives "2".
-/// Registered on every data connection.
+/// Registered on every data connection. <c>bento_today()</c> is TODAY() in the
+/// workspace's time zone, which SQLite does not know.
 /// </summary>
 public static class SqliteFormulaFunctions
 {
-    public static void Register(SqliteConnection connection)
+    public static void Register(SqliteConnection connection, TimeZoneInfo? zone = null)
     {
+        var today = zone ?? TimeZoneInfo.Utc;
+        connection.CreateFunction("bento_today",
+            () => TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, today).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+            isDeterministic: false);
         connection.CreateFunction("bento_lower", (string? text) => text?.ToLowerInvariant(), isDeterministic: true);
         connection.CreateFunction("bento_upper", (string? text) => text?.ToUpperInvariant(), isDeterministic: true);
         connection.CreateFunction("bento_num_text", (double? value) => NumberText(value), isDeterministic: true);

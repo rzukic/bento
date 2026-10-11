@@ -10,11 +10,13 @@ public class DatabaseBootstrap : IHostedService
 {
     private readonly ISystemPool _systemPool;
     private readonly ILogger<DatabaseBootstrap> _logger;
+    private readonly Services.WorkspaceSettings? _workspace;
 
-    public DatabaseBootstrap(ISystemPool systemPool, ILogger<DatabaseBootstrap> logger)
+    public DatabaseBootstrap(ISystemPool systemPool, ILogger<DatabaseBootstrap> logger, Services.WorkspaceSettings? workspace = null)
     {
         _systemPool = systemPool;
         _logger = logger;
+        _workspace = workspace;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -27,8 +29,28 @@ public class DatabaseBootstrap : IHostedService
             await BootstrapPostgres(conn);
         else
             await BootstrapSqlite(conn);
+        await KeepCalendarAsync(conn);
+        _workspace?.Invalidate();
 
         _logger.LogInformation("Database bootstrap complete.");
+    }
+
+    /// <summary>
+    /// Before the workspace had a time zone, rules, reports and imports ran in
+    /// Europe/Berlin. A workspace from then (it has users or rules) keeps that zone;
+    /// a new one starts with the server's. Done once, marked by calendar_version.
+    /// </summary>
+    private async Task KeepCalendarAsync(System.Data.IDbConnection conn)
+    {
+        var prefix = _systemPool.Provider == DatabaseProvider.Postgres ? "_system." : "";
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'calendar_version'") > 0)
+            return;
+        var existing = await conn.ExecuteScalarAsync<long>(
+            $"SELECT (SELECT COUNT(*) FROM {prefix}users) + (SELECT COUNT(*) FROM {prefix}notification_rules) + (SELECT COUNT(*) FROM {prefix}import_sources)");
+        if (existing > 0 && await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'time_zone'") == 0)
+            await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('time_zone', 'Europe/Berlin')");
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('calendar_version', '1')");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

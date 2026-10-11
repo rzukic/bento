@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Your Calendar: Time Zone, Week Start, Fiscal Year
+
+> **Phase**: Phase 5 — Integration (making the core use-case agnostic)
+
+Bento ran on Europe/Berlin and on Monday weeks and January years, wherever you are. Now the workspace says.
+
+**Highlights:**
+- **Settings → Workspace**: the time zone, the day weeks start on, the month the year starts in (a fiscal year from April: Q1 2026/27).
+- **Everywhere**: `TODAY()` in formulas, the dashboards' date ranges, weekly, quarterly and yearly charts, rule periods, report periods and times, imports and price updates.
+- **New date ranges**: this or last week, last month, this or last quarter; rules can watch this quarter.
+- **Nothing moves by itself**: an existing workspace keeps Europe/Berlin; a new one starts with the server's time zone.
+
 ### 2026-10-11 — Reports: Your Numbers On A Schedule
 
 > **Phase**: Phase 5 — Integration

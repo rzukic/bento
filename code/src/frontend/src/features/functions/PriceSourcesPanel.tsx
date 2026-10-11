@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { workspaceCalendar } from "../../lib/calendar";
 import { Link } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
 import type { CustomFunction } from "../../api/functions";
@@ -58,7 +59,7 @@ function suggestConfig(tables: ModelTable[], functions: CustomFunction[]): Price
     symbols: {},
     freshMinutes: 15,
     dailyAt: "22:30",
-    timeZone: "Europe/Berlin",
+    timeZone: null,
     maxRequestsPerDay: null,
   };
 }
@@ -394,8 +395,9 @@ function PriceSourceEditor({ source, tables, functions, readOnly, onSaved, onDel
           </label>
           <label className="function-editor__field">
             <span className="function-editor__label">Time zone</span>
-            <input className="field__control field__control--compact" value={config.timeZone ?? "Europe/Berlin"} aria-label="Time zone" disabled={readOnly}
-              onChange={(e) => set({ timeZone: e.target.value })} />
+            <input className="field__control field__control--compact" value={config.timeZone ?? ""} aria-label="Time zone" disabled={readOnly}
+              placeholder={`The workspace's (${workspaceCalendar().timeZone})`}
+              onChange={(e) => set({ timeZone: e.target.value.trim() || null })} />
           </label>
           <label className="function-editor__field">
             <span className="function-editor__label">History from</span>

@@ -34,6 +34,7 @@ public sealed class PriceSourceConfig
 
     /// <summary>Time of the daily run (closing prices, new keys), in <see cref="TimeZone"/>.</summary>
     public string? DailyAt { get; set; }
+    /// <summary>An IANA time zone; none: the workspace's (Settings → Workspace).</summary>
     public string? TimeZone { get; set; }
 
     /// <summary>Stops fetching for the day once the function made this many requests (free API tiers).</summary>

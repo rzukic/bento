@@ -66,79 +66,63 @@ public sealed class ReportBuilder
 
     public sealed record ReportPeriods(ReportPeriod Current, ReportPeriod? Compare);
 
-    public static DateOnly UnitStart(string unit, DateOnly day) => unit switch
-    {
-        "day" => day,
-        "week" => day.AddDays(-(((int)day.DayOfWeek + 6) % 7)),
-        "month" => new DateOnly(day.Year, day.Month, 1),
-        "quarter" => new DateOnly(day.Year, (day.Month - 1) / 3 * 3 + 1, 1),
-        _ => new DateOnly(day.Year, 1, 1)
-    };
-
-    private static DateOnly Add(string unit, DateOnly day, int count) => unit switch
-    {
-        "day" => day.AddDays(count),
-        "week" => day.AddDays(7 * count),
-        "month" => day.AddMonths(count),
-        "quarter" => day.AddMonths(3 * count),
-        _ => day.AddYears(count)
-    };
-
     /// <summary>
     /// The period a report sent on <paramref name="day"/> covers — the one just
     /// over, or the current one up to and including that day — and the one it
     /// is compared with: the period before (as far into it, for one so far) or
-    /// the same days a year earlier.
+    /// the same days a year earlier. Weeks, quarters and years as the workspace starts them.
     /// </summary>
-    public static ReportPeriods Periods(string unit, string? range, string? compare, DateOnly day)
+    public static ReportPeriods Periods(string unit, string? range, string? compare, DateOnly day, WorkspaceCalendar calendar)
     {
         DateOnly from, to;
         if (range == "current")
         {
-            from = UnitStart(unit, day);
+            from = calendar.Start(unit, day);
             to = day.AddDays(1);
         }
         else
         {
-            to = UnitStart(unit, day);
-            from = Add(unit, to, -1);
+            to = calendar.Start(unit, day);
+            from = calendar.Add(unit, to, -1);
         }
-        var current = new ReportPeriod(from, to, Label(unit, from, to));
+        var current = new ReportPeriod(from, to, Label(unit, from, to, calendar));
         ReportPeriod? before = null;
         if (compare == "year")
         {
-            before = new ReportPeriod(from.AddYears(-1), to.AddYears(-1), Label(unit, from.AddYears(-1), to.AddYears(-1)));
+            before = new ReportPeriod(from.AddYears(-1), to.AddYears(-1), Label(unit, from.AddYears(-1), to.AddYears(-1), calendar));
         }
         else if (compare != "none")
         {
             // A whole period against the whole one before; one so far against as many days of it.
-            var start = Add(unit, from, -1);
+            var start = calendar.Add(unit, from, -1);
             var end = range == "current" ? start.AddDays(to.DayNumber - from.DayNumber) : from;
             if (end > from)
                 end = from;
-            before = new ReportPeriod(start, end, Label(unit, start, end));
+            before = new ReportPeriod(start, end, Label(unit, start, end, calendar));
         }
         return new ReportPeriods(current, before);
     }
 
-    private static string Label(string unit, DateOnly from, DateOnly to)
+    private static string Label(string unit, DateOnly from, DateOnly to, WorkspaceCalendar calendar)
     {
         var last = to.AddDays(-1);
-        if (UnitStart(unit, from) != from)
+        if (calendar.Start(unit, from) != from)
             return Span(from, last);
-        var whole = Add(unit, from, 1);
+        var whole = calendar.Add(unit, from, 1);
+        // ISO week numbers count Monday weeks; other weeks are named by their days.
+        var week = calendar.WeekOffset == 0 ? $"Week {ISOWeek.GetWeekOfYear(from.ToDateTime(TimeOnly.MinValue))}" : null;
         var name = unit switch
         {
             "day" => from.ToString("ddd, d MMM yyyy", CultureInfo.InvariantCulture),
-            "week" => $"Week {ISOWeek.GetWeekOfYear(from.ToDateTime(TimeOnly.MinValue))} ({Span(from, whole.AddDays(-1))})",
+            "week" => week is null ? $"Week of {Span(from, whole.AddDays(-1))}" : $"{week} ({Span(from, whole.AddDays(-1))})",
             "month" => from.ToString("MMMM yyyy", CultureInfo.InvariantCulture),
-            "quarter" => $"Q{(from.Month - 1) / 3 + 1} {from.Year}",
-            _ => from.Year.ToString(CultureInfo.InvariantCulture)
+            "quarter" => calendar.QuarterName(from),
+            _ => calendar.YearName(from)
         };
         if (to == whole)
             return name;
         if (unit == "week")
-            name = $"Week {ISOWeek.GetWeekOfYear(from.ToDateTime(TimeOnly.MinValue))}";
+            name = week ?? $"Week of {from.ToString("d MMM", CultureInfo.InvariantCulture)}";
         return $"{name} until {last.ToString("d MMM", CultureInfo.InvariantCulture)}";
     }
 
@@ -155,15 +139,23 @@ public sealed class ReportBuilder
         return $"{first.Day}–{Text(last, "d MMM yyyy")}";
     }
 
-    /// <summary>The last time the report was due (at or before <paramref name="now"/>), in the given time zone.</summary>
-    public static DateTimeOffset LastOccurrence(NotificationRuleConfig config, DateTimeOffset now, TimeZoneInfo zone)
+    /// <summary>The last time the report was due (at or before <paramref name="now"/>), in the workspace's time zone.</summary>
+    public static DateTimeOffset LastOccurrence(NotificationRuleConfig config, DateTimeOffset now, WorkspaceCalendar calendar)
     {
         var unit = config.Every ?? "month";
         var at = TimeOnly.ParseExact(config.At ?? "08:00", "HH:mm", CultureInfo.InvariantCulture);
-        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, zone).DateTime);
-        DateOnly Scheduled(DateOnly start) => unit == "day" ? start : start.AddDays((config.Day ?? 1) - 1);
-        var when = At(Scheduled(UnitStart(unit, today)), at, zone);
-        return when <= now ? when : At(Scheduled(Add(unit, UnitStart(unit, today), -1)), at, zone);
+        var today = calendar.Today(now);
+        var day = config.Day ?? 1;
+        // A weekday (1 Monday … 7 Sunday) of the week, or the n-th day of the month, quarter or year.
+        DateOnly Scheduled(DateOnly start) => unit switch
+        {
+            "day" => start,
+            "week" => start.AddDays(((day % 7) - (int)start.DayOfWeek + 7) % 7),
+            _ => start.AddDays(day - 1)
+        };
+        var current = calendar.Start(unit, today);
+        var when = At(Scheduled(current), at, calendar.Zone);
+        return when <= now ? when : At(Scheduled(calendar.Add(unit, current, -1)), at, calendar.Zone);
     }
 
     private static DateTimeOffset At(DateOnly day, TimeOnly time, TimeZoneInfo zone)
@@ -173,7 +165,7 @@ public sealed class ReportBuilder
     }
 
     /// <summary>"Monthly on the 1st at 08:00 · the last month against the month before · 3 blocks".</summary>
-    public static string Summary(NotificationRuleConfig config)
+    public static string Summary(NotificationRuleConfig config, WorkspaceCalendar calendar)
     {
         var day = config.Day ?? 1;
         var when = config.Every switch
@@ -182,7 +174,7 @@ public sealed class ReportBuilder
             "week" => $"Weekly on {(DayOfWeek)(day % 7)}",
             "month" => $"Monthly on the {Ordinal(day)}",
             "quarter" => $"Quarterly on the {Ordinal(day)}",
-            _ => $"Yearly on {Ordinal(day)} January"
+            _ => $"Yearly on {Ordinal(day)} {new DateOnly(2000, calendar.YearStart, 1).ToString("MMMM", CultureInfo.InvariantCulture)}"
         };
         var unit = config.Every switch { "day" => "day", "week" => "week", "quarter" => "quarter", "year" => "year", _ => "month" };
         var range = config.Range == "current" ? $"this {unit} so far" : unit == "day" ? "yesterday" : $"the last {unit}";
@@ -361,7 +353,7 @@ public sealed class ReportBuilder
         string name, NotificationRuleConfig config, DateOnly day, DateOnly today, IReadOnlyList<NotificationFact> activeRules, bool useAi, Func<string, string?> link, CancellationToken ct)
     {
         var workspace = await _workspace.GetAsync();
-        var periods = Periods(config.Every ?? "month", config.Range, config.Compare, day);
+        var periods = Periods(config.Every ?? "month", config.Range, config.Compare, day, workspace.Calendar);
         var sections = new List<NotificationSection>();
         List<NotificationFact>? values = null;
         long? firstDashboard = null;

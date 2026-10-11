@@ -4,6 +4,7 @@ import { formatKindForType, toNumber, type NumberFormatKind } from "../../lib/fo
 import type { ResolvedRange } from "./dateRange";
 import type { GroupPick } from "./drill";
 import { mergeFilters } from "./dashboardFilters";
+import { nextPeriodStart, periodStart, todayIso } from "../../lib/calendar";
 
 const RUNNING_SUM = /^\s*=?\s*RUNNING_SUM\s*\(/i;
 
@@ -52,44 +53,13 @@ function toIso(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** The bucket a day falls into, as the backend returns it. */
+/** The bucket a day falls into, as the backend returns it (weeks and years as the workspace starts them). */
 export function bucketStart(value: string, bucket: QueryBucket): string {
-  const date = parseIsoDate(value);
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth();
-  switch (bucket) {
-    case "year":
-      return toIso(new Date(Date.UTC(y, 0, 1)));
-    case "quarter":
-      return toIso(new Date(Date.UTC(y, Math.floor(m / 3) * 3, 1)));
-    case "month":
-      return toIso(new Date(Date.UTC(y, m, 1)));
-    case "week": {
-      const weekday = (date.getUTCDay() + 6) % 7;
-      return toIso(new Date(Date.UTC(y, m, date.getUTCDate() - weekday)));
-    }
-    default:
-      return toIso(date);
-  }
+  return periodStart(value, bucket);
 }
 
 export function nextBucket(value: string, bucket: QueryBucket): string {
-  const date = parseIsoDate(value);
-  const y = date.getUTCFullYear();
-  const m = date.getUTCMonth();
-  const d = date.getUTCDate();
-  switch (bucket) {
-    case "year":
-      return toIso(new Date(Date.UTC(y + 1, 0, 1)));
-    case "quarter":
-      return toIso(new Date(Date.UTC(y, m + 3, 1)));
-    case "month":
-      return toIso(new Date(Date.UTC(y, m + 1, 1)));
-    case "week":
-      return toIso(new Date(Date.UTC(y, m, d + 7)));
-    default:
-      return toIso(new Date(Date.UTC(y, m, d + 1)));
-  }
+  return nextPeriodStart(value, bucket);
 }
 
 /** Every bucket from the one holding `first` up to the one holding `last`. */
@@ -195,9 +165,9 @@ export function toChartModel(
     const first = range.from ?? present[0];
     // The range's last day, but not past today: "This year" in October
     // should not draw November and December — unless the range is a forecast.
-    const todayIso = toIso(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
+    const todayDay = todayIso(today);
     const rangeEnd = range.to ? toIso(new Date(parseIsoDate(range.to).getTime() - 86_400_000)) : null;
-    const lastDay = rangeEnd ? (rangeEnd < todayIso || range.future ? rangeEnd : todayIso) : present[present.length - 1];
+    const lastDay = rangeEnd ? (rangeEnd < todayDay || range.future ? rangeEnd : todayDay) : present[present.length - 1];
     categories = first && lastDay && first <= lastDay ? bucketSequence(first, lastDay, bucket) : [];
     // Data outside the range (no date filter on the widget) still shows.
     for (const value of present) if (!categories.includes(value)) categories.push(value);

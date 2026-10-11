@@ -22,9 +22,8 @@ public sealed class NotificationRuleService
 {
     public static readonly string[] Kinds = ["condition", "budget", "event", "report"];
     public static readonly string[] Events = ["import.failed", "price.failed"];
-    public static readonly string[] Periods = ["today", "this-week", "this-month", "this-year"];
+    public static readonly string[] Periods = ["today", "this-week", "this-month", "this-quarter", "this-year"];
     public static readonly string[] Ops = [">", ">=", "<", "<=", "=", "<>"];
-    public const string TimeZoneId = "Europe/Berlin";
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -65,6 +64,8 @@ public sealed class NotificationRuleService
     }
 
     private bool Pg => _systemPool.Provider == DatabaseProvider.Postgres;
+    /// <summary>The workspace's calendar: its time zone, week and year start (read in <see cref="LoadAsync"/>).</summary>
+    private WorkspaceCalendar Cal => _workspace.Calendar;
     private string Rules => Pg ? "_system.notification_rules" : "notification_rules";
     private string Dashboards => Pg ? "_system.dashboards" : "dashboards";
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
@@ -89,6 +90,7 @@ public sealed class NotificationRuleService
 
     private async Task<List<Rule>> LoadAsync(long? id = null)
     {
+        await _workspace.EnsureLoadedAsync();
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = await conn.QueryAsync<RuleRow>(
             $"""
@@ -182,7 +184,7 @@ public sealed class NotificationRuleService
                     throw Invalid("config.formula", "Write the value as a formula, e.g. SUM(amount WHERE amount < 0).");
                 var period = string.IsNullOrWhiteSpace(config.Period) ? null : config.Period.Trim().ToLowerInvariant();
                 if (period is not null && !Periods.Contains(period))
-                    throw Invalid("config.period", "The period is today, this-week, this-month or this-year.");
+                    throw Invalid("config.period", "The period is today, this-week, this-month, this-quarter or this-year.");
                 string? dateColumn = null;
                 if (period is not null)
                 {
@@ -255,13 +257,13 @@ public sealed class NotificationRuleService
 
     private sealed record ConditionValue(decimal? Value, string? Type, string? Error);
 
-    /// <summary>The rule's formula over its table, in its period (today, this month … in Europe/Berlin).</summary>
+    /// <summary>The rule's formula over its table, in its period (today, this month … in the workspace's calendar).</summary>
     private async Task<ConditionValue> EvaluateConditionAsync(NotificationRuleConfig config)
     {
         JsonElement? filter = null;
         if (config.Period is { } period && config.DateColumn is { } dateColumn)
         {
-            var (from, to) = PeriodRange(period, Today());
+            var (from, to) = PeriodRange(period, Cal.Today(), Cal);
             filter = JsonSerializer.SerializeToElement(new Dictionary<string, object>
             {
                 [dateColumn] = new Dictionary<string, string> { ["gte"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["lt"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
@@ -336,7 +338,7 @@ public sealed class NotificationRuleService
         var key = categories?.Columns.FirstOrDefault(c => c.PrimaryKey);
         if (categories is null || key is null)
             throw new InvalidOperationException($"{budget.Category} in {budget.Source} links to no table.");
-        var (from, to) = PeriodRange("this-month", Today());
+        var (from, to) = PeriodRange("this-month", Cal.Today(), Cal);
         var spent = await _aggregation.RunAsync(new AggregationQueryRequest
         {
             Source = source.Name,
@@ -382,16 +384,17 @@ public sealed class NotificationRuleService
         var rule = await RequireAsync(id);
         if (rule.Kind != "report")
             return await CheckLockedAsync(rule, send: true, cancellationToken);
-        var report = await BuildReportAsync(rule.Name, rule.Config, Today(), useAi: false, cancellationToken);
+        var report = await BuildReportAsync(rule.Name, rule.Config, Cal.Today(), useAi: false, cancellationToken);
         return new NotificationRuleCheck(rule.State, false, report.Notification, []);
     }
 
     /// <summary>A report as it would look today, from a configuration not saved yet; without the AI's text.</summary>
     public async Task<Notification> PreviewAsync(ReportPreviewRequest request, CancellationToken cancellationToken = default)
     {
+        await _workspace.EnsureLoadedAsync();
         var config = await _reports.ValidateAsync(request.Config ?? new NotificationRuleConfig());
         var name = string.IsNullOrWhiteSpace(request.Name) ? "Report" : request.Name.Trim();
-        return (await BuildReportAsync(name, config, Today(), useAi: false, cancellationToken)).Notification;
+        return (await BuildReportAsync(name, config, Cal.Today(), useAi: false, cancellationToken)).Notification;
     }
 
     private async Task<ReportBuilder.ReportResult> BuildReportAsync(string name, NotificationRuleConfig config, DateOnly day, bool useAi, CancellationToken cancellationToken)
@@ -400,7 +403,7 @@ public sealed class NotificationRuleService
             .Where(r => r.Enabled && r.Kind != "report" && r.State.Active)
             .Select(r => new NotificationFact(r.Name, r.State.Value ?? "Holds"))
             .ToList();
-        return await _reports.BuildAsync(name, config, day, Today(), active, useAi, Link, cancellationToken);
+        return await _reports.BuildAsync(name, config, day, Cal.Today(), active, useAi, Link, cancellationToken);
     }
 
     /// <summary>
@@ -432,7 +435,7 @@ public sealed class NotificationRuleService
             }
             case "report":
             {
-                var report = await BuildReportAsync(rule.Name, rule.Config, Today(), useAi: true, cancellationToken);
+                var report = await BuildReportAsync(rule.Name, rule.Config, Cal.Today(), useAi: true, cancellationToken);
                 notification = report.Notification with { Title = $"Test: {report.Notification.Title}" };
                 break;
             }
@@ -488,7 +491,7 @@ public sealed class NotificationRuleService
                     {
                         var budget = await LoadBudgetAsync(rule.Config.DashboardId!.Value, rule.Config.WidgetId!);
                         var lines = await BudgetLinesAsync(budget);
-                        var period = Today().ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                        var period = Cal.Today().ToString("yyyy-MM", CultureInfo.InvariantCulture);
                         var told = rule.State.Period == period ? (rule.State.Keys ?? []).ToHashSet() : [];
                         var over = lines.Where(l => l.Spent >= l.Limit * rule.Config.Percent!.Value / 100).ToList();
                         var fresh = over.Where(l => !told.Contains(l.Key)).ToList();
@@ -513,12 +516,12 @@ public sealed class NotificationRuleService
                 case "report":
                 {
                     // Sent once per time it is due; a second scheduler tick finds it sent.
-                    var occurrence = ReportBuilder.LastOccurrence(rule.Config, DateTimeOffset.UtcNow, Zone());
+                    var occurrence = ReportBuilder.LastOccurrence(rule.Config, DateTimeOffset.UtcNow, Cal);
                     if (!ReportDue(rule, occurrence))
                         return new NotificationRuleCheck(rule.State, false, null, []);
                     try
                     {
-                        var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(occurrence, Zone()).DateTime);
+                        var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(occurrence, Cal.Zone).DateTime);
                         var report = await BuildReportAsync(rule.Name, rule.Config, day, useAi: true, cancellationToken);
                         notification = report.Notification;
                         state = rule.State with { CheckedAt = now, Value = report.Summary, Error = null };
@@ -554,13 +557,13 @@ public sealed class NotificationRuleService
     public async Task<IReadOnlyList<long>> DueAsync()
     {
         var now = DateTimeOffset.UtcNow;
-        var zone = Zone();
+        var zone = Cal.Zone;
         var due = new List<long>();
         foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "budget" or "report"))
         {
             if (rule.Kind == "report")
             {
-                if (ReportDue(rule, ReportBuilder.LastOccurrence(rule.Config, now, zone)))
+                if (ReportDue(rule, ReportBuilder.LastOccurrence(rule.Config, now, Cal)))
                     due.Add(rule.Id);
                 continue;
             }
@@ -680,7 +683,7 @@ public sealed class NotificationRuleService
 
     private Notification BudgetNotification(Rule rule, BudgetConfig budget, IReadOnlyList<BudgetLine> lines, WorkspaceSettings.Values workspace, bool test)
     {
-        var month = Today().ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+        var month = Cal.Today().ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
         var text = lines.Count == 0
             ? $"Nothing has spent {rule.Config.Percent:0.#} % of its budget in {month} yet."
             : lines.Count == 1
@@ -712,6 +715,7 @@ public sealed class NotificationRuleService
         "today" => "Today",
         "this-week" => "This week",
         "this-month" => "This month",
+        "this-quarter" => "This quarter",
         _ => "This year"
     };
 
@@ -723,7 +727,7 @@ public sealed class NotificationRuleService
                            (rule.Config.Period is { } p ? $" · {PeriodText(p).ToLowerInvariant()}" : "") +
                            (rule.Config.Every == "day" ? $" · daily at {rule.Config.At}" : " · hourly"),
             "budget" => $"A budget at {rule.Config.Percent:0.#} % or more",
-            "report" => ReportBuilder.Summary(rule.Config),
+            "report" => ReportBuilder.Summary(rule.Config, Cal),
             _ => rule.Config.Event == "import.failed" ? "A scheduled import fails" : "A price update fails"
         };
         return new NotificationRuleResponse(rule.Id, rule.Name, rule.Kind, rule.Config, rule.Channels, rule.Enabled, rule.State, summary, rule.CreatedAt, rule.UpdatedAt);
@@ -735,19 +739,13 @@ public sealed class NotificationRuleService
     public string? Link(string path) =>
         string.IsNullOrWhiteSpace(_runtime.PublicUrl) ? null : _runtime.PublicUrl.Trim().TrimEnd('/') + path;
 
-    private static TimeZoneInfo Zone() =>
-        TimeZoneInfo.TryFindSystemTimeZoneById(TimeZoneId, out var zone) ? zone : TimeZoneInfo.Utc;
-
-    private static DateOnly Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone()).DateTime);
-
-    /// <summary>[from, to) of a period around <paramref name="today"/>; a week starts on Monday.</summary>
-    public static (DateOnly From, DateOnly To) PeriodRange(string period, DateOnly today) => period switch
+    /// <summary>[from, to) of a period around <paramref name="today"/>, by the workspace's week and year start.</summary>
+    public static (DateOnly From, DateOnly To) PeriodRange(string period, DateOnly today, WorkspaceCalendar calendar)
     {
-        "today" => (today, today.AddDays(1)),
-        "this-week" => (today.AddDays(-(((int)today.DayOfWeek + 6) % 7)), today.AddDays(7 - (((int)today.DayOfWeek + 6) % 7))),
-        "this-month" => (new DateOnly(today.Year, today.Month, 1), new DateOnly(today.Year, today.Month, 1).AddMonths(1)),
-        _ => (new DateOnly(today.Year, 1, 1), new DateOnly(today.Year + 1, 1, 1))
-    };
+        var unit = period switch { "today" => "day", "this-week" => "week", "this-month" => "month", "this-quarter" => "quarter", _ => "year" };
+        var from = calendar.Start(unit, today);
+        return (from, calendar.Add(unit, from, 1));
+    }
 
     private static string RequireName(string? name)
     {

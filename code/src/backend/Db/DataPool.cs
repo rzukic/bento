@@ -10,13 +10,16 @@ public class DataPool : IDataPool, IDisposable
     private readonly DatabaseConfig _config;
     private readonly ILogger<DataPool>? _logger;
     private readonly NpgsqlDataSource? _pgDataSource;
+    private readonly Func<Task<Services.WorkspaceCalendar>>? _calendar;
 
     public DatabaseProvider Provider => _config.Provider;
 
-    public DataPool(DatabaseConfig config, ILogger<DataPool>? logger = null)
+    /// <param name="calendar">The workspace's calendar: TODAY() in formulas is a day in its time zone.</param>
+    public DataPool(DatabaseConfig config, ILogger<DataPool>? logger = null, Func<Task<Services.WorkspaceCalendar>>? calendar = null)
     {
         _config = config;
         _logger = logger;
+        _calendar = calendar;
 
         if (config.Provider == DatabaseProvider.Postgres)
         {
@@ -37,13 +40,15 @@ public class DataPool : IDataPool, IDisposable
 
     public async Task<IDbConnection> GetConnectionAsync()
     {
+        var calendar = _calendar is null ? Services.WorkspaceCalendar.Default : await _calendar();
         if (_config.Provider == DatabaseProvider.Postgres)
         {
             var conn = _pgDataSource!.CreateConnection();
             await conn.OpenAsync();
-            // Lock to public schema only — bento_data role cannot access _system
+            // Lock to public schema only — bento_data role cannot access _system.
+            // bento.time_zone: the zone TODAY() reads (an IANA name, checked when saved).
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = "SET search_path TO public;";
+            cmd.CommandText = $"SET search_path TO public; SET bento.time_zone = '{calendar.ZoneId.Replace("'", "''")}';";
             await cmd.ExecuteNonQueryAsync();
             return conn;
         }
@@ -65,7 +70,7 @@ public class DataPool : IDataPool, IDisposable
             using var cmd = conn.CreateCommand();
             cmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;";
             cmd.ExecuteNonQuery();
-            Formula.SqliteFormulaFunctions.Register(conn);
+            Formula.SqliteFormulaFunctions.Register(conn, calendar.Zone);
 
             return conn;
         }

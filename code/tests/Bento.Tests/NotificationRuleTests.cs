@@ -39,9 +39,8 @@ public sealed class NotificationRuleTests
         ["Import:AllowPrivateNetwork"] = "true"
     });
 
-    /// <summary>Today as the rules see it (Europe/Berlin).</summary>
-    private static string Today() => DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow,
-        TimeZoneInfo.FindSystemTimeZoneById(NotificationRuleService.TimeZoneId)).DateTime).ToString("yyyy-MM-dd");
+    /// <summary>Today as the rules see it: the workspace sets no time zone, so the server's.</summary>
+    private static string Today() => DateOnly.FromDateTime(DateTime.Now).ToString("yyyy-MM-dd");
 
     [Fact]
     public async Task Condition_SpeaksOnceWhenItStartsToHold_AndAgainAfterItCleared() => await ConditionAsync(await StartAsync());

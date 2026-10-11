@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { workspaceCalendar } from "../../lib/calendar";
 import { ApiClientError } from "../../api/client";
 import { listDashboards, type Dashboard } from "../../api/dashboards";
 import {
@@ -30,6 +31,7 @@ const KIND_LABELS: Record<RuleKind, string> = { condition: "Condition", budget: 
 const PERIODS: { value: RulePeriod | ""; label: string }[] = [
   { value: "this-month", label: "This month" },
   { value: "this-week", label: "This week" },
+  { value: "this-quarter", label: "This quarter" },
   { value: "today", label: "Today" },
   { value: "this-year", label: "This year" },
   { value: "", label: "All rows" },
@@ -412,7 +414,7 @@ function RuleForm({
           </div>
           <p className="channel-form__hint">
             The value is one number from the table, written like a widget's formula — e.g. <code>-SUM(amount WHERE amount &lt; 0)</code> for what was spent, or{" "}
-            <code>COUNT()</code> for how many rows there are. Periods are in Europe/Berlin.
+            <code>COUNT()</code> for how many rows there are. Periods and times follow the workspace's calendar ({workspaceCalendar().timeZone}, Settings → Workspace).
           </p>
         </>
       ) : null}

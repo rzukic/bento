@@ -22,7 +22,7 @@ public static class WidgetOptions
     private static readonly string[] EmptyPeriods = ["zero", "gap", "connect"];
     private static readonly string[] Presets =
     [
-        "last-7-days", "this-month", "last-3-months", "last-6-months", "last-12-months", "this-year", "last-year",
+        "last-7-days", "this-week", "last-week", "this-month", "last-month", "this-quarter", "last-quarter", "last-3-months", "last-6-months", "last-12-months", "this-year", "last-year",
         "last-3-years", "last-5-years", "next-12-months", "next-5-years", "next-10-years", "next-20-years", "all"
     ];
     private static readonly string[] Flags =

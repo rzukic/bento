@@ -55,7 +55,7 @@ Under **Settings → Notification rules**, choose **Add rule**. A rule speaks **
 A number from a table, compared with a limit:
 
 - **Table** and **Value (formula)**, written like a widget's formula: `-SUM(amount WHERE amount < 0)` for what was spent, `SUM(amount)` for the balance of the rows, `COUNT()` for how many there are
-- **Rows of**: this month, this week, today, this year (by a date column of the table, in Europe/Berlin), or all rows
+- **Rows of**: this month, this week, today, this year or this quarter (by a date column of the table, in the workspace's calendar: its time zone, week and year start), or all rows
 - **Tell me when it is** above, at or above, below … a **number**
 - **Check**: every hour and after each scheduled import that brought rows, or once a day at a time
 
@@ -81,7 +81,7 @@ Messages link into Bento when the server knows its address (`PUBLIC_URL`, set on
 
 Under **Settings → Reports**, choose **Add report**. A report is a message every day, week, month, quarter or year with the numbers you choose — for any data, not only money: support tickets, visits, orders, hours, a household.
 
-- **Send**: every day, week (on a weekday), month or quarter (on a day 1–28) or year, **at** a time (Europe/Berlin).
+- **Send**: every day, week (on a weekday), month or quarter (on a day 1–28) or year, **at** a time, in the workspace's time zone (Settings → Workspace).
 - **About**: the period just over (yesterday, the last week, the last month …) or this period so far.
 - **Compared with**: the period before (for one so far: as many days of it), the same period a year earlier, or nothing.
 - **Text at the top**, optional.

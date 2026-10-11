@@ -3,6 +3,7 @@ import type { AggregationQuery, QueryVariableResult, VariableValue } from "../..
 import { globalFilterFor, mergeFilters } from "./dashboardFilters";
 import type { ResolvedRange } from "./dateRange";
 import { rangeFilter, withFilter } from "./widgetData";
+import { todayIso as workspaceToday } from "../../lib/calendar";
 
 /** Variable results by name, as the dashboard evaluated them. */
 export type VariableResults = Record<string, QueryVariableResult>;
@@ -18,7 +19,7 @@ function isoDay(date: Date): string {
  * day: the server begins where the data does.
  */
 export function asOfPeriod(range: ResolvedRange, today = new Date()): { from?: string; to: string } {
-  const todayIso = isoDay(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
+  const todayIso = workspaceToday(today);
   const lastDay = range.to ? isoDay(new Date(Date.parse(`${range.to}T00:00:00Z`) - 86_400_000)) : todayIso;
   const to = lastDay < todayIso || range.future ? lastDay : todayIso;
   if (!range.from) return { to };

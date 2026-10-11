@@ -106,7 +106,11 @@ public sealed class SetupController : ControllerBase
             SampleDataAvailable: SampleDataLoader.IsAvailable(schemaVersion),
             Version: _runtimeInfo.Version,
             Locale: format.Locale,
-            Currency: format.Currency));
+            Currency: format.Currency,
+            TimeZone: format.Calendar.ZoneId,
+            TimeZoneSet: format.TimeZone is not null,
+            WeekStart: format.WeekStart,
+            YearStart: format.YearStart));
     }
 
     private async Task<bool> HasAnyUsersAsync(CancellationToken cancellationToken)
