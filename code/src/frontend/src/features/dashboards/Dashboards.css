@@ -523,9 +523,13 @@
     position: relative;
 }
 
-/* A finger moving sideways moves the tooltip along the chart; up and down still scrolls the page. */
+/* A finger moving sideways moves the tooltip along the chart; up and down still scrolls the page.
+   Holding a finger on it selects no text and opens no callout (iOS). */
 .widget-chart {
     touch-action: pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 /* Touch: after a tap shows a point's values, this opens its rows. */
