@@ -6140,3 +6140,22 @@
 .table-detail__workspace > .alert {
     margin: 0.75rem var(--page-gutter) 0;
 }
+
+/* Phone: the page switcher fits the width — rows per page on its own line, then ‹ page › across. */
+@media (max-width: 640px) {
+    .data-pagination .data-pagination__controls {
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .data-pagination .data-pagination__switcher {
+        flex: 1 1 100%;
+        justify-content: space-between;
+    }
+
+    .data-pagination .data-pagination__page {
+        width: auto;
+        min-width: 0;
+    }
+}

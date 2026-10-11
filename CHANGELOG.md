@@ -14,6 +14,23 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Bento On The Phone
+
+> **Phase**: Phase 5 — Integration (polish between steps)
+
+The phone layout was hard to use: a strip of every page across the top, cut off at the edge, and a tap on a chart jumped straight to its rows.
+
+**Highlights:**
+- **A tab bar at the thumb**: Home, Dashboards, Add (your quick-entry form, or a choice of them), Data and Menu. The menu slides in from the left with every page, the theme and sign-out.
+- **Charts**: a tap shows the values at that point, like hovering; a second tap or **Show rows: August 2026 →** opens the rows. Sliding a finger sideways moves along the chart, up and down still scrolls.
+- **Dashboards**: key figures two to a row and compact; charts across, no taller than a phone shows comfortably; the controls in one row, History and Edit as icons.
+- **Smaller fixes**:
+  - the form's Save bar no longer lets fields show beneath it;
+  - the data pagination fits the width;
+  - the home tiles are compact;
+  - editing a dashboard wraps its tools;
+  - neutral greys in the import.
+
 ### 2026-10-11 — Email, Slack And Webhooks For Notifications
 
 > **Phase**: Phase 5 — Integration
