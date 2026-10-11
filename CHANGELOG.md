@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Email, Slack And Webhooks For Notifications
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.2 — Notification Channels](working-steps/5.2-notification-channels.md)
+
+Bento can now reach you: admins set up channels under Settings → Notifications and send a test to check them. What Bento says, and when, follows with rules and the monthly review.
+
+**Highlights:**
+- **Email** over SMTP (STARTTLS, TLS or a local relay), **Slack** (also Mattermost and Discord), and **webhooks** for n8n or Home Assistant, signed with HMAC-SHA256.
+- Passwords and webhook addresses are stored encrypted and never shown again.
+- A log per channel says what was sent and why something failed.
+
 ### 2026-10-11 — Bank Exports Arrive On Their Own
 
 > **Phase**: Phase 5 — Integration

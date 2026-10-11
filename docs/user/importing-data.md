@@ -94,7 +94,7 @@ After fetching from a URL and choosing the columns, **Fetch and import on its ow
 
 Each run fetches the file, fills in categories from your rules and earlier rows (no AI; what stays open you can categorise later), imports what is new, updates what changed if chosen, and keeps a log.
 
-**Saved imports** at the top of the import page lists them with their schedule, the next and the last run. **Run now** runs one at once, **Runs** shows the last ten, **Edit** fetches the file again and loads its settings into the page (change them, then **Update saved import**), **Pause** stops the schedule. A failed run says why (the address no longer works, the key expired, the file changed its columns) and also appears under **Settings → Problems**.
+**Saved imports** at the top of the import page lists them with their schedule, the next and the last run. **Run now** runs one at once, **Runs** shows the last ten, **Edit** fetches the file again and loads its settings into the page (change them, then **Update saved import**), **Pause** stops the schedule. A failed run says why (the address no longer works, the key expired, the file changed its columns) and also appears under **Settings → Problems**. Being told by email or Slack when an import fails comes with notification rules; the channels are set up under [Notifications](notifications.md).
 
 Imports with a key from the vault can only be created, changed or deleted by an admin.
 

@@ -317,6 +317,32 @@ public class DatabaseBootstrap : IHostedService
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON _system.price_source_runs(source_id, started_at);
             """);
 
+        // Notification channels and their deliveries (Step 5.2); secrets encrypted under the vault's key.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.notification_channels (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(20) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                secrets         TEXT NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS _system.notification_deliveries (
+                id              SERIAL PRIMARY KEY,
+                channel_id      INTEGER NOT NULL,
+                event           VARCHAR(100) NOT NULL,
+                title           VARCHAR(255) NOT NULL,
+                status          VARCHAR(20) NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                created_at      TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON _system.notification_deliveries(channel_id, id);
+            """);
+
         // Saved imports from a URL and their runs (Step 5.1).
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS _system.import_sources (
@@ -757,6 +783,31 @@ public class DatabaseBootstrap : IHostedService
                 error           TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON price_source_runs(source_id, started_at);
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS notification_channels (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                secrets         TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS notification_deliveries (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id      INTEGER NOT NULL,
+                event           TEXT NOT NULL,
+                title           TEXT NOT NULL,
+                status          TEXT NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON notification_deliveries(channel_id, id);
             """);
 
         await conn.ExecuteAsync("""
