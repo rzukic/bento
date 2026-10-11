@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Dapper;
@@ -74,6 +75,39 @@ public sealed class QueryIndexTests
         return body;
     }
 
+    /// <summary>
+    /// A value per day over three years: more periods than SQLite joins with UNION ALL
+    /// (500), and than the old limit (1000), all of them without asking for more
+    /// rows. Over 5000 periods is still refused.
+    /// </summary>
+    internal static async Task DailyDepotAsync(ApiIntegrationTestHost host)
+    {
+        async Task<(HttpResponseMessage Response, JsonElement Body)> Daily(string from)
+        {
+            var response = await host.Client.PostAsJsonAsync("/api/v1/query", new
+            {
+                source = "securities",
+                asOf = new { bucket = "day", from, to = "2026-10-01", @as = "day" },
+                measures = new[] { new { name = "value", formula = Depot } }
+            });
+            return (response, await response.Content.ReadFromJsonAsync<JsonElement>());
+        }
+
+        var (ok, body) = await Daily("2023-10-01");
+        Assert.True(ok.IsSuccessStatusCode, body.ToString());
+        var days = body.GetProperty("data").EnumerateArray().ToDictionary(r => r.GetProperty("day").GetString()!, r => r.GetProperty("value").GetDecimal());
+        Assert.False(body.GetProperty("meta").GetProperty("truncated").GetBoolean());
+        Assert.Equal(1097, days.Count);
+        Assert.Equal(0m, days["2026-01-01"]);
+        Assert.Equal(20m, days["2026-01-19"]);
+        Assert.Equal(40m, days["2026-01-20"]);
+        Assert.Equal(40m, days["2026-10-01"]);
+
+        var (refused, error) = await Daily("2000-01-01");
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        Assert.Contains("At most 5000 periods", error.ToString());
+    }
+
     internal static async Task PostAsync(ApiIntegrationTestHost host, string table, object row)
     {
         using var response = await host.Client.PostAsJsonAsync($"/api/v1/data/{table}", row);
@@ -94,6 +128,18 @@ public sealed class QueryIndexTests
         Assert.Equal(1L, await host.QueryDataScalarAsync<long>("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name = 'bento_ref_trades_security_id'"));
         // bento_lower is Bento's own function: an index on it would break other programs writing the file.
         Assert.Equal(0L, await host.QueryDataScalarAsync<long>("SELECT count(*) FROM sqlite_master WHERE type = 'index' AND name LIKE 'bento_lookup_%'"));
+    }
+
+    [Fact]
+    public async Task DailyValues_OverYears()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open",
+            ["Backend:Jwt:Secret"] = "sqlite-test-secret"
+        });
+        await SeedAsync(host);
+        await DailyDepotAsync(host);
     }
 
     [Fact]
@@ -154,6 +200,14 @@ public sealed class PostgresQueryIndexTests
         var link = await host.QuerySystemScalarAsync<string>(
             "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'bento_ref_trades_security_id'");
         Assert.Contains("(security_id)", link);
+    }
+
+    [PostgresFact]
+    public async Task DailyValues_OverYears()
+    {
+        await using var host = await StartAsync();
+        await QueryIndexTests.SeedAsync(host);
+        await QueryIndexTests.DailyDepotAsync(host);
     }
 
     [PostgresFact]
