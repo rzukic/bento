@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
 import { NotificationsPanel } from "../features/notifications/NotificationsPanel";
+import { RulesPanel } from "../features/notifications/RulesPanel";
 import { ProblemsPanel } from "../features/problems/ProblemsPanel";
 import { BrowserFormatRow, WorkspaceFormatPanel } from "../features/settings/FormatSettings";
 import { useSetupStore } from "../features/setup/setupStore";
@@ -47,6 +48,8 @@ export function SettingsPage() {
       {user?.role === "admin" ? <WorkspaceFormatPanel /> : null}
 
       {user?.role === "admin" ? <NotificationsPanel /> : null}
+
+      {user?.role === "admin" ? <RulesPanel /> : null}
 
       {user?.role === "admin" ? <ProblemsPanel /> : null}
 

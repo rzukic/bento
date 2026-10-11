@@ -137,3 +137,33 @@
     grid-column: auto;
   }
 }
+
+/* Step 5.3: rules. */
+.channel__kind--on {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
+
+.rule-form__channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rule-form__channels legend {
+  margin-bottom: 0.375rem;
+}
+
+.rule-form__channel {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.channel-form__hint code {
+  font-size: inherit;
+}
