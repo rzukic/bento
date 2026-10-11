@@ -13,7 +13,7 @@ Every tool is a call to `/api/v1`. `call_api` makes any other call with this con
 | Forms | `GET/POST /forms`, `GET/PUT/DELETE /forms/{id}` (`{name, isShared, form}`) |
 | Functions | `GET /functions`, `GET /functions/templates`, `GET /functions/{name}`, `GET /functions/{name}/versions`, `POST /functions`, `PUT/DELETE /functions/{name}`, `POST /functions/test` |
 | Price sources | `GET /price-sources`, `GET /price-sources/{id}`, `GET /price-sources/{id}/runs`, `POST /price-sources/refresh` `{tables}`, `POST/PUT/DELETE /price-sources/{id}`, `POST /price-sources/{id}/run?kind=latest|history|daily` |
-| Import | `POST /import/analyze` `{content: base64}`, `POST /import/{table}/preview`, `POST /import/{table}` `{content, settings, mapping, keyColumns}`, profiles under `/import/{table}/profiles` |
+| Import | CSV, Excel (`.xlsx`) or JSON: `POST /import/analyze` `{content: base64, fileName}`, `POST /import/{table}/preview`, `POST /import/{table}` `{content, settings: {format?, sheet?, jsonPath?, …}, mapping, keyColumns, updateChanged?}` (`updateChanged`: rows with a known key and other values are updated, status `changed`), profiles under `/import/{table}/profiles` |
 | Explorer views | `GET /views/{table}`, `POST /views`, `PUT/DELETE /views/{id}` |
 | Problems | `GET /admin/problems?limit=` — slow queries (with the query and SQL), timeouts and server errors, newest first (admin) |
 | Description | `GET /openapi.json` — every endpoint of this installation with fields |

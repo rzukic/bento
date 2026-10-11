@@ -398,9 +398,9 @@ Computed columns (`"type": "computed"` with a `formula`) are part of every read:
 
 ---
 
-## Import CSV Files
+## Import CSV, Excel And JSON Files
 
-The browser import ([Importing Data](importing-data.md)) uses these routes; scripts can call them directly. Files travel base64-encoded so the encoding can be detected. Every route needs `editor`, `admin` or `api`.
+The browser import ([Importing Data](importing-data.md)) uses these routes; scripts can call them directly. Files travel base64-encoded so the encoding can be detected; add `"fileName"` so the format is known from it (it is also detected from the content). Every route needs `editor`, `admin` or `api`.
 
 ```bash
 CONTENT=$(base64 < girokonto.csv | tr -d '\n')
@@ -426,16 +426,17 @@ curl -fsS "$API_ROOT/import/transactions/preview" -H "Authorization: Bearer $TOK
 curl -fsS "$API_ROOT/import/transactions" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d @import.json
 ```
 
-- `settings` fields left out are detected (`encoding`, `delimiter`, `headerLine` as a 0-based record index, `decimalSeparator`, `dateFormat`)
+- `settings` fields left out are detected (`format` as `csv`, `xlsx` or `json`; `encoding`, `delimiter`, `headerLine` as a 0-based record index, `decimalSeparator`, `dateFormat`; for Excel `sheet`, for JSON `jsonPath` such as `data.transactions`); `analyze` returns what it used, for Excel with the list of `sheets`
 - reference columns take the referenced record's label (e.g. a category name) or its id
 - a mapping entry with `"value"` instead of `"source"` fills that column with the same value for every row, e.g. `{ "target": "account_id", "value": "Checking" }` for the account a bank export belongs to
 - rows whose key columns match a row in the table are skipped (counted per key, so real repeats in one file still import)
+- `"updateChanged": true`: such a row whose other mapped values differ is `changed` instead, with its stored values in `before`, and the import updates those columns (empty cells change nothing); the response counts `changed` and `updated`
 - `"distinctKeys": true` also skips repeats within the file and compares keys without case — for filling a lookup table with one row per value
 - `analyze` returns per column `blank` (empty cells), `distinctCount` and up to 100 `distinct` values
-- the response has `total`, `new`, `duplicates`, `invalid`, `inserted` and, per row, `line`, `status` (`new`, `duplicate`, `invalid`), `display` and `errors`
-- new rows are inserted in one transaction
+- the response has `total`, `new`, `duplicates`, `changed`, `invalid`, `inserted`, `updated` and, per row, `line`, `status` (`new`, `duplicate`, `changed`, `invalid`), `display`, `errors` and for changed rows `before`
+- new and updated rows are written in one transaction
 
-Saved mappings: `GET/POST $API_ROOT/import/<table>/profiles`, `PUT/DELETE $API_ROOT/import/<table>/profiles/<id>` with `{ "name": "...", "config": { "settings": {...}, "mapping": [...], "keyColumns": [...] } }`.
+Saved mappings: `GET/POST $API_ROOT/import/<table>/profiles`, `PUT/DELETE $API_ROOT/import/<table>/profiles/<id>` with `{ "name": "...", "config": { "settings": {...}, "mapping": [...], "keyColumns": [...], "updateChanged": false } }`.
 
 ---
 

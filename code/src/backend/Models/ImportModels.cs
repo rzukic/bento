@@ -11,6 +11,12 @@ public sealed record ImportFileSettings
     public int? HeaderLine { get; init; }
     public string? DecimalSeparator { get; init; }
     public string? DateFormat { get; init; }
+    /// <summary><c>csv</c>, <c>xlsx</c> or <c>json</c>; detected from the file when missing.</summary>
+    public string? Format { get; init; }
+    /// <summary>Excel: the sheet to read (the first when missing).</summary>
+    public string? Sheet { get; init; }
+    /// <summary>JSON: where the list of records is, e.g. <c>data.transactions</c> (found when missing).</summary>
+    public string? JsonPath { get; init; }
 }
 
 public sealed record ImportAnalyzeRequest
@@ -42,6 +48,12 @@ public sealed record ImportRunRequest
     public IReadOnlyList<ImportColumnMapping>? Mapping { get; init; }
     /// <summary>Target columns that identify a row; rows already in the table are skipped.</summary>
     public IReadOnlyList<string>? KeyColumns { get; init; }
+    /// <summary>
+    /// With key columns: a row already in the table whose other mapped values
+    /// differ is updated (status <c>changed</c>) instead of skipped — e.g. a
+    /// booking whose amount changed at the bank. Empty cells change nothing.
+    /// </summary>
+    public bool UpdateChanged { get; init; }
     /// <summary>
     /// Also skip rows whose key repeats an earlier row of the same file — for
     /// filling a lookup table (one category per name) from a column.
@@ -81,7 +93,11 @@ public sealed record ImportResolvedSettings(
     string Delimiter,
     int HeaderLine,
     string DecimalSeparator,
-    string DateFormat);
+    string DateFormat,
+    string Format = "csv",
+    string? Sheet = null,
+    IReadOnlyList<string>? Sheets = null,
+    string? JsonPath = null);
 
 public sealed record ImportAnalyzeResponse(
     ImportResolvedSettings Settings,
@@ -101,14 +117,17 @@ public sealed record ImportRowError(string Field, string Message);
 
 /// <summary>
 /// One data record of the file. <c>Status</c> is <c>new</c>, <c>duplicate</c>
-/// or <c>invalid</c>; <c>Display</c> shows each mapped value as it will be
-/// stored (references by their record label).
+/// (already in the table, unchanged), <c>changed</c> (in the table with other
+/// values; updated with <c>updateChanged</c>) or <c>invalid</c>; <c>Display</c>
+/// shows each mapped value as it will be stored (references by their record
+/// label), <c>Before</c> the values a changed row had.
 /// </summary>
 public sealed record ImportRowResult(
     int Line,
     string Status,
     IReadOnlyDictionary<string, string?> Display,
-    IReadOnlyList<ImportRowError> Errors);
+    IReadOnlyList<ImportRowError> Errors,
+    IReadOnlyDictionary<string, string?>? Before = null);
 
 public sealed record ImportRunResponse(
     bool DryRun,
@@ -118,13 +137,16 @@ public sealed record ImportRunResponse(
     int Invalid,
     int Inserted,
     IReadOnlyList<ImportRowResult> Rows,
-    bool RowsTruncated);
+    bool RowsTruncated,
+    int Changed = 0,
+    int Updated = 0);
 
 public sealed record ImportProfileConfig
 {
     public ImportFileSettings? Settings { get; init; }
     public IReadOnlyList<ImportColumnMapping>? Mapping { get; init; }
     public IReadOnlyList<string>? KeyColumns { get; init; }
+    public bool UpdateChanged { get; init; }
 }
 
 public sealed record ImportProfileRequest

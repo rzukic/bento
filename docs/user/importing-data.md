@@ -1,6 +1,6 @@
-# Importing Data From CSV
+# Importing Data From CSV, Excel And JSON
 
-Bento imports CSV files into a table, for example bank and broker exports into a `transactions` table, and can create that table from the file. Importing the same or an overlapping export again adds nothing twice.
+Bento imports CSV, Excel (`.xlsx`) and JSON files into a table, for example bank and broker exports into a `transactions` table, and can create that table from the file. Importing the same or an overlapping export again adds nothing twice, and can update rows that changed at the source.
 
 ## Create A Table From A File
 
@@ -16,9 +16,12 @@ Change names, types and what is stored how, then choose **Create table and conti
 ## Import A File
 
 1. Open the table in the Data Explorer and choose **Import** in the toolbar
-2. Drop the CSV file onto the page or choose it
+2. Drop the file onto the page or choose it
 3. Check **How the file is read**. Bento detects:
-   - the encoding (UTF-8, or Windows-1252 as most German banks use)
+   - the format: CSV, Excel or JSON
+   - for Excel, the sheet (the one with the most rows, so a cover sheet is passed over) and the header row; dates and numbers come as Excel stores them, formulas as their last calculated value
+   - for JSON, where the list of records is (**Records at**, e.g. `data.transactions`); nested values become columns like `payee.name`
+   - for CSV, the encoding (UTF-8, or Windows-1252 as most German banks use)
    - the separator (`;`, `,`, tab or `|`)
    - the header row; lines above it (account number, balance) are skipped and listed
    - how numbers and dates are written: `-1.234,56` and `31.12.2026`, or `-1,234.56` and `2026-12-31`
@@ -28,8 +31,9 @@ Change names, types and what is stored how, then choose **Create table and conti
 5. Choose **Check rows**. Nothing is written yet. Every row is listed as:
    - **New**: will be imported
    - **Already there**: the table has this row already (see below)
+   - **Changed**: the table has a row with this key, but other values differ (see below)
    - **Problem**: a value cannot be read or is not allowed; the message says which and why
-6. Choose **Import N rows**. All new rows are written together; if anything fails, none are.
+6. Choose **Import N rows**. All new rows (and, if chosen, the changed ones) are written together; if anything fails, none are.
 
 Rows with problems are skipped, not imported half-way. Fix the file (or add the missing category) and import it again — the rows that went in the first time are recognised as already there.
 
@@ -64,13 +68,21 @@ The **Key** checkboxes decide when a row counts as already in the table: all key
 
 Repeated rows count: a file with two identical coffees on the same day imports both. Importing that file again adds neither. An export that overlaps the previous one (e.g. 15.09.–15.10. after 01.09.–30.09.) adds only the rows that are missing.
 
+### Rows That Changed At The Source
+
+Banks correct bookings, and a pending booking gets its final amount. Leave the value that may change out of the key (e.g. key on date, counterparty and purpose, not the amount) and tick **Update rows that changed**. A row whose key is in the table but whose other values differ is then shown as **Changed**, with the old value struck through next to the new one, and updated on import instead of skipped.
+
+- Only the columns that differ are written. Columns you filled in Bento and that are not in the file, such as a category chosen by hand, stay as they are.
+- An empty cell in the file changes nothing.
+- The option is saved with the profile.
+
 ## Links To Other Tables
 
 A column that links to another table (e.g. **Category**) takes the record's name as it appears in Bento, such as `Lebensmittel`. Names are matched without regard to upper and lower case. A name that does not exist yet is reported as a problem; create the record first, then import again.
 
 ## Profiles
 
-Save the settings, mapping and key columns as a **profile** (e.g. "DKB Girokonto"); a fixed value such as the account is part of it. Next month, choose the profile before or after choosing the file and go straight to **Check rows**. Profiles belong to a table and are shared by everyone who can import into it.
+Save the settings (including the Excel sheet or the place of the JSON records), mapping and key columns as a **profile** (e.g. "DKB Girokonto"); a fixed value such as the account and **Update rows that changed** are part of it. Next month, choose the profile before or after choosing the file and go straight to **Check rows**. Profiles belong to a table and are shared by everyone who can import into it.
 
 ## Who Can Import
 
@@ -78,8 +90,8 @@ Importing needs the `editor` or `admin` role (or an `api` client). Viewers do no
 
 ## Limits
 
-- CSV only for now; JSON and Excel files, importing from a URL and scheduled imports come later
+- CSV, Excel (`.xlsx`, not the older `.xls`) and JSON; importing from a URL and scheduled imports come next
 - Creating a table from a file needs the admin role; importing into an existing table needs `editor`
 - Files up to about 7 MB (the request size limit is 10 MB)
 
-For scripts and other clients, see [Import API](using-the-api.md#import-csv-files).
+For scripts and other clients, see [Import API](using-the-api.md#import-csv-excel-and-json-files).

@@ -126,7 +126,7 @@ describe("CSV import page", () => {
     expect(await screen.findByRole("heading", { name: "Import into Transactions" })).toBeInTheDocument();
 
     const file = new File([new Uint8Array([0x22, 0x42, 0x22])], "girokonto.csv", { type: "text/csv" });
-    await user.upload(screen.getByLabelText("CSV file"), file);
+    await user.upload(screen.getByLabelText("File to import"), file);
 
     await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("2 lines above the header are skipped")).toBeInTheDocument();
@@ -174,11 +174,68 @@ describe("CSV import page", () => {
     expect(screen.getByRole("button", { name: "Open Transactions" })).toBeInTheDocument();
   });
 
+  it("updates rows that changed at the source, showing what changes", async () => {
+    const changed: ImportRunResult = {
+      dryRun: true,
+      total: 2,
+      new: 1,
+      duplicates: 0,
+      invalid: 0,
+      inserted: 0,
+      changed: 1,
+      rowsTruncated: false,
+      rows: [
+        { line: 4, status: "changed", display: { booked_on: "2026-09-01", purpose: "Einkauf", amount: "-46.10" }, errors: [], before: { amount: "-45.9" } },
+        { line: 5, status: "new", display: { booked_on: "2026-09-04", purpose: "Strom", amount: "-60.00" }, errors: [] },
+      ],
+    };
+    api.previewImport.mockResolvedValue(changed);
+    api.runImport.mockResolvedValue({ ...changed, dryRun: false, inserted: 1, updated: 1 });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "girokonto.csv", { type: "text/csv" }));
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("checkbox", { name: /Update rows that changed/ }));
+    await user.click(screen.getByRole("button", { name: "Check rows" }));
+    expect(api.previewImport.mock.calls[0][1].updateChanged).toBe(true);
+
+    const review = within(document.querySelector<HTMLElement>(".import-review__table")!);
+    await review.findByText("-45.9");
+    expect(review.getByText("-45.9").tagName).toBe("DEL");
+    expect(review.getByText("-46.10").tagName).toBe("INS");
+    expect(within(screen.getByRole("tablist", { name: "Rows by status" })).getByRole("tab", { name: /1\s*Changed/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Import 1 row and update 1" }));
+    expect(await screen.findByText("1 row imported into Transactions, 1 updated")).toBeInTheDocument();
+    expect(screen.getByText("Updated 1 row that changed. Every row of the file is in the table now.")).toBeInTheDocument();
+  });
+
+  it("reads an Excel file's sheet and lets another one be chosen", async () => {
+    api.analyzeImport.mockImplementation(async (_content: string, settings: { sheet?: string }) => ({
+      ...analysis,
+      preamble: [],
+      settings: { ...analysis.settings, encoding: "utf-8", delimiter: ",", headerLine: 0, decimalSeparator: ".", format: "xlsx", sheet: settings.sheet ?? "Konto", sheets: ["Konto", "Depot"] },
+    }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "konto.xlsx"));
+
+    expect(await screen.findByLabelText("Sheet")).toHaveValue("Konto");
+    expect(screen.queryByLabelText("Encoding")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Separator")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Sheet"), "Depot");
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(2));
+    expect(api.analyzeImport.mock.calls[1][1]).toMatchObject({ sheet: "Depot", format: "xlsx" });
+    expect(await screen.findByLabelText("Sheet")).toHaveValue("Depot");
+  });
+
   it("fills a column with the same value for every row, a link by its record's name", async () => {
     dataApi.fetchTableRows.mockResolvedValue({ data: [{ id: 1, name: "Gehalt" }, { id: 2, name: "Lebensmittel" }], meta: { total: 2 } });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "konto.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "konto.csv", { type: "text/csv" }));
     await waitFor(() => expect(screen.getByLabelText("File column for Category")).toHaveValue("Kategorie"));
 
     await user.selectOptions(screen.getByLabelText("File column for Category"), "Same value for every row…");
@@ -201,7 +258,7 @@ describe("CSV import page", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
 
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
     await user.click(await screen.findByRole("button", { name: "Check rows" }));
     expect(await screen.findByRole("heading", { name: "Review" })).toBeInTheDocument();
 
@@ -233,7 +290,7 @@ describe("CSV import page", () => {
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
 
     await user.selectOptions(await screen.findByLabelText("Profile"), "3");
-    await user.upload(screen.getByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(screen.getByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
 
     await waitFor(() => expect(api.analyzeImport).toHaveBeenCalled());
     expect(api.analyzeImport.mock.calls[0][1]).toEqual({ encoding: "windows-1252", delimiter: ";" });

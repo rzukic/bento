@@ -84,12 +84,30 @@ function countRows(count: number): string {
 function skippedSummary(result: ImportRunResult): string {
   const parts = [
     result.duplicates > 0 ? `${countRows(result.duplicates)} already in the table` : null,
+    // Changed rows not updated (the option was off) are skipped too.
+    (result.changed ?? 0) > (result.updated ?? 0) ? `${countRows((result.changed ?? 0) - (result.updated ?? 0))} that changed` : null,
     result.invalid > 0 ? `${countRows(result.invalid)} with problems` : null,
   ].filter(Boolean);
+  const updated = (result.updated ?? 0) > 0 ? `Updated ${countRows(result.updated ?? 0)} that changed. ` : "";
   return parts.length === 0
-    ? "Every row of the file is in the table now."
-    : `Skipped ${parts.join(" and ")}.`;
+    ? `${updated}Every row of the file is in the table now.`
+    : `${updated}Skipped ${parts.length > 2 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts.join(" and ")}.`;
 }
+
+/** "Import 3 rows", "Import 1 row and update 2", "Update 2 rows". */
+function importLabel(added: number, changed: number): string {
+  if (added === 0 && changed === 0) return "Nothing new to import";
+  if (changed === 0) return `Import ${countRows(added)}`;
+  if (added === 0) return `Update ${countRows(changed)}`;
+  return `Import ${countRows(added)} and update ${changed}`;
+}
+
+const STATUS_LABELS: Record<ImportRowStatus, [string, string]> = {
+  new: ["New", "Imported"],
+  duplicate: ["Already there", "Already there"],
+  changed: ["Changed", "Updated"],
+  invalid: ["Problem", "Problem"],
+};
 
 export function ImportPage() {
   const { tableId = "" } = useParams();
@@ -112,6 +130,7 @@ export function ImportPage() {
   const [settings, setSettings] = useState<ImportFileSettings>({});
   const [mapping, setMapping] = useState<MappingState>({});
   const [keyColumns, setKeyColumns] = useState<string[]>([]);
+  const [updateChanged, setUpdateChanged] = useState(false);
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
   const [profileId, setProfileId] = useState<number | null>(null);
   const [profileName, setProfileName] = useState("");
@@ -168,6 +187,7 @@ export function ImportPage() {
           const applied = applyProfile(preset, nextHeaders, columns);
           setMapping(applied.mapping);
           setKeyColumns(applied.keyColumns);
+          setUpdateChanged(applied.updateChanged);
         } else {
           // Re-reading the same file keeps the user's choices where the
           // headers still exist; a new file gets a fresh suggestion.
@@ -222,7 +242,7 @@ export function ImportPage() {
     setFile(new File([bytes], handOff.fileName, { type: handOff.fileType || "text/csv" }));
     setContent(handOff.content);
     setNotice(handOff.notice);
-    void analyze(handOff.content, handOff.settings, { mapping: handOff.mapping, keyColumns: handOff.keyColumns }, handOff.fileName).then(
+    void analyze(handOff.content, handOff.settings, { mapping: handOff.mapping, keyColumns: handOff.keyColumns, updateChanged: false }, handOff.fileName).then(
       (ok) => setAutoCheck(ok),
     );
   }, [handOff, columns, analyze]);
@@ -265,6 +285,7 @@ export function ImportPage() {
           settings,
           mapping: toMappingPayload(mapping),
           keyColumns: keyColumns.filter((k) => mapping[k]),
+          ...(updateChanged && keyColumns.some((k) => mapping[k]) ? { updateChanged: true } : {}),
           ...(activeCategoryColumn && Object.keys(categorising.choices).length > 0
             ? {
                 assign: {
@@ -307,7 +328,7 @@ export function ImportPage() {
     setError(null);
     try {
       const done = await runImport(tableId, body);
-      if (done.inserted > 0) useExplorerStore.getState().markTableStale(tableId);
+      if (done.inserted + (done.updated ?? 0) > 0) useExplorerStore.getState().markTableStale(tableId);
       setResult(done);
       setPreview(done);
       // Corrections become rules for the next import ("REWE" → Groceries).
@@ -335,10 +356,20 @@ export function ImportPage() {
       setProfileNotice("Give the profile a name.");
       return;
     }
-    const config = {
-      settings: { encoding: settings.encoding, delimiter: settings.delimiter, decimalSeparator: settings.decimalSeparator, dateFormat: settings.dateFormat },
+    const config: ImportProfileConfig = {
+      settings: {
+        encoding: settings.encoding,
+        delimiter: settings.delimiter,
+        decimalSeparator: settings.decimalSeparator,
+        dateFormat: settings.dateFormat,
+        format: settings.format,
+        // The sheet and the place of the records, so the next export of the same kind reads the same way.
+        ...(settings.sheet ? { sheet: settings.sheet } : {}),
+        ...(settings.jsonPath ? { jsonPath: settings.jsonPath } : {}),
+      },
       mapping: toMappingPayload(mapping),
       keyColumns: keyColumns.filter((k) => mapping[k]),
+      ...(updateChanged ? { updateChanged: true } : {}),
     };
     setBusy("profile");
     setProfileNotice(null);
@@ -409,7 +440,7 @@ export function ImportPage() {
         </Link>
         <h1 className="import-page__title">Import into {displayName}</h1>
         <p className="import-page__lead">
-          Bank and broker exports work as they come: semicolons, decimal commas, German dates and the account lines above the header.
+          Bank and broker exports work as they come: CSV with semicolons, decimal commas, German dates and account lines above the header, Excel sheets and JSON.
         </p>
       </header>
 
@@ -492,6 +523,23 @@ export function ImportPage() {
                 ))}
               </tbody>
             </table>
+            <label className="import-update">
+              <input
+                type="checkbox"
+                checked={updateChanged}
+                disabled={!keyColumns.some((k) => mapping[k])}
+                onChange={(event) => {
+                  invalidate();
+                  setUpdateChanged(event.target.checked);
+                }}
+              />
+              <span>
+                <strong>Update rows that changed</strong>
+                <span className="import-update__hint">
+                  When a row's key is already in {displayName} but its other values differ — a corrected amount, a booking that went from pending to booked — update it instead of skipping it. Empty cells change nothing.
+                </span>
+              </span>
+            </label>
             {missingRequired.length > 0 ? (
               <p className="import-section__warning">
                 Required, not mapped: {missingRequired.map((c) => c.displayName ?? c.name).join(", ")}. Every row will be rejected.
@@ -544,7 +592,7 @@ export function ImportPage() {
           {result ? (
             <Alert
               tone="success"
-              title={`${countRows(result.inserted)} imported into ${displayName}`}
+              title={`${countRows(result.inserted)} imported into ${displayName}${(result.updated ?? 0) > 0 ? `, ${result.updated} updated` : ""}`}
               message={rulesNotice ? `${skippedSummary(result)} ${rulesNotice}` : skippedSummary(result)}
             />
           ) : categoryColumns.length > 0 ? (
@@ -561,6 +609,15 @@ export function ImportPage() {
           <div className="import-summary" role="tablist" aria-label="Rows by status">
             <SummaryChip label="All" count={preview.total} active={reviewFilter === "all"} onClick={() => setReviewFilter("all")} />
             <SummaryChip label={result ? "Imported" : "New"} count={preview.new} tone="new" active={reviewFilter === "new"} onClick={() => setReviewFilter("new")} />
+            {(preview.changed ?? 0) > 0 ? (
+              <SummaryChip
+                label={result ? "Updated" : updateChanged ? "Changed" : "Changed, skipped"}
+                count={preview.changed ?? 0}
+                tone="changed"
+                active={reviewFilter === "changed"}
+                onClick={() => setReviewFilter("changed")}
+              />
+            ) : null}
             <SummaryChip label="Already there" count={preview.duplicates} tone="duplicate" active={reviewFilter === "duplicate"} onClick={() => setReviewFilter("duplicate")} />
             <SummaryChip label="Problems" count={preview.invalid} tone="invalid" active={reviewFilter === "invalid"} onClick={() => setReviewFilter("invalid")} />
           </div>
@@ -585,7 +642,7 @@ export function ImportPage() {
                       <td className="import-review__line">{row.line}</td>
                       <td>
                         <span className={`import-status import-status--${row.status}`}>
-                          {row.status === "new" ? (result ? "Imported" : "New") : row.status === "duplicate" ? "Already there" : "Problem"}
+                          {STATUS_LABELS[row.status][result ? 1 : 0]}
                         </span>
                         {row.errors.length > 0 ? (
                           <ul className="import-review__errors">
@@ -600,7 +657,15 @@ export function ImportPage() {
                           key={column.name}
                           className={errorFields.has(column.name) ? "import-review__cell import-review__cell--error" : "import-review__cell"}
                         >
-                          {row.display[column.name] ?? <span className="import-review__empty">—</span>}
+                          {row.before && column.name in row.before ? (
+                            <span className="import-review__change">
+                              <del>{row.before[column.name] ?? "—"}</del>
+                              <span aria-hidden="true"> → </span>
+                              <ins>{row.display[column.name] ?? "—"}</ins>
+                            </span>
+                          ) : (
+                            (row.display[column.name] ?? <span className="import-review__empty">—</span>)
+                          )}
                         </td>
                       ))}
                       {categoryDef ? (
@@ -654,13 +719,9 @@ export function ImportPage() {
                 type="button"
                 variant="primary"
                 onClick={() => void runImportNow()}
-                disabled={preview.new === 0 || busy !== null}
+                disabled={preview.new + (updateChanged ? (preview.changed ?? 0) : 0) === 0 || busy !== null}
               >
-                {busy === "import"
-                  ? "Importing…"
-                  : preview.new === 0
-                    ? "Nothing new to import"
-                    : `Import ${preview.new} ${preview.new === 1 ? "row" : "rows"}`}
+                {busy === "import" ? "Importing…" : importLabel(preview.new, updateChanged ? (preview.changed ?? 0) : 0)}
               </Button>
             )}
           </div>

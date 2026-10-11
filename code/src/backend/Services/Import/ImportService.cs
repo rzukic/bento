@@ -45,7 +45,7 @@ public sealed class ImportService
 
     public ImportAnalyzeResponse Analyze(ImportAnalyzeRequest request)
     {
-        var document = ReadDocument(request.Content, request.Settings);
+        var document = ReadDocument(request.Content, request.FileName, request.Settings);
         var locale = ResolveLocale(document, request.Settings);
         var headers = document.Headers;
         var records = document.DataRecords.Take(InferenceRows).Select(record => record.Cells).ToList();
@@ -83,7 +83,7 @@ public sealed class ImportService
         var table = _schemaCache.GetTable(tableName)
             ?? throw new ApiNotFoundException($"Table '{tableName}' does not exist.",
                 new Dictionary<string, object?> { ["table"] = tableName });
-        var document = ReadDocument(request.Content, request.Settings);
+        var document = ReadDocument(request.Content, request.FileName, request.Settings);
         var locale = ResolveLocale(document, request.Settings);
         var mapping = ResolveMapping(table, document, request.Mapping);
         var keyColumns = ResolveKeyColumns(mapping, request.KeyColumns);
@@ -99,18 +99,24 @@ public sealed class ImportService
             rows.Add(row);
         }
 
-        await MarkDuplicatesAsync(table, rows, keyColumns, request.DistinctKeys);
+        var updateChanged = request.UpdateChanged && !request.DistinctKeys;
+        await MarkDuplicatesAsync(table, rows, keyColumns, request.DistinctKeys, updateChanged ? mapping : null, references);
         MarkUniqueConflictsInFile(table, rows);
-        foreach (var row in rows.Where(r => r.Status == ImportRowStatus.New))
+        foreach (var row in rows.Where(r => r.Status is ImportRowStatus.New or ImportRowStatus.Changed))
             await ValidateAsync(table, row);
 
         var newRows = rows.Where(r => r.Status == ImportRowStatus.New).ToList();
+        var changedRows = rows.Where(r => r.Status == ImportRowStatus.Changed).ToList();
         var inserted = 0;
-        if (!dryRun && newRows.Count > 0)
+        var updated = 0;
+        if (!dryRun && newRows.Count + changedRows.Count > 0)
         {
             try
             {
-                inserted = await _crudService.InsertManyAsync(table, newRows.Select(r => r.Body!.Value).ToList());
+                (inserted, updated) = await _crudService.ImportManyAsync(
+                    table,
+                    newRows.Select(r => r.Body!.Value).ToList(),
+                    changedRows.Select(r => (r.ExistingId!, r.Body!.Value)).ToList());
             }
             catch (Exception exception) when (exception is not ApiException)
             {
@@ -132,17 +138,21 @@ public sealed class ImportService
                 r.Status switch
                 {
                     ImportRowStatus.Duplicate => "duplicate",
+                    ImportRowStatus.Changed => "changed",
                     ImportRowStatus.Invalid => "invalid",
                     _ => "new"
                 },
                 r.Display,
-                r.Errors)).ToList(),
-            rows.Count > MaxReturnedRows);
+                r.Errors,
+                r.Before)).ToList(),
+            rows.Count > MaxReturnedRows,
+            changedRows.Count,
+            updated);
     }
 
     // ── File and settings ─────────────────────────────────────────────────
 
-    private static CsvDocument ReadDocument(string? content, ImportFileSettings? settings)
+    private static CsvDocument ReadDocument(string? content, string? fileName, ImportFileSettings? settings)
     {
         if (string.IsNullOrWhiteSpace(content))
             throw Invalid("content", "Choose a file to import.");
@@ -159,6 +169,15 @@ public sealed class ImportService
 
         if (bytes.Length == 0)
             throw Invalid("content", "The file is empty.");
+
+        var format = settings?.Format?.Trim().ToLowerInvariant() switch
+        {
+            null or "" => DetectFormat(bytes, fileName),
+            "csv" or "xlsx" or "json" => settings.Format.Trim().ToLowerInvariant(),
+            _ => throw Invalid("settings.format", "The format must be csv, xlsx or json.")
+        };
+        if (format != "csv")
+            return ReadTable(bytes, format, settings);
 
         string? encoding = null;
         if (!string.IsNullOrWhiteSpace(settings?.Encoding))
@@ -187,12 +206,54 @@ public sealed class ImportService
         return document;
     }
 
+    /// <summary>Excel by its zip signature, JSON by its name or first character, else CSV.</summary>
+    private static string DetectFormat(byte[] bytes, string? fileName)
+    {
+        if (XlsxReader.LooksLikeXlsx(bytes))
+            return "xlsx";
+        var extension = Path.GetExtension(fileName ?? "").ToLowerInvariant();
+        if (extension == ".json")
+            return "json";
+        if (extension is ".csv" or ".txt" or ".tsv")
+            return "csv";
+        return JsonTableReader.LooksLikeJson(JsonTableReader.Decode(bytes.Length > 64 ? bytes[..64] : bytes)) ? "json" : "csv";
+    }
+
+    /// <summary>An Excel sheet or a JSON list as the records a CSV file gives.</summary>
+    private static CsvDocument ReadTable(byte[] bytes, string format, ImportFileSettings? settings)
+    {
+        try
+        {
+            if (format == "xlsx")
+            {
+                var (records, sheets, sheet) = XlsxReader.Read(bytes, settings?.Sheet);
+                if (records.Count == 0)
+                    throw Invalid("content", $"The sheet '{sheet}' is empty.");
+                var header = settings?.HeaderLine is { } fixedHeader && fixedHeader >= 0 && fixedHeader < records.Count
+                    ? fixedHeader
+                    : CsvReader.DetectHeaderLine(records);
+                return new CsvDocument(CsvReader.Utf8, ',', header, records) { Format = "xlsx", Sheets = sheets, Sheet = sheet };
+            }
+
+            var (rows, path) = JsonTableReader.Read(JsonTableReader.Decode(bytes), settings?.JsonPath);
+            if (rows.Count <= 1)
+                throw Invalid("content", "The list in the JSON is empty.");
+            return new CsvDocument(CsvReader.Utf8, ',', 0, rows) { Format = "json", JsonPath = path };
+        }
+        catch (InvalidDataException e)
+        {
+            throw Invalid(format == "xlsx" ? "settings.sheet" : "settings.jsonPath", e.Message);
+        }
+    }
+
     private static ImportLocale ResolveLocale(CsvDocument document, ImportFileSettings? settings)
     {
         var detected = ImportValueParser.DetectLocale(
             document.DataRecords.Take(AnalyzeSampleRows).SelectMany(record => record.Cells));
         var decimalSeparator = settings?.DecimalSeparator switch
         {
+            // Excel and JSON numbers are already invariant ("1234.5").
+            null or "" when document.Format != "csv" => ".",
             null or "" => detected.DecimalSeparator,
             "," or "." => settings.DecimalSeparator,
             _ => throw Invalid("settings.decimalSeparator", "The decimal separator must be ',' or '.'.")
@@ -204,7 +265,8 @@ public sealed class ImportService
     }
 
     private static ImportResolvedSettings ToResolvedSettings(CsvDocument document, ImportLocale locale) =>
-        new(document.Encoding, DelimiterText(document.Delimiter), document.HeaderLine, locale.DecimalSeparator, locale.DateFormat);
+        new(document.Encoding, DelimiterText(document.Delimiter), document.HeaderLine, locale.DecimalSeparator, locale.DateFormat,
+            document.Format, document.Sheet, document.Sheets, document.JsonPath);
 
     private static string DelimiterText(char delimiter) => delimiter == '\t' ? "\\t" : delimiter.ToString();
 
@@ -342,7 +404,7 @@ public sealed class ImportService
 
     // ── Rows ──────────────────────────────────────────────────────────────
 
-    private enum ImportRowStatus { New, Duplicate, Invalid }
+    private enum ImportRowStatus { New, Duplicate, Changed, Invalid }
 
     private sealed class PendingRow
     {
@@ -352,6 +414,9 @@ public sealed class ImportService
         public List<ImportRowError> Errors { get; } = [];
         public ImportRowStatus Status { get; set; } = ImportRowStatus.New;
         public JsonElement? Body { get; set; }
+        /// <summary>A changed row: the row in the table, and its values before (as displayed).</summary>
+        public object? ExistingId { get; set; }
+        public Dictionary<string, string?>? Before { get; set; }
     }
 
     private PendingRow ConvertRow(
@@ -532,19 +597,41 @@ public sealed class ImportService
     /// on the same day imports both, unless the table already has them —
     /// re-importing an overlapping statement adds only what is missing.
     /// </summary>
-    private async Task MarkDuplicatesAsync(TableDef table, List<PendingRow> rows, List<ColumnDef> keyColumns, bool distinctKeys)
+    /// <summary>
+    /// Rows whose key is in the table already are duplicates; the n-th row of
+    /// the file with a key matches the n-th row of the table with it (two
+    /// equal bookings on one day are two rows). With <paramref name="updateMapping"/>
+    /// a matched row whose other mapped values differ is <c>changed</c> instead.
+    /// </summary>
+    private async Task MarkDuplicatesAsync(
+        TableDef table,
+        List<PendingRow> rows,
+        List<ColumnDef> keyColumns,
+        bool distinctKeys,
+        List<MappedColumn>? updateMapping,
+        Dictionary<string, ReferenceLookup> references)
     {
         if (keyColumns.Count == 0)
             return;
 
-        var existing = new Dictionary<string, int>(StringComparer.Ordinal);
+        // Updating needs one primary key column to find the row again.
+        var primaryKey = table.Columns.Where(c => c.PrimaryKey).ToList() is [var single] ? single : null;
+        var compared = updateMapping is null || primaryKey is null
+            ? null
+            : updateMapping.Select(m => m.Column).Where(c => !keyColumns.Contains(c)).Distinct().ToList();
+        var selected = keyColumns.Concat(compared ?? []).Append(compared is null ? null : primaryKey).OfType<ColumnDef>().Distinct().ToList();
+
+        var existing = new Dictionary<string, List<IDictionary<string, object?>>>(StringComparer.Ordinal);
         await using (var scope = await _queryService.UseDataAsync())
         {
-            var select = $"SELECT {string.Join(", ", keyColumns.Select(c => Quote(c.Name)))} FROM {Quote(table.Name)}";
+            var select = $"SELECT {string.Join(", ", selected.Select(c => Quote(c.Name)))} FROM {Quote(table.Name)}"
+                + (compared is null ? "" : $" ORDER BY {Quote(primaryKey!.Name)}");
             foreach (IDictionary<string, object?> record in await scope.Db.Connection.QueryAsync(select))
             {
                 var key = KeyOf(keyColumns, column => record.TryGetValue(column.Name, out var v) ? v : null, distinctKeys);
-                existing[key] = existing.GetValueOrDefault(key) + 1;
+                if (!existing.TryGetValue(key, out var matches))
+                    existing[key] = matches = [];
+                matches.Add(record);
             }
         }
 
@@ -554,9 +641,44 @@ public sealed class ImportService
             var key = KeyOf(keyColumns, column => row.Values.GetValueOrDefault(column.Name), distinctKeys);
             var count = seen.GetValueOrDefault(key);
             seen[key] = count + 1;
-            if (count < existing.GetValueOrDefault(key) || (distinctKeys && count > 0))
+            if (distinctKeys && count > 0)
+            {
                 row.Status = ImportRowStatus.Duplicate;
+                continue;
+            }
+            if (!existing.TryGetValue(key, out var matches) || count >= matches.Count)
+                continue;
+            row.Status = ImportRowStatus.Duplicate;
+            if (compared is null)
+                continue;
+
+            // Empty cells were left out of the row: they change nothing.
+            var record = matches[count];
+            var before = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var column in compared.Where(c => row.Values.ContainsKey(c.Name)))
+            {
+                var stored = record.TryGetValue(column.Name, out var value) ? value : null;
+                if (Canonical(row.Values[column.Name], column.Type) != Canonical(stored, column.Type))
+                    before[column.Name] = DisplayStored(stored, column, references);
+            }
+            if (before.Count == 0)
+                continue;
+            row.Status = ImportRowStatus.Changed;
+            row.ExistingId = record[primaryKey!.Name];
+            row.Before = before;
         }
+    }
+
+    /// <summary>A stored value as the preview shows it (a link by its record's label).</summary>
+    private static string? DisplayStored(object? value, ColumnDef column, Dictionary<string, ReferenceLookup> references)
+    {
+        if (value is null or DBNull)
+            return null;
+        if (column.Type == ColumnType.Reference && column.References is not null &&
+            references.TryGetValue(column.References, out var lookup) &&
+            lookup.ById.TryGetValue(Convert.ToString(value, CultureInfo.InvariantCulture)!, out var target))
+            return target.Label;
+        return Canonical(value, column.Type);
     }
 
     /// <summary>
@@ -639,10 +761,16 @@ public sealed class ImportService
 
     private async Task ValidateAsync(TableDef table, PendingRow row)
     {
-        var body = JsonSerializer.SerializeToElement(row.Values, BodyJson);
+        // A changed row writes only what changed, like PATCH.
+        var body = JsonSerializer.SerializeToElement(
+            row.Before is null ? row.Values : row.Values.Where(v => row.Before.ContainsKey(v.Key)).ToDictionary(v => v.Key, v => v.Value),
+            BodyJson);
         try
         {
-            await _validator.ValidateCreateAsync(table, body);
+            if (row.ExistingId is not null)
+                await _validator.ValidatePatchAsync(table, row.ExistingId, body);
+            else
+                await _validator.ValidateCreateAsync(table, body);
             row.Body = body;
         }
         catch (ApiValidationException exception)

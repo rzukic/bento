@@ -3,8 +3,9 @@ using System.Text;
 namespace Bento.Api.Services.Import;
 
 /// <summary>
-/// A decoded and split CSV file: every physical record as raw cells, plus the
-/// settings it was read with (detected unless the caller fixed them).
+/// A decoded and split file: every physical record as raw cells, plus the
+/// settings it was read with (detected unless the caller fixed them). Excel
+/// and JSON files are read into the same records (<see cref="Format"/>).
 /// </summary>
 public sealed record CsvDocument(
     string Encoding,
@@ -12,6 +13,14 @@ public sealed record CsvDocument(
     int HeaderLine,
     IReadOnlyList<CsvRecord> Records)
 {
+    /// <summary><c>csv</c>, <c>xlsx</c> or <c>json</c>.</summary>
+    public string Format { get; init; } = "csv";
+    /// <summary>Excel: the workbook's sheets and the one read.</summary>
+    public IReadOnlyList<string>? Sheets { get; init; }
+    public string? Sheet { get; init; }
+    /// <summary>JSON: where the list of records was found (empty: the top).</summary>
+    public string? JsonPath { get; init; }
+
     /// <summary>The header cells (trimmed; empty headers become "Column N").</summary>
     public IReadOnlyList<string> Headers =>
         HeaderLine < Records.Count
