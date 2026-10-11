@@ -72,11 +72,16 @@ public sealed class AggregationQueryService
         /// <summary>ROLLING_SUM / ROLLING_AVG: a window over the last periods instead of all before (with Running).</summary>
         public RollingWindow? Rolling { get; init; }
         public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
+        public IReadOnlyList<DateColumn> PeriodDates { get; init; } = [];
     }
 
     /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
     /// <param name="Base">The first period is only a base for TWR/REBASE (the end of the period before the range) and is dropped from the result.</param>
-    private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods, bool Base = false);
+    private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods, bool Base = false)
+    {
+        /// <summary>Set for "all time" (no asOf.from): the last day; the first comes from the data before the query runs.</summary>
+        public DateOnly? OpenUntil { get; init; }
+    }
 
     private sealed record Plan(
         TableDef Table,
@@ -106,6 +111,9 @@ public sealed class AggregationQueryService
             context.Items[ProblemLog.QueryItem] = json;
         await _indexes.EnsureAsync(plan.Measures.SelectMany(m => m.Indexes).Concat(plan.Computed.Values.SelectMany(c => c.Indexes)));
         await using var scope = await _queryService.UseDataAsync();
+        var startWarning = default(string);
+        if (plan.Calendar is { OpenUntil: not null })
+            (plan, startWarning) = await WithFirstPeriodAsync(plan, scope);
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
         var (sql, parameters) = BuildSql(plan, scope);
@@ -127,6 +135,8 @@ public sealed class AggregationQueryService
 
         var warnings = RunCustomMeasures(plan, rows);
         warnings.AddRange(RunSeriesMeasures(plan, rows));
+        if (startWarning is not null)
+            warnings.Add(startWarning);
         if (plan.Calendar is { Base: true } calendar)
         {
             var label = calendar.Periods[0].Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
@@ -371,7 +381,7 @@ public sealed class AggregationQueryService
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
         // An average of currency stays currency; of anything else it is a number.
         var type = rolling is { Average: true } && check.Result.Type != FormulaType.Currency ? FormulaType.Number : check.Result.Type;
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, type, custom, series) { Indexes = check.Result.Indexes, Rolling = rolling };
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, type, custom, series) { Indexes = check.Result.Indexes, PeriodDates = check.Result.PeriodDates, Rolling = rolling };
     }
 
     // Daily values over 13 years. The work grows with periods × rows; the query
@@ -383,13 +393,25 @@ public sealed class AggregationQueryService
         var bucket = asOf.Bucket?.Trim().ToLowerInvariant();
         if (bucket is null || !Buckets.Contains(bucket))
             throw Invalid("asOf.bucket", "Choose the period: day, week, month, quarter or year.");
-        if (!DateOnly.TryParseExact(asOf.From?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
-            throw Invalid("asOf.from", "asOf.from must be a date (yyyy-MM-dd).");
         if (!DateOnly.TryParseExact(asOf.To?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var to))
             throw Invalid("asOf.to", "asOf.to must be a date (yyyy-MM-dd).");
+        var output = Output(asOf.As ?? "period", outputs, "asOf.as");
+        // Without a first day ("all time") the series begins where the data does (WithFirstPeriodAsync).
+        if (string.IsNullOrWhiteSpace(asOf.From))
+            return new Calendar(bucket, output, Periods(bucket, to, to)) { OpenUntil = to };
+        if (!DateOnly.TryParseExact(asOf.From.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
+            throw Invalid("asOf.from", "asOf.from must be a date (yyyy-MM-dd).");
         if (to < from)
             throw Invalid("asOf.to", "asOf.to is before asOf.from.");
+        var periods = Periods(bucket, from, to);
+        if (periods.Count > MaxPeriods)
+            throw Invalid("asOf", $"At most {MaxPeriods} periods; choose a longer period or a shorter range.");
+        return new Calendar(bucket, output, periods);
+    }
 
+    /// <summary>The periods from the one holding <paramref name="from"/> to the one holding <paramref name="to"/>; at most one past <see cref="MaxPeriods"/>.</summary>
+    private static List<(DateOnly Start, DateOnly End)> Periods(string bucket, DateOnly from, DateOnly to)
+    {
         DateOnly Start(DateOnly day) => bucket switch
         {
             "day" => day,
@@ -407,14 +429,62 @@ public sealed class AggregationQueryService
             _ => start.AddYears(1)
         };
 
-        var periods = new List<(DateOnly, DateOnly)>();
-        for (var start = Start(from); start <= to; start = Next(start))
-        {
-            if (periods.Count == MaxPeriods)
-                throw Invalid("asOf", $"At most {MaxPeriods} periods; choose a longer period or a shorter range.");
+        // Counted from the end: "all time" keeps the newest periods.
+        var periods = new List<(DateOnly Start, DateOnly End)>();
+        for (var start = Start(to); start >= Start(from) && periods.Count <= MaxPeriods; start = Previous(start))
             periods.Add((start, Next(start).AddDays(-1)));
+        periods.Reverse();
+        return periods;
+
+        DateOnly Previous(DateOnly start) => bucket switch
+        {
+            "day" => start.AddDays(-1),
+            "week" => start.AddDays(-7),
+            "month" => start.AddMonths(-1),
+            "quarter" => start.AddMonths(-3),
+            _ => start.AddYears(-1)
+        };
+    }
+
+    /// <summary>
+    /// "All time": the series begins with the earliest date its formulas compare
+    /// with the period (<c>trades.date &lt;= BUCKET_END()</c>: the first trade), or
+    /// a year before the end when they compare none. Over <see cref="MaxPeriods"/>
+    /// periods it keeps the newest, and says so.
+    /// </summary>
+    private async Task<(Plan Plan, string? Warning)> WithFirstPeriodAsync(Plan plan, QueryScope scope)
+    {
+        var calendar = plan.Calendar!;
+        var to = calendar.OpenUntil!.Value;
+        DateOnly? first = null;
+        foreach (var dated in plan.Measures.SelectMany(m => m.PeriodDates).Distinct())
+        {
+            if (_schemaCache.GetTable(dated.Table) is null)
+                continue;
+            var value = await scope.Db.Connection.ExecuteScalarAsync<object?>(new CommandDefinition(
+                $"SELECT MIN({Q(dated.Column)}) FROM {Q(dated.Table)}", cancellationToken: Aborted));
+            var day = value switch
+            {
+                DateTime time => DateOnly.FromDateTime(time),
+                DateOnly date => date,
+                DateTimeOffset offset => DateOnly.FromDateTime(offset.UtcDateTime),
+                string text when text.Length >= 10 && DateOnly.TryParseExact(text[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) => parsed,
+                _ => (DateOnly?)null
+            };
+            if (day is not null && (first is null || day < first))
+                first = day;
         }
-        return new Calendar(bucket, Output(asOf.As ?? "period", outputs, "asOf.as"), periods);
+
+        var from = first ?? new DateOnly(to.Year - 1, to.Month, 1);
+        var periods = Periods(calendar.Bucket, from > to ? to : from, to);
+        string? warning = null;
+        if (periods.Count > MaxPeriods)
+        {
+            periods = periods.Skip(periods.Count - MaxPeriods).ToList();
+            warning = $"All time has more than {MaxPeriods} periods; this shows the newest {MaxPeriods}. Choose a longer period to see the start.";
+        }
+        var open = calendar with { Periods = periods, Base = false, OpenUntil = null };
+        return (plan with { Calendar = calendar.Base ? WithBasePeriod(open) : open }, warning);
     }
 
     /// <summary>Variables sent with a query: numbers, text and yes/no as formula constants.</summary>

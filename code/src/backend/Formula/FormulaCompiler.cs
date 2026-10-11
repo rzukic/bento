@@ -18,7 +18,15 @@ public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList
 {
     /// <summary>The searches the SQL makes per row — related rows, LOOKUP_ASOF — so indexes can serve them (see <see cref="Services.QueryIndexes"/>).</summary>
     public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
+    /// <summary>
+    /// Date columns compared with BUCKET_START()/BUCKET_END() (<c>trades.date &lt;= BUCKET_END()</c>):
+    /// where a series of values at period ends begins, for "all time".
+    /// </summary>
+    public IReadOnlyList<DateColumn> PeriodDates { get; init; } = [];
 }
+
+/// <summary>A date column of a table, by name.</summary>
+public sealed record DateColumn(string Table, string Column);
 
 /// <summary>
 /// A search the compiled SQL makes per row, which an index on
@@ -123,6 +131,10 @@ public sealed class FormulaCompiler
     private sealed record Expr(string Sql, FormulaType Type, FormulaNode Node, object? Constant = null, bool IsRows = false)
     {
         public bool IsConstant => Node is NumberLiteral or StringLiteral or BooleanLiteral or NullLiteral;
+        /// <summary>The stored column this is, if it is one.</summary>
+        public DateColumn? Column { get; init; }
+        /// <summary>BUCKET_START() or BUCKET_END().</summary>
+        public bool IsBucket { get; init; }
     }
 
     /// <summary>The table a column name is looked up in, and the SQL alias of its row.</summary>
@@ -138,6 +150,8 @@ public sealed class FormulaCompiler
         public List<string> Chain { get; } = [];
         /// <summary>Searches per row (related rows, LOOKUP_ASOF), the computed columns' included.</summary>
         public List<IndexTarget> Indexes { get; } = [];
+        /// <summary>Date columns compared with the period (see <see cref="CompiledFormula.PeriodDates"/>).</summary>
+        public List<DateColumn> PeriodDates { get; } = [];
         private int _aliases;
         public string NextAlias(string prefix) => $"__{prefix}{++_aliases}";
     }
@@ -192,8 +206,8 @@ public sealed class FormulaCompiler
     }
 
     private static FormulaCheck WithLookups(FormulaCheck check, Shared shared) =>
-        check.Result is { } result && shared.Indexes.Count > 0
-            ? check with { Result = result with { Indexes = shared.Indexes.Distinct().ToList() } }
+        check.Result is { } result && (shared.Indexes.Count > 0 || shared.PeriodDates.Count > 0)
+            ? check with { Result = result with { Indexes = shared.Indexes.Distinct().ToList(), PeriodDates = shared.PeriodDates.Distinct().ToList() } }
             : check;
 
     /// <summary>
@@ -694,7 +708,7 @@ public sealed class FormulaCompiler
         {
             sql = _pg ? $"({sql} AT TIME ZONE 'UTC')" : $"datetime({sql})";
         }
-        return new Expr(sql, type, reference);
+        return new Expr(sql, type, reference) { Column = new DateColumn(_scope.Table.Name, column.Name) };
     }
 
     /// <summary>Another computed column: its formula inlined, cycles reported.</summary>
@@ -917,6 +931,10 @@ public sealed class FormulaCompiler
             var r = AsTemporal(right, target);
             if (l is null || r is null)
                 return Fail(node, $"Cannot compare {FormulaTypes.Describe(left.Type)} with {FormulaTypes.Describe(right.Type)}.");
+            // trades.date <= BUCKET_END(): the series begins with the first trade.
+            var dated = left.IsBucket ? right : right.IsBucket ? left : null;
+            if (dated is { Column: { } column } && FormulaTypes.IsTemporal(dated.Type))
+                _shared.PeriodDates.Add(column);
             return new Expr($"({l} {op} {r})", FormulaType.Boolean, node);
         }
 
@@ -1212,7 +1230,7 @@ public sealed class FormulaCompiler
                     return null;
                 if (_shared.Context.BucketAlias is not { } bucket)
                     return Fail(call, $"{name}() only works in queries by period end (\"Value at the end of each period\").");
-                return new Expr($"{bucket}.{Q(name == "BUCKET_START" ? "bucket" : "bucket_end")}", FormulaType.Date, call);
+                return new Expr($"{bucket}.{Q(name == "BUCKET_START" ? "bucket" : "bucket_end")}", FormulaType.Date, call) { IsBucket = true };
             }
             case "TODAY":
                 return Arity(call, 0, 0)
@@ -1584,7 +1602,8 @@ public sealed class FormulaCompiler
             return Fail(args[3], $"'{dateName}' is not a date column.");
 
         var match = Compare(matchColumn, "=", matchValue, args[2]);
-        var onOrBefore = Compare(dateColumn, "<=", atDate, args[4]);
+        // The lookup's dates (prices back to 2010) are not where a series begins.
+        var onOrBefore = Compare(dateColumn with { Column = null }, "<=", atDate, args[4]);
         if (match is null || onOrBefore is null)
             return null;
         // Stored columns only; text matches compare lower-cased, so the index uses the same expression.
