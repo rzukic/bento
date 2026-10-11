@@ -121,7 +121,7 @@
     position: relative;
     border: 1.5px dashed var(--border-strong);
     border-radius: 12px;
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
     transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
@@ -453,7 +453,7 @@
 }
 
 .import-status--duplicate {
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
     color: var(--text-3);
 }
 

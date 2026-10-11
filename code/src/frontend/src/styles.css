@@ -910,6 +910,12 @@ textarea:disabled {
     }
 }
 
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
 @keyframes fade-up {
     from {
         opacity: 0;

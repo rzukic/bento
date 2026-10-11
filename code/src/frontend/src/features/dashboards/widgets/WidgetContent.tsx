@@ -316,8 +316,24 @@ function ChartWidget({
     },
     [onDrill, onDrillDown, widget.type, widget.data, model, query, range],
   );
+  const describeItem = useCallback(
+    (click: ChartClick) => {
+      const title = formatBucketTitle(String(click.name ?? ""), model.bucket);
+      const series = widget.type === "donut" ? undefined : model.series[click.seriesIndex ?? -1];
+      return series?.pick && model.series.length > 1 ? `${series.name} · ${title}` : title;
+    },
+    [model, widget.type],
+  );
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill || onDrillDown ? onItemClick : undefined} />;
+  return (
+    <EChart
+      option={option}
+      label={widget.title || "Chart"}
+      onHoverSeries={onHoverSeries}
+      onItemClick={onDrill || onDrillDown ? onItemClick : undefined}
+      describeItem={describeItem}
+    />
+  );
 }
 
 function SankeyWidget({

@@ -295,9 +295,23 @@
 }
 
 .dashboard-grid--stacked {
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.dashboard-grid--stacked .dashboard-grid__slot {
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+.dashboard-grid--stacked .dashboard-grid__slot--half {
+    grid-column: auto;
+}
+
+/* Key figures in a half-width phone tile: smaller type, less padding. */
+.dashboard-grid__slot--half .widget-kpi__value {
+    font-size: 1.375rem;
 }
 
 .dashboard-grid__guides {
@@ -503,6 +517,37 @@
 .widget-chart {
     width: 100%;
     height: 100%;
+}
+
+.widget-chart-frame {
+    position: relative;
+}
+
+/* A finger moving sideways moves the tooltip along the chart; up and down still scrolls the page. */
+.widget-chart {
+    touch-action: pan-y;
+}
+
+/* Touch: after a tap shows a point's values, this opens its rows. */
+.widget-chart-rows {
+    position: absolute;
+    top: 0;
+    right: 0.25rem;
+    z-index: 2;
+    max-width: calc(100% - 0.5rem);
+    padding: 0.375rem 0.75rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--bg);
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    box-shadow: var(--popover-shadow);
+    cursor: pointer;
 }
 
 .widget-note {
@@ -784,10 +829,48 @@
     .dashboards-page,
     .dashboard-page {
         --page-gutter: 1rem;
+        padding-top: 0.5rem;
+    }
+
+    /* The breadcrumb above leads back already. */
+    .dashboard-page__back {
+        display: none;
+    }
+
+    .dashboard-page__title {
+        font-size: 1.75rem;
     }
 
     .dashboard-page__controls {
+        width: 100%;
         margin-left: 0;
+        justify-content: flex-start;
+        gap: 0.375rem;
+    }
+
+    .dashboard-page__controls .field__control {
+        max-width: 11rem;
+    }
+
+    /* Editing on the phone: the buttons wrap; moving and resizing need a larger screen. */
+    .dashboard-page__toolbar {
+        flex-wrap: wrap;
+        gap: 0.25rem 0.5rem;
+    }
+
+    .dashboard-page__hint,
+    .dashboard-grid--stacked .widget-frame__resize {
+        display: none;
+    }
+
+    /* Icon only: History and Edit keep their names for screen readers. */
+    .dashboard-page__label {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
     }
 }
 

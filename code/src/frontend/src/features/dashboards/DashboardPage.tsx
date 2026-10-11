@@ -462,7 +462,7 @@ export function DashboardPage() {
             )}
             {!editing ? (
               <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="clock" size={13} />} onClick={() => setHistoryOpen(true)}>
-                History
+                <span className="dashboard-page__label">History</span>
               </Button>
             ) : null}
             {dashboard.isOwner ? (
@@ -496,7 +496,7 @@ export function DashboardPage() {
                 </>
               ) : (
                 <Button type="button" variant="ghost" leadingIcon={<Icon name="pencil" size={13} />} onClick={startEditing}>
-                  Edit
+                  <span className="dashboard-page__label">Edit</span>
                 </Button>
               )
             ) : null}
