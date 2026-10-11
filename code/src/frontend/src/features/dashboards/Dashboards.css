@@ -1095,9 +1095,9 @@
     color: var(--warning);
 }
 
-/* ── Budgets (Step 4.5) ── */
+/* ── Targets: each group against its target or limit ── */
 
-.budget {
+.target {
     display: flex;
     height: 100%;
     flex-direction: column;
@@ -1105,7 +1105,7 @@
     padding: 0.25rem 0.5rem 0.75rem;
 }
 
-.budget__rows {
+.target__rows {
     display: flex;
     /* As tall as its rows (the total follows right below), scrolling when the widget is smaller. */
     flex: 0 1 auto;
@@ -1117,7 +1117,7 @@
     list-style: none;
 }
 
-.budget__row {
+.target__row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto auto;
     align-items: baseline;
@@ -1133,33 +1133,33 @@
     text-align: left;
 }
 
-button.budget__row {
+button.target__row {
     cursor: pointer;
 }
 
-button.budget__row:hover,
-button.budget__row:focus-visible {
+button.target__row:hover,
+button.target__row:focus-visible {
     background: var(--hover);
 }
 
-.budget__name {
+.target__name {
     overflow: hidden;
     font-weight: 600;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.budget__amounts {
+.target__amounts {
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
     white-space: nowrap;
 }
 
-.budget__of {
+.target__of {
     color: var(--text-3);
 }
 
-.budget__share {
+.target__share {
     min-width: 3.25rem;
     font-family: var(--font-mono);
     font-size: var(--fs-xs);
@@ -1167,15 +1167,19 @@ button.budget__row:focus-visible {
     text-align: right;
 }
 
-.budget__share--close {
+.target__share--close {
     color: var(--warning);
 }
 
-.budget__share--over {
+.target__share--over {
     color: var(--danger);
 }
 
-.budget__bar {
+.target__share--done {
+    color: var(--success);
+}
+
+.target__bar {
     grid-column: 1 / -1;
     height: 6px;
     border-radius: var(--r-pill);
@@ -1183,22 +1187,26 @@ button.budget__row:focus-visible {
     overflow: hidden;
 }
 
-.budget__fill {
+.target__fill {
     display: block;
     height: 100%;
     border-radius: inherit;
     background: var(--text-2);
 }
 
-.budget__fill--close {
+.target__fill--close {
     background: var(--warning);
 }
 
-.budget__fill--over {
+.target__fill--over {
     background: var(--danger);
 }
 
-.budget__footer {
+.target__fill--done {
+    background: var(--success);
+}
+
+.target__footer {
     margin: 0;
     padding: 0 0.5rem;
     color: var(--text-3);

@@ -1,4 +1,4 @@
-import type { BudgetConfig, DashboardDocument, DashboardWidget, WidgetType } from "../../api/dashboards";
+import type { TargetConfig, DashboardDocument, DashboardWidget, WidgetType } from "../../api/dashboards";
 import type { AggregationQuery } from "../../api/query";
 import type { ModelColumn, ModelTable } from "../../types/api";
 import { addItem, type LayoutItem } from "./layout";
@@ -12,7 +12,7 @@ const DEFAULT_SIZE: Record<WidgetType, { w: number; h: number }> = {
   sankey: { w: 8, h: 5 },
   table: { w: 6, h: 4 },
   text: { w: 4, h: 2 },
-  budget: { w: 6, h: 5 },
+  target: { w: 6, h: 5 },
 };
 
 export const WIDGET_LABELS: Record<WidgetType, string> = {
@@ -24,7 +24,7 @@ export const WIDGET_LABELS: Record<WidgetType, string> = {
   sankey: "Sankey",
   table: "Table",
   text: "Text",
-  budget: "Budgets",
+  target: "Targets",
 };
 
 /** Tables that hold records (not N:M link tables). */
@@ -100,7 +100,7 @@ export function newWidgetId(): string {
 
 /** A sensible first query for a new widget of this type on this table. */
 export function defaultQuery(type: WidgetType, table: ModelTable): AggregationQuery | undefined {
-  if (type === "text" || type === "budget") return undefined;
+  if (type === "text" || type === "target") return undefined;
   const { date, amount, category, text } = pickColumns(table);
   const value = amount ? { name: amount.name, fn: "sum" as const, column: amount.name } : { name: "rows", fn: "count" as const };
   switch (type) {
@@ -130,7 +130,7 @@ export function defaultQuery(type: WidgetType, table: ModelTable): AggregationQu
   }
 }
 
-export function newWidget(type: WidgetType, table: ModelTable | undefined, layout: LayoutItem[], budget?: BudgetConfig): DashboardWidget {
+export function newWidget(type: WidgetType, table: ModelTable | undefined, layout: LayoutItem[], target?: TargetConfig): DashboardWidget {
   const id = newWidgetId();
   const size = DEFAULT_SIZE[type];
   const placed = addItem(layout, id, size.w, size.h).find((item) => item.id === id)!;
@@ -139,7 +139,7 @@ export function newWidget(type: WidgetType, table: ModelTable | undefined, layou
     type,
     title: type === "text" ? "" : WIDGET_LABELS[type],
     position: { x: placed.x, y: placed.y, w: placed.w, h: placed.h },
-    data: type === "budget" ? (budget ? { budget } : undefined) : type === "text" || !table ? undefined : { query: defaultQuery(type, table) },
+    data: type === "target" ? (target ? { target } : undefined) : type === "text" || !table ? undefined : { query: defaultQuery(type, table) },
     display: type === "text" ? { text: "# Notes\nWhat this dashboard is for." } : { format: "auto" },
   };
 }
@@ -239,7 +239,7 @@ export function cashFlowDashboard(table: ModelTable): DashboardDocument {
       title: "Money flow",
       position: { x: 0, y: 10, w: 12, h: 5 },
       data: { query: { source: table.name, groupBy: [{ column: category.name, top: 8, other: true, rank: "abs" }], measures: [sum("amount")] }, dateColumn: date.name },
-      display: { format: "auto", sankey: "cashflow" },
+      display: { format: "auto", sankey: "balance", sankeyLabels: { center: "Income", rest: "Saved", shortfall: "From savings" } },
     });
   }
   return { dateRange: { preset: "last-12-months" }, refreshSeconds: 0, widgets };

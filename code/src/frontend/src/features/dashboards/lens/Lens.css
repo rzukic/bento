@@ -894,3 +894,11 @@
 .lens-intervals__option:disabled {
     cursor: default;
 }
+
+/* A balance Sankey's own names for its centre, rest and shortfall. */
+.lens-sankey-labels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}

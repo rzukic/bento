@@ -27,7 +27,7 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 import "./Notifications.css";
 
-const KIND_LABELS: Record<RuleKind, string> = { condition: "Condition", budget: "Budget", event: "Event", report: "Report" };
+const KIND_LABELS: Record<RuleKind, string> = { condition: "Condition", target: "Target", event: "Event", report: "Report" };
 const PERIODS: { value: RulePeriod | ""; label: string }[] = [
   { value: "this-month", label: "This month" },
   { value: "this-week", label: "This week" },
@@ -59,18 +59,18 @@ export function errorText(cause: unknown, fallback: string): string {
   return cause instanceof ApiClientError ? cause.message : fallback;
 }
 
-/** Budget widgets on the dashboards: what a budget rule watches. */
-function budgetWidgets(dashboards: Dashboard[]) {
+/** Target widgets on the dashboards: what a target rule watches. */
+function targetWidgets(dashboards: Dashboard[]) {
   return dashboards.flatMap((dashboard) =>
     (dashboard.dashboard.widgets ?? [])
-      .filter((widget) => widget.type === "budget")
-      .map((widget) => ({ dashboardId: dashboard.id, widgetId: widget.id, label: `${dashboard.name} · ${widget.title || "Budget"}` })),
+      .filter((widget) => widget.type === "target")
+      .map((widget) => ({ dashboardId: dashboard.id, widgetId: widget.id, label: `${dashboard.name} · ${widget.title || "Targets"}` })),
   );
 }
 
 /**
  * Step 5.3 (Settings, admins): when Bento speaks — a value crossing a line,
- * a budget running over, an import or a price update failing. Each rule tells
+ * a group reaching its target or limit, an import or a price update failing. Each rule tells
  * you once when it starts to hold and stays quiet until it clears.
  */
 export function RulesPanel() {
@@ -145,7 +145,7 @@ export function RulesPanel() {
   return (
     <Panel
       title="Notification rules"
-      description="When Bento tells you something: a value crossing a line, a budget running over, an import failing. Each rule speaks once when it starts to hold, then waits until it clears."
+      description="When Bento tells you something: a value crossing a line, a group reaching its target or limit, an import failing. Each rule speaks once when it starts to hold, then waits until it clears."
       actions={
         editing === null && channels.length > 0 ? (
           <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="plus" size={13} />} onClick={() => setEditing("new")}>
@@ -171,7 +171,7 @@ export function RulesPanel() {
       ) : channels.length === 0 ? (
         <p className="channels__empty">Add a channel above first: rules tell you over it.</p>
       ) : rules.length === 0 && editing === null ? (
-        <p className="channels__empty">No rules yet. For example: groceries over budget, spending this month above a limit, a scheduled import failing.</p>
+        <p className="channels__empty">No rules yet. For example: a value this month above a number, a project reaching its weekly hours, a scheduled import failing.</p>
       ) : (
         <ul className="channels">
           {rules.map((rule) => (
@@ -254,7 +254,7 @@ function RuleForm({
   const [threshold, setThreshold] = useState(rule?.config.threshold != null ? String(rule.config.threshold) : "");
   const [every, setEvery] = useState<"hour" | "day">(rule?.config.every === "day" ? "day" : "hour");
   const [at, setAt] = useState(rule?.config.at ?? "08:00");
-  const [budget, setBudget] = useState(rule?.config.widgetId ? `${rule.config.dashboardId}:${rule.config.widgetId}` : "");
+  const [target, setTarget] = useState(rule?.config.widgetId ? `${rule.config.dashboardId}:${rule.config.widgetId}` : "");
   const [percent, setPercent] = useState(rule?.config.percent != null ? String(rule.config.percent) : "100");
   const [event, setEvent] = useState<"import.failed" | "price.failed">(rule?.config.event ?? "import.failed");
   const [chosen, setChosen] = useState<number[]>(rule?.channels ?? channels.slice(0, 1).map((c) => c.id));
@@ -263,15 +263,15 @@ function RuleForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (kind !== "budget") return;
+    if (kind !== "target") return;
     listDashboards()
       .then(setDashboards)
       .catch(() => setDashboards([]));
   }, [kind]);
-  const budgets = useMemo(() => budgetWidgets(dashboards), [dashboards]);
+  const targets = useMemo(() => targetWidgets(dashboards), [dashboards]);
   useEffect(() => {
-    if (kind === "budget" && !budget && budgets[0]) setBudget(`${budgets[0].dashboardId}:${budgets[0].widgetId}`);
-  }, [kind, budget, budgets]);
+    if (kind === "target" && !target && targets[0]) setTarget(`${targets[0].dashboardId}:${targets[0].widgetId}`);
+  }, [kind, target, targets]);
 
   const table = tables.find((t) => t.name === source) ?? null;
   const dateColumns = (table?.columns ?? []).filter((c) => c.type === "date" || c.type === "datetime");
@@ -292,8 +292,8 @@ function RuleForm({
         every,
         at: every === "day" ? at : null,
       };
-    } else if (kind === "budget") {
-      const [dashboardId, widgetId] = budget.split(":");
+    } else if (kind === "target") {
+      const [dashboardId, widgetId] = target.split(":");
       config = { dashboardId: dashboardId ? Number(dashboardId) : null, widgetId: widgetId ?? null, percent: Number(percent) };
     } else {
       config = { event };
@@ -318,7 +318,7 @@ function RuleForm({
           <span className="field__label">Kind</span>
           <select className="field__control field__control--compact" value={kind} disabled={!!rule} onChange={(event) => setKind(event.target.value as RuleKind)}>
             <option value="condition">A value crosses a line</option>
-            <option value="budget">A budget runs over</option>
+            <option value="target">A group reaches its target or limit</option>
             <option value="event">Something fails</option>
           </select>
         </label>
@@ -327,7 +327,7 @@ function RuleForm({
           <input
             className="field__control field__control--compact"
             value={name}
-            placeholder={kind === "condition" ? "Spending this month" : kind === "budget" ? "Over budget" : "Import failed"}
+            placeholder={kind === "condition" ? "Orders this month" : kind === "target" ? "Target reached" : "Import failed"}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
@@ -419,26 +419,29 @@ function RuleForm({
         </>
       ) : null}
 
-      {kind === "budget" ? (
+      {kind === "target" ? (
         <>
           <div className="channel-form__grid">
             <label className="field field--compact channel-form__wide">
-              <span className="field__label">Budget</span>
-              <select className="field__control field__control--compact" value={budget} onChange={(e) => setBudget(e.target.value)}>
-                {budgets.length === 0 ? <option value="">No dashboard has a budget widget</option> : null}
-                {budgets.map((b) => (
-                  <option key={`${b.dashboardId}:${b.widgetId}`} value={`${b.dashboardId}:${b.widgetId}`}>
-                    {b.label}
+              <span className="field__label">Targets</span>
+              <select className="field__control field__control--compact" value={target} onChange={(e) => setTarget(e.target.value)}>
+                {targets.length === 0 ? <option value="">No dashboard has a target widget</option> : null}
+                {targets.map((t) => (
+                  <option key={`${t.dashboardId}:${t.widgetId}`} value={`${t.dashboardId}:${t.widgetId}`}>
+                    {t.label}
                   </option>
                 ))}
               </select>
             </label>
             <label className="field field--compact">
-              <span className="field__label">At % of the limit</span>
+              <span className="field__label">At % of the target</span>
               <input className="field__control field__control--compact" inputMode="numeric" value={percent} onChange={(e) => setPercent(e.target.value)} />
             </label>
           </div>
-          <p className="channel-form__hint">Each category is told once a month, when its spending this month reaches the share of its monthly limit — 100 for “over budget”, 80 to hear about it early.</p>
+          <p className="channel-form__hint">
+            Each group is told once per period of its target (its week, month …), when its value reaches the share — 100 for a goal reached or a limit
+            used up, 80 to hear about a limit early.
+          </p>
         </>
       ) : null}
 

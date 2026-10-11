@@ -158,14 +158,14 @@ public sealed class DescribeService
         }
         else if (data["query"] is JsonObject query)
         {
-            if (type == "budget")
+            if (type == "target")
                 return null;
             var runnable = RunnableQuery(query, data, range, variables);
             response = await _self.SendAsync(HttpMethod.Post, $"{Api}/query", caller.Credentials, JsonDocument.Parse(runnable.ToJsonString()).RootElement, ct);
         }
         else
         {
-            return type == "budget" ? null : "data needs a query (or savedQueryId, or variable).";
+            return type == "target" ? null : "data needs a query (or savedQueryId, or variable).";
         }
 
         if (!response.IsSuccess)

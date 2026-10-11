@@ -48,7 +48,7 @@ ok = hmac.compare_digest(expected, request.headers["X-Bento-Signature"])
 
 ## Rules: When Bento Speaks
 
-Under **Settings → Notification rules**, choose **Add rule**. A rule speaks **once** when its condition starts to hold and then stays quiet until the condition has cleared — no message every hour while you are over budget.
+Under **Settings → Notification rules**, choose **Add rule**. A rule speaks **once** when its condition starts to hold and then stays quiet until the condition has cleared — no message every hour while you are over a limit.
 
 ### A Value Crosses A Line
 
@@ -63,9 +63,9 @@ Example: *Spending this month* — Transactions, `-SUM(amount WHERE amount < 0)`
 
 A period starts afresh: a rule about this month speaks again next month when the value crosses the line again.
 
-### A Budget Runs Over
+### A Group Reaches Its Target Or Limit
 
-Pick a dashboard's **budget widget** (the template's cash-flow dashboard has one) and at what share of the limit to tell you: **100** for over budget, **80** to hear about it early. Each category is told once a month — when groceries reach 80 %, you hear about groceries; when rent follows later, about rent.
+Pick a dashboard's **targets widget** (the template's cash-flow dashboard has one for budgets) and at what share of the target to tell you: **100** for a goal reached or a limit used up, **80** to hear about a limit early. Each group is told once per period of its target — when a project reaches its weekly hours, you hear about that project, once that week; when groceries reach 80 % of their monthly budget, you hear about groceries, once that month.
 
 ### Something Fails
 
@@ -114,7 +114,7 @@ Channels may point into your own network (a mail relay, Home Assistant on the LA
 
 ## For Scripts
 
-Rules: `/api/v1/admin/notifications/rules` (admins): `GET`, `POST { name, kind: "condition" | "budget" | "event" | "report", config, channels }`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/check`, `POST /{id}/test`, `POST /preview { name, config }` (a report not saved yet). `config` for a condition: `source, formula, period?, dateColumn?, op, threshold, every?, at?`; for a budget: `dashboardId, widgetId, percent`; for an event: `event` (`import.failed`, `price.failed`); for a report: `every` (`day` … `year`), `day?`, `at?`, `range?` (`last`, `current`), `compare?` (`previous`, `year`, `none`), `intro?`, `ai?`, `aiInstructions?`, `blocks` — each `{ type: "value" | "top" | "dashboard" | "rules" | "text", label?, … }` with `source, formula, dateColumn?, format?, higherIsBetter?` (value, top), `groupBy, limit?, order?` (top), `dashboardId, widgets?` (dashboard), `text` (text). For a report, `check` puts it together without sending.
+Rules: `/api/v1/admin/notifications/rules` (admins): `GET`, `POST { name, kind: "condition" | "target" | "event" | "report", config, channels }`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/check`, `POST /{id}/test`, `POST /preview { name, config }` (a report not saved yet). `config` for a condition: `source, formula, period?, dateColumn?, op, threshold, every?, at?`; for a target: `dashboardId, widgetId, percent` (`budget`, the kind before, is taken as `target`); for an event: `event` (`import.failed`, `price.failed`); for a report: `every` (`day` … `year`), `day?`, `at?`, `range?` (`last`, `current`), `compare?` (`previous`, `year`, `none`), `intro?`, `ai?`, `aiInstructions?`, `blocks` — each `{ type: "value" | "top" | "dashboard" | "rules" | "text", label?, … }` with `source, formula, dateColumn?, format?, higherIsBetter?` (value, top), `groupBy, limit?, order?` (top), `dashboardId, widgets?` (dashboard), `text` (text). For a report, `check` puts it together without sending.
 
 Channels:
 

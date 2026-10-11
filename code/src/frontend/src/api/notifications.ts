@@ -72,7 +72,7 @@ export async function listDeliveries(id: number, limit = 10): Promise<Notificati
 
 // ── Rules (Step 5.3): when Bento speaks ────────────────────────────────────
 
-export type RuleKind = "condition" | "budget" | "event" | "report";
+export type RuleKind = "condition" | "target" | "event" | "report";
 export type RulePeriod = "today" | "this-week" | "this-month" | "this-quarter" | "this-year";
 export type RuleOp = ">" | ">=" | "<" | "<=" | "=" | "<>";
 

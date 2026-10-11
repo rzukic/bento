@@ -24,8 +24,8 @@ import type { SavedForm } from "../../api/forms";
 import { Dialog } from "../../components/ui/Dialog";
 import { FormFill } from "../forms/FormFill";
 import { formsForDashboard } from "../forms/quickAdd";
-import { defaultBudget } from "./budget";
-import { BudgetEditor } from "./BudgetEditor";
+import { defaultTarget } from "./target";
+import { TargetEditor } from "./TargetEditor";
 import { HistoryDialog } from "./HistoryDialog";
 import { QuickAddEditor } from "./QuickAddEditor";
 import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
@@ -342,7 +342,7 @@ export function DashboardPage() {
     const candidates = dataTables(tables);
     const used = [...widgets].reverse().map((w) => w.data?.query?.source).find(Boolean);
     const table = candidates.find((t) => t.name === used) ?? candidates.find(isFinanceTable) ?? candidates[0];
-    const widget = newWidget(type, table, layout, type === "budget" ? defaultBudget(candidates, snapshot) : undefined);
+    const widget = newWidget(type, table, layout, type === "target" ? defaultTarget(candidates, snapshot) : undefined);
     updateDocument((doc) => ({ ...doc, widgets: [...doc.widgets, widget] }));
     setAddOpen(false);
     setEditingWidgetId(widget.id);
@@ -722,8 +722,8 @@ export function DashboardPage() {
         />
       )}
 
-      {editing && editingWidget?.type === "budget" ? (
-        <BudgetEditor
+      {editing && editingWidget?.type === "target" ? (
+        <TargetEditor
           widget={editingWidget}
           tables={dataTables(tables)}
           snapshot={snapshot}

@@ -200,14 +200,15 @@ describe("cash-flow starter", () => {
     expect(spending?.title).toBe("Spending by category");
     expect(spending?.data?.query?.groupBy).toEqual([{ column: "main_category" }]);
     expect(spending?.display?.drill).toBe("category_id");
-    expect(cashFlow.widgets.find((w) => w.type === "budget")?.data?.budget).toEqual({
+    expect(cashFlow.widgets.find((w) => w.type === "target")?.data?.target).toEqual({
       source: "transactions",
-      amount: "amount",
+      value: "-SUM(amount WHERE amount < 0)",
       date: "date",
-      category: "category_id",
-      limit: "budget",
-      expenses: "negative",
-      period: "month",
+      group: "category_id",
+      target: "budget",
+      per: "month",
+      period: "current",
+      kind: "limit",
     });
     const overlaps = cashFlow.widgets.flatMap((a, i) =>
       cashFlow.widgets.slice(i + 1).filter((b) => a.position.x < b.position.x + b.position.w && b.position.x < a.position.x + a.position.w && a.position.y < b.position.y + b.position.h && b.position.y < a.position.y + a.position.h).map((b) => `${a.id}/${b.id}`),

@@ -85,23 +85,23 @@ describe("notification rules", () => {
     );
   });
 
-  it("offers the dashboards' budget widgets for a budget rule", async () => {
+  it("offers the dashboards' target widgets for a target rule", async () => {
     dashboardsApi.listDashboards.mockResolvedValue([
-      { id: 7, name: "Cash flow", dashboard: { widgets: [{ id: "budgets", type: "budget", title: "Budgets this month" }, { id: "k", type: "kpi" }] } },
+      { id: 7, name: "Cash flow", dashboard: { widgets: [{ id: "budgets", type: "target", title: "Budgets this month" }, { id: "k", type: "kpi" }] } },
     ]);
     api.createRule.mockResolvedValue({});
     const user = userEvent.setup();
     render(<RulesPanel />);
 
     await user.click(await screen.findByRole("button", { name: "Add rule" }));
-    await user.selectOptions(screen.getByLabelText("Kind"), "budget");
+    await user.selectOptions(screen.getByLabelText("Kind"), "target");
     expect(await screen.findByRole("option", { name: "Cash flow · Budgets this month" })).toBeInTheDocument();
     await user.type(screen.getByLabelText("Name"), "Over budget");
-    await user.clear(screen.getByLabelText("At % of the limit"));
-    await user.type(screen.getByLabelText("At % of the limit"), "90");
+    await user.clear(screen.getByLabelText("At % of the target"));
+    await user.type(screen.getByLabelText("At % of the target"), "90");
     await user.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
 
-    await waitFor(() => expect(api.createRule).toHaveBeenCalledWith("Over budget", "budget", { dashboardId: 7, widgetId: "budgets", percent: 90 }, [3]));
+    await waitFor(() => expect(api.createRule).toHaveBeenCalledWith("Over budget", "target", { dashboardId: 7, widgetId: "budgets", percent: 90 }, [3]));
   });
 
   it("checks a rule and says what it found", async () => {
