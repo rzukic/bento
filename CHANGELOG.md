@@ -17,6 +17,7 @@ _Changes that are complete but not yet part of a versioned release._
 ### 2026-10-11 — Daily Values Over Years, All Time From The Start
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
 
 A daily chart over three years said "At most 1000 periods". With the new indexes it no longer needs that limit. And "All time" now really means all time.
@@ -30,6 +31,7 @@ A daily chart over three years said "At most 1000 periods". With the new indexes
 ### 2026-10-10 — Fast Weekly Charts, Results Kept In The Browser
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
 
 A weekly portfolio chart over three years took over 30 seconds and then failed. It now takes a fraction of a second, and dashboards you have seen show at once.
@@ -43,6 +45,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-10 — The Beta Feedback, Worked Through
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#package-1--quick-fixes)
 
 21 of 23 points from a beta user who built a finance workspace over MCP and the API.
@@ -67,6 +70,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-10 — Polish: Sidebar, Notices, Tables, Loading
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#polish)
 
 **Highlights:**
@@ -78,6 +82,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-09 — The Interval Switch On Tables, And Per Widget
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
 
 **Highlights:**
@@ -87,6 +92,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-09 — Describe A Widget Or A Formula, Undo Any Dashboard Change
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.9 — Describe Instead Of Click](working-steps/4.9-ai-describe.md)
 
 Build by saying what you want, and take back any change, also those made by Claude or ChatGPT.
@@ -100,6 +106,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Bento In ChatGPT And Codex
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-chatgpt-and-codex)
 
 **Highlights:**
@@ -110,6 +117,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Open A Connected App: Change Its Permissions, See Its Calls
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-a-connected-app-opens-in-a-dialog)
 
 **Highlights:**
@@ -119,6 +127,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Bank Bookings Arrive Categorised
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.8 — Categorise On Import](working-steps/4.8-ai-categorise.md)
 
 The monthly chore of picking a category for every booking now mostly does itself.
@@ -132,6 +141,7 @@ The monthly chore of picking a category for every booking now mostly does itself
 ### 2026-10-09 — Explain Any Number With Bento's AI
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.7 — AI Basis & "Explain This"](working-steps/4.7-ai-explain.md)
 
 Ask a dashboard what a number is made of and what changed.
@@ -145,6 +155,7 @@ Ask a dashboard what a number is made of and what changed.
 ### 2026-10-09 — Claude Connects To Bento (MCP), With Your Bento Account
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md)
 
 Ask your own Claude about your data — in the app, on the web, on the phone or in Claude Code — and let it add a transaction.
@@ -161,6 +172,7 @@ Ask your own Claude about your data — in the app, on the web, on the phone or 
 ### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
 
 Daily use of the cash-flow dashboard: how the month's budgets stand, any chart by quarter or year, and what is inside "Food".
@@ -174,6 +186,7 @@ Daily use of the cash-flow dashboard: how the month's budgets stand, any chart b
 ### 2026-10-07 — Quick Entry Forms: Add A Transaction On The Phone
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.4 — Quick Entry Forms](working-steps/4.4-quick-entry-forms.md)
 
 A form adds a row to a table in a few taps — built for the phone, checked like any other row.
@@ -188,6 +201,7 @@ A form adds a row to a table in a few taps — built for the phone, checked like
 ### 2026-10-07 — Realised Gains And A Fairer Time-Weighted Return
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.3b — Returns Refinement](working-steps/4.3b-returns-refinement.md)
 
 The Wealth dashboard shows what sales gained, and its time-weighted return no longer depends on the day of the month you buy.
@@ -202,6 +216,7 @@ The Wealth dashboard shows what sales gained, and its time-weighted return no lo
 ### 2026-10-06 — Returns: XIRR, Time-Weighted, Benchmarks
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.3 — Returns & Financial Functions](working-steps/4.3-returns.md)
 
 Dashboards compute what a depot returns, the same on SQLite and Postgres and as Excel does.
@@ -216,6 +231,7 @@ Dashboards compute what a depot returns, the same on SQLite and Postgres and as 
 ### 2026-10-06 — Live Prices From An API Of Your Choice
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.2 — Live Prices](working-steps/4.2-live-prices.md)
 
 Prices come from an API you choose and stay as history in your own table. A dashboard fetches what is stale when it opens and says "Prices as of 14:32".
@@ -231,6 +247,7 @@ Prices come from an API you choose and stay as history in your own table. A dash
 ### 2026-10-05 — Your Own Functions In JavaScript
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.1 — Custom JS Functions](working-steps/4.1-custom-functions.md)
 
 Write a function once in JavaScript under **Functions** and call it from any formula with `CUSTOM("name", …)`.
@@ -985,6 +1002,19 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-11 — Ship v0.4.0: Live Cockpit
+
+> **Version**: [v0.4.0 — Live Cockpit (Phase 4 Checkpoint)](releases/v0.4.0.md)
+> **Phase**: Phase 4 — Intelligence
+
+The Finance Cockpit becomes live and personal: prices from an API of your choice, returns (XIRR, time-weighted, benchmarks), your own JavaScript functions, quick entry forms, budgets, and your own AI working with your data over MCP or in the app, with every dashboard change undoable.
+
+**Highlights:**
+- Live prices with history; XIRR, TWR and realised gains; custom JS functions and stored values
+- Quick entry forms, budgets, the interval switch for viewers
+- MCP for Claude, ChatGPT and Codex with Bento sign-in and per-area permissions; explain, categorise and describe in the app
+- Dashboard history with restore; speed (indexes, browser cache, cancellation, problem log) and the first beta feedback worked through
 
 ### 2026-10-05 — Ship v0.3.1: Setup Mascots
 
