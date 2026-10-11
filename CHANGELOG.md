@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 4 — Intelligence
 
+### 2026-10-11 — Daily Values Over Years
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
+
+A daily chart over three years said "At most 1000 periods". With the new indexes it no longer needs that limit.
+
+**Highlights:**
+- Values at period ends take up to 5000 periods: daily over 13 years.
+- On SQLite, more than 500 periods no longer fail with an unexpected error.
+- A series over time is no longer cut at 1000 rows, which silently dropped its newest days.
+
 ### 2026-10-10 — Fast Weekly Charts, Results Kept In The Browser
 
 > **Phase**: Phase 4 — Intelligence
