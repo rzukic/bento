@@ -36,6 +36,8 @@ Bento sends a `POST` with JSON to the address:
 }
 ```
 
+A report (below) adds `sections`: each with an optional `title` and `text` and its `facts`, where a fact also carries `detail` (the change against the period compared with), `tone` (`good` or `bad`), `number` and `previous` — the plain numbers for a script.
+
 The header `X-Bento-Event` names the event. With a **signing secret**, `X-Bento-Signature` carries `sha256=` and the HMAC-SHA256 of the body with that secret, so the receiver can check the request came from Bento:
 
 ```python
@@ -75,6 +77,31 @@ Pick a dashboard's **budget widget** (the template's cash-flow dashboard has one
 
 Messages link into Bento when the server knows its address (`PUBLIC_URL`, set on Coolify). Amounts are written in the workspace's format (Settings → Workspace).
 
+## Reports: Your Numbers On A Schedule
+
+Under **Settings → Reports**, choose **Add report**. A report is a message every day, week, month, quarter or year with the numbers you choose — for any data, not only money: support tickets, visits, orders, hours, a household.
+
+- **Send**: every day, week (on a weekday), month or quarter (on a day 1–28) or year, **at** a time (Europe/Berlin).
+- **About**: the period just over (yesterday, the last week, the last month …) or this period so far.
+- **Compared with**: the period before (for one so far: as many days of it), the same period a year earlier, or nothing.
+- **Text at the top**, optional.
+
+Then add **blocks**, in the order the report shows them:
+
+| Block | Shows |
+|---|---|
+| **Value** | a formula over a table for the period, by one of its date columns, e.g. `COUNT()` or `SUM(minutes)`; without a date column, over all rows (no comparison) |
+| **Top list** | the same per value of a column — the biggest (or smallest) 3, 5, 10 or 20, e.g. spending per category, visits per country; groups with nothing in the period are left out |
+| **Dashboard figures** | the key figures (KPI widgets) of any dashboard, all or some, as the dashboard computes them for the report's period — its variables included; a figure with a date range of its own (a forecast) is not offered |
+| **Rules that hold** | the notification rules that hold when the report goes out |
+| **Text** | text as you write it |
+
+Each value says how it changed: `+3 (+33 %) vs. Week 40`. **More is** good or bad decides the colour (more errors is bad). **Write as** sets the number format if the formula's own is not right.
+
+**Let the AI write a few sentences**: the AI reads the report's numbers (nothing else; it has no tools) and writes two to four sentences about what stands out, at the top. **For the AI** tells it more, e.g. "in German, the biggest changes first". It uses the key and monthly budget on the AI page; without them, or when the budget is used up, the report goes out without these sentences and its last line says why.
+
+**Preview** in the form shows the report as it would go out today (without the AI's sentences); **Preview** and **Send now** in the list do the same for a saved report — Send now with the AI's sentences. A report goes out once each time it is due; a report created after today's time waits for the next one. If the server was down at that time, it goes out when the server is back.
+
 ## Secrets
 
 The password, the Slack webhook address and the signing secret are stored encrypted (with the same key as the credential vault) and never shown again. When you edit a channel, leave such a field empty to keep what is stored. If the server's secret changes, enter them again.
@@ -87,7 +114,7 @@ Channels may point into your own network (a mail relay, Home Assistant on the LA
 
 ## For Scripts
 
-Rules: `/api/v1/admin/notifications/rules` (admins): `GET`, `POST { name, kind: "condition" | "budget" | "event", config, channels }`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/check`, `POST /{id}/test`. `config` for a condition: `source, formula, period?, dateColumn?, op, threshold, every?, at?`; for a budget: `dashboardId, widgetId, percent`; for an event: `event` (`import.failed`, `price.failed`).
+Rules: `/api/v1/admin/notifications/rules` (admins): `GET`, `POST { name, kind: "condition" | "budget" | "event" | "report", config, channels }`, `PUT /{id}`, `DELETE /{id}`, `POST /{id}/check`, `POST /{id}/test`, `POST /preview { name, config }` (a report not saved yet). `config` for a condition: `source, formula, period?, dateColumn?, op, threshold, every?, at?`; for a budget: `dashboardId, widgetId, percent`; for an event: `event` (`import.failed`, `price.failed`); for a report: `every` (`day` … `year`), `day?`, `at?`, `range?` (`last`, `current`), `compare?` (`previous`, `year`, `none`), `intro?`, `ai?`, `aiInstructions?`, `blocks` — each `{ type: "value" | "top" | "dashboard" | "rules" | "text", label?, … }` with `source, formula, dateColumn?, format?, higherIsBetter?` (value, top), `groupBy, limit?, order?` (top), `dashboardId, widgets?` (dashboard), `text` (text). For a report, `check` puts it together without sending.
 
 Channels:
 

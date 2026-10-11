@@ -14,10 +14,23 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Reports: Your Numbers On A Schedule
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.3 — Notification Rules And Reports](working-steps/5.3-notification-rules.md)
+
+Every day, week, month, quarter or year, Bento sends the numbers you choose — for any data, not only money.
+
+**Highlights:**
+- **Blocks you put together**: a value from any table, a top list (the biggest five of a group), the key figures of any dashboard, the rules that hold, your own text.
+- **Against the period before** or a year earlier: "+3 (+33 %) vs. Week 40", green or red as you say what is good.
+- **Optional AI sentences** at the top about what stands out, from the report's numbers only, with your instructions.
+- **Preview** while editing, **Send now** for a saved one; email, Slack and webhooks (with the plain numbers for scripts).
+
 ### 2026-10-11 — Rules: Bento Tells You When Something Needs You
 
 > **Phase**: Phase 5 — Integration
-> **Working step**: [Step 5.3 — Notification Rules And The Monthly Review](working-steps/5.3-notification-rules.md)
+> **Working step**: [Step 5.3 — Notification Rules And Reports](working-steps/5.3-notification-rules.md)
 
 Bento now speaks on its own, over the channels from Settings → Notifications — once when something starts to need you, not every hour.
 

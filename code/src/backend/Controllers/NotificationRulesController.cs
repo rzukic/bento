@@ -7,7 +7,7 @@ namespace Bento.Api.Controllers;
 
 /// <summary>
 /// Notification rules (Step 5.3), admins only: conditions as formulas, budgets
-/// that run over, failed imports and price updates. Check one now, or send what
+/// that run over, failed imports and price updates, scheduled reports. Check one now, or send what
 /// it would say to try the wording and the channels.
 /// </summary>
 [ApiController]
@@ -36,7 +36,12 @@ public sealed class NotificationRulesController(NotificationRuleService rules) :
         return NoContent();
     }
 
-    /// <summary>Checks now; speaks if the condition newly holds.</summary>
+    /// <summary>A report as it would go out today, from the editor's unsaved configuration.</summary>
+    [HttpPost("preview")]
+    public async Task<IActionResult> Preview([FromBody] ReportPreviewRequest request) =>
+        Ok(new { data = await rules.PreviewAsync(request, HttpContext.RequestAborted) });
+
+    /// <summary>Checks now; speaks if the condition newly holds. A report is only put together.</summary>
     [HttpPost("{id:long}/check")]
     public async Task<IActionResult> Check(long id) => Ok(new { data = await rules.CheckAsync(id, HttpContext.RequestAborted) });
 

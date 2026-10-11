@@ -72,7 +72,7 @@ export async function listDeliveries(id: number, limit = 10): Promise<Notificati
 
 // ── Rules (Step 5.3): when Bento speaks ────────────────────────────────────
 
-export type RuleKind = "condition" | "budget" | "event";
+export type RuleKind = "condition" | "budget" | "event" | "report";
 export type RulePeriod = "today" | "this-week" | "this-month" | "this-year";
 export type RuleOp = ">" | ">=" | "<" | "<=" | "=" | "<>";
 
@@ -83,12 +83,66 @@ export type RuleConfig = {
   dateColumn?: string | null;
   op?: RuleOp | null;
   threshold?: number | null;
-  every?: "hour" | "day" | null;
+  /** Conditions: hour or day. Reports: day, week, month, quarter or year. */
+  every?: "hour" | "day" | ReportUnit | null;
   at?: string | null;
   dashboardId?: number | null;
   widgetId?: string | null;
   percent?: number | null;
   event?: "import.failed" | "price.failed" | null;
+  /** Report: weekday 1 (Monday) … 7 for weekly ones, day of the month 1–28 otherwise. */
+  day?: number | null;
+  range?: "last" | "current" | null;
+  compare?: "previous" | "year" | "none" | null;
+  intro?: string | null;
+  ai?: boolean | null;
+  aiInstructions?: string | null;
+  blocks?: ReportBlock[] | null;
+};
+
+// ── Reports (Step 5.3): a message on a schedule, made of blocks ───────────
+
+export type ReportUnit = "day" | "week" | "month" | "quarter" | "year";
+export type ReportBlockType = "value" | "top" | "dashboard" | "rules" | "text";
+export type ReportFormat = "auto" | "currency" | "number" | "integer" | "percent";
+
+export type ReportBlock = {
+  type: ReportBlockType;
+  label?: string | null;
+  source?: string | null;
+  formula?: string | null;
+  /** The rows of the period by this date; none = all rows (no comparison). */
+  dateColumn?: string | null;
+  format?: ReportFormat | null;
+  higherIsBetter?: boolean | null;
+  groupBy?: string | null;
+  limit?: number | null;
+  order?: "desc" | "asc" | null;
+  dashboardId?: number | null;
+  /** Some of the dashboard's key figures; none = all. */
+  widgets?: string[] | null;
+  text?: string | null;
+};
+
+export type NotificationFact = {
+  label: string;
+  value: string;
+  detail?: string | null;
+  tone?: "good" | "bad" | null;
+  number?: number | null;
+  previous?: number | null;
+};
+
+export type NotificationSection = { title?: string | null; text?: string | null; facts?: NotificationFact[] | null };
+
+/** What Bento says: a title, text, facts, and for reports sections. */
+export type NotificationMessage = {
+  event: string;
+  title: string;
+  text: string;
+  link?: string | null;
+  facts?: NotificationFact[] | null;
+  sections?: NotificationSection[] | null;
 };
 
 export type RuleState = {
@@ -115,7 +169,7 @@ export type NotificationRule = {
 export type RuleCheck = {
   state: RuleState;
   fired: boolean;
-  notification: { title: string; text: string } | null;
+  notification: NotificationMessage | null;
   deliveries: NotificationDelivery[];
 };
 
@@ -145,4 +199,9 @@ export async function checkRule(id: number): Promise<RuleCheck> {
 /** Sends what the rule would say now, whether or not it holds. */
 export async function testRule(id: number): Promise<RuleCheck> {
   return (await apiClient.post<DataEnvelope<RuleCheck>>(`${rulesPath}/${id}/test`, {})).data;
+}
+
+/** A report as it would go out today, from a configuration not saved yet (without the AI's sentences). */
+export async function previewReport(name: string, config: RuleConfig): Promise<NotificationMessage> {
+  return (await apiClient.post<DataEnvelope<NotificationMessage>>(`${rulesPath}/preview`, { name, config })).data;
 }

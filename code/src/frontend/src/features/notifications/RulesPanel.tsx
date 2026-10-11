@@ -26,7 +26,7 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 import "./Notifications.css";
 
-const KIND_LABELS: Record<RuleKind, string> = { condition: "Condition", budget: "Budget", event: "Event" };
+const KIND_LABELS: Record<RuleKind, string> = { condition: "Condition", budget: "Budget", event: "Event", report: "Report" };
 const PERIODS: { value: RulePeriod | ""; label: string }[] = [
   { value: "this-month", label: "This month" },
   { value: "this-week", label: "This week" },
@@ -47,13 +47,13 @@ const EVENTS = [
   { value: "price.failed", label: "A price update fails" },
 ] as const;
 
-function formatWhen(value: string | null | undefined): string {
+export function formatWhen(value: string | null | undefined): string {
   if (!value) return "";
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(getCurrentLocale(), { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-function errorText(cause: unknown, fallback: string): string {
+export function errorText(cause: unknown, fallback: string): string {
   return cause instanceof ApiClientError ? cause.message : fallback;
 }
 
@@ -82,7 +82,8 @@ export function RulesPanel() {
   const load = useCallback(() => {
     Promise.all([listRules(), listChannels()])
       .then(([nextRules, nextChannels]) => {
-        setRules(nextRules);
+        // Reports have their own panel.
+        setRules(nextRules.filter((rule) => rule.kind !== "report"));
         setChannels(nextChannels);
       })
       .catch((cause) => {
@@ -249,7 +250,7 @@ function RuleForm({
   const [dateColumn, setDateColumn] = useState(rule?.config.dateColumn ?? "");
   const [op, setOp] = useState<RuleOp>(rule?.config.op ?? ">");
   const [threshold, setThreshold] = useState(rule?.config.threshold != null ? String(rule.config.threshold) : "");
-  const [every, setEvery] = useState<"hour" | "day">(rule?.config.every ?? "hour");
+  const [every, setEvery] = useState<"hour" | "day">(rule?.config.every === "day" ? "day" : "hour");
   const [at, setAt] = useState(rule?.config.at ?? "08:00");
   const [budget, setBudget] = useState(rule?.config.widgetId ? `${rule.config.dashboardId}:${rule.config.widgetId}` : "");
   const [percent, setPercent] = useState(rule?.config.percent != null ? String(rule.config.percent) : "100");
