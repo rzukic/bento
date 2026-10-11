@@ -88,7 +88,7 @@ describe("Explain this", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
 
-    await user.click(await screen.findByRole("button", { name: "Explain Spent in the range" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Explain Spent in the range" }));
     // Text widgets have nothing to explain.
     expect(screen.queryByRole("button", { name: "Explain Notes" })).not.toBeInTheDocument();
 
@@ -124,14 +124,14 @@ describe("Explain this", () => {
     aiApi.explain.mockRejectedValue(new ApiClientError("This month's AI budget is used up ($5.00 of $5.00).", 422));
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
-    await user.click(await screen.findByRole("button", { name: "Explain Spent in the range" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Explain Spent in the range" }));
     expect(await screen.findByText(/budget is used up/)).toBeInTheDocument();
   });
 
   it("shows no Explain buttons while the AI is not set up", async () => {
     aiApi.getAiStatus.mockResolvedValue({ enabled: false, configured: false, model: "claude-opus-5-5", budgetLeft: true });
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
-    expect(await screen.findByRole("heading", { name: "Spent in the range" }, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Spent in the range" })).toBeInTheDocument();
     await waitFor(() => expect(aiApi.getAiStatus).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: /^Explain/ })).not.toBeInTheDocument();
   });

@@ -255,7 +255,7 @@ describe("interval switch", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
 
-    await user.click(await screen.findByRole("button", { name: "Edit" }, { timeout: 5000 }));
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
     await user.click(screen.getByRole("button", { name: "Configure Net per month" }));
     const editor = await screen.findByRole("dialog", { name: "Edit widget" });
     await user.click(within(editor).getByRole("tab", { name: "Style" }));

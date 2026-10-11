@@ -309,7 +309,8 @@ public sealed class AggregationQueryService
         if (sort.Count == 0)
             sort.AddRange(groups.Select(g => (g.Output, false)));
 
-        var limit = request.Limit ?? DefaultLimit;
+        // A series over time is cut from its end (the newest periods): give it all rows unless asked otherwise.
+        var limit = request.Limit ?? (groups.Any(g => g.Bucket is not null) ? MaxLimit : DefaultLimit);
         if (limit < 1 || limit > MaxLimit)
             throw Invalid("limit", $"limit must be between 1 and {MaxLimit}.");
 
@@ -373,7 +374,9 @@ public sealed class AggregationQueryService
         return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, type, custom, series) { Indexes = check.Result.Indexes, Rolling = rolling };
     }
 
-    private const int MaxPeriods = 1000;
+    // Daily values over 13 years. The work grows with periods × rows; the query
+    // timeout, cancellation and the problem log guard what is still too much.
+    private const int MaxPeriods = 5000;
 
     private static Calendar ResolveCalendar(QueryAsOf asOf, HashSet<string> outputs)
     {
@@ -435,12 +438,15 @@ public sealed class AggregationQueryService
         return result;
     }
 
-    /// <summary>The periods as a derived table b(label, bucket, bucket_end), typed per provider.</summary>
+    /// <summary>
+    /// The periods as a derived table b(label, bucket, bucket_end), typed per provider.
+    /// One VALUES list: SQLite allows at most 500 SELECTs joined by UNION ALL.
+    /// </summary>
     private string CalendarSql(Calendar calendar)
     {
         string Day(DateOnly day) => IsPostgres ? $"DATE '{day:yyyy-MM-dd}'" : $"'{day:yyyy-MM-dd}'";
-        return string.Join(" UNION ALL ", calendar.Periods.Select(p =>
-            $"SELECT '{p.Start:yyyy-MM-dd}' AS {Q("label")}, {Day(p.Start)} AS {Q("bucket")}, {Day(p.End)} AS {Q("bucket_end")}"));
+        var rows = string.Join(", ", calendar.Periods.Select(p => $"('{p.Start:yyyy-MM-dd}', {Day(p.Start)}, {Day(p.End)})"));
+        return $"SELECT column1 AS {Q("label")}, column2 AS {Q("bucket")}, column3 AS {Q("bucket_end")} FROM (VALUES {rows}) v";
     }
 
     // ── Dashboard variables ─────────────────────────────────────────────

@@ -27,6 +27,8 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     setupFiles: "./vitest.setup.ts",
-    css: true
+    css: true,
+    // Generous for the longest flows under parallel load; waits for elements are in vitest.setup.ts.
+    testTimeout: 20_000
   }
 });

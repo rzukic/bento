@@ -197,7 +197,7 @@ describe("dashboards with formulas", () => {
     render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
 
     // A widget without formulas loads at once; the formula widgets wait and show no error.
-    const count = await screen.findByRole("article", { name: "Count" }, { timeout: 5000 });
+    const count = await screen.findByRole("article", { name: "Count" });
     await waitFor(() => expect(count.textContent).toMatch(/1[.,]234/));
     expect(queryApi.runQuery.mock.calls.some(([q]) => (q as AggregationQuery).measures?.[0]?.formula === "depot")).toBe(false);
     expect(within(screen.getByRole("article", { name: "Depot" })).queryByRole("alert")).toBeNull();
