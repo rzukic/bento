@@ -66,7 +66,8 @@ describe("formula queries", () => {
     expect(query.groupBy).toEqual([]);
     expect(query.asOf).toEqual({ bucket: "month", from: "2026-01-01", to: "2026-03-31", as: "month" });
     expect(query.filter).toBeUndefined();
-    expect(asOfPeriod({ from: null, to: null }, today)).toEqual({ from: "2025-10-01", to: "2026-10-04" });
+    // All time: the server begins where the data does.
+    expect(asOfPeriod({ from: null, to: null }, today)).toEqual({ to: "2026-10-04" });
     expect(asOfPeriod({ from: "2026-10-01", to: "2027-01-01" }, today)).toEqual({ from: "2026-10-01", to: "2026-10-04" });
   });
 
