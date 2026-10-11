@@ -40,14 +40,14 @@ public sealed partial class WorkspaceSettings
         locale = string.IsNullOrWhiteSpace(locale) ? null : locale.Trim();
         if (locale is not null)
         {
-            try
-            {
-                locale = CultureInfo.GetCultureInfo(locale, predefinedOnly: true).Name;
-            }
-            catch (CultureNotFoundException)
-            {
+            // The browser formats (Intl); the server only keeps the tag. It runs without
+            // culture data (InvariantGlobalization), so the tag is checked by its form.
+            var match = LocaleTag().Match(locale);
+            if (!match.Success)
                 throw new ApiValidationException($"'{locale}' is not a language and region like de-AT or en-US.", new Dictionary<string, object?> { ["field"] = "locale" });
-            }
+            locale = match.Groups[2].Success
+                ? $"{match.Groups[1].Value.ToLowerInvariant()}-{match.Groups[2].Value.ToUpperInvariant()}"
+                : match.Groups[1].Value.ToLowerInvariant();
         }
         var code = string.IsNullOrWhiteSpace(currency) ? DefaultCurrency : currency.Trim().ToUpperInvariant();
         if (!CurrencyCode().IsMatch(code))
@@ -64,6 +64,10 @@ public sealed partial class WorkspaceSettings
 
     [GeneratedRegex("^[A-Z]{3}$")]
     private static partial Regex CurrencyCode();
+
+    /// <summary>de, de-AT, en_us … a language, maybe a region (two letters or a UN M.49 number).</summary>
+    [GeneratedRegex("^([A-Za-z]{2,3})(?:[-_]([A-Za-z]{2}|[0-9]{3}))?$")]
+    private static partial Regex LocaleTag();
 
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.workspace_settings" : "workspace_settings";
 }
