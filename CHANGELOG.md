@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Rules: Bento Tells You When Something Needs You
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.3 — Notification Rules And The Monthly Review](working-steps/5.3-notification-rules.md)
+
+Bento now speaks on its own, over the channels from Settings → Notifications — once when something starts to need you, not every hour.
+
+**Highlights:**
+- **A value crosses a line**: a formula over a table, for this month or this week, compared with a number — e.g. spending this month above 2000.
+- **A budget runs over**: from a dashboard's budget widget, at 100 % or earlier; each category once a month.
+- **Something fails**: a scheduled import or a price update, with the reason.
+- **Check now** and **Send test** for every rule; amounts in the workspace's format, links into Bento.
+
 ### 2026-10-11 — Bento On The Phone
 
 > **Phase**: Phase 5 — Integration (polish between steps)

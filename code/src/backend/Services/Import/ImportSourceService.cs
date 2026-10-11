@@ -34,6 +34,7 @@ public sealed class ImportSourceService
     private readonly ProblemLog _problems;
     private readonly ICustomValueRecalculation? _recalculation;
     private readonly ILogger<ImportSourceService>? _logger;
+    private readonly Notifications.NotificationRuleService? _rules;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
     public ImportSourceService(
@@ -45,8 +46,10 @@ public sealed class ImportSourceService
         CategoriseService categorise,
         ProblemLog problems,
         ICustomValueRecalculation? recalculation = null,
-        ILogger<ImportSourceService>? logger = null)
+        ILogger<ImportSourceService>? logger = null,
+        Notifications.NotificationRuleService? rules = null)
     {
+        _rules = rules;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
         _import = import;
@@ -359,10 +362,22 @@ public sealed class ImportSourceService
                 $"DELETE FROM {Runs} WHERE source_id = @Source AND id NOT IN (SELECT id FROM {Runs} WHERE source_id = @Source ORDER BY id DESC LIMIT {KeptRuns})",
                 new { Source = source.Id });
         }
-        // Until notifications exist (Step 5.2), admins find failed imports under Settings → Problems.
+        // Admins also find failed imports under Settings → Problems.
         if (error is not null)
             await _problems.RecordAsync("import", $"The saved import '{source.Name}' into {source.TableName} failed ({trigger}): {error}",
                 $"URL: {source.Config.Url}", watch.ElapsedMilliseconds);
+        if (_rules is not null)
+        {
+            // Rules (Step 5.3): a failed scheduled run speaks, a run that works clears it; new rows are looked at.
+            if (trigger == "schedule" || error is null)
+                await _rules.OnEventAsync("import.failed", $"import:{source.Id}", error is not null,
+                    new Notification("import.failed", $"Import failed: {source.Name}", error ?? "",
+                        _rules.Link($"/data/{Uri.EscapeDataString(source.TableName)}/import"),
+                        [new NotificationFact("Import", source.Name), new NotificationFact("Into", _schemaCache.GetTable(source.TableName)?.DisplayName ?? source.TableName)]),
+                    cancellationToken);
+            if (result is { } done && done.Inserted + done.Updated > 0)
+                await _rules.OnDataChangedAsync(cancellationToken);
+        }
         return (await LoadRunsAsync(source.Id, 1)).Single();
     }
 

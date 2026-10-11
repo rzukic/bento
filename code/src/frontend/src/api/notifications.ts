@@ -69,3 +69,80 @@ export async function testChannel(id: number): Promise<NotificationDelivery> {
 export async function listDeliveries(id: number, limit = 10): Promise<NotificationDelivery[]> {
   return (await apiClient.get<DataEnvelope<NotificationDelivery[]>>(`${path}/${id}/deliveries?limit=${limit}`)).data;
 }
+
+// ── Rules (Step 5.3): when Bento speaks ────────────────────────────────────
+
+export type RuleKind = "condition" | "budget" | "event";
+export type RulePeriod = "today" | "this-week" | "this-month" | "this-year";
+export type RuleOp = ">" | ">=" | "<" | "<=" | "=" | "<>";
+
+export type RuleConfig = {
+  source?: string | null;
+  formula?: string | null;
+  period?: RulePeriod | null;
+  dateColumn?: string | null;
+  op?: RuleOp | null;
+  threshold?: number | null;
+  every?: "hour" | "day" | null;
+  at?: string | null;
+  dashboardId?: number | null;
+  widgetId?: string | null;
+  percent?: number | null;
+  event?: "import.failed" | "price.failed" | null;
+};
+
+export type RuleState = {
+  active?: boolean;
+  value?: string | null;
+  checkedAt?: string | null;
+  firedAt?: string | null;
+  error?: string | null;
+};
+
+export type NotificationRule = {
+  id: number;
+  name: string;
+  kind: RuleKind;
+  config: RuleConfig;
+  channels: number[];
+  enabled: boolean;
+  state: RuleState;
+  summary: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type RuleCheck = {
+  state: RuleState;
+  fired: boolean;
+  notification: { title: string; text: string } | null;
+  deliveries: NotificationDelivery[];
+};
+
+const rulesPath = "/admin/notifications/rules";
+
+export async function listRules(): Promise<NotificationRule[]> {
+  return (await apiClient.get<DataEnvelope<NotificationRule[]>>(rulesPath)).data;
+}
+
+export async function createRule(name: string, kind: RuleKind, config: RuleConfig, channels: number[]): Promise<NotificationRule> {
+  return (await apiClient.post<DataEnvelope<NotificationRule>>(rulesPath, { name, kind, config, channels })).data;
+}
+
+export async function updateRule(id: number, changes: { name?: string; config?: RuleConfig; channels?: number[]; enabled?: boolean }): Promise<NotificationRule> {
+  return (await apiClient.put<DataEnvelope<NotificationRule>>(`${rulesPath}/${id}`, changes)).data;
+}
+
+export async function deleteRule(id: number): Promise<void> {
+  await apiClient.delete<void>(`${rulesPath}/${id}`);
+}
+
+/** Checks now; speaks if the condition newly holds. */
+export async function checkRule(id: number): Promise<RuleCheck> {
+  return (await apiClient.post<DataEnvelope<RuleCheck>>(`${rulesPath}/${id}/check`, {})).data;
+}
+
+/** Sends what the rule would say now, whether or not it holds. */
+export async function testRule(id: number): Promise<RuleCheck> {
+  return (await apiClient.post<DataEnvelope<RuleCheck>>(`${rulesPath}/${id}/test`, {})).data;
+}

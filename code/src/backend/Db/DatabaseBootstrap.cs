@@ -341,6 +341,18 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TIMESTAMPTZ NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON _system.notification_deliveries(channel_id, id);
+            CREATE TABLE IF NOT EXISTS _system.notification_rules (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(20) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                channels        TEXT NOT NULL DEFAULT '[]',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                state           TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
             """);
 
         // Saved imports from a URL and their runs (Step 5.1).
@@ -808,6 +820,18 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON notification_deliveries(channel_id, id);
+            CREATE TABLE IF NOT EXISTS notification_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                channels        TEXT NOT NULL DEFAULT '[]',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                state           TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
             """);
 
         await conn.ExecuteAsync("""

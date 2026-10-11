@@ -22,6 +22,7 @@ public static class ApiRoutes
     public const string ApiKeys = Admin + "/api-keys";
     public const string Credentials = Admin + "/credentials";
     public const string NotificationChannels = Admin + "/notifications/channels";
+    public const string NotificationRules = Admin + "/notifications/rules";
     public const string Problems = Admin + "/problems";
     public const string WorkspaceSettings = Admin + "/settings";
     public const string PriceSources = Prefix + "/price-sources";

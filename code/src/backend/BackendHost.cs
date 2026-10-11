@@ -121,6 +121,7 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Services.Import.ImportSourceService>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationSender>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationService>();
+        services.AddSingleton<Bento.Api.Services.Notifications.NotificationRuleService>();
         services.AddHttpContextAccessor();
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
@@ -161,6 +162,7 @@ public static class BackendHost
         services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
         services.AddHostedService<Bento.Api.Workers.ImportScheduler>();
+        services.AddHostedService<Bento.Api.Workers.NotificationRuleScheduler>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)

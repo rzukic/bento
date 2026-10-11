@@ -42,6 +42,7 @@ public sealed class PriceSourceService
     private readonly CustomFunctionService _functionService;
     private readonly ICustomValueRecalculation? _recalculation;
     private readonly ILogger<PriceSourceService>? _logger;
+    private readonly Notifications.NotificationRuleService? _rules;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
     public PriceSourceService(
@@ -52,8 +53,10 @@ public sealed class PriceSourceService
         CustomFunctionCatalog functions,
         CustomFunctionService functionService,
         ICustomValueRecalculation? recalculation = null,
-        ILogger<PriceSourceService>? logger = null)
+        ILogger<PriceSourceService>? logger = null,
+        Notifications.NotificationRuleService? rules = null)
     {
+        _rules = rules;
         _systemPool = systemPool;
         _dataPool = dataPool;
         _schemaCache = schemaCache;
@@ -475,6 +478,12 @@ public sealed class PriceSourceService
                 """,
                 new { Id = runId, Requests = requests, Written = written, Quote = lastQuote, Error = error, Now = UtcNowIso() });
         }
+        // Rules on failed price updates (Step 5.3): a failed daily run speaks; any run that works clears it.
+        if (_rules is not null && (kind == "daily" || error is null))
+            await _rules.OnEventAsync("price.failed", $"price:{source.Id}", error is not null,
+                new Models.Notification("price.failed", $"Price update failed: {source.Name}", error ?? "", _rules.Link("/functions"),
+                    [new Models.NotificationFact("Price source", source.Name), new Models.NotificationFact("Run", kind)]),
+                cancellationToken);
         return (await RunsAsync(source.Id, 1)).First();
     }
 
