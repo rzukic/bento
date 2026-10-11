@@ -90,7 +90,9 @@ public sealed record AdminSchemaPreviewResponse
     public required IReadOnlyList<AdminSchemaIssueResponse> Errors { get; init; }
     public required IReadOnlyList<AdminSchemaIssueResponse> Warnings { get; init; }
     public required IReadOnlyList<AdminSchemaChangeResponse> Changes { get; init; }
-    public required ModelJson NormalizedModel { get; init; }
+    /// <summary>The whole resulting model; left out of compact previews.</summary>
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ModelJson? NormalizedModel { get; init; }
 
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public AdminSchemaPlanResponse? Plan { get; init; }

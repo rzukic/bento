@@ -2,6 +2,18 @@ import { useAuthStore } from "../stores/authStore";
 
 const API_BASE = "/api/v1";
 
+/**
+ * Goes up after every request that may change data (anything but reads,
+ * queries, formula checks and auth), so cached query results know they may
+ * be out of date (see queryCache.ts).
+ */
+let mutations = 0;
+const readOnlyPosts = /^\/(query(\/|$)|queries\/\d+\/run$|formulas\/|auth\/)/;
+
+export function dataVersion(): number {
+  return mutations;
+}
+
 export class ApiClientError extends Error {
   readonly status: number;
   readonly code?: string;
@@ -72,6 +84,12 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
     body = JSON.stringify(init.json);
   }
 
+  // The page the request comes from (e.g. /dashboards/6?interval.net=week), for the
+  // server's problem log when a query is slow or fails.
+  if (typeof window !== "undefined" && !headers.has("X-Bento-Source")) {
+    headers.set("X-Bento-Source", encodeURIComponent(window.location.pathname + window.location.search));
+  }
+
   if (!init.anonymous) {
     const accessToken = useAuthStore.getState().accessToken;
     if (accessToken && !headers.has("Authorization")) {
@@ -132,6 +150,9 @@ export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Pr
   if (!response.ok) {
     throw await parseErrorBody(response);
   }
+
+  const method = (init.method ?? "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD" && !readOnlyPosts.test(path.split("?")[0])) mutations++;
 
   if (response.status === 204) {
     return undefined as T;

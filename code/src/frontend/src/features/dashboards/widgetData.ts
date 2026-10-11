@@ -12,6 +12,13 @@ export function isRunningMeasure(measure: QueryMeasure): boolean {
   return Boolean(measure.running) || (typeof measure.formula === "string" && RUNNING_SUM.test(measure.formula));
 }
 
+const RETURN = /^\s*=?\s*(TWR|REBASE|XIRR|IRR)\s*\(/i;
+
+/** A return (Step 4.3): unknown before its first value, not 0 — like a running total. */
+export function isReturnMeasure(measure: QueryMeasure): boolean {
+  return typeof measure.formula === "string" && RETURN.test(measure.formula);
+}
+
 /** Adds the dashboard's date range to a query's filter on `dateColumn`. */
 export function rangeFilter(dateColumn: string | null | undefined, range: ResolvedRange): QueryFilter | undefined {
   if (!dateColumn || (!range.from && !range.to)) return undefined;
@@ -108,6 +115,9 @@ export type ChartSeries = {
   pick?: GroupPick;
   /** The colour chosen for the measure behind it. */
   color?: SeriesColor;
+  /** On the second value axis (right), written in its own format (Step 4.3). */
+  axis?: "right";
+  format?: NumberFormatKind;
 };
 
 export type ChartModel = {
@@ -143,7 +153,10 @@ export function otherKeyOf(result: QueryResult, group: string): string | undefin
  * group is the x axis; a second group splits the first measure into one
  * series per value (e.g. spending per category per month). Date axes get
  * every bucket of the range; a running total carries over empty buckets,
- * other measures count them as 0.
+ * other measures count them as 0 — or, with `emptyPeriods` gap or connect,
+ * leave them empty and drop the periods before the first value.
+ * `stale`: the result is from before a change (1y → 3y) and the new one is
+ * loading; periods it does not cover stay empty instead of showing 0.
  */
 export function toChartModel(
   result: QueryResult,
@@ -151,12 +164,16 @@ export function toChartModel(
   range: ResolvedRange,
   formatOverride?: NumberFormatKind,
   today: Date = new Date(),
+  options: { emptyPeriods?: "zero" | "gap" | "connect"; stale?: boolean } = {},
 ): ChartModel {
+  const empty = options.stale || (options.emptyPeriods ?? "zero") !== "zero" ? null : 0;
+  const trim = !options.stale && (options.emptyPeriods ?? "zero") !== "zero";
   const groups = result.meta.columns.filter((c) => c.role === "group");
   const measures = result.meta.columns.filter((c) => c.role === "measure");
   const labelFor = (group: string) => result.meta.columns.find((c) => c.role === "label" && c.labelOf === group)?.name;
   const format = formatOverride ?? formatKindForType(measures[0]?.type);
-  const running = new Set((query?.measures ?? []).filter(isRunningMeasure).map((m) => m.name));
+  // Running totals and returns hold their last value over empty buckets; other measures count them as 0.
+  const running = new Set((query?.measures ?? []).filter((m) => isRunningMeasure(m) || isReturnMeasure(m)).map((m) => m.name));
 
   if (groups.length === 0) {
     const row = result.data[0] ?? {};
@@ -177,10 +194,10 @@ export function toChartModel(
     const present = result.data.map((row) => String(row[x.name] ?? "")).filter(Boolean).sort();
     const first = range.from ?? present[0];
     // The range's last day, but not past today: "This year" in October
-    // should not draw November and December.
+    // should not draw November and December — unless the range is a forecast.
     const todayIso = toIso(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
     const rangeEnd = range.to ? toIso(new Date(parseIsoDate(range.to).getTime() - 86_400_000)) : null;
-    const lastDay = rangeEnd ? (rangeEnd < todayIso ? rangeEnd : todayIso) : present[present.length - 1];
+    const lastDay = rangeEnd ? (rangeEnd < todayIso || range.future ? rangeEnd : todayIso) : present[present.length - 1];
     categories = first && lastDay && first <= lastDay ? bucketSequence(first, lastDay, bucket) : [];
     // Data outside the range (no date filter on the widget) still shows.
     for (const value of present) if (!categories.includes(value)) categories.push(value);
@@ -211,7 +228,7 @@ export function toChartModel(
         return value;
       }
       // Before the first value a running total is unknown; afterwards it holds.
-      return isRunning ? last : 0;
+      return isRunning ? last : empty;
     });
   };
 
@@ -237,7 +254,7 @@ export function toChartModel(
         : undefined;
       return { name, values: fill(values, running.has(measure.name)), pick };
     });
-    return { categories, bucket, series, format, categoryPicks };
+    return trimLeading({ categories, bucket, series, format, categoryPicks }, trim && !!bucket);
   }
 
   const series = measures.map((measure) => {
@@ -247,7 +264,24 @@ export function toChartModel(
     });
     return { name: measure.name, values: fill(values, running.has(measure.name)) };
   });
-  return { categories, bucket, series, format, categoryPicks };
+  return trimLeading({ categories, bucket, series, format, categoryPicks }, trim && !!bucket);
+}
+
+/**
+ * Drops the periods before the first value of any series, e.g. a depot over
+ * three years that starts with the first purchase a year ago (its value there
+ * is 0 or nothing) — instead of a line along 0.
+ */
+function trimLeading(model: ChartModel, trim: boolean): ChartModel {
+  if (!trim) return model;
+  const first = model.categories.findIndex((_, index) => model.series.some((s) => s.values[index] !== null && s.values[index] !== 0));
+  if (first <= 0) return model;
+  return {
+    ...model,
+    categories: model.categories.slice(first),
+    categoryPicks: model.categoryPicks?.slice(first),
+    series: model.series.map((s) => ({ ...s, values: s.values.slice(first) })),
+  };
 }
 
 export type KpiModel = { value: number | null; previous: number | null; format: NumberFormatKind; label?: string };

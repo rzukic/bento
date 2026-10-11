@@ -1,0 +1,118 @@
+# Bento on Coolify: full stack with Postgres in one file (Coolify reads a single
+# compose file). Coolify's own proxy (Traefik) terminates HTTPS for the domain
+# and forwards to Bento's Caddy on port 80, which routes /api and /ws to the
+# backend and everything else to the frontend.
+#
+# In Coolify: New resource → your Git repository → Build pack "Docker Compose",
+#   Base directory:      /code
+#   Docker Compose file: /docker-compose.coolify.yml
+# then set the domain on the "proxy" service (https://bento.example.com).
+#
+# Coolify generates the SERVICE_PASSWORD_* values on the first deploy and keeps
+# them; the data lives in named volumes, so redeploys and updates keep it.
+services:
+  proxy:
+    build: ./proxy
+    restart: unless-stopped
+    environment:
+      # Plain HTTP on :80 for any host — Coolify's proxy in front handles HTTPS.
+      DOMAIN: localhost
+      # Tells Coolify this service is the web entry on port 80.
+      SERVICE_FQDN_PROXY_80:
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./src/frontend
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: src/backend/Dockerfile
+    restart: unless-stopped
+    environment:
+      AUTH_MODE: standard
+      JWT_SECRET: ${SERVICE_PASSWORD_64_JWT}
+      # The site is reached over HTTPS through Coolify: the refresh cookie is always Secure.
+      AUTH_REFRESH_COOKIE_SECURE: "true"
+      BACKEND_PORT: "5000"
+      DATA_DIR: /data
+      LOG_LEVEL: ${LOG_LEVEL:-Information}
+      # The public URL (Coolify fills it from the proxy's domain). Caddy runs in plain
+      # HTTP mode behind Coolify, so the backend sees http:// and would otherwise
+      # reject the browser's https:// Origin as cross-origin.
+      ALLOWED_ORIGINS: ${SERVICE_URL_PROXY}
+      # Links the backend hands out (MCP address, OAuth metadata) use the public URL.
+      PUBLIC_URL: ${SERVICE_URL_PROXY}
+      # Forwarded headers from Caddy (and Coolify's proxy) on the private Docker networks.
+      TRUSTED_PROXIES: 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8
+      DATABASE_PROVIDER: Postgres
+      DATABASE_SYSTEM_CONNECTION: Host=postgres;Port=5432;Database=bento;Username=bento_system;Password=${SERVICE_PASSWORD_BENTOSYSTEM}
+      DATABASE_DATA_CONNECTION: Host=postgres;Port=5432;Database=bento;Username=bento_data;Password=${SERVICE_PASSWORD_BENTODATA}
+      POSTGRES_SUPERUSER_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+    volumes:
+      - bento-data:/data
+    depends_on:
+      postgres-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "dotnet", "Bento.Api.dll", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 5
+
+  postgres:
+    # postgres:16-alpine plus the role/schema bootstrap (a bind mount of
+    # ./init-db would be empty on Coolify, which builds from a copy of the repo).
+    build: ./init-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bento
+      POSTGRES_USER: bento_admin
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      BENTO_SYSTEM_ROLE: bento_system
+      BENTO_DATA_ROLE: bento_data
+      BENTO_SYSTEM_PASSWORD: ${SERVICE_PASSWORD_BENTOSYSTEM}
+      BENTO_DATA_PASSWORD: ${SERVICE_PASSWORD_BENTODATA}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bento_admin -d bento"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # One-shot on every deploy: (re)applies the idempotent role/schema script, so
+  # the roles exist and match the generated passwords even when the data volume
+  # was initialised without them.
+  postgres-init:
+    build: ./init-db
+    restart: "no"
+    # Coolify-only key (stripped before deploy): a finished one-shot is not "degraded".
+    exclude_from_hc: true
+    command: ["psql", "-v", "ON_ERROR_STOP=1", "-h", "postgres", "-U", "bento_admin", "-d", "bento", "-f", "/docker-entrypoint-initdb.d/01-roles-and-schemas.sql"]
+    environment:
+      PGPASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      BENTO_SYSTEM_ROLE: bento_system
+      BENTO_DATA_ROLE: bento_data
+      BENTO_SYSTEM_PASSWORD: ${SERVICE_PASSWORD_BENTOSYSTEM}
+      BENTO_DATA_PASSWORD: ${SERVICE_PASSWORD_BENTODATA}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  bento-data:
+  caddy-data:
+  caddy-config:
+  pg-data:

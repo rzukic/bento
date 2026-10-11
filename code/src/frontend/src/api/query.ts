@@ -38,6 +38,10 @@ export type QueryMeasure = {
   window?: number;
   /** Charts only, never sent: the series colour (default: the palette in order). */
   color?: SeriesColor;
+  /** Charts only, never sent (Step 4.3): on a second value axis on the right, e.g. a return beside a value. */
+  axis?: "right";
+  /** Charts only, never sent: how the right axis and the tooltip write this measure, e.g. percent. */
+  format?: "currency" | "number" | "integer" | "percent";
   /** A formula over the group's rows (Step 3.6): `SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`. */
   formula?: string;
   running?: boolean;
@@ -45,7 +49,8 @@ export type QueryMeasure = {
 };
 
 /** Values at the end of each period: one row per period, measures with BUCKET_END(). */
-export type QueryAsOf = { bucket: QueryBucket; from: string; to: string; as?: string };
+/** Without `from` ("all time") the periods begin where the data does, e.g. with the first trade. */
+export type QueryAsOf = { bucket: QueryBucket; from?: string; to: string; as?: string };
 
 export type VariableValue = number | string | boolean | null;
 
@@ -113,7 +118,14 @@ export async function getSavedQuery(id: number): Promise<SavedQuery> {
 
 export type QueryVariable = { name: string; source?: string; formula: string; filter?: QueryFilter };
 
-export type QueryVariableResult = { name: string; type: string | null; value: VariableValue; error: string | null };
+export type QueryVariableResult = {
+  name: string;
+  type: string | null;
+  value: VariableValue;
+  error: string | null;
+  /** The variable's label from the dashboard (added by the page, not the server): shown under a key figure. */
+  label?: string;
+};
 
 /** POST /api/v1/query/variables — values in the order given; a broken one has an error. */
 export async function evaluateVariables(variables: QueryVariable[]): Promise<QueryVariableResult[]> {

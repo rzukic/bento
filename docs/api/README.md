@@ -24,7 +24,7 @@ Current Step 1.4 auth contract:
 - rate limits per client IP and route: login, register and the setup `POST`s allow `auth_rate_limit_per_minute` requests (default 5); refresh and logout allow `session_rate_limit_per_minute` (default 120). Both values are reported by `GET /api/v1/auth`; a limited request returns `429 TOO_MANY_REQUESTS` with `details.retryAfterSeconds`. The SPA retries a rate-limited refresh instead of treating it as signed out
 - `POST /api/v1/auth/logout` revokes the refresh session named by the cookie (if any) and clears the cookie; always `204`, so a stale or missing cookie never blocks signing out. The short-lived access token stays valid until it expires
 - `/api/v1/*` routes outside `/api/v1/auth/*` require bearer auth in `standard` mode and run with an admin bypass in `open` mode
-- API key auth remains deferred to a later phase
+- API keys (`X-API-Key` or `Bearer bento_…`) and, for MCP clients, OAuth access tokens (`Bearer bento_at_…`) act as their user within their scope; see [MCP and OAuth](#mcp-and-oauth-step-46)
 
 ---
 
@@ -381,10 +381,99 @@ Relation sub-resource contract for `GET /api/v1/data/<table>/:id/<relation>`:
 | `GET` | `/api/v1/dashboards` | List dashboards |
 | `POST` | `/api/v1/dashboards` | Create a dashboard |
 | `GET` | `/api/v1/dashboards/:dashboardId` | Get dashboard config |
-| `PATCH` | `/api/v1/dashboards/:dashboardId` | Update dashboard |
-| `DELETE` | `/api/v1/dashboards/:dashboardId` | Delete dashboard |
+| `PUT` | `/api/v1/dashboards/:dashboardId` | Update dashboard: `{ name?, isShared?, dashboard?, note? }`. The state before is kept as a version |
+| `DELETE` | `/api/v1/dashboards/:dashboardId` | Delete dashboard; the last state is kept and can be restored |
+| `GET` | `/api/v1/dashboards/:dashboardId/versions` | Earlier states, newest first: `{ id, name, widgets, action (update, delete, restore), changedBy, via (the app or key, e.g. "Claude"), note, createdAt }`. Up to 100 per dashboard |
+| `GET` | `/api/v1/dashboards/:dashboardId/versions/:versionId` | One earlier state with its Dashboard JSON |
+| `POST` | `/api/v1/dashboards/:dashboardId/versions/:versionId/restore` | Back to that state (owner). The state before the restore is kept too |
+| `GET` | `/api/v1/dashboards/deleted` | The user's deleted dashboards |
+| `POST` | `/api/v1/dashboards/deleted/:versionId/restore` | Bring a deleted dashboard back under its id |
+| `GET` | `/api/v1/dashboards/changes?limit=30` | Recent changes to the user's dashboards made by apps and keys |
 
-> **Not yet implemented** — planned for Phase 3.
+---
+
+### MCP and OAuth (Step 4.6)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/mcp` | MCP over streamable HTTP (JSON-RPC 2.0, stateless, JSON responses): `initialize`, `ping`, `tools/list`, `tools/call`. `GET` and `DELETE` answer 405 (no server stream) |
+| `GET` | `/.well-known/oauth-protected-resource` | RFC 9728: the resource (`<public url>/mcp`) and its authorization server (Bento itself) |
+| `GET` | `/.well-known/oauth-authorization-server` | RFC 8414 metadata (also served as `openid-configuration`) |
+| `POST` | `/api/v1/oauth/register` | RFC 7591 dynamic client registration; public clients only (`token_endpoint_auth_method: none`); redirects must be https, http on loopback, or an app's own scheme |
+| `POST` | `/api/v1/oauth/token` | `authorization_code` (PKCE S256 required) and `refresh_token` (rotating; a reused refresh token or code revokes the grant). Form or JSON body; errors as `{ error, error_description }` |
+| `GET` | `/api/v1/oauth/authorize?client_id&redirect_uri` | For the consent page: the client's name and redirect host (signed-in user) |
+| `POST` | `/api/v1/oauth/authorize` | The user's decision `{ clientId, redirectUri, codeChallenge, codeChallengeMethod, scope: read \| read-write, state, approve }` → `{ redirectTo }` with `code` or `error=access_denied`, plus `state` and `iss` |
+| `GET` | `/api/v1/mcp` | The MCP address for this installation |
+| `GET` | `/api/v1/mcp/connections` | Connected apps (own; admins: all) |
+| `GET` | `/api/v1/mcp/connections/:id` | One connected app (own; admins: all) |
+| `PUT` | `/api/v1/mcp/connections/:id` | Change what it may do: `{ permissions: [...] }`. Read is always in, capped by the role of the user it acts as; applies to its next call |
+| `GET` | `/api/v1/mcp/connections/:id/calls?limit=100` | The calls made through this app, newest first |
+| `DELETE` | `/api/v1/mcp/connections/:id` | Disconnect an app (revokes its tokens) |
+| `GET` | `/api/v1/mcp/calls?limit=50` | The MCP call log (own; admins: all) |
+| `GET` | `/api/v1/mcp/bento.mcpb` | Claude Desktop extension (MCP bundle: manifest, icon, a stdio bridge to `/mcp` that signs in through the browser with OAuth and keeps the tokens in `~/.bento`), its address set to this installation. Public; holds no secret |
+
+- `/mcp` accepts an OAuth access token (`Bearer bento_at_…`), an API key or a session token. Without valid credentials it answers 401 with `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`.
+- An access token lasts one hour and acts as its user with the permissions ticked on the consent page (`data.read`, `data.write`, `data.delete`, `dashboards.write`, `forms.write`, `schema.write`, `functions.write`; capped by the role; also the token's `scope`). Every call is checked against them; users, keys, credentials, connections and sign-in are never reachable with a token.
+- `POST /api/v1/oauth/authorize` takes `permissions` (a list of those ids); `GET` returns `allowed`, what the user's role permits. Connected apps also carry `allowed` (what their user's role permits).
+- Each tool is a call to this REST API with the caller's credentials, so the same roles, scopes and validation apply.
+- `PUBLIC_URL` sets the address used in the metadata; without it the request's scheme and host are used.
+
+---
+
+### AI (Step 4.7)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/ai/status` | `{ enabled, configured, model, budgetLeft }`: whether the AI actions show |
+| `GET` | `/api/v1/ai/settings` | Admin: `{ configured, enabled, model, monthlyLimitUsd, spentThisMonthUsd, models[] }`. The key is never returned |
+| `PUT` | `/api/v1/ai/settings` | Admin: `{ apiKey?, model?, monthlyLimitUsd?, enabled? }`. A missing `apiKey` keeps the stored key; an empty one removes it. The key is stored as the credential `anthropic_api_key` |
+| `GET` | `/api/v1/ai/usage?limit=50` | AI calls (own; admins: all) with feature, model, tokens (in, out, cache read/write), `costUsd`, `toolCalls`, `ok`, `error`, `durationMs` |
+| `POST` | `/api/v1/ai/explain` | Explains a widget: `{ language, title, type, dashboardId?, dashboard?, query?, data?, result?, range?, filters?, point?, question? }` → `{ answer, model, costUsd, toolCalls, durationMs }` |
+
+- Only for signed-in users. API keys and OAuth tokens get 403, because scripts and connected apps bring their own model.
+- Explain runs the read-only MCP tools (`describe_schema`, `list_rows`, `get_row`, `aggregate`, `list_formula_functions`, `get_dashboard`, `list_saved_queries`, `run_saved_query`, `bento_guide`) as the calling user, with at most 8 model turns.
+- A missing key, a switched-off AI or a used-up monthly limit answers 422 before any call. The used-up limit has code `ai_budget_exhausted`.
+- Provider errors answer `{ error: { code: "AI_FAILED", message } }`:
+  - 502 when Anthropic cannot be reached
+  - 401 for an invalid key
+  - 429 when rate-limited
+  - 422 for a refusal
+- Each call is recorded with its cost, whether it worked or failed.
+
+### Describe (Step 4.9)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/ai/describe/widget` | `{ language, sentence, dashboard?, widget, range?: { from, to }, variables?: [{ name, value }], otherWidgets? }` → `{ widget, note, model, costUsd, toolCalls, durationMs }` |
+| `POST` | `/api/v1/ai/describe/formula` | `{ language, sentence, table, kind: column \| measure, current?, resultType? }` → `{ formula, note, model, costUsd, toolCalls, durationMs }` |
+
+- Both run the read-only MCP tools as the calling user and finish with a submit tool that Bento checks:
+  - widgets: Bento runs the widget's query for the given range, the way the dashboard runs it
+  - column formulas: `formulas/validate`
+  - measure formulas: run as a query measure
+- A failed check goes back to the model to fix. Nothing is saved.
+- When the model does not submit (e.g. the data cannot answer the sentence), `widget`/`formula` is null and `note` says why.
+- Usage is recorded as `describe_widget` and `describe_formula`. The same refusals apply as for explain (no key, AI off, budget used up, API keys and OAuth apps).
+
+### Categorise (Step 4.8)
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `POST` | `/api/v1/categorise/:table/suggest` | `{ column, rows: [{ key, values: { column: text } }], ai? }`. Returns `{ column, options: [{ value, label, group }], matchColumns, suggestions: [{ key, value, label, source, confidence, keyword, matchColumn, ruleId }], ai, aiError }`. Order of sources: `rule`, then `history`, then (with `ai: true`) `ai` for rows still open. At most 500 rows |
+| `GET` | `/api/v1/categorise/:table/rules?column=` | The table's rules, with the linked record's label |
+| `POST` | `/api/v1/categorise/:table/rules` | `{ rules: [{ column, matchColumn, pattern, value }] }`. A rule with the same column, match column and keyword (ignoring case) is replaced. Returns all rules of the table |
+| `DELETE` | `/api/v1/categorise/:table/rules/:id` | Delete a rule |
+
+- `column` must be a link column (`value` is the record's id) or a choice column (`value` is the choice). `matchColumn` must be a text column.
+- A rule matches when the row's `matchColumn` contains `pattern`, ignoring case. When several rules match, the longest keyword wins.
+- `history`: the row's first text column (usually the payee) equals that of earlier rows that have a value, and at least two thirds of them agree. `confidence` is that share.
+- `ai`:
+  - Rows with the same text are asked once.
+  - It is a single model call per batch of 60, without tools. Its usage is recorded as feature `categorise`.
+  - Without the AI set up, or with the budget used up, `aiError` says why. Rule and history results are still returned.
+  - API keys get 403 for `ai: true`; rules and history work for them.
+- Needs `editor` or `api`. OAuth apps (MCP) cannot call these routes.
+- The import takes the chosen values per row: `assign: { column, values: { "<file line>": "<value>" } }` on `POST /api/v1/import/:table/preview` and `POST /api/v1/import/:table`. They win over the file's own value.
 
 ---
 

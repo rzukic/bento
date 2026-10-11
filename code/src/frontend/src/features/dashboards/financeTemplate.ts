@@ -1,4 +1,6 @@
 import type { DashboardDocument, DashboardWidget } from "../../api/dashboards";
+import type { CustomFunction, FunctionDraft, FunctionTemplate } from "../../api/functions";
+import type { FormDefinition } from "../../api/forms";
 import type { ModelTable, SchemaColumn, SchemaModelDocument, SchemaRelation, SchemaTable } from "../../types/api";
 import { cashFlowDashboard } from "./starter";
 
@@ -55,6 +57,43 @@ export function suggestedPrefix(existing: { name: string }[]): string {
 
 const id: SchemaColumn = { name: "id", type: "integer", primaryKey: true };
 
+/** The function the trades' realised gains and cost call (Step 4.3b): the user's own, made from the "avg-cost" template. */
+export const COST_FUNCTION = "avg_cost";
+
+function costCall(what: "realized" | "cost"): string {
+  return `CUSTOM_ROWS("${COST_FUNCTION}", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), "${what}")`;
+}
+
+export type CostFunctionApi = {
+  list: () => Promise<CustomFunction[]>;
+  templates: () => Promise<FunctionTemplate[]>;
+  create: (draft: FunctionDraft) => Promise<unknown>;
+};
+
+/**
+ * Creates avg_cost from its template unless it exists. An existing one is
+ * used when it runs over rows with the template's four arguments.
+ */
+export async function ensureCostFunction(api: CostFunctionApi): Promise<void> {
+  const existing = (await api.list()).find((fn) => fn.name === COST_FUNCTION);
+  if (existing) {
+    if (existing.mode === "rows" && existing.arguments.length === 4) return;
+    throw new Error(`A function named ${COST_FUNCTION} exists already and does not run over a group of rows; rename it under Functions first.`);
+  }
+  const template = (await api.templates()).find((t) => t.id === "avg-cost");
+  if (!template) throw new Error("The server has no average cost template; update Bento.");
+  await api.create({
+    name: COST_FUNCTION,
+    description: template.description,
+    arguments: template.arguments,
+    resultType: template.resultType,
+    code: template.code,
+    allowedHosts: [],
+    credentials: [],
+    mode: "rows",
+  });
+}
+
 /** "Transactions", or with a prefix "Finance transactions", so pickers tell them from existing tables. */
 export function financeLabel(n: FinanceNames, key: keyof FinanceNames): string {
   const prefix = n[key].slice(0, n[key].length - BASE[key].length).replace(/_+$/, "").replace(/_/g, " ").trim();
@@ -83,6 +122,9 @@ function tables(n: FinanceNames): SchemaTable[] {
         id,
         { name: "name", displayName: "Name", type: "text", nullable: false, unique: true },
         { name: "kind", displayName: "Kind", type: "enum", values: ["income", "expense", "savings", "transfer"] },
+        // Step 4.5: subcategories (Food → Groceries) and a monthly budget per category.
+        { name: "parent_id", displayName: "Main category", type: "reference", references: n.categories },
+        { name: "budget", displayName: "Monthly budget", type: "currency" },
       ],
     },
     {
@@ -96,6 +138,7 @@ function tables(n: FinanceNames): SchemaTable[] {
         { name: "purpose", displayName: "Purpose", type: "text" },
         { name: "account_id", displayName: "Account", type: "reference", references: n.accounts },
         { name: "category_id", displayName: "Category", type: "reference", references: n.categories },
+        { name: "main_category", displayName: "Main category", type: "computed", formula: "COALESCE(category_id.parent_id.name, category_id.name)" },
       ],
     },
     {
@@ -114,6 +157,9 @@ function tables(n: FinanceNames): SchemaTable[] {
         { name: "signed_shares", displayName: "Shares (±)", type: "computed", formula: 'IF(kind = "sell", -shares, shares)' },
         { name: "invested", displayName: "Invested", type: "computed", formula: "signed_shares * price + COALESCE(fees, 0)" },
         { name: "value", displayName: "Value today", type: "computed", formula: `signed_shares * LOOKUP_ASOF("${n.prices}", "isin", isin, "date", TODAY(), "price")` },
+        // Step 4.3b: by average cost per security and account, in date order — see costFunction below.
+        { name: "realized", displayName: "Realised gain", type: "computed", resultType: "currency", formula: costCall("realized") },
+        { name: "cost_change", displayName: "Cost (±)", type: "computed", resultType: "currency", formula: costCall("cost") },
       ],
     },
     {
@@ -152,6 +198,7 @@ function relations(n: FinanceNames, taken: Set<string>): SchemaRelation[] {
   return [
     { name: unique(`${n.accounts}_${n.transactions}`), type: "1:N", from: n.accounts, to: n.transactions, column: "account_id" },
     { name: unique(`${n.categories}_${n.transactions}`), type: "1:N", from: n.categories, to: n.transactions, column: "category_id" },
+    { name: unique(`${n.categories}_subcategories`), type: "1:N", from: n.categories, to: n.categories, column: "parent_id" },
     { name: unique(`${n.accounts}_${n.trades}`), type: "1:N", from: n.accounts, to: n.trades, column: "account_id" },
     { name: unique(`${n.accounts}_${n.dividends}`), type: "1:N", from: n.accounts, to: n.dividends, column: "account_id" },
   ];
@@ -169,6 +216,10 @@ const at = (x: number, y: number, w: number, h: number) => ({ x, y, w, h });
 export function wealthDashboard(n: FinanceNames): DashboardDocument {
   const t = n.transactions;
   const tr = n.trades;
+  const dv = n.dividends;
+  // Step 4.3: the depot at each month end. Step 4.3b: the money put in by date (Modified Dietz) — trades in, net dividends paid out.
+  const depotAtMonthEnd = `SUM(SUM(${tr}.signed_shares * LOOKUP_ASOF("${n.prices}", "isin", ${tr}.isin, "date", BUCKET_END(), "price") WHERE ${tr}.date <= BUCKET_END()))`;
+  const moneyIn = `FLOWS(${tr}.invested, ${tr}.date), FLOWS(COALESCE(${dv}.tax, 0) - ${dv}.amount, ${dv}.date)`;
   const widgets: DashboardWidget[] = [
     {
       id: "net-worth",
@@ -191,7 +242,8 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       type: "kpi",
       title: "Unrealised gain",
       position: at(6, 0, 3, 2),
-      data: { query: { source: tr, measures: [{ name: "gain", formula: "SUM(value - invested)" }] } },
+      // Value of the shares held over what they cost (average cost; sold shares leave with their cost).
+      data: { query: { source: tr, measures: [{ name: "gain", formula: "SUM(value - cost_change)" }] } },
       display: { format: "currency", compare: false },
     },
     {
@@ -244,9 +296,10 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
           groupBy: [{ column: "name" }],
           measures: [
             { name: "shares", formula: "SUM(signed_shares)" },
-            { name: "invested", formula: "SUM(invested)" },
+            { name: "cost", formula: "SUM(cost_change)" },
             { name: "value", formula: "SUM(value)" },
-            { name: "gain", formula: "SUM(value - invested)" },
+            { name: "gain", formula: "SUM(value - cost_change)" },
+            { name: "realized", formula: "SUM(realized)" },
           ],
           sort: ["-value"],
         },
@@ -262,31 +315,134 @@ export function wealthDashboard(n: FinanceNames): DashboardDocument {
       display: { format: "currency" },
     },
     {
+      id: "xirr",
+      type: "kpi",
+      title: "Return a year (XIRR)",
+      position: at(0, 11, 3, 2),
+      data: {
+        // Money paid into the depot, dividends received and today's value, by date (Step 4.3).
+        query: {
+          source: n.accounts,
+          measures: [
+            {
+              name: "xirr",
+              formula: `XIRR(FLOWS(-${tr}.invested, ${tr}.date), FLOWS(${dv}.amount - COALESCE(${dv}.tax, 0), ${dv}.date), SUM(SUM(${tr}.value)), TODAY())`,
+            },
+          ],
+        },
+      },
+      display: { format: "percent", compare: false },
+    },
+    {
+      id: "twr",
+      type: "kpi",
+      title: "Time-weighted return (range)",
+      position: at(0, 13, 3, 2),
+      data: {
+        asOf: true,
+        query: { source: n.accounts, groupBy: [{ column: "opened_on", bucket: "month", as: "month" }], measures: [{ name: "twr", formula: `TWR(${depotAtMonthEnd}, ${moneyIn})` }] },
+      },
+      display: { format: "percent", compare: false },
+    },
+    {
+      id: "depot-vs-benchmark",
+      type: "line",
+      title: "Depot vs. benchmark (100 = start)",
+      position: at(3, 11, 9, 6),
+      data: {
+        // Both from the end of the month before the range; the benchmark's ISIN is the variable "benchmark".
+        asOf: true,
+        query: {
+          source: n.accounts,
+          groupBy: [{ column: "opened_on", bucket: "month", as: "month" }],
+          measures: [
+            { name: "depot", formula: `TWR(${depotAtMonthEnd}, ${moneyIn}, 100)`, color: "teal" },
+            { name: "benchmark", formula: `REBASE(LOOKUP_ASOF("${n.prices}", "isin", benchmark, "date", BUCKET_END(), "price"))`, color: "gray" },
+          ],
+        },
+      },
+      display: { format: "number", referenceLines: [{ value: 100, label: "Start" }] },
+    },
+    {
+      id: "realized",
+      type: "kpi",
+      title: "Realised gains in the range",
+      position: at(0, 15, 3, 2),
+      data: { query: { source: tr, measures: [{ name: "realized", formula: "SUM(realized)" }] }, dateColumn: "date" },
+      display: { format: "currency" },
+    },
+    {
       id: "how-to",
       type: "text",
       title: "",
-      position: at(0, 11, 12, 3),
+      position: at(0, 17, 12, 3),
       display: {
         text: [
           "# How to fill this",
           `- ${financeLabel(n, "accounts")}: one row per bank account or depot, with its opening balance`,
-          `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import)`,
+          `- ${financeLabel(n, "transactions")}: import your bank's CSV (Data → ${financeLabel(n, "transactions")} → Import), or add one with Add transaction (Quick add in the sidebar, also on the phone)`,
           `- ${financeLabel(n, "trades")}: buys and sells with ISIN, shares and price — your broker's export`,
-          `- ${financeLabel(n, "prices")}: a price per ISIN and date; month ends are enough (live prices come later)`,
+          `- ${financeLabel(n, "prices")}: a price per ISIN and date — by hand, imported, or live from a price source (Functions → Price sources)`,
           `- ${financeLabel(n, "dividends")}: payouts per ISIN`,
+          `- Realised gains and the cost of each position come from your function ${COST_FUNCTION} (average cost); switch to FIFO by giving it the code of the FIFO template under Functions`,
+          "- The benchmark is the ISIN in the dashboard variable benchmark; give it a symbol in the price source to fetch its prices",
         ].join("\n"),
       },
     },
   ];
-  return { dateRange: { preset: "last-12-months" }, refreshSeconds: 0, widgets };
+  return {
+    dateRange: { preset: "last-12-months" },
+    refreshSeconds: 0,
+    widgets,
+    variables: [{ name: "benchmark", label: "Benchmark ISIN", formula: '"IE00B4L5Y983"' }],
+  };
+}
+
+/**
+ * "Add transaction" (Step 4.4): a pinned form for the phone. The amount starts
+ * as spending (−), the date today, the account as last time; payees are suggested.
+ */
+export function transactionForm(n: FinanceNames): FormDefinition {
+  return {
+    table: n.transactions,
+    pinned: true,
+    fields: [
+      { column: "amount", label: "Amount", sign: "negative", help: "− spent, + received" },
+      { column: "payee", label: "Payee" },
+      { column: "category_id", label: "Category" },
+      { column: "account_id", label: "Account", default: { kind: "last" } },
+      { column: "date", label: "Date", default: { kind: "today" } },
+      { section: "More" },
+      { column: "purpose", label: "Note" },
+    ],
+  };
 }
 
 /** The cash-flow dashboard of the template's transactions, with an account filter. */
 export function financeCashFlow(transactions: ModelTable): DashboardDocument {
-  return { ...cashFlowDashboard(transactions), filters: [{ column: "account_id", label: "Account" }] };
+  const base = cashFlowDashboard(transactions);
+  const widgets: DashboardWidget[] = base.widgets.map((widget) =>
+    // Step 4.5: spending by main category; a slice shows its categories.
+    widget.id === "spending-by-category" && widget.data?.query
+      ? {
+          ...widget,
+          title: "Spending by category",
+          data: { ...widget.data, query: { ...widget.data.query, groupBy: [{ column: "main_category" }] } },
+          display: { ...widget.display, drill: "category_id" },
+        }
+      : widget,
+  );
+  widgets.push({
+    id: "budgets",
+    type: "budget",
+    title: "Budgets this month",
+    position: at(0, 15, 12, 4),
+    data: { budget: { source: transactions.name, amount: "amount", date: "date", category: "category_id", limit: "budget", expenses: "negative", period: "month" } },
+  });
+  return { ...base, widgets, filters: [{ column: "account_id", label: "Account" }] };
 }
 
-/** Example rows to try it out: two accounts, three months of bookings, an ETF, its prices and a dividend. */
+/** Example rows to try it out: two accounts, categories with budgets and subcategories, three months of bookings and this month's first, an ETF, its prices and a dividend. */
 export function exampleRows(today = new Date()) {
   const month = (back: number, day: number) => {
     const d = new Date(Date.UTC(today.getFullYear(), today.getMonth() - back, day));
@@ -298,24 +454,33 @@ export function exampleRows(today = new Date()) {
       { name: "Checking", kind: "giro", opened_on: month(12, 1), opening_balance: 1000 },
       { name: "Depot", kind: "depot", opened_on: month(12, 1), opening_balance: 0 },
     ],
+    // Parents before their subcategories; budgets per month.
     categories: [
       { name: "Salary", kind: "income" },
-      { name: "Rent", kind: "expense" },
-      { name: "Groceries", kind: "expense" },
-      { name: "Leisure", kind: "expense" },
+      { name: "Rent", kind: "expense", budget: 1000 },
+      { name: "Food", kind: "expense" },
+      { name: "Groceries", kind: "expense", parent: "Food", budget: 250 },
+      { name: "Restaurants", kind: "expense", parent: "Food", budget: 80 },
+      { name: "Leisure", kind: "expense", budget: 150 },
       { name: "Investing", kind: "savings" },
+    ] as { name: string; kind: string; parent?: string; budget?: number }[],
+    // Account by position: 0 = Checking, 1 = Depot; category by name.
+    transactions: [
+      ...[3, 2, 1].flatMap((back) => [
+        { date: month(back, 1), amount: 3000, payee: "Employer", account: 0, category: "Salary" },
+        { date: month(back, 2), amount: -1000, payee: "Landlord", account: 0, category: "Rent" },
+        { date: month(back, 10), amount: -200, payee: "Supermarket", account: 0, category: "Groceries" },
+        { date: month(back, 20), amount: -100, payee: "Cinema", account: 0, category: "Leisure" },
+        { date: month(back, 22), amount: -35, payee: "Pizzeria", account: 0, category: "Restaurants" },
+        ...(back > 1 ? [{ date: month(back, 14), amount: back === 3 ? -1000 : -500, payee: "Depot", account: 0, category: "Investing" }] : []),
+      ]),
+      // This month so far: groceries at 82 % of their budget.
+      { date: month(0, 1), amount: -205, payee: "Supermarket", account: 0, category: "Groceries" },
     ],
-    // Account and category by position: 0 = Checking, 1 = Depot; Salary, Rent, Groceries, Leisure, Investing.
-    transactions: [3, 2, 1].flatMap((back) => [
-      { date: month(back, 1), amount: 3000, payee: "Employer", account: 0, category: 0 },
-      { date: month(back, 2), amount: -1000, payee: "Landlord", account: 0, category: 1 },
-      { date: month(back, 10), amount: -200, payee: "Supermarket", account: 0, category: 2 },
-      { date: month(back, 20), amount: -100, payee: "Cinema", account: 0, category: 3 },
-      ...(back > 1 ? [{ date: month(back, 14), amount: back === 3 ? -1000 : -500, payee: "Depot", account: 0, category: 4 }] : []),
-    ]),
     trades: [
       { date: month(3, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 10, price: 100, account: 1 },
       { date: month(2, 15), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "buy", shares: 5, price: 100, account: 1 },
+      { date: month(1, 20), isin: "IE00B4L5Y983", name: "MSCI World ETF", kind: "sell", shares: 3, price: 108, fees: 1, account: 1 },
     ],
     prices: [
       { isin: "IE00B4L5Y983", date: monthEnd(3), price: 102 },
@@ -337,7 +502,9 @@ export async function seedExamples(n: FinanceNames, createRow: CreateRow, today 
     return created;
   };
   const accounts = await ids(n.accounts, rows.accounts);
-  const categories = await ids(n.categories, rows.categories);
+  const categories: Record<string, unknown> = {};
+  for (const { parent, ...row } of rows.categories)
+    categories[row.name] = (await createRow(n.categories, { ...row, ...(parent ? { parent_id: categories[parent] } : {}) })).id;
   for (const { account, category, ...row } of rows.transactions)
     await createRow(n.transactions, { ...row, account_id: accounts[account], category_id: categories[category] });
   for (const { account, ...row } of rows.trades) await createRow(n.trades, { ...row, account_id: accounts[account] });

@@ -31,9 +31,21 @@ public sealed class AggregationQueryService
     private readonly QueryService _queryService;
     private readonly DatabaseConfig _dbConfig;
     private readonly ComputedColumns _computed;
+    private readonly QueryIndexes _indexes;
+    private readonly ProblemLog _problems;
+    private readonly IHttpContextAccessor _http;
 
-    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed)
+    private static readonly JsonSerializerOptions ProblemJson = new(JsonSerializerDefaults.Web)
     {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, QueryIndexes indexes,
+        ProblemLog problems, IHttpContextAccessor http)
+    {
+        _indexes = indexes;
+        _problems = problems;
+        _http = http;
         _schemaCache = schemaCache;
         _queryService = queryService;
         _dbConfig = dbConfig;
@@ -53,10 +65,23 @@ public sealed class AggregationQueryService
     public const int MaxTop = 1000;
 
     /// <param name="Fn">count, sum, … or "formula" (then <paramref name="Type"/> is the formula's result).</param>
-    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null);
+    /// <param name="Custom">A CUSTOM(…) formula (Step 4.1): its arguments are selected as hidden columns and the function runs on each result row.</param>
+    /// <param name="Series">XIRR/IRR/TWR/REBASE (Step 4.3): the parts are selected as hidden columns and the return computed afterwards.</param>
+    private sealed record Measure(string Output, string Fn, ColumnDef? Column, bool Running, bool CarryIn, string Expression, FormulaType? Type = null, CustomCall? Custom = null, SeriesCall? Series = null)
+    {
+        /// <summary>ROLLING_SUM / ROLLING_AVG: a window over the last periods instead of all before (with Running).</summary>
+        public RollingWindow? Rolling { get; init; }
+        public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
+        public IReadOnlyList<DateColumn> PeriodDates { get; init; } = [];
+    }
 
     /// <summary>One row per period: label (yyyy-MM-dd), first and last day.</summary>
-    private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods);
+    /// <param name="Base">The first period is only a base for TWR/REBASE (the end of the period before the range) and is dropped from the result.</param>
+    private sealed record Calendar(string Bucket, string Output, IReadOnlyList<(DateOnly Start, DateOnly End)> Periods, bool Base = false)
+    {
+        /// <summary>Set for "all time" (no asOf.from): the last day; the first comes from the data before the query runs.</summary>
+        public DateOnly? OpenUntil { get; init; }
+    }
 
     private sealed record Plan(
         TableDef Table,
@@ -80,12 +105,24 @@ public sealed class AggregationQueryService
         IReadOnlyDictionary<string, FormulaValue>? variables)
     {
         var plan = Resolve(request, extraFilter, variables);
+        // For the problem log: the query this request ran, if it fails or times out.
+        var json = ProblemQueryJson(request, extraFilter, variables);
+        if (_http.HttpContext is { } context)
+            context.Items[ProblemLog.QueryItem] = json;
+        await _indexes.EnsureAsync(plan.Measures.SelectMany(m => m.Indexes).Concat(plan.Computed.Values.SelectMany(c => c.Indexes)));
         await using var scope = await _queryService.UseDataAsync();
+        var startWarning = default(string);
+        if (plan.Calendar is { OpenUntil: not null })
+            (plan, startWarning) = await WithFirstPeriodAsync(plan, scope);
 
+        var watch = System.Diagnostics.Stopwatch.StartNew();
         var (sql, parameters) = BuildSql(plan, scope);
-        var rows = (await scope.Db.Connection.QueryAsync(sql, parameters))
+        var rows = (await scope.Db.Connection.QueryAsync(new CommandDefinition(sql, parameters, cancellationToken: Aborted)))
             .Cast<IDictionary<string, object?>>()
             .ToList();
+        if (watch.ElapsedMilliseconds > _problems.SlowMs)
+            await _problems.RecordAsync("slow", $"Query on {plan.Table.Name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s ({rows.Count} rows).",
+                $"{json}\n\nSQL:\n{sql}", watch.ElapsedMilliseconds);
 
         var truncated = rows.Count > plan.Limit;
         if (truncated)
@@ -96,9 +133,26 @@ public sealed class AggregationQueryService
         if (carryIns.Count > 0)
             offsets = await LoadCarryInAsync(plan, carryIns, scope);
 
+        var warnings = RunCustomMeasures(plan, rows);
+        warnings.AddRange(RunSeriesMeasures(plan, rows));
+        if (startWarning is not null)
+            warnings.Add(startWarning);
+        if (plan.Calendar is { Base: true } calendar)
+        {
+            var label = calendar.Periods[0].Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            rows = rows.Where(r => Convert.ToString(r[calendar.Output], CultureInfo.InvariantCulture) != label).ToList();
+        }
         var data = rows.Select(row => Shape(plan, row, offsets)).ToList();
-        return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated));
+        if (plan.Sort.Any(s => plan.Measures.Any(m => (m.Custom is not null || m.Series is not null) && m.Output == s.Output)))
+            data = SortInMemory(plan, data);
+        return new AggregationQueryResponse(data, new QueryResultMeta(Columns(plan), truncated, warnings.Count > 0 ? warnings : null));
     }
+
+    /// <summary>Stops the database work when the browser no longer waits for the answer.</summary>
+    private CancellationToken Aborted => _http.HttpContext?.RequestAborted ?? CancellationToken.None;
+
+    private static string ProblemQueryJson(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables) =>
+        JsonSerializer.Serialize(new { query = request, extraFilter, variables = variables?.ToDictionary(v => v.Key, v => v.Value.Value) }, ProblemJson);
 
     private Plan Resolve(AggregationQueryRequest request, JsonElement? extraFilter, IReadOnlyDictionary<string, FormulaValue>? variables)
     {
@@ -132,7 +186,8 @@ public sealed class AggregationQueryService
         var context = new FormulaContext
         {
             BucketAlias = calendar is null ? null : "b",
-            Variables = variables ?? ResolveVariables(request.Variables)
+            Variables = variables ?? ResolveVariables(request.Variables),
+            Functions = _computed.Functions
         };
         var joinIndex = 0;
         foreach (var (spec, index) in (request.GroupBy ?? []).Select((g, i) => (g, i)))
@@ -249,6 +304,8 @@ public sealed class AggregationQueryService
             throw Invalid("measures", "Add a measure or a group.");
         if (groups.Any(g => g.Top is not null) && measures.Any(m => m.CarryIn))
             throw Invalid("measures", "Running totals that include earlier rows cannot be combined with top values.");
+        if (groups.Any(g => g.Top is not null) && measures.FirstOrDefault() is { } ranked && (ranked.Custom is not null || ranked.Series is not null))
+            throw Invalid("measures[0].formula", "Top values are ranked by the first measure, which cannot be a CUSTOM(…) value; put another measure first.");
 
         var sort = new List<(string, bool)>();
         foreach (var (entry, index) in (request.Sort ?? []).Select((s, i) => (s, i)))
@@ -262,9 +319,14 @@ public sealed class AggregationQueryService
         if (sort.Count == 0)
             sort.AddRange(groups.Select(g => (g.Output, false)));
 
-        var limit = request.Limit ?? DefaultLimit;
+        // A series over time is cut from its end (the newest periods): give it all rows unless asked otherwise.
+        var limit = request.Limit ?? (groups.Any(g => g.Bucket is not null) ? MaxLimit : DefaultLimit);
         if (limit < 1 || limit > MaxLimit)
             throw Invalid("limit", $"limit must be between 1 and {MaxLimit}.");
+
+        // TWR and REBASE start from the end of the period before the range: compute it, then drop it.
+        if (calendar is not null && measures.Any(m => m.Series?.Kind is "twr" or "rebase"))
+            calendar = WithBasePeriod(calendar);
 
         return new Plan(table, computed, calendar, filters, groups, measures, sort, limit);
     }
@@ -273,7 +335,9 @@ public sealed class AggregationQueryService
     private Measure FormulaMeasure(QueryMeasure spec, string path, TableDef source, FormulaContext context, List<Group> groups, HashSet<string> outputs)
     {
         var schema = FormulaSchema.From(_schemaCache.Current);
-        var (check, running) = FormulaCompiler.CompileMeasure(spec.Formula!, source, schema, _dbConfig.Provider, "t", context);
+        var compiled = FormulaCompiler.CompileMeasure(spec.Formula!, source, schema, _dbConfig.Provider, "t", context);
+        var (check, running) = compiled;
+        var rolling = compiled.Rolling;
         if (!check.IsValid)
         {
             var error = check.Errors[0];
@@ -284,7 +348,29 @@ public sealed class AggregationQueryService
             });
         }
 
-        running |= spec.Running;
+        if (rolling is not null)
+        {
+            if (spec.Running || spec.CarryIn)
+                throw Invalid($"{path}.running", "A rolling window is not also a running total; use one of them.");
+            if (groups.Count(g => g.Bucket is not null) != 1)
+                throw Invalid($"{path}.formula", "Rolling windows need exactly one date group (day, week, month, quarter or year).");
+        }
+        running |= spec.Running || rolling is not null;
+        var custom = check.Result!.Custom;
+        if (custom is not null && (running || spec.CarryIn))
+            throw Invalid($"{path}.running", "A CUSTOM(…) value cannot be a running total; add up its inputs instead.");
+        var series = check.Result.Series;
+        if (series is not null)
+        {
+            if (running || spec.CarryIn)
+                throw Invalid($"{path}.running", "A return cannot be a running total; TWR already accumulates over the periods.");
+            // Values at the end of each period group by the calendar's period, a date group too.
+            var dateGroups = groups.Count(g => g.Bucket is not null);
+            if (series.Kind == "twr" && context.BucketAlias is null)
+                throw Invalid($"{path}.formula", "TWR needs values at the end of each period (month, quarter, year).");
+            if (series.Kind is "twr" or "rebase" && dateGroups != 1)
+                throw Invalid($"{path}.formula", $"{series.Kind.ToUpperInvariant()} runs over exactly one date group (day, week, month, quarter or year).");
+        }
         if (running && groups.Count(g => g.Bucket is not null) != 1)
             throw Invalid($"{path}.running", "Running totals need exactly one date group (day, week, month, quarter or year).");
         if (spec.CarryIn && !running)
@@ -293,23 +379,39 @@ public sealed class AggregationQueryService
             throw Invalid($"{path}.carryIn", "Values at the end of each period already include everything before.");
 
         var output = Output(spec.Name ?? $"formula_{outputs.Count + 1}", outputs, $"{path}.name");
-        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, check.Result.Type);
+        // An average of currency stays currency; of anything else it is a number.
+        var type = rolling is { Average: true } && check.Result.Type != FormulaType.Currency ? FormulaType.Number : check.Result.Type;
+        return new Measure(output, "formula", null, running, spec.CarryIn, check.Result!.Sql, type, custom, series) { Indexes = check.Result.Indexes, PeriodDates = check.Result.PeriodDates, Rolling = rolling };
     }
 
-    private const int MaxPeriods = 1000;
+    // Daily values over 13 years. The work grows with periods × rows; the query
+    // timeout, cancellation and the problem log guard what is still too much.
+    private const int MaxPeriods = 5000;
 
     private static Calendar ResolveCalendar(QueryAsOf asOf, HashSet<string> outputs)
     {
         var bucket = asOf.Bucket?.Trim().ToLowerInvariant();
         if (bucket is null || !Buckets.Contains(bucket))
             throw Invalid("asOf.bucket", "Choose the period: day, week, month, quarter or year.");
-        if (!DateOnly.TryParseExact(asOf.From?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
-            throw Invalid("asOf.from", "asOf.from must be a date (yyyy-MM-dd).");
         if (!DateOnly.TryParseExact(asOf.To?.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var to))
             throw Invalid("asOf.to", "asOf.to must be a date (yyyy-MM-dd).");
+        var output = Output(asOf.As ?? "period", outputs, "asOf.as");
+        // Without a first day ("all time") the series begins where the data does (WithFirstPeriodAsync).
+        if (string.IsNullOrWhiteSpace(asOf.From))
+            return new Calendar(bucket, output, Periods(bucket, to, to)) { OpenUntil = to };
+        if (!DateOnly.TryParseExact(asOf.From.Trim(), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var from))
+            throw Invalid("asOf.from", "asOf.from must be a date (yyyy-MM-dd).");
         if (to < from)
             throw Invalid("asOf.to", "asOf.to is before asOf.from.");
+        var periods = Periods(bucket, from, to);
+        if (periods.Count > MaxPeriods)
+            throw Invalid("asOf", $"At most {MaxPeriods} periods; choose a longer period or a shorter range.");
+        return new Calendar(bucket, output, periods);
+    }
 
+    /// <summary>The periods from the one holding <paramref name="from"/> to the one holding <paramref name="to"/>; at most one past <see cref="MaxPeriods"/>.</summary>
+    private static List<(DateOnly Start, DateOnly End)> Periods(string bucket, DateOnly from, DateOnly to)
+    {
         DateOnly Start(DateOnly day) => bucket switch
         {
             "day" => day,
@@ -327,14 +429,62 @@ public sealed class AggregationQueryService
             _ => start.AddYears(1)
         };
 
-        var periods = new List<(DateOnly, DateOnly)>();
-        for (var start = Start(from); start <= to; start = Next(start))
-        {
-            if (periods.Count == MaxPeriods)
-                throw Invalid("asOf", $"At most {MaxPeriods} periods; choose a longer period or a shorter range.");
+        // Counted from the end: "all time" keeps the newest periods.
+        var periods = new List<(DateOnly Start, DateOnly End)>();
+        for (var start = Start(to); start >= Start(from) && periods.Count <= MaxPeriods; start = Previous(start))
             periods.Add((start, Next(start).AddDays(-1)));
+        periods.Reverse();
+        return periods;
+
+        DateOnly Previous(DateOnly start) => bucket switch
+        {
+            "day" => start.AddDays(-1),
+            "week" => start.AddDays(-7),
+            "month" => start.AddMonths(-1),
+            "quarter" => start.AddMonths(-3),
+            _ => start.AddYears(-1)
+        };
+    }
+
+    /// <summary>
+    /// "All time": the series begins with the earliest date its formulas compare
+    /// with the period (<c>trades.date &lt;= BUCKET_END()</c>: the first trade), or
+    /// a year before the end when they compare none. Over <see cref="MaxPeriods"/>
+    /// periods it keeps the newest, and says so.
+    /// </summary>
+    private async Task<(Plan Plan, string? Warning)> WithFirstPeriodAsync(Plan plan, QueryScope scope)
+    {
+        var calendar = plan.Calendar!;
+        var to = calendar.OpenUntil!.Value;
+        DateOnly? first = null;
+        foreach (var dated in plan.Measures.SelectMany(m => m.PeriodDates).Distinct())
+        {
+            if (_schemaCache.GetTable(dated.Table) is null)
+                continue;
+            var value = await scope.Db.Connection.ExecuteScalarAsync<object?>(new CommandDefinition(
+                $"SELECT MIN({Q(dated.Column)}) FROM {Q(dated.Table)}", cancellationToken: Aborted));
+            var day = value switch
+            {
+                DateTime time => DateOnly.FromDateTime(time),
+                DateOnly date => date,
+                DateTimeOffset offset => DateOnly.FromDateTime(offset.UtcDateTime),
+                string text when text.Length >= 10 && DateOnly.TryParseExact(text[..10], "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed) => parsed,
+                _ => (DateOnly?)null
+            };
+            if (day is not null && (first is null || day < first))
+                first = day;
         }
-        return new Calendar(bucket, Output(asOf.As ?? "period", outputs, "asOf.as"), periods);
+
+        var from = first ?? new DateOnly(to.Year - 1, to.Month, 1);
+        var periods = Periods(calendar.Bucket, from > to ? to : from, to);
+        string? warning = null;
+        if (periods.Count > MaxPeriods)
+        {
+            periods = periods.Skip(periods.Count - MaxPeriods).ToList();
+            warning = $"All time has more than {MaxPeriods} periods; this shows the newest {MaxPeriods}. Choose a longer period to see the start.";
+        }
+        var open = calendar with { Periods = periods, Base = false, OpenUntil = null };
+        return (plan with { Calendar = calendar.Base ? WithBasePeriod(open) : open }, warning);
     }
 
     /// <summary>Variables sent with a query: numbers, text and yes/no as formula constants.</summary>
@@ -358,12 +508,15 @@ public sealed class AggregationQueryService
         return result;
     }
 
-    /// <summary>The periods as a derived table b(label, bucket, bucket_end), typed per provider.</summary>
+    /// <summary>
+    /// The periods as a derived table b(label, bucket, bucket_end), typed per provider.
+    /// One VALUES list: SQLite allows at most 500 SELECTs joined by UNION ALL.
+    /// </summary>
     private string CalendarSql(Calendar calendar)
     {
         string Day(DateOnly day) => IsPostgres ? $"DATE '{day:yyyy-MM-dd}'" : $"'{day:yyyy-MM-dd}'";
-        return string.Join(" UNION ALL ", calendar.Periods.Select(p =>
-            $"SELECT '{p.Start:yyyy-MM-dd}' AS {Q("label")}, {Day(p.Start)} AS {Q("bucket")}, {Day(p.End)} AS {Q("bucket_end")}"));
+        var rows = string.Join(", ", calendar.Periods.Select(p => $"('{p.Start:yyyy-MM-dd}', {Day(p.Start)}, {Day(p.End)})"));
+        return $"SELECT column1 AS {Q("label")}, column2 AS {Q("bucket")}, column3 AS {Q("bucket_end")} FROM (VALUES {rows}) v";
     }
 
     // ── Dashboard variables ─────────────────────────────────────────────
@@ -457,17 +610,39 @@ public sealed class AggregationQueryService
                     Measures = [new QueryMeasure { Name = "value", Formula = definition.Formula }]
                 }, null, values);
                 var column = result.Meta.Columns.Single();
+                if (result.Meta.Warnings is [var warning, ..])
+                    return new QueryVariableResult(name, null, null, warning);
                 return new QueryVariableResult(name, column.Type, result.Data.FirstOrDefault()?["value"], null);
             }
 
             var table = new TableDef { Name = "__variables", DisplayName = "the dashboard variables" };
             var check = FormulaCompiler.Compile(definition.Formula ?? "", table, FormulaSchema.From(_schemaCache.Current), _dbConfig.Provider,
-                context: new FormulaContext { Variables = values });
+                context: new FormulaContext { Variables = values, Functions = _computed.Functions });
             if (!check.IsValid)
                 return new QueryVariableResult(name, null, null, check.Errors[0].Message);
 
+            await _indexes.EnsureAsync(check.Result!.Indexes);
             await using var scope = await _queryService.UseDataAsync();
-            var raw = await scope.Db.Connection.ExecuteScalarAsync($"SELECT {check.Result!.Sql} AS {Q("value")}");
+            if (check.Result!.Custom is { } custom)
+            {
+                var row = custom.Arguments.Count == 0
+                    ? new Dictionary<string, object?>()
+                    : (IDictionary<string, object?>)(await scope.Db.Connection.QuerySingleAsync(new CommandDefinition(
+                        $"SELECT {string.Join(", ", custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__a{k}")}"))}", cancellationToken: Aborted)));
+                var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
+                using (function)
+                {
+                    var result = function?.Call(custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__a{k}"], a.Type)).ToList());
+                    return result is { Ok: true }
+                        ? new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(result.Value, check.Result.Type), null)
+                        : new QueryVariableResult(name, null, null, result?.Error ?? syntax);
+                }
+            }
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var raw = await scope.Db.Connection.ExecuteScalarAsync(new CommandDefinition($"SELECT {check.Result!.Sql} AS {Q("value")}", cancellationToken: Aborted));
+            if (watch.ElapsedMilliseconds > _problems.SlowMs)
+                await _problems.RecordAsync("slow", $"Variable {name} took {watch.ElapsedMilliseconds / 1000.0:0.0} s.",
+                    JsonSerializer.Serialize(new { variable = name, formula = definition.Formula }, ProblemJson), watch.ElapsedMilliseconds);
             return new QueryVariableResult(name, FormulaTypes.Name(check.Result.Type), ResultValues.Shape(raw, check.Result.Type), null);
         }
         catch (ApiException e)
@@ -629,11 +804,22 @@ public sealed class AggregationQueryService
         {
             var measure = plan.Measures[i];
             select.Add($"{measure.Expression} AS {Q(measure.Running ? $"__r{i}" : measure.Output)}");
+            if (measure.Custom is { } custom)
+                select.AddRange(custom.Arguments.Select((a, k) => $"{a.Sql} AS {Q($"__f{i}_{k}")}"));
+            if (measure.Series is { } series)
+                select.AddRange(series.Parts.Select((p, k) => $"{p.Sql} AS {Q($"__s{i}_{k}")}"));
         }
 
         // The period's days are fixed per label; grouping by them lets measures use BUCKET_END() anywhere.
         if (plan.Calendar is not null)
             groupBy.AddRange([$"b.{Q("bucket")}", $"b.{Q("bucket_end")}"]);
+
+        // Without groups the answer is one row. An aggregate makes it so even when no
+        // measure adds up rows (a constant, a variable, CUSTOM("f", rate)): those ran
+        // once per row before (a CUSTOM 291 times), or not at all on an empty table.
+        // XIRR(amount, date) and the like read the rows themselves, so they keep them.
+        if (groupBy.Count == 0 && plan.Measures.All(m => m.Series is null))
+            select.Add($"COUNT(*) AS {Q("__rows")}");
 
         var grouped = new StringBuilder()
             .Append("SELECT ").Append(string.Join(", ", select))
@@ -657,12 +843,13 @@ public sealed class AggregationQueryService
             var partitions = plan.Groups.Where(g => g.Bucket is null)
                 .SelectMany(g => g.OtherOutput is null ? [$"g.{Q(g.Output)}"] : new[] { $"g.{Q(g.Output)}", $"g.{Q(g.OtherOutput)}" })
                 .ToList();
-            var over = (partitions.Count > 0 ? $"PARTITION BY {string.Join(", ", partitions)} " : "")
-                + $"ORDER BY g.{Q(bucket.Output)} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW";
+            string Over(RollingWindow? window) => (partitions.Count > 0 ? $"PARTITION BY {string.Join(", ", partitions)} " : "")
+                + $"ORDER BY g.{Q(bucket.Output)} ROWS BETWEEN {(window is null ? "UNBOUNDED" : (window.Periods - 1).ToString(CultureInfo.InvariantCulture))} PRECEDING AND CURRENT ROW";
             for (var i = 0; i < plan.Measures.Count; i++)
             {
-                if (plan.Measures[i].Running)
-                    outer.Append($", SUM(g.{Q($"__r{i}")}) OVER ({over}) AS {Q(plan.Measures[i].Output)}");
+                var measure = plan.Measures[i];
+                if (measure.Running)
+                    outer.Append($", {(measure.Rolling is { Average: true } ? "AVG" : "SUM")}(g.{Q($"__r{i}")}) OVER ({Over(measure.Rolling)}) AS {Q(measure.Output)}");
             }
         }
         outer.Append(" FROM (").Append(grouped).Append(") g");
@@ -708,7 +895,7 @@ public sealed class AggregationQueryService
         if (partitions.Count > 0)
             sql.Append(" GROUP BY ").Append(string.Join(", ", partitions.Select(g => g.Expression)));
 
-        foreach (IDictionary<string, object?> row in await scope.Db.Connection.QueryAsync(sql.ToString(), parameters))
+        foreach (IDictionary<string, object?> row in await scope.Db.Connection.QueryAsync(new CommandDefinition(sql.ToString(), parameters, cancellationToken: Aborted)))
         {
             var key = PartitionKey(partitions, row);
             foreach (var measure in measures)
@@ -721,6 +908,156 @@ public sealed class AggregationQueryService
         string.Join("\u001F", partitions.Select(g => Convert.ToString(row.TryGetValue(g.Output, out var v) ? v : null, CultureInfo.InvariantCulture)));
 
     // ── Results ──────────────────────────────────────────────────────────
+
+    /// <summary>Runs each CUSTOM measure's function on every result row; failures leave the value empty and add a warning.</summary>
+    private static List<string> RunCustomMeasures(Plan plan, List<IDictionary<string, object?>> rows)
+    {
+        var warnings = new List<string>();
+        for (var i = 0; i < plan.Measures.Count; i++)
+        {
+            if (plan.Measures[i] is not { Custom: { } custom } measure)
+                continue;
+            var (function, syntax) = Formula.Sandbox.JsFunction.Create(custom.Function);
+            using (function)
+            {
+                var failed = 0;
+                string? first = null;
+                foreach (var row in rows)
+                {
+                    var arguments = custom.Arguments.Select((a, k) => ResultValues.Shape(row[$"__f{i}_{k}"], a.Type)).ToList();
+                    var result = function?.Call(arguments);
+                    row[measure.Output] = result is { Ok: true } ? result.Value : null;
+                    if (result is not { Ok: true })
+                    {
+                        failed++;
+                        first ??= result?.Error ?? syntax;
+                    }
+                }
+                if (failed > 0)
+                    warnings.Add($"{measure.Output}: {custom.Function.Name} failed on {failed} of {rows.Count} rows — {first}");
+            }
+        }
+        return warnings;
+    }
+
+    /// <summary>
+    /// XIRR/IRR per result row from its flows; TWR and REBASE along the date
+    /// group, per combination of the other groups (Step 4.3).
+    /// </summary>
+    private static List<string> RunSeriesMeasures(Plan plan, List<IDictionary<string, object?>> rows)
+    {
+        var warnings = new List<string>();
+        var date = plan.Groups.FirstOrDefault(g => g.Bucket is not null);
+        var partitions = plan.Groups.Where(g => g != date).ToList();
+        for (var i = 0; i < plan.Measures.Count; i++)
+        {
+            if (plan.Measures[i] is not { Series: { } series } measure)
+                continue;
+            double? Number(IDictionary<string, object?> row, int part) =>
+                ResultValues.ToDecimal(row[$"__s{i}_{part}"]) is { } d ? (double)d : null;
+
+            if (series.Kind is "xirr" or "irr")
+            {
+                var unsolved = 0;
+                foreach (var row in rows)
+                {
+                    var flows = new List<CashFlow>();
+                    for (var k = 0; k < series.Parts.Count; k++)
+                    {
+                        var part = series.Parts[k];
+                        if (part.Kind == "flows")
+                            flows.AddRange(Returns.ParseFlows(row[$"__s{i}_{k}"] as string));
+                        else if (part.Kind == "amount" && Number(row, k) is { } amount && amount != 0 &&
+                                 CustomFunctionValues.DateText(row[$"__s{i}_{k + 1}"]) is { } day)
+                            flows.Add(new CashFlow(DateOnly.ParseExact(day, "yyyy-MM-dd", CultureInfo.InvariantCulture), amount));
+                    }
+                    var rate = series.Kind == "xirr" ? Returns.Xirr(flows) : Returns.Irr(flows);
+                    row[measure.Output] = rate is { } r ? (decimal)Math.Round(r, 10) : null;
+                    if (rate is null && flows.Count > 0)
+                        unsolved++;
+                }
+                if (unsolved > 0)
+                    warnings.Add($"{measure.Output}: no rate of return for {unsolved} of {rows.Count} rows — the flows need money paid out (negative) and received (positive).");
+                continue;
+            }
+
+            foreach (var group in rows.GroupBy(r => string.Join("\u001F", partitions.Select(g => Convert.ToString(r[g.Output], CultureInfo.InvariantCulture)))))
+            {
+                var ordered = group.OrderBy(r => Convert.ToString(r[date!.Output], CultureInfo.InvariantCulture), StringComparer.Ordinal).ToList();
+                double?[] values = series.Kind == "twr"
+                    ? Returns.Twr(ordered.Select(r => TwrPeriod(plan, series, r, i)).ToList(), series.Base is { } b ? (double)b : null)
+                    : Returns.Rebase(ordered.Select(r => Number(r, 0)).ToList(), (double)(series.Base ?? 100));
+                for (var k = 0; k < ordered.Count; k++)
+                    ordered[k][measure.Output] = values[k] is { } v ? (decimal)Math.Round(v, 10) : null;
+            }
+        }
+        return warnings;
+    }
+
+    /// <summary>
+    /// A TWR period's value and money put in: from a measure (counted from the
+    /// period's start), or from dated FLOWS within the period, weighted by days.
+    /// </summary>
+    private static (double? Value, double? Flow, double? Weighted) TwrPeriod(Plan plan, SeriesCall series, IDictionary<string, object?> row, int measure)
+    {
+        double? Number(int part) => ResultValues.ToDecimal(row[$"__s{measure}_{part}"]) is { } d ? (double)d : null;
+        var value = Number(0);
+        if (series.Parts.Count > 1 && series.Parts[1].Kind == "flow")
+            return (value, Number(1), null);
+
+        var label = Convert.ToString(row[plan.Calendar!.Output], CultureInfo.InvariantCulture);
+        var period = plan.Calendar.Periods.FirstOrDefault(p => p.Start.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) == label);
+        if (period == default)
+            return (value, null, null);
+        var flows = series.Parts.Select((p, k) => (p, k)).Where(x => x.p.Kind == "flows")
+            .SelectMany(x => Returns.ParseFlows(row[$"__s{measure}_{x.k}"] as string));
+        var (flow, weighted) = Returns.InPeriod(flows, period.Start, period.End);
+        return (value, flow, weighted);
+    }
+
+    /// <summary>The calendar with the period before its first one, as the base of TWR/REBASE.</summary>
+    private static Calendar WithBasePeriod(Calendar calendar)
+    {
+        var end = calendar.Periods[0].Start.AddDays(-1);
+        var start = calendar.Bucket switch
+        {
+            "day" => end,
+            "week" => end.AddDays(-6),
+            "month" => new DateOnly(end.Year, end.Month, 1),
+            "quarter" => new DateOnly(end.Year, (end.Month - 1) / 3 * 3 + 1, 1),
+            _ => new DateOnly(end.Year, 1, 1)
+        };
+        return calendar with { Periods = [(start, end), .. calendar.Periods], Base = true };
+    }
+
+    /// <summary>The query's order when it sorts by a CUSTOM value, which exists only after the function ran.</summary>
+    private static List<IDictionary<string, object?>> SortInMemory(Plan plan, List<IDictionary<string, object?>> data)
+    {
+        IOrderedEnumerable<IDictionary<string, object?>>? ordered = null;
+        foreach (var (output, descending) in plan.Sort)
+        {
+            Func<IDictionary<string, object?>, object?> key = row => row.TryGetValue(output, out var v) ? v : null;
+            ordered = ordered is null
+                ? descending ? data.OrderByDescending(key, SortComparer.Instance) : data.OrderBy(key, SortComparer.Instance)
+                : descending ? ordered.ThenByDescending(key, SortComparer.Instance) : ordered.ThenBy(key, SortComparer.Instance);
+        }
+        return ordered?.ToList() ?? data;
+    }
+
+    /// <summary>Empty first, then numbers, text (ordinal), yes/no — like the databases' ascending order.</summary>
+    private sealed class SortComparer : IComparer<object?>
+    {
+        public static readonly SortComparer Instance = new();
+
+        public int Compare(object? x, object? y)
+        {
+            if (x is null || y is null)
+                return x is null ? (y is null ? 0 : -1) : 1;
+            if (ResultValues.ToDecimal(x) is { } a && ResultValues.ToDecimal(y) is { } b && x is not string && y is not string)
+                return a.CompareTo(b);
+            return string.CompareOrdinal(Convert.ToString(x, CultureInfo.InvariantCulture), Convert.ToString(y, CultureInfo.InvariantCulture));
+        }
+    }
 
     private static IDictionary<string, object?> Shape(Plan plan, IDictionary<string, object?> row, Dictionary<string, Dictionary<string, decimal>>? offsets)
     {

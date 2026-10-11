@@ -404,14 +404,18 @@ function AdminStep({ onNext, onBack }: { onNext: () => void; onBack: () => void 
     try {
       await postRegister({ username: trimmed, password });
     } catch (cause) {
-      const closed = cause instanceof ApiClientError && (cause.status === 403 || cause.status === 409);
+      // A 403/409 means "someone else registered first" only when the backend now
+      // reports the bootstrap as closed; otherwise (e.g. a rejected origin behind a
+      // misconfigured proxy) show the backend's own message.
+      const refused = cause instanceof ApiClientError && (cause.status === 403 || cause.status === 409);
+      const latest = refused ? await reloadStatus({ force: true }) : null;
+      const closed = refused && latest?.registration_bootstrap_open === false;
       setBootstrapClosed(closed);
       setError(
         closed
           ? "An administrator account already exists for this installation. Sign in with it instead."
           : describeError(cause, "Couldn't create the account. Check your connection and try again.")
       );
-      if (closed) void reloadStatus({ force: true });
       setSubmitting(false);
       return;
     }

@@ -1,11 +1,7 @@
+import { effectiveLocale } from "../../../../lib/preferences";
+/** The locale numbers and dates are written in: this browser's choice, the workspace's, or the browser's language. */
 export function getCurrentLocale(): string {
-  if (typeof navigator !== "undefined") {
-    if (Array.isArray(navigator.languages) && navigator.languages[0]) {
-      return navigator.languages[0];
-    }
-    if (navigator.language) return navigator.language;
-  }
-  return Intl.DateTimeFormat().resolvedOptions().locale;
+  return effectiveLocale();
 }
 
 function pad(value: number): string {

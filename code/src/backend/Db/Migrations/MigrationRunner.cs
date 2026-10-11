@@ -620,6 +620,34 @@ public class MigrationRunner
                 new { Id = dashboard.Id, Config = json.ToJsonString(), Now = UtcNowIso() },
                 transaction);
         }
+
+        // Step 4.4: forms name their table and its columns.
+        var formsTable = postgres ? "_system.forms" : "forms";
+        var forms = await conn.QueryAsync<SavedQueryReferenceRow>(
+            $"SELECT id AS Id, table_name AS SourceTable, form_json AS Config FROM {formsTable};",
+            transaction: transaction);
+        foreach (var form in forms)
+        {
+            var table = Renamed(form.SourceTable);
+            var columns = ColumnsOf(table);
+            if (table == form.SourceTable && columns.Count == 0)
+                continue;
+            if (JsonNode.Parse(form.Config) is not JsonObject json)
+                continue;
+            json["table"] = table;
+            if (json["fields"] is JsonArray fields)
+            {
+                foreach (var field in fields.OfType<JsonObject>())
+                {
+                    if (field["column"]?.GetValue<string>() is { } column && columns.TryGetValue(column, out var renamed))
+                        field["column"] = renamed;
+                }
+            }
+            await conn.ExecuteAsync(
+                $"UPDATE {formsTable} SET table_name = @Table, form_json = {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, updated_at = {nowParam} WHERE id = @Id;",
+                new { Id = form.Id, Table = table, Config = json.ToJsonString(), Now = UtcNowIso() },
+                transaction);
+        }
     }
 
     private sealed class SavedQueryReferenceRow

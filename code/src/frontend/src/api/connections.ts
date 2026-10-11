@@ -3,11 +3,16 @@ import { useAuthStore } from "../stores/authStore";
 
 export type ApiKeyScope = "read" | "read-write";
 
+/** A key made with chosen permissions shows "permissions" as its scope. */
+export type ApiKeyAccess = ApiKeyScope | "permissions";
+
 export type ApiKey = {
   id: number;
   name: string;
   prefix: string | null;
-  scope: ApiKeyScope;
+  scope: ApiKeyAccess;
+  /** Keys made with chosen permissions (like a connected app): data.read, schema.write, … */
+  permissions?: string[] | null;
   createdBy: string | null;
   createdAt: string;
   expiresAt: string | null;
@@ -23,8 +28,8 @@ export async function listApiKeys(): Promise<ApiKey[]> {
 }
 
 /** The plain key comes back once, here. */
-export async function createApiKey(name: string, scope: ApiKeyScope, expiresInDays?: number): Promise<{ key: string; apiKey: ApiKey }> {
-  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", { name, scope, expiresInDays });
+export async function createApiKey(name: string, scope: ApiKeyScope, expiresInDays?: number, permissions?: string[]): Promise<{ key: string; apiKey: ApiKey }> {
+  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", permissions ? { name, permissions, expiresInDays } : { name, scope, expiresInDays });
   return { key: response.key, apiKey: response.data };
 }
 

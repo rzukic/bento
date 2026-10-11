@@ -12,7 +12,235 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
-_None._
+## Phase 4 — Intelligence
+
+### 2026-10-11 — Daily Values Over Years, All Time From The Start
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
+
+A daily chart over three years said "At most 1000 periods". With the new indexes it no longer needs that limit. And "All time" now really means all time.
+
+**Highlights:**
+- Values at period ends take up to 5000 periods: daily over 13 years.
+- On SQLite, more than 500 periods no longer fail with an unexpected error.
+- A series over time is no longer cut at 1000 rows, which silently dropped its newest days.
+- **All time** on depot value, net worth and returns begins with the first trade or booking instead of a year ago.
+
+### 2026-10-10 — Fast Weekly Charts, Results Kept In The Browser
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
+
+A weekly portfolio chart over three years took over 30 seconds and then failed. It now takes a fraction of a second, and dashboards you have seen show at once.
+
+**Highlights:**
+- Bento adds the indexes its formulas need, e.g. for `LOOKUP_ASOF` and related rows: the weekly depot chart went from 30+ s to 0.14 s.
+- Results stay in the browser: switching M ↔ Q or going back to a dashboard shows them at once, and nothing is asked twice within 30 s or before data changes.
+- A query you switch away from stops in the database too; a timeout says so instead of "unexpected error".
+- Admins find slow queries, timeouts and errors under **Settings → Problems**.
+
+### 2026-10-10 — The Beta Feedback, Worked Through
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#package-1--quick-fixes)
+
+21 of 23 points from a beta user who built a finance workspace over MCP and the API.
+
+**Highlights:**
+- **Formulas**:
+  - `IN`, parentheses after `WHERE`, `LAST`/`FIRST`, `WEEKDAY`, `NPER`, `ROLLING_SUM`/`ROLLING_AVG`, `MIN`/`MAX` on text.
+  - JS functions get 1 s and 20 arguments.
+- **Dashboards**:
+  - Forecasts into the future, a widget's own range.
+  - Gaps instead of 0, the value axis near the data.
+  - Format, +/− and colour per table column.
+  - Assumptions viewers change with a slider.
+  - A table row that opens another dashboard.
+- **API and MCP**:
+  - Schema changes as small operations with compact previews.
+  - Up to 1000 rows per call with upsert.
+  - API keys with chosen permissions (also schema and functions).
+  - Widget options checked and documented.
+- **Number format** per workspace and per browser (e.g. `€ 1.250,00` for Austria), with the workspace's currency.
+
+### 2026-10-10 — Polish: Sidebar, Notices, Tables, Loading
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#polish)
+
+**Highlights:**
+- Hovering the collapsed sidebar no longer shifts icons, mascot or account.
+- Tables scroll with a sticky header.
+- The interval switch shows a spinner while it loads.
+- Formula widgets wait for the dashboard's variables instead of showing "Column … not found".
+
+### 2026-10-09 — The Interval Switch On Tables, And Per Widget
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
+
+**Highlights:**
+- **M Q Y** also on summarized tables by date. Their periods read "Q3 2026", under a column named after the interval.
+- Per widget under **Style → Viewers can switch the interval**: hide the switch, or offer only some intervals.
+
+### 2026-10-09 — Describe A Widget Or A Formula, Undo Any Dashboard Change
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.9 — Describe Instead Of Click](working-steps/4.9-ai-describe.md)
+
+Build by saying what you want, and take back any change, also those made by Claude or ChatGPT.
+
+**Highlights:**
+- **✨ in the widget editor**: describe the widget ("expenses by main category per quarter, without rent"). Bento's AI builds it and Bento runs its query before it reaches the editor. Adjust it like any widget, or **Undo**.
+- **✨ under every formula field**: describe what it should compute. The AI writes the formula, Bento checks it, and the field previews it.
+- **History on every dashboard**: each save keeps the state before it, with who changed it and through which app. **Restore** goes back, and a restore can be undone too. Deleted dashboards can be brought back.
+- **Changes by AI apps** on the AI page: what Claude, ChatGPT or a script changed, each with **Undo**.
+
+### 2026-10-09 — Bento In ChatGPT And Codex
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-chatgpt-and-codex)
+
+**Highlights:**
+- **ChatGPT** (developer-mode connector) and **Codex** (app, CLI and IDE: `codex mcp add bento --url …`) connect to Bento the way Claude does: sign in with your Bento account, tick what they may do, and use your own subscription.
+- Connections → **AI apps** (formerly *Claude*) has the steps for all of them.
+- The sign-in page no longer pre-ticks *Delete rows* or *Tables and columns*, even when an app asks for everything.
+
+### 2026-10-09 — Open A Connected App: Change Its Permissions, See Its Calls
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-a-connected-app-opens-in-a-dialog)
+
+**Highlights:**
+- Click an app under **Connections → Claude → Connected apps**: tick or untick what it may do and save. It applies to the app's next call, with no need to connect again.
+- The same dialog lists **every call that app made**; open a call to see its full arguments and the error.
+
+### 2026-10-09 — Bank Bookings Arrive Categorised
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.8 — Categorise On Import](working-steps/4.8-ai-categorise.md)
+
+The monthly chore of picking a category for every booking now mostly does itself.
+
+**Highlights:**
+- The **import review fills the category**: first your **rules** ("payee contains REWE" → Groceries), then what earlier rows of the **same payee** got, and with **✨ Suggest the rest** Bento's AI for what is left, with how sure it is.
+- Each row shows where its value came from, and you can change it. **Your corrections and the AI's sure choices become rules**, so next month those payees need no AI.
+- **Categorise** in a table's toolbar does the same for rows already in the table.
+- Works for any link or choice column. Rules are listed per table and can be deleted.
+
+### 2026-10-09 — Explain Any Number With Bento's AI
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.7 — AI Basis & "Explain This"](working-steps/4.7-ai-explain.md)
+
+Ask a dashboard what a number is made of and what changed.
+
+**Highlights:**
+- **✨ Explain** on every widget: the AI says what the number is made of, what changed compared with the period before, and which rows drive it, in your language. You can ask follow-up questions.
+- It runs **as you, read-only**, on the same tools and guide as MCP. It looks up what it needs and shows the lookups and the cost under each answer.
+- The **AI page** lets admins set the Anthropic key (kept in the credential vault), the model (Opus 5.5, Sonnet 5.5, Haiku 5.5), a **monthly limit in US$** and an on switch. Everyone sees every call with its tokens and cost.
+- The rest of Phase 4's AI is re-planned around where you work: categorising bank bookings on import (4.8), and describing a widget or formula instead of clicking it together, with undo (4.9).
+
+### 2026-10-09 — Claude Connects To Bento (MCP), With Your Bento Account
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md)
+
+Ask your own Claude about your data — in the app, on the web, on the phone or in Claude Code — and let it add a transaction.
+
+**Highlights:**
+- Bento is an **MCP server** at `/mcp`: schema, rows, aggregations, saved queries, dashboards and forms to read; with write access, add and change rows (never delete, never the schema)
+- **Sign in with your Bento account**: Claude opens Bento's sign-in, you choose *Read only* or *Read and write*; API keys work too
+- **Connections → Claude**: the address and the steps per client, connected apps with *Disconnect*, and every call Claude made
+- `PUBLIC_URL` for installations behind a proxy; Coolify sets it
+- **Claude Desktop extension**: Connections → Claude → *Download bento.mcpb*, with your address built in; it signs in through the browser like the connector
+- **Everything over MCP, permission by permission**: Claude can also build dashboards and forms, change the schema (after a preview) and write functions — the sign-in page lists what it may do (add rows, delete rows, dashboards, forms, tables and columns, functions), and Bento checks every call against it
+- **A guide for Claude** (`bento_guide`): how Bento works and the exact formats of schema, formulas, queries, dashboards, forms, the finance template and functions
+
+### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
+
+Daily use of the cash-flow dashboard: how the month's budgets stand, any chart by quarter or year, and what is inside "Food".
+
+**Highlights:**
+- A **Budgets** widget: monthly limits from a column of the categories, spent this month (or in the whole range), bars that turn amber from 80 % and red when over; a row opens its bookings
+- **M Q Y** on charts by date for everyone, kept in the address
+- Donuts **drill into** a second column: a slice shows its subcategories inside the donut
+- Wealth template: main categories, monthly budgets, *Budgets this month* and spending by main category on the cash-flow dashboard
+
+### 2026-10-07 — Quick Entry Forms: Add A Transaction On The Phone
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.4 — Quick Entry Forms](working-steps/4.4-quick-entry-forms.md)
+
+A form adds a row to a table in a few taps — built for the phone, checked like any other row.
+
+**Highlights:**
+- Forms from any table, with a light builder: order, sections, labels, help, hidden fields, defaults (today, now, last used, fixed), a −/+ switch for amounts, live preview
+- Phone first: accounts and categories as buttons, Today/Yesterday, the number pad with −/+, recent payees suggested; after saving it starts over for the next entry
+- **Quick add** in the sidebar (first on the phone) and buttons on dashboards that show the table; the dashboard reloads after saving
+- The Wealth template adds **Add transaction**
+- Forms follow table and column renames; `/api/v1/forms` for Form JSON
+
+### 2026-10-07 — Realised Gains And A Fairer Time-Weighted Return
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.3b — Returns Refinement](working-steps/4.3b-returns-refinement.md)
+
+The Wealth dashboard shows what sales gained, and its time-weighted return no longer depends on the day of the month you buy.
+
+**Highlights:**
+- Functions over a group of rows: `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` in computed columns — the function gets a group's rows at once, in order, for running values
+- Templates for realised gains by **average cost** and by **FIFO** (realised gain, change in cost, shares held, average cost per trade)
+- Wealth template: *Realised gain* and *Cost (±)* per trade, a *Realised gains in the range* key figure, positions with cost and realised gain, and an unrealised gain that stays right after sales
+- `TWR(value, FLOWS(…), …)` weighs money by the days it was invested (Modified Dietz)
+- How to measure a depot with its own cash (clearing account), so dividends count as return
+
+### 2026-10-06 — Returns: XIRR, Time-Weighted, Benchmarks
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.3 — Returns & Financial Functions](working-steps/4.3-returns.md)
+
+Dashboards compute what a depot returns, the same on SQLite and Postgres and as Excel does.
+
+**Highlights:**
+- `XIRR` and `IRR` of dated cash flows, gathered with `FLOWS(…)` from several tables (trades, dividends) plus today's value
+- `TWR(value, flow, 100)` at period ends from the start of the range; `REBASE(measure, 100)` for a benchmark
+- `PMT`, `FV`, `PV`, `NPV` in every formula
+- A second value axis in charts, with its own format (e.g. value left, return right in percent)
+- The Wealth template shows the return a year, the time-weighted return and depot vs. benchmark (an ISIN in the variable *benchmark*)
+
+### 2026-10-06 — Live Prices From An API Of Your Choice
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.2 — Live Prices](working-steps/4.2-live-prices.md)
+
+Prices come from an API you choose and stay as history in your own table. A dashboard fetches what is stale when it opens and says "Prices as of 14:32".
+
+**Highlights:**
+- Functions may call listed hosts with `fetch` (https only, never the server's own network), with API keys from the new credential vault (`credentials.name`, stored encrypted, never shown again)
+- **Price sources**:
+  - The function, your prices table (e.g. `finance_prices`), where your securities come from, and each one's symbol, with suggestions from a lookup function.
+  - Runs: a daily run for closing prices and new securities' history, refresh on dashboard open within a freshness window, a daily request budget, and a log of runs.
+- Templates instead of built-in providers: Yahoo Finance (no key) and Xetra symbols for ISINs (OpenFIGI)
+- The Functions page gets tabs for price sources and credentials
+
+### 2026-10-05 — Your Own Functions In JavaScript
+
+> **Phase**: Phase 4 — Intelligence
+> **Working step**: [Step 4.1 — Custom JS Functions](working-steps/4.1-custom-functions.md)
+
+Write a function once in JavaScript under **Functions** and call it from any formula with `CUSTOM("name", …)`.
+
+**Highlights:**
+- Editor with typed arguments, result type, code highlighting, a test run with `console.log`, versions, and where the function is used
+- Computed columns store `CUSTOM` values and recalculate them in the background when rows, the function or the schema change; an edited row answers with its new value; stored values filter, sort and sum like other columns
+- In dashboards the arguments are measures (`CUSTOM("score", SUM(amount))`) and the function runs on each result; variables too
+- Sandboxed (Jint): no files, network or `eval`; 100 ms, 16 MB and a recursion limit per call; failures leave the value empty and are listed
+- API: `/api/v1/functions` (list, get, versions, status; admins create, change, test and delete)
 
 ---
 

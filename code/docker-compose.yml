@@ -51,6 +51,7 @@ services:
       # network; trusting the private ranges Docker allocates from covers that
       # without pinning a subnet that could collide with other networks.
       TRUSTED_PROXIES: "${TRUSTED_PROXIES:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fd00::/8}"
+      PUBLIC_URL: "${PUBLIC_URL:-}"
     volumes:
       - bento-data:/data
     healthcheck:

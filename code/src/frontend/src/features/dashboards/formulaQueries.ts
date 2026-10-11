@@ -13,14 +13,16 @@ function isoDay(date: Date): string {
 
 /**
  * The periods of a "value at the end of each period" widget: the dashboard's
- * range (its last day, not past today); an open range starts a year back.
+ * range (its last day, not past today unless the range is a forecast, where
+ * BUCKET_END() then lies ahead). An open range ("all time") sends no first
+ * day: the server begins where the data does.
  */
-export function asOfPeriod(range: ResolvedRange, today = new Date()): { from: string; to: string } {
+export function asOfPeriod(range: ResolvedRange, today = new Date()): { from?: string; to: string } {
   const todayIso = isoDay(new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())));
   const lastDay = range.to ? isoDay(new Date(Date.parse(`${range.to}T00:00:00Z`) - 86_400_000)) : todayIso;
-  const to = lastDay < todayIso ? lastDay : todayIso;
-  const from = range.from ?? `${Number(to.slice(0, 4)) - 1}${to.slice(4, 8)}01`;
-  return { from: from <= to ? from : to, to };
+  const to = lastDay < todayIso || range.future ? lastDay : todayIso;
+  if (!range.from) return { to };
+  return { from: range.from <= to ? range.from : to, to };
 }
 
 /** Values of the variables that have one, for formula measures. */
@@ -34,8 +36,12 @@ export function variableValues(results: VariableResults | undefined): Record<str
 
 /** A measure's chart-only options ("show as", colour) never reach the API. */
 export function withoutChartOptions(query: AggregationQuery): AggregationQuery {
-  if (!(query.measures ?? []).some((m) => m.show !== undefined || m.window !== undefined || m.color !== undefined)) return query;
-  return { ...query, measures: query.measures?.map(({ show: _show, window: _window, color: _color, ...measure }) => measure) };
+  if (!(query.measures ?? []).some((m) => m.show !== undefined || m.window !== undefined || m.color !== undefined || m.axis !== undefined || m.format !== undefined))
+    return query;
+  return {
+    ...query,
+    measures: query.measures?.map(({ show: _show, window: _window, color: _color, axis: _axis, format: _format, ...measure }) => measure),
+  };
 }
 
 /**

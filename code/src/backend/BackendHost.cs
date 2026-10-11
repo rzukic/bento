@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Bento.Api.Configuration;
 using Bento.Api.Db;
 using Bento.Api.Db.Migrations;
@@ -113,16 +114,45 @@ public static class BackendHost
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
+        services.AddHttpContextAccessor();
+        services.AddSingleton<QueryIndexes>();
+        services.AddSingleton<ProblemLog>();
+        services.AddSingleton<WorkspaceSettings>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();
+        services.AddSingleton<CustomFunctionCatalog>();
+        services.AddSingleton<Bento.Api.Formula.ICustomFunctionCatalog>(sp => sp.GetRequiredService<CustomFunctionCatalog>());
+        services.AddSingleton<CustomFunctionService>();
+        services.AddSingleton<CredentialService>();
+        services.AddSingleton<PriceSourceService>();
+        services.AddSingleton(sp => new Bento.Api.Formula.Sandbox.JsNetwork(new Bento.Api.Formula.Sandbox.JsNetworkOptions
+        {
+            AllowPrivateNetwork = sp.GetRequiredService<IConfiguration>().GetValue("Functions:AllowPrivateNetwork", false)
+        }));
+        services.AddSingleton<Bento.Api.Workers.StoredCustomValues>();
+        services.AddSingleton<ICustomValueRecalculation>(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddSingleton<ApiKeyService>();
+        services.AddSingleton<OAuthService>();
+        services.AddSingleton<Bento.Api.Services.Mcp.BentoSelfClient>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpCallLog>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpTools>();
+        services.AddSingleton<Bento.Api.Services.Mcp.McpServer>();
+        services.TryAddSingleton<Bento.Api.Services.Ai.IAiModel, Bento.Api.Services.Ai.AnthropicAiModel>();
+        services.AddSingleton<Bento.Api.Services.Ai.AiSettingsService>();
+        services.AddSingleton<Bento.Api.Services.Ai.AiAgent>();
+        services.AddSingleton<Bento.Api.Services.Ai.ExplainService>();
+        services.AddSingleton<Bento.Api.Services.Ai.CategoriseService>();
+        services.AddSingleton<Bento.Api.Services.Ai.DescribeService>();
         services.AddSingleton<OpenApiDocumentBuilder>();
         services.AddSingleton<SchemaCache>();
 
         services.AddHostedService<DatabaseBootstrap>();
+        services.AddHostedService<CustomFunctionCatalogInitializer>();
         services.AddHostedService<SchemaAutoMigrationService>();
         services.AddHostedService<SchemaCacheInitializer>();
+        services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
+        services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
     }
 
     public static void ConfigureMiddleware(WebApplication app)

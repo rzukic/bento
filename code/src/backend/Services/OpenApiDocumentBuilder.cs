@@ -86,7 +86,10 @@ public sealed class OpenApiDocumentBuilder
             ("Query", "Aggregate a table without SQL: groups, date buckets, sums, running totals."),
             ("Saved queries", "Named aggregation queries, private or shared."),
             ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
+            ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
+            ("Prices", "Price sources: your functions fetch prices into a table of your model."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
+            ("Forms", "Quick entry forms: the table, its fields in order, sections and defaults. Submissions go through the data API."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
             ("Schema", "The data model (Model JSON)."),
             ("Auth", "Sign in for a session token. Scripts use API keys instead."),
@@ -278,7 +281,7 @@ public sealed class OpenApiDocumentBuilder
         paths["/query"] = new JsonObject
         {
             ["post"] = Operation("Query", "Run an aggregation query", "read",
-                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct, median, percentile (`percentile`: 0–100) or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
+                "Groups by columns, linked records or date buckets; measures count, sum, avg, min, max, count_distinct, median, percentile (`percentile`: 0–100) or a `formula` (`SUM(amount WHERE amount > 0)`, `RUNNING_SUM(…)`, returns: `XIRR(amount, date)`, `TWR(value, flow, 100)` with `asOf`, `REBASE(measure)`); `running` and `carryIn` for running totals; `asOf` for values at the end of each period (BUCKET_END()).",
                 body: Ref("AggregationQuery"),
                 responses: Responses(200, "Rows and column metadata.", Ref("QueryResult")))
         };
@@ -351,6 +354,46 @@ public sealed class OpenApiDocumentBuilder
             ["get"] = Operation("Formulas", "List formula functions", "read", "Name, signature, description and example of each function.",
                 responses: Responses(200, "The function catalog.", anyObject.DeepClone()))
         };
+        paths["/functions"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "List custom functions", "read",
+                "Your own JavaScript functions, called from formulas with `CUSTOM(\"name\", …)` — or `CUSTOM_ROWS(\"name\", PARTITION(…), ORDER(…), …)` for those with mode `rows`: arguments, result type, mode, code, version and where each is used. Admins create and change them in the app.",
+                responses: Responses(200, "The custom functions.", anyObject.DeepClone()))
+        };
+        paths["/functions/{name}"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "Get a custom function", "read", null,
+                parameters: new JsonArray(new JsonObject { ["name"] = "name", ["in"] = "path", ["required"] = true, ["schema"] = Str(example: "risk_class") }),
+                responses: Responses(200, "The function.", anyObject.DeepClone()))
+        };
+        paths["/functions/status"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "Stored values of computed columns", "read",
+                "Computed columns that call a function store their values and recalculate them in the background: whether a run is `pending`, when the last ran, and the columns whose function failed on some rows.",
+                responses: Responses(200, "The recalculation status.", anyObject.DeepClone()))
+        };
+        paths["/functions/templates"] = new JsonObject
+        {
+            ["get"] = Operation("Functions", "List function templates", "read",
+                "Starting points for new functions, e.g. prices from Yahoo Finance, Xetra symbols for ISINs, or realised gains by average cost and FIFO (mode `rows`).",
+                responses: Responses(200, "The templates.", anyObject.DeepClone()))
+        };
+        paths["/price-sources"] = new JsonObject
+        {
+            ["get"] = Operation("Prices", "List price sources", "read",
+                "Each source with its function, target table and columns, the symbol per key, the latest price per key and its status (last quote, last error, requests today).",
+                responses: Responses(200, "The price sources.", anyObject.DeepClone()))
+        };
+        paths["/price-sources/refresh"] = new JsonObject
+        {
+            ["post"] = Operation("Prices", "Refresh stale prices", "read",
+                "Runs every enabled source writing to one of `tables` (all when empty) whose last fetch is older than its freshness window, as a dashboard does when it opens. `changed` tells whether any price was written.",
+                body: Obj(new JsonObject
+                {
+                    ["tables"] = new JsonObject { ["type"] = "array", ["items"] = Str(example: "finance_prices") }
+                }),
+                responses: Responses(200, "Whether prices changed, and each source's state.", anyObject.DeepClone()))
+        };
         paths["/dashboards"] = new JsonObject
         {
             ["get"] = Operation("Dashboards", "List dashboards", "read", "Own dashboards and shared ones.",
@@ -360,6 +403,17 @@ public sealed class OpenApiDocumentBuilder
         {
             ["get"] = Operation("Dashboards", "Get a dashboard", "read", null, parameters: new JsonArray(idParam.DeepClone()),
                 responses: Responses(200, "The dashboard.", anyObject.DeepClone()))
+        };
+        paths["/forms"] = new JsonObject
+        {
+            ["get"] = Operation("Forms", "List forms", "read",
+                "Own forms and shared ones. Each names a `table` and its `fields` in order: `{ column, label?, help?, hidden?, default?: { kind: today | now | last | value, value? }, sign?: negative | positive }` or `{ section }`. A filled form is a `POST /data/{table}`.",
+                responses: Responses(200, "Forms with their Form JSON.", anyObject.DeepClone()))
+        };
+        paths["/forms/{id}"] = new JsonObject
+        {
+            ["get"] = Operation("Forms", "Get a form", "read", null, parameters: new JsonArray(idParam.DeepClone()),
+                responses: Responses(200, "The form.", anyObject.DeepClone()))
         };
         var importBody = Obj(new JsonObject
         {

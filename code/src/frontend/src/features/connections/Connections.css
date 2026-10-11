@@ -524,6 +524,168 @@
 .api-keys__status--expired,
 .api-keys__status--revoked { background: var(--surface-sunken); color: var(--text-3); }
 
+/* ── Claude (MCP) ── */
+
+.mcp {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+}
+
+.mcp__address {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.mcp__label {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.mcp__address code {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+    user-select: all;
+}
+
+.mcp__setups {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr));
+    gap: 0.875rem;
+}
+
+.mcp__setup {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.mcp__setup h3 {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin: 0;
+    font-size: var(--fs-base);
+}
+
+.mcp__setup ol {
+    margin: 0;
+    padding-left: 1.2rem;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+    line-height: 1.6;
+}
+
+.mcp__command {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.375rem;
+}
+
+.mcp__command pre {
+    width: 100%;
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    overflow-x: auto;
+    border-radius: 8px;
+    background: color-mix(in srgb, var(--text) 5%, var(--surface));
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mcp__download {
+    align-self: flex-start;
+    text-decoration: none;
+}
+
+.mcp__hint {
+    margin: 0;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    line-height: 1.5;
+}
+
+.mcp__hint code {
+    font-family: var(--font-mono);
+}
+
+.mcp__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+}
+
+.mcp__heading-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.mcp__heading {
+    margin: 0;
+    font-size: var(--fs-base);
+}
+
+.mcp__permissions {
+    white-space: normal !important;
+}
+
+.mcp__permission {
+    display: inline-block;
+    margin: 0.1rem 0.25rem 0.1rem 0;
+    padding: 0.05rem 0.45rem;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 7%, var(--surface));
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.mcp__permission--danger {
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+    color: var(--danger);
+}
+
+.mcp__args {
+    display: block;
+    max-width: 28rem;
+    overflow: hidden;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    text-overflow: ellipsis;
+}
+
+.mcp__error {
+    display: inline-block;
+    max-width: 22rem;
+    overflow: hidden;
+    color: var(--danger);
+    font-size: var(--fs-xs);
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
 @media (max-width: 720px) {
     .connections-page {
         --page-gutter: 1rem;
@@ -547,4 +709,147 @@
     background: var(--surface-sunken);
     font-family: var(--font-mono);
     font-size: 0.92em;
+}
+
+/* A connected app opens in a large dialog: its permissions and its calls. */
+.mcp__connection {
+    cursor: pointer;
+}
+
+.mcp__connection:hover td {
+    background: color-mix(in srgb, var(--text) 3%, var(--surface));
+}
+
+.mcp__connection-open {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.mcp__connection-open svg {
+    color: var(--text-3);
+}
+
+.mcp-connection {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 56rem);
+    /* The dialog fits its area; only its body scrolls, the footer stays in view. */
+    max-height: 100%;
+}
+
+.dialog:has(> .mcp-connection) {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.mcp-connection__body {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 1.5rem;
+    min-height: 0;
+    overflow-y: auto;
+    padding-bottom: 0.5rem;
+}
+
+.mcp-connection .dialog__footer {
+    margin-top: 0;
+}
+
+.mcp-connection__section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.mcp-connection__save {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.mcp-connection__call {
+    cursor: pointer;
+}
+
+.mcp-connection__toggle {
+    display: inline-flex;
+    margin-right: 0.25rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--text-3);
+    vertical-align: middle;
+    cursor: pointer;
+}
+
+.mcp-connection__details td {
+    background: color-mix(in srgb, var(--text) 3%, var(--surface));
+}
+
+.mcp-connection__details pre {
+    margin: 0.25rem 0 0.75rem;
+    max-height: 18rem;
+    overflow: auto;
+    padding: 0.625rem 0.75rem;
+    border-radius: 8px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: var(--fs-xs);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.mcp-connection__error {
+    color: var(--danger);
+}
+
+.mcp-connection__disconnect {
+    margin-right: auto;
+    color: var(--danger);
+}
+
+/* In the dialog the calls table fits its width: long arguments and errors are cut (open a call for all of it). */
+.mcp-connection .mcp__calls {
+    table-layout: fixed;
+    width: 100%;
+}
+
+.mcp-connection .mcp__calls th:nth-child(1) {
+    width: 11rem;
+}
+
+.mcp-connection .mcp__calls th:nth-child(3) {
+    width: 30%;
+}
+
+.mcp-connection .mcp__calls th:nth-child(4) {
+    width: 5.5rem;
+}
+
+.mcp-connection .mcp__calls td {
+    overflow: hidden;
+}
+
+.mcp-connection .mcp__args,
+.mcp-connection .mcp__error {
+    display: block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* API keys made with chosen permissions (like a connected app) */
+.api-keys__permissions {
+    display: grid;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
 }

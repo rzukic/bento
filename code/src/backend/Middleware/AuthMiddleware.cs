@@ -22,15 +22,22 @@ public sealed class AuthMiddleware
         _runtimeOptions = runtimeOptions;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys)
+    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
     {
+        if (IsMcpRoute(context.Request.Path))
+        {
+            await AuthenticateMcpAsync(context, apiKeys, oauth);
+            return;
+        }
+
         if (!IsVersionedApiRoute(context.Request.Path))
         {
             await _next(context);
             return;
         }
 
-        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path))
+        if (IsPublicHealthRoute(context.Request.Path) || IsPublicSetupRoute(context.Request.Path) || IsPublicOAuthRoute(context.Request.Path) ||
+            context.Request.Path.Equals("/" + ApiRoutes.McpBundle, StringComparison.OrdinalIgnoreCase))
         {
             await _next(context);
             return;
@@ -43,15 +50,8 @@ public sealed class AuthMiddleware
             return;
         }
 
-        // API keys (Part 3 R3.3): X-API-Key or "Authorization: Bearer bento_…".
-        var apiKey = ReadApiKey(context.Request);
-        if (apiKey is not null)
+        if (await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: true))
         {
-            if (!_runtimeOptions.IsStandardAuthMode)
-                throw Unauthorized("This auth mode is not available yet.");
-            var identity = await apiKeys.AuthenticateAsync(apiKey);
-            EnsureScopeAllows(identity.Scope, context.Request);
-            context.User = CreateApiKeyPrincipal(identity);
             await _next(context);
             return;
         }
@@ -67,6 +67,140 @@ public sealed class AuthMiddleware
 
         await _next(context);
     }
+
+    /// <summary>
+    /// OAuth access tokens of MCP clients (<c>Bearer bento_at_…</c>) and API keys
+    /// (<c>X-API-Key</c> or <c>Bearer bento_…</c>). Both act as their user within
+    /// their scope; false when the request carries neither.
+    /// </summary>
+    private async Task<bool> TryAuthenticateCredentialAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, bool enforceScope)
+    {
+        var bearer = ReadBearer(context.Request);
+        if (OAuthService.LooksLikeAccessToken(bearer))
+        {
+            if (!_runtimeOptions.IsStandardAuthMode)
+                throw Unauthorized("This auth mode is not available yet.");
+            var grant = await oauth.AuthenticateAsync(bearer!);
+            if (enforceScope) EnsurePermissionAllows(grant, context.Request);
+            context.User = CreateOAuthPrincipal(grant);
+            return true;
+        }
+
+        // API keys (Part 3 R3.3): X-API-Key or "Authorization: Bearer bento_…".
+        var apiKey = ReadApiKey(context.Request);
+        if (apiKey is null)
+            return false;
+        if (!_runtimeOptions.IsStandardAuthMode)
+            throw Unauthorized("This auth mode is not available yet.");
+        var identity = await apiKeys.AuthenticateAsync(apiKey);
+        if (enforceScope)
+        {
+            if (identity.Permissions is { } permissions)
+                EnsureKeyPermissionAllows(permissions, context.Request);
+            else
+                EnsureScopeAllows(identity.Scope, context.Request);
+        }
+        context.User = CreateApiKeyPrincipal(identity);
+        return true;
+    }
+
+    /// <summary>
+    /// <c>/mcp</c> takes an OAuth token, an API key or a session token. The scope is
+    /// not checked here: a read-only caller may still POST (every MCP message is a
+    /// POST); the REST calls behind each tool enforce it. Without valid credentials
+    /// the answer points the client at the OAuth metadata (RFC 9728 §5.1).
+    /// </summary>
+    private async Task AuthenticateMcpAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
+    {
+        if (_runtimeOptions.IsOpenAuthMode)
+        {
+            context.User = CreateOpenModePrincipal();
+            await _next(context);
+            return;
+        }
+
+        try
+        {
+            if (!await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: false))
+                context.User = CreateAuthenticatedPrincipal(context.Request.Headers.Authorization);
+        }
+        catch (ApiUnauthorizedException ex)
+        {
+            var metadata = Services.Mcp.PublicUrl.ResourceMetadata(context.Request, _runtimeOptions);
+            var hasToken = !string.IsNullOrWhiteSpace(context.Request.Headers.Authorization) || !string.IsNullOrWhiteSpace(context.Request.Headers["X-API-Key"]);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            context.Response.Headers.WWWAuthenticate = hasToken
+                ? $"Bearer resource_metadata=\"{metadata}\", error=\"invalid_token\", error_description=\"{ex.Message}\""
+                : $"Bearer resource_metadata=\"{metadata}\"";
+            await context.Response.WriteAsJsonAsync(new
+            {
+                jsonrpc = "2.0",
+                id = (object?)null,
+                error = new { code = -32001, message = ex.Message }
+            });
+            return;
+        }
+
+        await _next(context);
+    }
+
+    private static string? ReadBearer(HttpRequest request)
+    {
+        var authorization = request.Headers.Authorization.ToString();
+        return authorization.StartsWith(BearerPrefix, StringComparison.OrdinalIgnoreCase)
+            ? authorization[BearerPrefix.Length..].Trim()
+            : null;
+    }
+
+    /// <summary>
+    /// An app's token may only make the calls its permissions cover; areas apps never
+    /// reach (users, keys, credentials, connections) are refused outright.
+    /// </summary>
+    private static void EnsurePermissionAllows(OAuthService.OAuthIdentity grant, HttpRequest request)
+    {
+        var required = McpPermissions.RequiredFor(request.Method, request.Path.Value ?? "");
+        if (required is null)
+            throw new ApiForbiddenException("Connected apps cannot use this part of Bento.", new Dictionary<string, object?> { ["path"] = request.Path.Value });
+        if (!grant.Permissions.Contains(required))
+            throw new ApiForbiddenException(
+                $"This connection was not allowed to do that (needs \"{required}\"). Connect again and tick it on Bento's sign-in page.",
+                new Dictionary<string, object?> { ["permission"] = required });
+    }
+
+    /// <summary>A key with permissions reaches what a connected app with them could, and nothing else (users, keys, credentials).</summary>
+    private static void EnsureKeyPermissionAllows(IReadOnlyList<string> permissions, HttpRequest request)
+    {
+        var required = McpPermissions.RequiredFor(request.Method, request.Path.Value ?? "");
+        if (required is null)
+            throw new ApiForbiddenException("API keys cannot use this part of Bento.", new Dictionary<string, object?> { ["path"] = request.Path.Value });
+        if (!permissions.Contains(required))
+            throw new ApiForbiddenException(
+                $"This API key was not allowed to do that (needs \"{required}\"). Make a key with it under Connections → API keys.",
+                new Dictionary<string, object?> { ["permission"] = required });
+    }
+
+    /// <summary>The user's own role (the API's role checks apply as for them); the permissions narrow it further.</summary>
+    private static ClaimsPrincipal CreateOAuthPrincipal(OAuthService.OAuthIdentity grant)
+    {
+        return new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, grant.UserId.ToString(CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Name, grant.Username),
+            new Claim(ClaimTypes.Role, grant.Role),
+            new Claim("auth_method", "oauth"),
+            new Claim("oauth_permissions", string.Join(' ', grant.Permissions)),
+            new Claim("oauth_grant_id", grant.GrantId.ToString(CultureInfo.InvariantCulture)),
+            new Claim("oauth_client", grant.ClientName)
+        ], "OAuth"));
+    }
+
+    private static bool IsMcpRoute(PathString path) =>
+        path.Equals("/" + ApiRoutes.Mcp, StringComparison.OrdinalIgnoreCase) || path.Equals("/" + ApiRoutes.Mcp + "/", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Client registration and the token endpoint authenticate by their own rules (public clients, PKCE).</summary>
+    private static bool IsPublicOAuthRoute(PathString path) =>
+        path.Equals("/" + ApiRoutes.OAuthRegister, StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/" + ApiRoutes.OAuthToken, StringComparison.OrdinalIgnoreCase);
 
     private static string? ReadApiKey(HttpRequest request)
     {
@@ -107,14 +241,22 @@ public sealed class AuthMiddleware
 
     private static ClaimsPrincipal CreateApiKeyPrincipal(ApiKeyService.ApiKeyIdentity identity)
     {
-        return new ClaimsPrincipal(new ClaimsIdentity(
-        [
-            new Claim(ClaimTypes.NameIdentifier, identity.UserId.ToString(CultureInfo.InvariantCulture)),
-            new Claim(ClaimTypes.Name, identity.Username),
-            new Claim(ClaimTypes.Role, identity.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"),
-            new Claim("auth_method", "api_key"),
-            new Claim("api_key_id", identity.KeyId.ToString(CultureInfo.InvariantCulture))
-        ], "ApiKey"));
+        // Keys with permissions act with their user's role (an admin's key may change the
+        // schema), narrowed by the permissions checked above; older keys keep api/viewer.
+        var role = identity.Permissions is null
+            ? identity.Scope == ApiKeyService.ReadWriteScope ? "api" : "viewer"
+            : identity.UserRole ?? "viewer";
+        var claims = new List<Claim>
+        {
+            new(ClaimTypes.NameIdentifier, identity.UserId.ToString(CultureInfo.InvariantCulture)),
+            new(ClaimTypes.Name, identity.Username),
+            new(ClaimTypes.Role, role),
+            new("auth_method", "api_key"),
+            new("api_key_id", identity.KeyId.ToString(CultureInfo.InvariantCulture))
+        };
+        if (identity.Permissions is { } permissions)
+            claims.Add(new Claim("api_key_permissions", string.Join(' ', permissions)));
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "ApiKey"));
     }
 
     private static bool IsVersionedApiRoute(PathString path)

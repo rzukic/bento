@@ -15,7 +15,10 @@ public sealed record SetupStatusResponse(
     [property: JsonPropertyName("database_provider")] string DatabaseProvider,
     [property: JsonPropertyName("schema_version")] int SchemaVersion,
     [property: JsonPropertyName("sample_data_available")] bool SampleDataAvailable,
-    [property: JsonPropertyName("version")] string Version);
+    [property: JsonPropertyName("version")] string Version,
+    // How numbers, dates and amounts are written in this workspace (null: each browser's language).
+    [property: JsonPropertyName("locale")] string? Locale = null,
+    [property: JsonPropertyName("currency")] string Currency = "EUR");
 
 /// <summary>Summary returned after the demo workspace has been loaded.</summary>
 public sealed record SampleDataResponse(

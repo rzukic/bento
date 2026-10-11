@@ -6135,3 +6135,8 @@
 .data-grid__amount--negative {
     color: var(--danger);
 }
+
+/* Notices above the grid (a failed load, an undo) line up with the grid card. */
+.table-detail__workspace > .alert {
+    margin: 0.75rem var(--page-gutter) 0;
+}

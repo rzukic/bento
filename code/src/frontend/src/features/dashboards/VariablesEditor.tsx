@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardVariable, DashboardWidget } from "../../api/dashboards";
+import type { VariableInput, DashboardVariable, DashboardWidget } from "../../api/dashboards";
 import { Icon } from "../../components/common/Icon";
 import { Button } from "../../components/ui/Button";
 import { formatKindForType, formatNumber, toNumber } from "../../lib/format";
@@ -116,6 +116,16 @@ export function VariablesEditor({
                   />
                 </label>
                 <label className="widget-editor__field">
+                  <span className="widget-editor__label">Label</span>
+                  <input
+                    className="field__control field__control--compact"
+                    value={variable.label ?? ""}
+                    placeholder="Shown under a key figure"
+                    aria-label={`Label of variable ${index + 1}`}
+                    onChange={(event) => update(index, { label: event.target.value || undefined })}
+                  />
+                </label>
+                <label className="widget-editor__field">
                   <span className="widget-editor__label">From</span>
                   <select
                     className="field__control field__control--compact"
@@ -164,6 +174,7 @@ export function VariablesEditor({
                   </select>
                 </label>
               ) : null}
+              {!variable.source ? <InputSettings variable={variable} onChange={(input) => update(index, { input })} /> : null}
               <p
                 className={result?.error ? "formula-field__status formula-field__status--error" : "variables-editor__value"}
                 role={result?.error ? "alert" : undefined}
@@ -193,4 +204,64 @@ export function VariablesEditor({
     </aside>
   );
   return createPortal(panel, document.body);
+}
+
+/** A variable without a table can be an assumption viewers change; the formula is then its default. */
+function InputSettings({ variable, onChange }: { variable: DashboardVariable; onChange: (input: VariableInput | undefined) => void }) {
+  const input = variable.input;
+  const number = (value: string) => (value.trim() === "" ? undefined : Number(value));
+  return (
+    <div className="widget-editor__field variables-editor__input">
+      <label className="lens-check">
+        <input
+          type="checkbox"
+          checked={!!input}
+          aria-label={`Viewers can change ${variable.name}`}
+          onChange={(event) => onChange(event.target.checked ? { kind: "number" } : undefined)}
+        />
+        Viewers can change it (the formula is the default, e.g. 0.07)
+      </label>
+      {input ? (
+        <div className="widget-editor__row">
+          <label className="widget-editor__field">
+            <span className="widget-editor__label">As</span>
+            <select className="field__control field__control--compact" value={input.kind} onChange={(event) => onChange({ ...input, kind: event.target.value as VariableInput["kind"] })}>
+              <option value="number">Number</option>
+              <option value="slider">Slider</option>
+              <option value="select">Choice</option>
+            </select>
+          </label>
+          {input.kind === "select" ? (
+            <label className="widget-editor__field">
+              <span className="widget-editor__label">Values (comma-separated)</span>
+              <input
+                className="field__control field__control--compact"
+                value={(input.options ?? []).join(", ")}
+                placeholder="base, optimistic, pessimistic"
+                onChange={(event) =>
+                  onChange({
+                    ...input,
+                    options: event.target.value
+                      .split(",")
+                      .map((v) => v.trim())
+                      .filter(Boolean)
+                      .map((v) => (/^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v)),
+                  })
+                }
+              />
+            </label>
+          ) : (
+            <>
+              {(["min", "max", "step"] as const).map((key) => (
+                <label key={key} className="widget-editor__field">
+                  <span className="widget-editor__label">{key === "min" ? "From" : key === "max" ? "To" : "Step"}</span>
+                  <input className="field__control field__control--compact" type="number" step="any" value={input[key] ?? ""} onChange={(event) => onChange({ ...input, [key]: number(event.target.value) })} />
+                </label>
+              ))}
+            </>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
 }

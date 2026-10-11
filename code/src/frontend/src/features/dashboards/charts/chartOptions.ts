@@ -104,6 +104,7 @@ export function axisTooltipHtml(
     stacked,
     hovered,
     format,
+    formatOf = () => undefined,
     kindOf = () => undefined,
     notes = [],
   }: {
@@ -111,6 +112,8 @@ export function axisTooltipHtml(
     stacked: boolean;
     hovered: number | null;
     format: (value: unknown) => string;
+    /** A series' own format (Step 4.3: a return in percent on the right axis). */
+    formatOf?: (seriesIndex: number) => ((value: unknown) => string) | undefined;
     kindOf?: (seriesIndex: number) => SeriesKind;
     /** The period's annotations, under its heading. */
     notes?: string[];
@@ -131,16 +134,17 @@ export function axisTooltipHtml(
   const active = rows.some((row) => row.index === hovered) ? hovered : null;
   const line = (content: string, style = "") =>
     `<div style="display:flex;align-items:center;gap:8px;padding:2px 6px;margin:0 -6px;border-radius:6px;${style}">${content}</div>`;
-  const amount = (value: number | null) => `<span style="margin-left:auto;padding-left:16px;font-weight:600;font-variant-numeric:tabular-nums">${escapeHtml(format(value))}</span>`;
+  const amount = (value: number | null, index?: number) =>
+    `<span style="margin-left:auto;padding-left:16px;font-weight:600;font-variant-numeric:tabular-nums">${escapeHtml((index === undefined ? format : (formatOf(index) ?? format))(value))}</span>`;
   const body = rows
     .map((row) => {
       const isActive = row.index === active;
       const dot = `<span style="width:8px;height:8px;border-radius:50%;flex:none;background:${escapeHtml(row.color)}"></span>`;
       const style = isActive ? "background:var(--hover);font-weight:600;" : active !== null ? "opacity:.62;" : "";
-      return line(`${dot}<span>${escapeHtml(row.name)}</span>${amount(row.value)}`, style);
+      return line(`${dot}<span>${escapeHtml(row.name)}</span>${amount(row.value, row.index)}`, style);
     })
     .join("");
-  const values = main.map((row) => row.value).filter((value): value is number => value !== null);
+  const values = main.filter((row) => !formatOf(row.index)).map((row) => row.value).filter((value): value is number => value !== null);
   const total =
     stacked && values.length > 1
       ? `<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--line)">${line(`<span style="width:8px;flex:none"></span><span>Total</span>${amount(values.reduce((sum, value) => sum + value, 0))}`)}</div>`
@@ -163,6 +167,14 @@ export type ChartOptions = {
   colorBySign?: boolean;
   /** The dashboard's events on this axis: lines at a period, shaded spans. */
   annotations?: PlacedAnnotations;
+  /**
+   * Where the value axis starts: "zero", near the data ("auto"; prices and
+   * values over time are not squeezed at the top), or a number. Missing:
+   * ECharts' default, which includes 0 unless a reference line pins the range.
+   */
+  yMin?: "auto" | "zero" | number;
+  /** Lines run over empty periods instead of leaving a gap. */
+  connectNulls?: boolean;
 };
 
 /** Annotation colours from the chart's tokens; gray is the ink, so it never looks like a series. */
@@ -193,7 +205,7 @@ export function namedColor(color: SeriesColor | undefined, tokens: ChartTokens):
 }
 
 export function buildChartOption(type: WidgetType, model: ChartModel, tokens: ChartTokens, options: ChartOptions = {}): EChartsCoreOption {
-  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false, annotations = { points: [], ranges: [] } } = options;
+  const { stacked = false, hovered = () => null, referenceLines = [], colorBySign = false, annotations = { points: [], ranges: [] }, yMin, connectNulls = false } = options;
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
   const tooltip = {
     trigger: type === "donut" ? "item" : "axis",
@@ -272,6 +284,28 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
   };
   const bySign = colorBySign && main.length === 1 && !stacked;
   const references = referenceLines.map((line) => line.value);
+  // Step 4.3: measures on a second value axis, in their own format.
+  const right = main.some((series) => series.axis === "right");
+  const rightFormat = main.find((series) => series.axis === "right")?.format ?? model.format;
+  const leftAxis = {
+    type: "value",
+    splitLine: { lineStyle: { color: tokens.line } },
+    axisLabel: { color: tokens.muted, fontSize: 11, formatter: (value: number) => formatCompact(value, model.format) },
+    // Reference lines stay in view even above or below every value.
+    ...(references.length > 0
+      ? {
+          min: (extent: { min: number }) => Math.min(extent.min, ...references),
+          max: (extent: { max: number }) => Math.max(extent.max, ...references),
+        }
+      : {}),
+    ...(yMin === "auto" ? { scale: true } : {}),
+    ...(yMin === "zero" ? { min: (extent: { min: number }) => Math.min(0, extent.min, ...references) } : {}),
+    ...(typeof yMin === "number" ? { min: yMin } : {}),
+  };
+  const seriesFormat = (index: number) => {
+    const own = model.series[index]?.format;
+    return own ? (value: unknown) => (typeof value === "number" ? formatNumber(value, own) : "—") : undefined;
+  };
   // Reference lines (across) and annotations (down) share the first series' mark line.
   const markLineData = [
     ...referenceLines.map((line) => ({ yAxis: line.value, name: line.label })),
@@ -320,7 +354,7 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
       formatter: (params: unknown) => {
         const list = (Array.isArray(params) ? params : [params]) as AxisTooltipParam[];
         const notes = list.length > 0 ? annotationsAt(annotations, String(list[0].axisValue ?? "")) : [];
-        return axisTooltipHtml(list, { bucket: model.bucket, stacked, hovered: hovered(), format, kindOf, notes });
+        return axisTooltipHtml(list, { bucket: model.bucket, stacked, hovered: hovered(), format, formatOf: seriesFormat, kindOf, notes });
       },
     },
     legend,
@@ -334,18 +368,18 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
       axisTick: { show: false },
       axisLabel: { color: tokens.muted, fontSize: 11, formatter: (value: string) => formatBucketLabel(value, model.bucket) },
     },
-    yAxis: {
-      type: "value",
-      splitLine: { lineStyle: { color: tokens.line } },
-      axisLabel: { color: tokens.muted, fontSize: 11, formatter: (value: number) => formatCompact(value, model.format) },
-      // Reference lines stay in view even above or below every value.
-      ...(references.length > 0
-        ? {
-            min: (extent: { min: number }) => Math.min(extent.min, ...references),
-            max: (extent: { max: number }) => Math.max(extent.max, ...references),
-          }
-        : {}),
-    },
+    // One value axis, or a second on the right for measures put there (Step 4.3).
+    yAxis: right
+      ? [
+          leftAxis,
+          {
+            type: "value",
+            position: "right",
+            splitLine: { show: false },
+            axisLabel: { color: tokens.muted, fontSize: 11, formatter: (value: number) => formatCompact(value, rightFormat) },
+          },
+        ]
+      : leftAxis,
     // Line and area by sign: the colour changes where the line crosses 0.
     ...(bySign && kind === "line"
       ? {
@@ -378,15 +412,17 @@ export function buildChartOption(type: WidgetType, model: ChartModel, tokens: Ch
         };
       }
       const shifted = series.kind === "shifted";
+      const onRight = right && series.axis === "right";
       return {
         name: series.name,
         type: kind,
         data: series.values,
         color,
-        stack: stacked && !shifted ? "total" : undefined,
+        yAxisIndex: onRight ? 1 : 0,
+        stack: stacked && !shifted && !onRight ? "total" : undefined,
         showSymbol: !shifted && model.categories.length <= 16,
         symbolSize: 5,
-        connectNulls: false,
+        connectNulls,
         barMaxWidth: 28,
         lineStyle: kind === "line" ? { width: shifted ? 1.5 : 2, type: shifted ? "dashed" : "solid" } : undefined,
         areaStyle: type === "area" && !shifted ? { opacity: 0.16 } : undefined,

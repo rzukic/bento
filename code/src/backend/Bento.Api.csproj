@@ -16,8 +16,25 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The Claude Desktop extension (.mcpb) Bento hands out with its own address filled in (Step 4.6). -->
+    <Content Remove="McpBundle\**" />
+    <None Remove="McpBundle\**" />
+    <EmbeddedResource Include="McpBundle\manifest.json" LogicalName="Bento.Api.McpBundle.manifest.json" />
+    <EmbeddedResource Include="McpBundle\icon.png" LogicalName="Bento.Api.McpBundle.icon.png" />
+    <EmbeddedResource Include="McpBundle\server\index.js" LogicalName="Bento.Api.McpBundle.server.index.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The guide MCP clients read (bento_guide): explanation files of Part 12 R12.3. -->
+    <None Remove="McpGuide\**" />
+    <EmbeddedResource Include="McpGuide\*.md" LogicalName="Bento.Api.McpGuide.%(Filename).md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Anthropic" Version="12.55.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Dapper" Version="2.1.72" />
+    <PackageReference Include="Jint" Version="4.16.4" />
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.5" />
     <PackageReference Include="Npgsql" Version="10.0.2" />
     <PackageReference Include="SqlKata" Version="4.0.1" />

@@ -9,6 +9,13 @@ public sealed class BackendRuntimeOptions
     public string[] AllowedOrigins { get; set; } = [];
 
     /// <summary>
+    /// The address users reach Bento at (e.g. <c>https://bento.example.com</c>), for links
+    /// the backend hands out: the MCP and OAuth metadata. Empty means "the address of the
+    /// request", which is right unless a proxy in front hides the scheme or host.
+    /// </summary>
+    public string? PublicUrl { get; set; }
+
+    /// <summary>
     /// IP addresses or CIDR ranges whose <c>X-Forwarded-*</c> headers are trusted.
     /// Empty (the default) means forwarded headers are ignored entirely.
     /// </summary>

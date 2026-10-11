@@ -15,20 +15,70 @@ Or type a name and choose **Create** for an empty dashboard.
 
 ## Wealth & Cash Flow In One Click
 
-Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — and two dashboards:
+Admins see **Wealth & cash flow** under *New dashboard*. **Set up** adds new tables — Accounts, Categories, Transactions, Trades (depot buys and sells with ISIN, shares, price, fees), Prices and Dividends — two dashboards and a form:
 
-- **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter
-- **Wealth**: net worth, depot value, unrealised gain and dividends; net worth at each month end (cash and depot stacked, with a total line); allocation by security; positions (shares, invested, value, gain); dividends per month
+- **Cash flow**: the cash-flow dashboard of the new transactions, with an **Account** filter, spending by main category (a slice shows its subcategories) and **Budgets this month**
+- **Wealth**:
+  - Key figures: net worth, depot value, unrealised gain, dividends, and realised gains in the range.
+  - Charts: net worth at each month end (cash and depot stacked, with a total line), allocation by security, positions (shares, cost, value, unrealised and realised gain), dividends per month.
+  - Returns: the depot's **return a year (XIRR)** from trades, dividends and today's value, its **time-weighted return** in the range, and **depot vs. benchmark** with both at 100 at the start of the range. The benchmark is the ISIN in the dashboard variable *benchmark* (MSCI World by default); its prices come from the Prices table, e.g. through a [price source](live-prices.md).
+  - Gains by **average cost**: each trade gets a realised gain and a change in cost (columns *Realised gain* and *Cost (±)* of Trades), computed by your function `avg_cost` (see [Functions over a group of rows](formulas.md#functions-over-a-group-of-rows)). **Set up** creates it from its template unless you have one. For FIFO, give `avg_cost` the code of the FIFO template.
+  - The time-weighted return counts money for the days it was in the depot (Modified Dietz), so a buy in the middle of a month does not distort it.
+- **Add transaction**: a [form](forms.md) for quick entry, under *Quick add* in the sidebar and as a button on both dashboards.
 
-Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). **Example rows** fills in two accounts, three months of bookings, an ETF with month-end prices and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends, month-end prices into Prices (live prices are planned for a later version).
+Existing tables stay as they are; when a name is taken, the new tables get a prefix (e.g. `finance_transactions`). Categories can have a **main category** (Food → Groceries, Restaurants) and a **monthly budget**; transactions get *Main category* to group by. **Example rows** fills in two accounts, categories with budgets, three months of bookings and this month's first purchase, an ETF with month-end prices, a partial sale and a dividend, so you can see it working — delete them in the Data Explorer when you add your own. Fill the tables with CSV imports: your bank's export into Transactions, your broker's into Trades and Dividends. Add a single purchase with **Add transaction**, also on the phone. Prices come from a [price source](live-prices.md) or by hand.
+
+### A Depot With Its Own Cash
+
+The template's depot holds only securities: a dividend leaves it, so the time-weighted return counts it as money taken out, not as return. Most brokers keep a clearing account (*Verrechnungskonto*) with the depot, where dividends and sale proceeds stay. To measure the depot with its cash, change the measures of **Time-weighted return** and **Depot vs. benchmark** — no new tables needed:
+
+- **Value** at month end: the securities, plus the depot's cash — what you transferred in, minus what trades cost, plus net dividends. Book transfers to the depot in Transactions with the category *Investing* (id 5 in the template; use yours):
+
+  ```
+  SUM(SUM(trades.signed_shares * LOOKUP_ASOF("prices", "isin", trades.isin, "date", BUCKET_END(), "price") WHERE trades.date <= BUCKET_END()))
+    - SUM(SUM(transactions.amount WHERE transactions.category_id = 5 AND transactions.date <= BUCKET_END()))
+    - SUM(SUM(trades.invested WHERE trades.date <= BUCKET_END()))
+    + SUM(SUM(dividends.amount - COALESCE(dividends.tax, 0) WHERE dividends.date <= BUCKET_END()))
+  ```
+
+- **Money in**: only the transfers, `FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5)`.
+
+Together: `TWR(<value>, FLOWS(-transactions.amount, transactions.date WHERE transactions.category_id = 5), 100)`. Dividends then stay in the depot and count as return; buying and selling within the depot moves money between securities and cash and changes nothing.
+
+## History: Undo Any Change
+
+Every save keeps the dashboard's state from before. This covers your own saves, saves of AI-built widgets, and changes by Claude, ChatGPT or a script through MCP or the API.
+
+**History** at the top of a dashboard lists these states, newest first, with who made each change and through which app. **Restore** brings a state back. The state you leave is kept as well, so a restore can be undone the same way. Bento keeps the last 100 states per dashboard.
+
+A deleted dashboard appears under **Recently deleted** in the list of dashboards; **Bring back** restores it with its address. On the [AI page](ai.md), **Changes by AI apps** lists what apps changed, each with **Undo**.
 
 ## Date Range And Refresh
 
-The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them.
+The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
+
+A widget can have its own range under **Data → Date range**, e.g. a forecast over the next 20 years on a dashboard of the last 12 months.
 
 **Filters**: in edit mode, **Filters** adds menus above the widgets for a column — an account, a category, a status. Choosing values narrows every widget, variable and drill-down whose table has that column (other widgets stay as they are); several values mean "one of these". The choice is part of the address (`?filter.kategorie_id=2`), so a bookmark keeps it, and **Reset filters** clears it. A widget's own condition on the same column is replaced by the bar's choice.
 
 Widgets refresh when you come back to the tab and with the refresh button; in edit mode you can let the dashboard refresh every 30 seconds, minute or 5 minutes.
+
+Numbers you have seen stay in the browser. Switching the interval (W, M, Q, Y) back and forth or returning to a dashboard shows them at once:
+- Within 30 seconds, Bento does not ask the server again.
+- After that, the old numbers stay visible with a small spinner while new ones load.
+- After you change data in Bento (a row, an import, the schema), the next look always loads again.
+- The refresh button always asks the server.
+
+### When A Widget Is Slow
+
+When you switch away from a widget that is still loading (another interval, another dashboard), the server stops working on it too.
+
+Admins find slow queries (over 3 seconds), timeouts and server errors under **Settings → Problems**. Each entry shows:
+- when it happened, and the page or app it came from
+- how long it took
+- the query, which can be expanded
+
+The entries stay on your server for 90 days. Nothing is sent anywhere. The threshold is the setting `Backend:SlowQueryMs` (environment variable `Backend__SlowQueryMs`).
 
 ## Edit A Dashboard
 
@@ -41,17 +91,30 @@ Choose **Edit**:
   - **The chart** in the middle, live, with the chart types above it, a sentence saying what it shows ("Sum of Betrag (EUR) by Buchungstag per month, split by Top 5 Kategorie + other"), other ways to show the same fields (**suggestions**) and **View data** for the numbers behind it
   - **Data** on the right: the chart's slots — *Horizontal axis*, *Vertical axis* and *Breakdown* for line, area and bar charts; *Slice by* and *Size by* for donuts; *Value* and *Secondary value* for key figures; *Rows* and *Metrics* for tables. Click an item to set it up:
     - a value: **Count, Sum, Average, Minimum, Maximum, Unique count, Median, Percentile** of a field — or a **Formula** — plus a running total when the axis is a date, a **colour** (green for income and red for expenses follow the theme; with a breakdown the values take the palette), and **Show as**: the value, the **change from the period before**, or a **moving average** over 2–24 periods (the first points stay empty until there are enough)
+    - with two or more values on a date axis: **Value axis → Right** puts a value on a second axis with its own scale, **written as** percent, number or amount — e.g. the depot's value on the left and its return on the right
     - a date: the **interval** (day to year)
     - a category: **all values** or the **top 3–50**, largest or smallest first, with the rest as **Other** (a breakdown starts with the top 5)
   - **Only rows where** conditions, and which date the dashboard's range applies to
   - **Compare with** (charts by date without a breakdown): **the period before** or **the same period a year earlier** — each value again for that range, dashed (lighter bars in a bar chart); needs a range with a start and an end
-  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below
+  - **Style**: number format, stacked (with a breakdown) with an optional **total line** (the net when values are positive and negative), **colour by sign** for one series (green above 0, red below), **reference lines** at a number or a variable with a label (a budget, a target), **show annotations** (see below), and per type the options below. Charts also have:
+    - **Value axis starts at**: 0, near the data (prices and values over time are not squeezed at the top), or a number.
+    - **Periods without a value** (charts by date): count as 0, leave a gap, or connect the line. With a gap or a connected line, the periods before the first value are left out, e.g. a depot before its first purchase.
+    - **Tables → A click on a row opens**: another dashboard, filtered by the row's value of a column, e.g. a position opens the asset's dashboard for that security. The date range goes along. The filter applies there even without a menu for it, and shows in its filter bar.
+    - **Tables → Columns**: per number column, its own format (a return in percent next to amounts), **+/−** for a sign in front of gains, and **Colour** for green above 0 and red below.
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
 
 Donuts show their total in the middle and each slice's share in the tooltip. A Sankey can label its nodes with shares of the first column (for a cash flow, of the income) under **Style → Show shares**.
 
 Tooltips list the series as they sit at that date (stacks top to bottom), mark the one under the pointer and show a stack's total. Stacks put positive values above 0 and negative ones below — for income and expenses, stacked bars with a total line read best.
+
+### Describe Instead Of Click
+
+With Bento's AI set up (see [AI](ai.md)), the widget editor has a ✨ field above the chart. Describe the widget in a sentence, for example *expenses by main category per quarter, without rent* or *net worth over the last two years as a line*, and choose **Build**.
+
+The AI looks at your tables, looks up the values it filters on (the category *Rent*), and writes the widget. Bento then runs its query for the dashboard's range. If the query fails or returns nothing, the AI gets the reason and fixes it, so what lands in the editor works.
+
+The result is an ordinary widget: the fields, filters and style are set in the editor and you can change all of them. A line under the field says what the widget shows, how many steps it took and what it cost. **Undo** puts back the widget from before. Nothing is saved until you choose **Save**, and the history then notes the sentence.
 
 ### Key Figures
 
@@ -73,9 +136,43 @@ A **Sankey** shows flows. Drop one to three categories into **Levels** and a num
 
 Levels keep the top 8 values by amount (income and expenses alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey.
 
+## Form Buttons
+
+Editors see buttons such as **+ Add transaction** in a dashboard's header: they open a [form](forms.md) in a dialog, and the dashboard reloads after saving. Which ones, you choose in edit mode under **Quick add**:
+
+- **Automatic** (default): the forms in Quick add for the tables the dashboard shows — as a widget's source, or through a link in a measure.
+- **These forms**: the ones you tick, in that order — also forms not in Quick add.
+- **None**: no buttons; the sidebar's Quick add stays.
+
+## Months, Quarters, Years
+
+Charts and summarized tables by date show **M Q Y** in their corner, outside edit mode, for viewers too. Switch monthly bars or a table "per month" to quarters or years without changing the dashboard. Charts by day or week also offer their own interval.
+
+- The choice is part of the address (`?interval.net-per-month=quarter`), so a bookmark keeps it.
+- Values at the end of each period follow: net worth per quarter is the value at each quarter's end.
+- A table names its periods ("September 2026", "Q3 2026") and heads the column with the interval.
+
+To change what a widget offers, go to the widget editor → **Style** → **Viewers can switch the interval**:
+
+- Untick it to hide the switch.
+- Choose the intervals to offer, for example only quarters and years. The widget's own interval always stays.
+
+## Budgets
+
+The **Budgets** widget (*Add widget → Budgets*) puts each category's monthly limit against what was spent:
+
+- **Limits** live in a number column of the categories table, e.g. *Monthly budget*. Categories without a limit are left out; what they spent shows as one line under the bars.
+- **Spending** comes from a table with a date, an amount and a link to the categories, e.g. Transactions. Bank accounts store spending as negative amounts; an expenses table may store it as positive ones — the widget's settings say which.
+- **Period**: the **last month of the dashboard's range** (this month, by default), or the **whole range**, where limits count once per month of the range.
+- Each row shows spent of limit, a bar and the share: from 80 % in amber, above 100 % in red. Click a row for its bookings.
+
+The Wealth template's cash-flow dashboard has **Budgets this month**.
+
 ## Click Through To The Rows
 
 Outside edit mode, click a bar, a point, a donut slice, a Sankey node or flow, or a key figure's number: the **Data Explorer** opens on the widget's table with the rows behind it — the widget's conditions, the dashboard's range and what you clicked (the month, the category; for a cash-flow Sankey also income or expenses). Running totals and values at the end of each period list every row up to that period's end. Use the browser's back button to return.
+
+**Donuts one level down**: under *Style*, **Drill into** names a second column, e.g. *Category* for a donut by *Main category*. A slice then shows what is in it inside the donut (*All › Food*: Groceries, Restaurants), and a click there opens the rows. **All** goes back.
 
 Not every click has rows to show: *Other* stands for all values outside the top ones, and *Saved* is a difference. Formula values open the rows of their group, not only the ones their `WHERE` picks.
 
@@ -104,7 +201,9 @@ In edit mode, **Variables** holds named values for the whole dashboard, e.g.:
 | `cash` | Girokonto | `SUM(betrag_eur)` |
 | `runway` | other variables | `cash / burn_rate` |
 
-Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable), and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
+A variable without a table can be an **assumption viewers change**: tick **Viewers can change it** and choose a number field, a slider (from, to, step) or a choice of values. The formula is then its default, e.g. `0.07`. Above the widgets everyone can change it, e.g. the expected return of a forecast; the chosen value is part of the address (`?var.rate=0.05`), and **Reset to defaults** goes back.
+
+Each shows its current value (or what is wrong) as you type. A key figure can show a variable (**Data from** → Dashboard variable); the variable's **Label** appears under the value, and widget formulas can use variables by name: `SUM(betrag_eur) / months`. Variables are saved with the dashboard.
 
 ## Amounts
 

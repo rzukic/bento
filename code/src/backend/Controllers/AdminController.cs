@@ -94,7 +94,7 @@ public sealed class AdminController : ControllerBase
     [RequireRole("admin")]
     [ProducesResponseType<AdminSchemaPreviewResponse>(StatusCodes.Status200OK)]
     [ProducesResponseType<ApiErrorEnvelope>(StatusCodes.Status400BadRequest)]
-    public async Task<IActionResult> PreviewSchema([FromBody] JsonElement body)
+    public async Task<IActionResult> PreviewSchema([FromBody] JsonElement body, [FromQuery] bool compact = false)
     {
         ModelJson requestedModel;
         try
@@ -107,7 +107,33 @@ public sealed class AdminController : ControllerBase
         }
 
         var result = await _schemaService.PreviewSchemaAsync(requestedModel);
-        return Ok(BuildSchemaPreviewResponse(result));
+        return Ok(BuildSchemaPreviewResponse(result, compact));
+    }
+
+    /// <summary>
+    /// Preview schema operations on the current model (<see cref="SchemaPatch"/>):
+    /// <c>{ "operations": [ { "op": "addColumn", "table": "trades", "column": {…} } ] }</c>.
+    /// Compact by default: the changes, errors and warnings, without the whole
+    /// resulting model and SQL (<c>?compact=false</c> adds them).
+    /// </summary>
+    [HttpPost("schema/patch/preview")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> PreviewSchemaPatch([FromBody] JsonElement body, [FromQuery] bool compact = true)
+    {
+        var current = await _modelJsonStore.GetCurrentAsync() ?? new ModelJson { Version = 0 };
+        var result = await _schemaService.PreviewSchemaAsync(SchemaPatch.Apply(current, body));
+        return Ok(BuildSchemaPreviewResponse(result, compact));
+    }
+
+    /// <summary>Apply schema operations on the current model; like PUT, with ?confirm_destructive=true for destructive ones.</summary>
+    [HttpPatch("schema")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> PatchSchema(
+        [FromBody] JsonElement body,
+        [FromQuery(Name = "confirm_destructive")] bool confirmDestructive = false)
+    {
+        var current = await _modelJsonStore.GetCurrentAsync() ?? new ModelJson { Version = 0 };
+        return await ApplyAsync(SchemaPatch.Apply(current, body), confirmDestructive);
     }
 
     /// <summary>
@@ -130,6 +156,11 @@ public sealed class AdminController : ControllerBase
             return BadRequest(BuildInvalidModelJsonError(ex));
         }
 
+        return await ApplyAsync(requestedModel, confirmDestructive);
+    }
+
+    private async Task<IActionResult> ApplyAsync(ModelJson requestedModel, bool confirmDestructive)
+    {
         var result = await _schemaService.ApplySchemaAsync(requestedModel, confirmDestructive);
 
         // Validation errors → 400
@@ -306,7 +337,7 @@ public sealed class AdminController : ControllerBase
             : $"{prefix}a value has the wrong format ({location}).";
     }
 
-    private static AdminSchemaPreviewResponse BuildSchemaPreviewResponse(SchemaPreviewResult result)
+    private static AdminSchemaPreviewResponse BuildSchemaPreviewResponse(SchemaPreviewResult result, bool compact = false)
     {
         var plan = BuildSchemaPlanResponse(result.Plan);
         var castPreviewLookup = result.CastPreviews.ToDictionary(
@@ -327,8 +358,9 @@ public sealed class AdminController : ControllerBase
             Errors = result.Errors.Select(BuildSchemaIssueResponse).ToList(),
             Warnings = result.Warnings.Select(BuildSchemaIssueResponse).ToList(),
             Changes = result.Changes.Select(change => BuildSchemaChangeResponse(change, castPreviewLookup, impactLookup)).ToList(),
-            NormalizedModel = result.TargetModel,
-            Plan = plan
+            // Compact (MCP apps, patches): the changes say what happens; the model and SQL made it ~57 KB.
+            NormalizedModel = compact ? null : result.TargetModel,
+            Plan = compact ? null : plan
         };
     }
 

@@ -87,11 +87,17 @@ public sealed class ImportService
         var locale = ResolveLocale(document, request.Settings);
         var mapping = ResolveMapping(table, document, request.Mapping);
         var keyColumns = ResolveKeyColumns(mapping, request.KeyColumns);
-        var references = await LoadReferenceLookupsAsync(mapping.Select(m => m.Column));
+        var assign = ResolveAssign(table, request.Assign);
+        var references = await LoadReferenceLookupsAsync(mapping.Select(m => m.Column).Append(assign?.Column).OfType<ColumnDef>());
 
         var rows = new List<PendingRow>();
         foreach (var (line, cells) in document.DataRecords)
-            rows.Add(ConvertRow(line, cells, mapping, locale, references));
+        {
+            var row = ConvertRow(line, cells, mapping, locale, references);
+            if (assign is not null && assign.Values.TryGetValue(line.ToString(CultureInfo.InvariantCulture), out var chosen) && !ImportValueParser.IsBlank(chosen))
+                AssignValue(row, assign.Column, chosen!.Trim(), locale, references);
+            rows.Add(row);
+        }
 
         await MarkDuplicatesAsync(table, rows, keyColumns, request.DistinctKeys);
         MarkUniqueConflictsInFile(table, rows);
@@ -238,6 +244,36 @@ public sealed class ImportService
         }
 
         return result;
+    }
+
+    private sealed record ResolvedAssign(ColumnDef Column, IReadOnlyDictionary<string, string?> Values);
+
+    private static ResolvedAssign? ResolveAssign(TableDef table, ImportAssign? assign)
+    {
+        if (assign?.Values is not { Count: > 0 } values)
+            return null;
+        var column = table.Columns.FirstOrDefault(c => string.Equals(c.Name, assign.Column?.Trim(), StringComparison.OrdinalIgnoreCase))
+            ?? throw Invalid("assign", $"Table '{table.Name}' has no column '{assign.Column}'.");
+        if (!CrudService.IsWritableColumn(column) || !ColumnTypes.HasPhysicalColumn(column.Type))
+            throw Invalid("assign", $"Column '{column.Name}' is filled automatically and cannot be set.");
+        return new ResolvedAssign(column, values);
+    }
+
+    /// <summary>A value chosen for this row in the review replaces what the file had.</summary>
+    private void AssignValue(PendingRow row, ColumnDef column, string raw, ImportLocale locale, Dictionary<string, ReferenceLookup> references)
+    {
+        row.Errors.RemoveAll(e => string.Equals(e.Field, column.Name, StringComparison.OrdinalIgnoreCase));
+        if (TryConvert(raw, column, locale, references, out var value, out var display, out var error))
+        {
+            row.Values[column.Name] = value;
+            row.Display[column.Name] = display;
+        }
+        else
+        {
+            row.Display[column.Name] = raw;
+            row.Errors.Add(new ImportRowError(column.Name, error!));
+        }
+        row.Status = row.Errors.Count > 0 ? ImportRowStatus.Invalid : ImportRowStatus.New;
     }
 
     private static List<ColumnDef> ResolveKeyColumns(List<MappedColumn> mapping, IReadOnlyList<string>? keyColumns)

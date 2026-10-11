@@ -248,7 +248,7 @@ export function formulaCompletions(
         type: "function",
         detail: fn.signature,
         info: `${fn.description}\nExample: ${fn.example}`,
-        apply: `${fn.name}(`,
+        apply: fn.apply ?? `${fn.name}(`,
       })),
     ];
     return { from: word?.from ?? context.pos, options, validFor: /^[A-Za-z_][A-Za-z0-9_]*$/ };

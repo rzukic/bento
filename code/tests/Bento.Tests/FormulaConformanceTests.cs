@@ -66,6 +66,18 @@ public sealed class FormulaConformanceTests
         ("= qty % 0", "integer", ["null", "null", "null", "null"]),
         ("= POWER(qty, 2) + SQRT(ABS(qty))", "float", ["10.7320508076", "51.6457513111", "0", "null"]),
         ("= SQRT(qty)", "float", ["1.7320508076", "null", "0", "null"]),
+
+        // Finance (Step 4.3): Excel's examples, to the cent
+        ("= ROUND(NPER(0.12 / 12, -100, -1000, 10000, 1), 2)", "float", ["59.67", "59.67", "59.67", "59.67"]),
+        ("= ROUND(NPER(0.12 / 12, -100, -1000, 10000), 2)", "float", ["60.08", "60.08", "60.08", "60.08"]),
+        ("= NPER(0, -100, -1000, 10000)", "float", ["90", "90", "90", "90"]),
+        ("= NPER(0.01, 100, 1000, 10000)", "float", ["null", "null", "null", "null"]),
+        ("= ROUND(PMT(0.08 / 12, 10, 10000), 2)", "float", ["-1037.03", "-1037.03", "-1037.03", "-1037.03"]),
+        ("= ROUND(FV(0.06 / 12, 10, -200, -500, 1), 2)", "float", ["2581.4", "2581.4", "2581.4", "2581.4"]),
+        ("= ROUND(PV(0.08 / 12, 12 * 20, 500), 2)", "float", ["-59777.15", "-59777.15", "-59777.15", "-59777.15"]),
+        ("= ROUND(NPV(0.1, -10000, 3000, 4200, 6800), 2)", "float", ["1188.44", "1188.44", "1188.44", "1188.44"]),
+        ("= ROUND(FV(0, qty, -10), 2)", "float", ["30", "-70", "0", "null"]),
+        ("= ROUND(PMT(ratio / 12, 12, 1000), 2)", "float", ["-87.92", "-111.24", "-221.42", "null"]),
         ("= -2^2 + 7 / 2", "float", ["-0.5", "-0.5", "-0.5", "-0.5"]),
         ("= amount > ratio", "boolean", ["false", "true", "false", "null"]),
         ("= amount = 0.1", "boolean", ["false", "false", "true", "null"]),
@@ -110,6 +122,8 @@ public sealed class FormulaConformanceTests
         ("= booked_on >= \"2026-01-31\"", "boolean", ["true", "false", "true", "null"]),
         ("= booked_on & \" \" & recorded_at", "text", ["2026-01-31 2026-01-31 23:30:00", "2024-02-29 2026-02-28 22:15:00", "2026-12-15 ", " "]),
         ("= YEAR(NOW()) >= 2026 AND TODAY() <= DATEADD(TODAY(), 1, \"days\")", "boolean", ["true", "true", "true", "true"]),
+        ("= WEEKDAY(booked_on)", "integer", ["6", "4", "2", "null"]),
+        ("= WEEKDAY(recorded_at)", "integer", ["6", "6", "null", "null"]),
 
         // Logic and empty values
         ("= SWITCH(MONTH(booked_on), 1, \"Jan\", 2, \"Feb\", \"other\")", "text", ["Jan", "Feb", "other", "other"]),

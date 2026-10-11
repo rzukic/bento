@@ -26,12 +26,14 @@ public sealed class ImportController : ControllerBase
     private readonly ImportService _importService;
     private readonly ISystemPool _systemPool;
     private readonly SchemaCache _schemaCache;
+    private readonly ICustomValueRecalculation? _recalculation;
 
-    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache)
+    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ICustomValueRecalculation? recalculation = null)
     {
         _importService = importService;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
+        _recalculation = recalculation;
     }
 
     /// <summary>Detects encoding, delimiter, header and locale, and returns columns with samples.</summary>
@@ -46,8 +48,12 @@ public sealed class ImportController : ControllerBase
 
     /// <summary>Imports the new, valid rows in one transaction; duplicates and invalid rows are skipped.</summary>
     [HttpPost("{table}")]
-    public async Task<IActionResult> Run(string table, [FromBody] ImportRunRequest request) =>
-        Ok(new { data = await _importService.RunAsync(table, request, dryRun: false) });
+    public async Task<IActionResult> Run(string table, [FromBody] ImportRunRequest request)
+    {
+        var result = await _importService.RunAsync(table, request, dryRun: false);
+        _recalculation?.Request();
+        return Ok(new { data = result });
+    }
 
     // ── Profiles ──────────────────────────────────────────────────────────
 

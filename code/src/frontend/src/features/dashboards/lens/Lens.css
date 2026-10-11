@@ -677,6 +677,44 @@
     gap: 0.375rem;
 }
 
+/* A widget's own date range: from – to */
+.lens-range {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 0.375rem;
+    color: var(--text-3);
+}
+
+/* Tables: format, sign and colour per number column */
+.lens-columns {
+    display: grid;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
+}
+
+.lens-columns__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 7.5rem) auto auto;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.lens-columns__name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.lens-columns .lens-check {
+    gap: 0.3rem;
+}
+
 /* One item's settings (Lens' dimension flyout) */
 
 .lens-dimension {
@@ -819,4 +857,40 @@
     .lens__field-add {
         opacity: 1;
     }
+}
+
+/* Step 4.3: value axis and its format side by side. */
+.lens-field--row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.5rem;
+}
+
+/* Which intervals viewers can switch to (M Q Y in the widget's header). */
+.lens-intervals {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding-left: 1.5rem;
+}
+
+.lens-intervals__option {
+    padding: 0.2rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    background: var(--surface);
+    color: var(--text-2);
+    font: inherit;
+    font-size: var(--fs-xs);
+    cursor: pointer;
+}
+
+.lens-intervals__option[aria-pressed="true"] {
+    border-color: color-mix(in srgb, var(--text) 35%, var(--line));
+    background: color-mix(in srgb, var(--text) 8%, var(--surface));
+    color: var(--text);
+}
+
+.lens-intervals__option:disabled {
+    cursor: default;
 }

@@ -376,6 +376,95 @@
     white-space: nowrap;
 }
 
+/* Step 4.5: a donut's level ("All › Food") above it. */
+.widget-drill {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+}
+
+.widget-drill > :last-child {
+    flex: 1;
+    min-height: 0;
+}
+
+.widget-drill__path {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0 1rem;
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+}
+
+.widget-drill__hint {
+    color: var(--text-4);
+}
+
+.widget-drill__up {
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--accent-deep);
+    font: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+/* Step 4.5: month / quarter / year for viewers, in the theme switch's style. */
+.widget-interval {
+    display: inline-flex;
+    flex-shrink: 0;
+    margin-left: auto;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+}
+
+.widget-interval__option {
+    min-width: 1.75rem;
+    height: 1.5rem;
+    padding: 0 0.375rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-3);
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    cursor: pointer;
+}
+
+.widget-interval__option:hover {
+    color: var(--text);
+}
+
+.widget-interval__option[aria-pressed="true"] {
+    background: var(--text);
+    color: var(--bg);
+}
+
+/* While the numbers for the chosen interval load: "Q ◌". */
+.widget-interval__option--busy {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.widget-interval__spinner {
+    width: 0.6rem;
+    height: 0.6rem;
+    border: 1.5px solid currentColor;
+    border-right-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .widget-interval__spinner {
+        animation-duration: 2s;
+    }
+}
+
 .widget-frame__actions {
     display: inline-flex;
     margin-left: auto;
@@ -388,8 +477,11 @@
     padding: 0.25rem 1rem 0.875rem;
 }
 
+/* The gap above the table sits outside the scroll area: inside it, rows
+   scrolled into the gap showed above the sticky header. */
 .widget-frame__body--table {
-    padding: 0.25rem 0 0.5rem;
+    margin-top: 0.25rem;
+    padding: 0 0 0.5rem;
     overflow: auto;
 }
 
@@ -509,7 +601,10 @@
 .widget-table th {
     position: sticky;
     top: 0;
+    z-index: 1;
     background: var(--surface);
+    /* Collapsed borders scroll away with the rows; the stuck header keeps its line. */
+    box-shadow: inset 0 -1px 0 var(--line);
     color: var(--text-3);
     font-size: var(--fs-xs);
     font-weight: 600;
@@ -524,6 +619,15 @@
 .widget-table__number {
     text-align: right !important;
     font-variant-numeric: tabular-nums;
+}
+
+/* display.columns colorBySign: a return or a change, green above 0, red below. */
+.widget-table__number--positive {
+    color: var(--success);
+}
+
+.widget-table__number--negative {
+    color: var(--danger);
 }
 
 .widget-text {
@@ -885,4 +989,307 @@
 .dashboards-new__check input {
     margin: 0;
     accent-color: var(--accent);
+}
+
+/* Step 4.2: when the prices a dashboard reads were fetched. */
+.dashboard-prices {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.2rem 0.6rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.dashboard-prices--error {
+    border-color: color-mix(in srgb, var(--warning) 45%, var(--line));
+    color: var(--warning);
+}
+
+/* ── Budgets (Step 4.5) ── */
+
+.budget {
+    display: flex;
+    height: 100%;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.25rem 0.5rem 0.75rem;
+}
+
+.budget__rows {
+    display: flex;
+    /* As tall as its rows (the total follows right below), scrolling when the widget is smaller. */
+    flex: 0 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+}
+
+.budget__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: baseline;
+    gap: 0.25rem 0.75rem;
+    width: 100%;
+    padding: 0.5rem;
+    border: 0;
+    border-radius: var(--r-md);
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: var(--fs-sm);
+    text-align: left;
+}
+
+button.budget__row {
+    cursor: pointer;
+}
+
+button.budget__row:hover,
+button.budget__row:focus-visible {
+    background: var(--hover);
+}
+
+.budget__name {
+    overflow: hidden;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.budget__amounts {
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    white-space: nowrap;
+}
+
+.budget__of {
+    color: var(--text-3);
+}
+
+.budget__share {
+    min-width: 3.25rem;
+    font-family: var(--font-mono);
+    font-size: var(--fs-xs);
+    font-weight: 600;
+    text-align: right;
+}
+
+.budget__share--close {
+    color: var(--warning);
+}
+
+.budget__share--over {
+    color: var(--danger);
+}
+
+.budget__bar {
+    grid-column: 1 / -1;
+    height: 6px;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--text) 8%, var(--surface));
+    overflow: hidden;
+}
+
+.budget__fill {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: var(--text-2);
+}
+
+.budget__fill--close {
+    background: var(--warning);
+}
+
+.budget__fill--over {
+    background: var(--danger);
+}
+
+.budget__footer {
+    margin: 0;
+    padding: 0 0.5rem;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+/* ── Quick add on a dashboard (Step 4.5) ── */
+
+.quick-add__choice {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+}
+
+.quick-add__choice input {
+    margin-top: 0.2rem;
+}
+
+.quick-add__forms {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+    margin: 0;
+    padding: 0 0 0 1.5rem;
+    list-style: none;
+}
+
+/* ── History (Step 4.9) ── */
+
+.history-dialog {
+    display: flex;
+    flex-direction: column;
+    width: min(100%, 40rem);
+    max-height: 100%;
+}
+
+.dialog:has(> .history-dialog) {
+    grid-template-rows: minmax(0, 1fr);
+}
+
+.history-dialog__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+.history-dialog__empty {
+    margin: 0;
+    color: var(--text-2);
+}
+
+.history-dialog__list {
+    display: flex;
+    flex-direction: column;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.history-dialog__item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.625rem 0;
+    border-top: 1px solid var(--line);
+}
+
+.history-dialog__item:first-child {
+    border-top: 0;
+}
+
+.history-dialog__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+    min-width: 0;
+}
+
+.history-dialog__what {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-weight: 600;
+}
+
+.history-dialog__app {
+    padding: 0 0.375rem;
+    border-radius: var(--r-pill);
+    background: color-mix(in srgb, var(--accent) 14%, var(--surface));
+    color: var(--text-2);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+}
+
+.history-dialog__when,
+.history-dialog__note {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+.history-dialog__note {
+    color: var(--text-2);
+}
+
+.dashboards-deleted {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.dashboards-deleted__list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.dashboards-deleted__list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem 0.75rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px dashed var(--line);
+    border-radius: 10px;
+}
+
+.dashboards-deleted__name {
+    font-weight: 600;
+}
+
+.dashboards-deleted__list .dashboards-list__meta {
+    flex: 1;
+}
+
+/* Variables viewers change: a field, a slider or a choice (beta feedback). */
+.dashboard-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.dashboard-input__label {
+    white-space: nowrap;
+}
+
+.dashboard-input__number {
+    width: 7rem;
+}
+
+.dashboard-input__value {
+    min-width: 3rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.dashboard-input input[type="range"] {
+    width: 9rem;
+    accent-color: var(--text);
+}
+
+/* display.link: a row opens another dashboard filtered by it. */
+.widget-table__link {
+    cursor: pointer;
+}
+
+.widget-table__link:hover td,
+.widget-table__link:focus-visible td {
+    background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+
+.widget-table__link:focus-visible {
+    outline: 2px solid var(--focus, var(--text));
+    outline-offset: -2px;
 }

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
+using Bento.Api.Db.Schema;
 using Bento.Api.Exceptions;
 using Bento.Api.Services;
 
@@ -19,12 +20,14 @@ public sealed class DataController : ControllerBase
     private readonly SchemaCache _schemaCache;
     private readonly CrudService _crudService;
     private readonly IncludeService _includeService;
+    private readonly ICustomValueRecalculation? _recalculation;
 
-    public DataController(SchemaCache schemaCache, CrudService crudService, IncludeService includeService)
+    public DataController(SchemaCache schemaCache, CrudService crudService, IncludeService includeService, ICustomValueRecalculation? recalculation = null)
     {
         _schemaCache = schemaCache;
         _crudService = crudService;
         _includeService = includeService;
+        _recalculation = recalculation;
     }
 
     /// <summary>
@@ -81,6 +84,37 @@ public sealed class DataController : ControllerBase
     }
 
     /// <summary>
+    /// Many rows in one transaction (up to 1000):
+    /// <c>{ "rows": [ {…}, … ], "upsertOn": ["external_id"] }</c>. With upsertOn,
+    /// a row matching an existing one on those columns updates it (only the
+    /// given columns); the others are inserted. Also for links in bulk:
+    /// <c>{ "rows": [ { "external_id": "A1", "category_id": 4 } ], "upsertOn": ["external_id"] }</c>.
+    /// </summary>
+    [HttpPost("{table}/bulk")]
+    [RequireRole("editor", "api")]
+    public async Task<IActionResult> Bulk(string table, [FromBody] JsonElement body)
+    {
+        var tableDef = ResolveTable(table);
+        if (body.ValueKind != JsonValueKind.Object || !body.TryGetProperty("rows", out var rows) || rows.ValueKind != JsonValueKind.Array)
+            throw new ApiValidationException("Send { \"rows\": [ … ], \"upsertOn\": [\"column\"] } (upsertOn is optional).", new Dictionary<string, object?> { ["field"] = "rows" });
+        var upsertOn = body.TryGetProperty("upsertOn", out var keys) && keys.ValueKind == JsonValueKind.Array
+            ? keys.EnumerateArray().Select(k => k.GetString() ?? "").ToList()
+            : [];
+        var results = await _crudService.BulkAsync(tableDef, rows.EnumerateArray().ToList(), upsertOn);
+        _recalculation?.Request();
+        return Ok(new
+        {
+            data = new
+            {
+                inserted = results.Count(r => r.Action == "inserted"),
+                updated = results.Count(r => r.Action == "updated"),
+                unchanged = results.Count(r => r.Action == "unchanged"),
+                rows = results.Select(r => new { index = r.Index, id = r.Id, action = r.Action })
+            }
+        });
+    }
+
+    /// <summary>
     /// Create a new row.
     /// </summary>
     [HttpPost("{table}")]
@@ -88,7 +122,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Create(string table, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.CreateAsync(tableDef, body);
+        var row = await FreshAsync(tableDef, await _crudService.CreateAsync(tableDef, body));
         return StatusCode(StatusCodes.Status201Created, new { data = row });
     }
 
@@ -100,7 +134,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Update(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.UpdateAsync(tableDef, id, body);
+        var row = await FreshAsync(tableDef, await _crudService.UpdateAsync(tableDef, id, body));
         return Ok(new { data = row });
     }
 
@@ -112,7 +146,7 @@ public sealed class DataController : ControllerBase
     public async Task<IActionResult> Patch(string table, string id, [FromBody] JsonElement body)
     {
         var tableDef = ResolveTable(table);
-        var row = await _crudService.PatchAsync(tableDef, id, body);
+        var row = await FreshAsync(tableDef, await _crudService.PatchAsync(tableDef, id, body));
         return Ok(new { data = row });
     }
 
@@ -125,7 +159,22 @@ public sealed class DataController : ControllerBase
     {
         var tableDef = ResolveTable(table);
         await _crudService.DeleteAsync(tableDef, id);
+        _recalculation?.Request();
         return NoContent();
+    }
+
+    /// <summary>
+    /// The written row with its CUSTOM values recalculated (Step 4.1); other
+    /// tables' stored values follow in the background.
+    /// </summary>
+    private async Task<IDictionary<string, object?>> FreshAsync(TableDef table, IDictionary<string, object?> row)
+    {
+        if (_recalculation is null || !await _recalculation.RecalculateNowAsync(table))
+            return row;
+        var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null || !row.TryGetValue(key.Name, out var id) || id is null)
+            return row;
+        return await _crudService.GetByIdAsync(table, System.Convert.ToString(id, System.Globalization.CultureInfo.InvariantCulture)!);
     }
 
     /// <summary>

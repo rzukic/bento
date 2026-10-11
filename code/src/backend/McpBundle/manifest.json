@@ -1,0 +1,43 @@
+{
+  "manifest_version": "0.3",
+  "name": "bento",
+  "display_name": "Bento",
+  "version": "{{VERSION}}",
+  "description": "Your Bento tables, analyses and dashboards in Claude; add transactions by asking.",
+  "long_description": "Connects Claude Desktop to your Bento. On first use your browser opens Bento's sign-in: sign in and tick what Claude may do — read everything, add and change or delete rows, dashboards, forms, the schema, functions. The sign-in is kept on this computer and renewed by itself; disconnect it any time in Bento under Connections → Claude, where every call is listed.",
+  "author": {
+    "name": "Bento"
+  },
+  "homepage": "{{BASE_URL}}/connections?tab=claude",
+  "documentation": "{{BASE_URL}}/connections?tab=claude",
+  "icon": "icon.png",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {
+        "BENTO_MCP_URL": "${user_config.url}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "url": {
+      "type": "string",
+      "title": "MCP address",
+      "description": "Your Bento's MCP endpoint.",
+      "default": "{{MCP_URL}}",
+      "required": true
+    }
+  },
+  "compatibility": {
+    "platforms": ["darwin", "win32", "linux"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  },
+  "keywords": ["bento", "finance", "data", "dashboards", "mcp"],
+  "license": "Proprietary"
+}

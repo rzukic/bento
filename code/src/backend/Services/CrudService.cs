@@ -1,6 +1,7 @@
 using System.Data;
 using System.Globalization;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using Dapper;
 using Bento.Api.Db;
@@ -521,7 +522,8 @@ public sealed class CrudService
         QueryScope scope,
         string tableName,
         ColumnDef primaryKey,
-        Dictionary<string, object?> data)
+        Dictionary<string, object?> data,
+        IDbTransaction? transaction = null)
     {
         if (primaryKey.Type == ColumnType.Uuid)
         {
@@ -538,12 +540,12 @@ public sealed class CrudService
             if (_dbConfig.Provider == DatabaseProvider.Postgres)
             {
                 var sql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES RETURNING \"{primaryKey.Name}\";";
-                return await scope.Db.Connection.ExecuteScalarAsync<long>(sql);
+                return await scope.Db.Connection.ExecuteScalarAsync<long>(sql, transaction: transaction);
             }
 
             var defaultValuesSql = $"INSERT INTO \"{tableName}\" DEFAULT VALUES;";
-            await scope.Db.Connection.ExecuteAsync(defaultValuesSql);
-            return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
+            await scope.Db.Connection.ExecuteAsync(defaultValuesSql, transaction: transaction);
+            return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();", transaction: transaction);
         }
 
         var parameters = new DynamicParameters();
@@ -558,16 +560,16 @@ public sealed class CrudService
         if (_dbConfig.Provider == DatabaseProvider.Postgres)
         {
             var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams}) RETURNING \"{primaryKey.Name}\";";
-            var id = await scope.Db.Connection.ExecuteScalarAsync(sql, parameters);
+            var id = await scope.Db.Connection.ExecuteScalarAsync(sql, parameters, transaction);
             return NormalizeReturnedId(id);
         }
 
         var insertSql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
-        await scope.Db.Connection.ExecuteAsync(insertSql, parameters);
+        await scope.Db.Connection.ExecuteAsync(insertSql, parameters, transaction);
         if (primaryKey.Type == ColumnType.Uuid)
             return data[primaryKey.Name]!;
 
-        return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();");
+        return await scope.Db.Connection.ExecuteScalarAsync<long>("SELECT last_insert_rowid();", transaction: transaction);
     }
 
     private async Task InsertAsync(
@@ -594,6 +596,165 @@ public sealed class CrudService
         var quotedParams = string.Join(", ", columns.Select((_, i) => $"@p{i}"));
         var sql = $"INSERT INTO \"{tableName}\" ({quotedColumns}) VALUES ({quotedParams});";
         await scope.Db.Connection.ExecuteAsync(sql, parameters, transaction);
+    }
+
+    public const int MaxBulkRows = 1000;
+
+    public sealed record BulkRowResult(int Index, object? Id, string Action);
+
+    /// <summary>
+    /// Writes many rows in one transaction: every row or none. With
+    /// <paramref name="upsertOn"/> (e.g. <c>["external_id"]</c>) a row whose key
+    /// columns match an existing row updates it (only the given columns, like
+    /// PATCH); the others are inserted. Each row is validated like a single
+    /// write first; an error names the row (<c>rows[3]</c>).
+    /// </summary>
+    public async Task<IReadOnlyList<BulkRowResult>> BulkAsync(TableDef table, IReadOnlyList<JsonElement> rows, IReadOnlyList<string> upsertOn)
+    {
+        if (rows.Count == 0)
+            throw new ApiValidationException("Send at least one row.", new Dictionary<string, object?> { ["field"] = "rows" });
+        if (rows.Count > MaxBulkRows)
+            throw new ApiValidationException($"At most {MaxBulkRows} rows per call; send the rest in another call.", new Dictionary<string, object?> { ["field"] = "rows" });
+
+        var columns = GetWritableColumns(table);
+        var keys = upsertOn.Select(name => columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
+                ?? throw new ApiValidationException($"'{name}' is not a stored column of {table.Name}.", new Dictionary<string, object?> { ["field"] = "upsertOn" }))
+            .ToList();
+        var primaryKeyColumns = GetPrimaryKeyColumns(table);
+        var singleKey = primaryKeyColumns.Count == 1 ? primaryKeyColumns[0] : null;
+
+        // Rows with the same key in one call become one row (later values win), then
+        // every row is validated against the table as it is now, before writing anything.
+        var plans = new List<(List<int> Indexes, JsonObject Body)>();
+        var byKey = new Dictionary<string, int>(StringComparer.Ordinal);
+        for (var i = 0; i < rows.Count; i++)
+        {
+            try
+            {
+                if (rows[i].ValueKind != JsonValueKind.Object)
+                    throw new ApiValidationException("Each row is an object of column values.");
+                var body = JsonNode.Parse(rows[i].GetRawText())!.AsObject();
+                if (keys.Count == 0)
+                {
+                    plans.Add(([i], body));
+                    continue;
+                }
+                var data = ExtractColumnValues(rows[i], columns);
+                foreach (var key in keys)
+                {
+                    if (!data.TryGetValue(key.Name, out var value) || value is null)
+                        throw new ApiValidationException($"'{key.Name}' is needed to find the row (upsertOn).", new Dictionary<string, object?> { ["field"] = key.Name });
+                }
+                var keyText = JsonSerializer.Serialize(keys.Select(k => Convert.ToString(data[k.Name], CultureInfo.InvariantCulture)));
+                if (byKey.TryGetValue(keyText, out var earlier))
+                {
+                    foreach (var (name, value) in body.ToList())
+                    {
+                        body.Remove(name);
+                        plans[earlier].Body[name] = value;
+                    }
+                    plans[earlier].Indexes.Add(i);
+                }
+                else
+                {
+                    byKey[keyText] = plans.Count;
+                    plans.Add(([i], body));
+                }
+            }
+            catch (ApiException e)
+            {
+                throw RowError(i, e);
+            }
+        }
+
+        var prepared = new List<(List<int> Indexes, Dictionary<string, object?> Data)>();
+        foreach (var (indexes, body) in plans)
+        {
+            var element = JsonSerializer.Deserialize<JsonElement>(body.ToJsonString());
+            try
+            {
+                var data = ExtractColumnValues(element, columns);
+                var existing = keys.Count > 0 ? await FindByAsync(table, keys, data, null, null) : null;
+                if (existing is null)
+                    await _validator.ValidateCreateAsync(table, element);
+                else
+                    await _validator.ValidatePatchAsync(table, existing, element);
+                prepared.Add((indexes, data));
+            }
+            catch (ApiException e)
+            {
+                throw RowError(indexes[^1], e);
+            }
+        }
+
+        var results = new List<BulkRowResult>();
+        await using var scope = await _queryService.UseDataAsync();
+        var connection = scope.Db.Connection;
+        if (connection.State != ConnectionState.Open)
+            connection.Open();
+        using var transaction = connection.BeginTransaction();
+        foreach (var (indexes, data) in prepared)
+        {
+            var existing = keys.Count > 0 ? await FindByAsync(table, keys, data, scope, transaction) : null;
+            object? id;
+            string action;
+            if (existing is not null && singleKey is not null)
+            {
+                var changes = data.Where(pair => !keys.Any(k => string.Equals(k.Name, pair.Key, StringComparison.OrdinalIgnoreCase)))
+                    .ToDictionary(pair => pair.Key, pair => pair.Value);
+                if (changes.Count > 0)
+                    await scope.Db.Query(table.Name).Where(singleKey.Name, existing).UpdateAsync(changes, transaction);
+                (id, action) = (existing, "updated");
+            }
+            else if (existing is not null)
+            {
+                // A composite key (a link row) that exists already: nothing else to write.
+                (id, action) = (null, "unchanged");
+            }
+            else if (singleKey is not null)
+            {
+                (id, action) = (await InsertAndGetIdAsync(scope, table.Name, singleKey, data, transaction), "inserted");
+            }
+            else
+            {
+                await InsertAsync(scope, table.Name, data, transaction);
+                (id, action) = (null, "inserted");
+            }
+            // A key repeated in the call: the first row is added, the later ones change it.
+            results.AddRange(indexes.Select((index, n) => new BulkRowResult(index, id, n == 0 ? action : "updated")));
+        }
+        transaction.Commit();
+        return results.OrderBy(r => r.Index).ToList();
+    }
+
+    private static ApiValidationException RowError(int index, ApiException e)
+    {
+        var details = new Dictionary<string, object?>(StringComparer.Ordinal) { ["row"] = index };
+        foreach (var (name, value) in e.Details ?? new Dictionary<string, object?>())
+            details[name] = name == "field" ? $"rows[{index}].{value}" : value;
+        details.TryAdd("field", $"rows[{index}]");
+        return new ApiValidationException($"Row {index + 1}: {e.Message}", details);
+    }
+
+    /// <summary>The key of the row whose <paramref name="keys"/> columns hold these values, or null.</summary>
+    private async Task<object?> FindByAsync(
+        TableDef table,
+        IReadOnlyList<ColumnDef> keys,
+        IReadOnlyDictionary<string, object?> data,
+        QueryScope? scope,
+        IDbTransaction? transaction)
+    {
+        var primaryKey = GetPrimaryKeyColumns(table).Count == 1 ? GetPrimaryKeyColumn(table) : null;
+        var conditions = string.Join(" AND ", keys.Select((k, i) => $"\"{k.Name}\" = @k{i}"));
+        var parameters = new DynamicParameters();
+        for (var i = 0; i < keys.Count; i++)
+            parameters.Add($"k{i}", data[keys[i].Name]);
+        var select = primaryKey is null ? "1" : $"\"{primaryKey.Name}\"";
+        var sql = $"SELECT {select} FROM \"{table.Name}\" WHERE {conditions} LIMIT 1";
+        if (scope is not null)
+            return await scope.Db.Connection.ExecuteScalarAsync(sql, parameters, transaction);
+        await using var own = await _queryService.UseDataAsync();
+        return await own.Db.Connection.ExecuteScalarAsync(sql, parameters);
     }
 
     /// <summary>

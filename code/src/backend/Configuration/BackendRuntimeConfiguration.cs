@@ -24,6 +24,7 @@ public static class BackendRuntimeConfiguration
         SetIfPresent("AUTH_RATE_LIMIT_PER_MINUTE", "Backend:AuthRateLimitPerMinute");
         SetIfPresent("AUTH_SESSION_RATE_LIMIT_PER_MINUTE", "Backend:AuthSessionRateLimitPerMinute");
         SetIfPresent("MAX_BODY_SIZE", "Backend:MaxBodySize");
+        SetIfPresent("PUBLIC_URL", "Backend:PublicUrl");
         SetIfPresent("DATABASE_URL", "Backend:DatabaseUrl");
         SetIfPresent("DATABASE_PROVIDER", "Database:Provider");
         SetIfPresent("DATABASE_SYSTEM_CONNECTION", "Database:SystemConnection");

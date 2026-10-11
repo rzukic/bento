@@ -10,6 +10,10 @@ export const DATE_RANGE_PRESETS: { value: DateRangePreset; label: string }[] = [
   { value: "last-year", label: "Last year" },
   { value: "last-3-years", label: "Last 3 years" },
   { value: "last-5-years", label: "Last 5 years" },
+  { value: "next-12-months", label: "Next 12 months" },
+  { value: "next-5-years", label: "Next 5 years" },
+  { value: "next-10-years", label: "Next 10 years" },
+  { value: "next-20-years", label: "Next 20 years" },
   { value: "all", label: "All time" },
 ];
 
@@ -18,7 +22,17 @@ export const DATE_RANGE_PRESETS: { value: DateRangePreset; label: string }[] = [
  * null = open. It also carries the dashboard's chosen filters, so every
  * query that takes the range takes them too.
  */
-export type ResolvedRange = { from: string | null; to: string | null; filters?: AppliedFilter[] };
+export type ResolvedRange = {
+  from: string | null;
+  to: string | null;
+  filters?: AppliedFilter[];
+  /**
+   * The range reaches past today on purpose (a "next …" preset, or a chosen
+   * end in the future): charts and values at period ends go up to its end.
+   * Otherwise they stop at today — "This year" in October draws no November.
+   */
+  future?: boolean;
+};
 
 /** A dashboard filter with values chosen: it narrows queries on the listed tables. */
 export type AppliedFilter = { column: string; values: (string | number | boolean)[]; tables: string[] };
@@ -32,13 +46,14 @@ function iso(year: number, month: number, day = 1): string {
 /** Whole months and years, so a chart's first and last bucket are complete. */
 export function resolveRange(range: DashboardDateRange | undefined, today = new Date()): ResolvedRange {
   if (!range) return { from: null, to: null };
+  const year = today.getFullYear();
+  const month = today.getMonth() + 1;
   if ("from" in range) {
     // A custom "to" is the last day shown; the filter needs the day after.
     const [y, m, d] = range.to.split("-").map(Number);
-    return { from: range.from || null, to: range.to ? iso(y, m, d + 1) : null };
+    const future = !!range.to && range.to > iso(year, month, today.getDate());
+    return { from: range.from || null, to: range.to ? iso(y, m, d + 1) : null, ...(future ? { future } : {}) };
   }
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
   switch (range.preset) {
     case "last-7-days":
       // Today and the six days before it.
@@ -60,6 +75,15 @@ export function resolveRange(range: DashboardDateRange | undefined, today = new 
       return { from: iso(year, month - 35), to: iso(year, month + 1) };
     case "last-5-years":
       return { from: iso(year, month - 59), to: iso(year, month + 1) };
+    // Forecasts: from the current month on, whole months.
+    case "next-12-months":
+      return { from: iso(year, month), to: iso(year, month + 12), future: true };
+    case "next-5-years":
+      return { from: iso(year, month), to: iso(year, month + 60), future: true };
+    case "next-10-years":
+      return { from: iso(year, month), to: iso(year, month + 120), future: true };
+    case "next-20-years":
+      return { from: iso(year, month), to: iso(year, month + 240), future: true };
     default:
       return { from: null, to: null };
   }

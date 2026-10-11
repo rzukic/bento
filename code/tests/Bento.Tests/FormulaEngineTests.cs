@@ -85,6 +85,31 @@ public sealed class FormulaEngineTests
             new RelationDef { Name = "account_transactions", Type = RelationType.OneToMany, From = "accounts", To = "transactions", Column = "account_id" }
         ]);
 
+    private static readonly TableDef Assets = new()
+    {
+        Name = "assets",
+        Columns =
+        [
+            new ColumnDef { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new ColumnDef { Name = "volatility", Type = ColumnType.Float }
+        ]
+    };
+
+    private static readonly TableDef Trades = new()
+    {
+        Name = "trades",
+        Columns =
+        [
+            new ColumnDef { Name = "id", Type = ColumnType.Integer, PrimaryKey = true },
+            new ColumnDef { Name = "account_id", Type = ColumnType.Integer },
+            new ColumnDef { Name = "isin", Type = ColumnType.Text },
+            new ColumnDef { Name = "date", Type = ColumnType.Date },
+            new ColumnDef { Name = "shares", Type = ColumnType.Float },
+            new ColumnDef { Name = "price", Type = ColumnType.Currency },
+            new ColumnDef { Name = "fees", Type = ColumnType.Currency }
+        ]
+    };
+
     private static FormulaCheck Check(string formula, DatabaseProvider provider = DatabaseProvider.Sqlite, FormulaType? expected = null, TableDef? table = null, string? column = null) =>
         FormulaCompiler.Compile(formula, table ?? Transactions, Schema, provider, expected: expected, column: column);
 
@@ -224,7 +249,6 @@ public sealed class FormulaEngineTests
     [InlineData("= SUM(transactions.amount, transactions.note)", "The condition of SUM needs a condition (yes/no), not text — compare it, e.g. amount < 0.")]
     [InlineData("= SUM(SUM(transactions.amount))", "SUM cannot be used inside another aggregate.")]
     [InlineData("= SUMIF(transactions.amount)", "SUMIF takes 2 arguments: SUMIF(link.column, condition).")]
-    [InlineData("= MAX(transactions.note)", "MAX needs numbers or dates, not text.")]
     [InlineData("= a", "Circular reference: accounts.a → accounts.b → accounts.a.")]
     [InlineData("= selfish", "Circular reference: accounts.selfish → accounts.selfish.")]
     [InlineData("= broken + 1", "'broken' has an error: Column 'nothing' not found in accounts.")]
@@ -315,6 +339,57 @@ public sealed class FormulaEngineTests
         }
     }
 
+    [Theory]
+    // Beta feedback: a parenthesis right after WHERE, AND or OR was read as a function call.
+    [InlineData("SUM(amount WHERE (amount > 0 OR quantity > 1) AND note <> \"x\")")]
+    [InlineData("SUM(amount WHERE note <> \"x\" AND (amount > 0 OR quantity > 1))")]
+    [InlineData("COUNT(WHERE (amount > 0 OR quantity > 1))")]
+    [InlineData("SUM(amount WHERE booked_on >= DATEADD(TODAY(), -1, \"year\") AND amount > 0)")]
+    // AND(…) and OR(…) before an operand stay functions.
+    [InlineData("SUM(amount WHERE AND(amount > 0, quantity > 1))")]
+    [InlineData("COUNT(WHERE counterparty IN (\"Billa\", \"spar\"))")]
+    [InlineData("SUM(amount WHERE counterparty NOT IN (\"Billa\") AND (quantity IN (1, 2) OR amount < 0))")]
+    public void Where_TakesParenthesesAndIn(string formula)
+    {
+        var (check, _) = Measure(formula);
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+    }
+
+    [Fact]
+    public void In_IsEqualsForEachValue()
+    {
+        // Text ignores case, as with =.
+        var check = Check("IF(counterparty IN (\"Billa\", \"SPAR\"), 1, 0)");
+        Assert.True(check.IsValid, string.Join("; ", check.Errors.Select(e => e.Message)));
+        Assert.Contains("bento_lower(t.\"counterparty\") = 'billa'", check.Result!.Sql);
+        Assert.Contains("bento_lower(t.\"counterparty\") = 'spar'", check.Result.Sql);
+        Assert.Contains("NOT", Check("IF(quantity NOT IN (1, 2), 1, 0)").Result!.Sql);
+
+        Assert.Equal("IN takes a list in parentheses: category IN (\"Rent\", \"Food\").", SingleError("IF(note IN \"a\", 1, 0)").Message);
+        Assert.Equal("IN needs at least one value.", SingleError("IF(note IN (), 1, 0)").Message);
+        Assert.Equal("Cannot compare text with a whole number.", SingleError("IF(note IN (1), 1, 0)").Message);
+    }
+
+    [Fact]
+    public void Formulas_NameTheSearchesTheyMake_ForIndexes()
+    {
+        // The match compares lower-cased text, so the index must use lower(ticker) as well.
+        var check = Check("LOOKUP_ASOF(\"Prices\", \"TICKER\", note, \"date\", booked_on, \"price\") * 2", DatabaseProvider.Postgres);
+        Assert.Equal([new IndexTarget("prices", "ticker", true, "date")], check.Result!.Indexes);
+        Assert.Contains("lower(__a1.\"ticker\") = lower(t.\"note\")", check.Result.Sql);
+        Assert.Equal("bento_lookup_prices_ticker_date", Bento.Api.Services.QueryIndexes.IndexName(check.Result.Indexes[0]));
+
+        Assert.Empty(Check("amount * 2", DatabaseProvider.Postgres).Result!.Indexes);
+
+        // The related rows of each account: by the link column.
+        var related = Check("opening_balance + SUM(transactions.amount)", table: Accounts);
+        Assert.Equal([new IndexTarget("transactions", "account_id")], related.Result!.Indexes);
+        Assert.Equal("bento_ref_transactions_account_id", Bento.Api.Services.QueryIndexes.IndexName(related.Result.Indexes[0]));
+        var name = Bento.Api.Services.QueryIndexes.IndexName(new IndexTarget(new string('p', 40), new string('m', 30), true, "date"));
+        Assert.Equal(63, name.Length);
+        Assert.StartsWith("bento_lookup_pppp", name);
+    }
+
     [Fact]
     public void AColumnUsingItself_IsACycle()
     {
@@ -364,9 +439,20 @@ public sealed class FormulaEngineTests
         foreach (var function in FormulaFunctions.Catalog)
         {
             // Aggregates run over an account's transactions; measure functions in a query by period end.
-            var check = function.Category == FormulaFunctions.Measures
-                ? FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check
-                : Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null);
+            var check = function.Category switch
+            {
+                FormulaFunctions.Measures or FormulaFunctions.Returns => FormulaCompiler.CompileMeasure(function.Example, Transactions, Schema, provider, context: new FormulaContext { BucketAlias = "b" }).Check,
+                // CUSTOM calls a function the user wrote (Step 4.1); CUSTOM_ROWS one over a group of trades (Step 4.3b).
+                "Custom" => FormulaCompiler.Compile(function.Example, function.Example.StartsWith("CUSTOM_ROWS", StringComparison.Ordinal) ? Trades : Assets,
+                    new FormulaSchema([Assets, Trades]), provider, column: "x", context: new FormulaContext
+                {
+                    Functions = new StaticFunctionCatalog([
+                        new CustomFunctionDef("risk_class", null, [new CustomFunctionArgument("volatility", "float")], "text", "return \"low\";", 1),
+                        new CustomFunctionDef("avg_cost", null,
+                            [new("shares", "float"), new("price", "float"), new("fees", "float"), new("what", "text")], "float", "return shares;", 1) { Mode = "rows" }])
+                }),
+                _ => Check(function.Example, provider, table: function.Category == FormulaFunctions.RelatedRows ? Accounts : null)
+            };
             Assert.True(check.IsValid, $"{function.Name}: {function.Example} → {string.Join("; ", check.Errors.Select(e => e.Message))}");
             Assert.Contains(function.Name, function.Example, StringComparison.Ordinal);
         }

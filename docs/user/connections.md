@@ -1,6 +1,6 @@
 # Connections
 
-**Connections** in the sidebar is where Bento meets scripts, spreadsheets and other tools: the API of your installation, explained and testable, and the API keys those tools use.
+**Connections** in the sidebar is where Bento meets scripts, spreadsheets and other tools: the API of your installation, explained and testable, the API keys those tools use, and **AI apps** — Claude, ChatGPT and Codex — over MCP.
 
 ## The API Page
 
@@ -21,7 +21,7 @@ Filters on list endpoints take `column=value&column[op]=value`, e.g. `betrag_eur
 
 Admins create keys under **API keys**:
 
-1. Give the key a name (what uses it), choose **Read** or **Read and write**, and optionally an expiry
+1. Give the key a name (what uses it), choose **Read**, **Read and write** or **Choose…**, and optionally an expiry
 2. **Create key** shows the key **once** — copy it now; Bento keeps only a fingerprint and cannot show it again
 3. Use it in the `X-API-Key` header (or `Authorization: Bearer bento_…`):
 
@@ -33,9 +33,88 @@ Admins create keys under **API keys**:
 |--------|--------|
 | Read | Reading records, the schema and dashboards; running queries |
 | Read and write | Also creating, changing and deleting records, importing files, saving queries and dashboards |
+| Choose… | What you tick, like for a connected app: also **Tables and columns** (the schema) and **Functions and price sources**, e.g. for a script that adds a column or runs a price source |
 
-No key can change the schema, manage users or manage keys — that needs a sign-in. A key acts as the admin who created it and never does more than that user may.
+No key can manage users, keys or credentials — that needs a sign-in. A key acts as the admin who created it and never does more than that user may.
 
 The list shows when each key was created and last used, when it expires, and its status. **Revoke** stops a key immediately; it stays in the list as revoked. To replace a key, create a new one and revoke the old one.
 
 Keys need sign-in to be switched on (`AUTH_MODE=standard`, the default).
+
+## AI Apps: Claude, ChatGPT, Codex (MCP)
+
+Bento is an **MCP server**: connect it once and Claude can answer questions about your data ("how much did I spend on groceries last quarter compared to a year earlier?"), add a transaction ("add 12,40 € at the bakery today") and — if you allow it — build dashboards and forms, change the schema or write functions. The same works with **ChatGPT** and **Codex**. The AI runs on your own subscription, so Bento pays nothing for it. **Connections → AI apps** shows the address, the steps for each client, the apps connected with your account, and every call they made.
+
+The address is your Bento's address plus `/mcp`, e.g. `https://bento.example.com/mcp`.
+
+### Connect with your Bento account
+
+- **Claude app, web and phone**: Settings → Connectors → *Add custom connector*, name it *Bento*, paste the address, **Connect**. Bento's sign-in opens; sign in and tick what Claude may do. Claude on the web reaches Bento from the internet, so Bento needs a public address (e.g. on Coolify).
+- **Claude Code**: `claude mcp add --transport http bento https://bento.example.com/mcp`, then run `/mcp` in Claude Code and choose *Authenticate*; the browser opens Bento's sign-in.
+- **ChatGPT**:
+  1. Go to Settings → Apps & Connectors → Advanced settings and turn on **Developer mode**. This is on the web and needs a paid plan; menu names may differ slightly.
+  2. In Apps & Connectors choose **Create**: name it *Bento*, paste the address, and set authentication to *OAuth*.
+  3. Sign in to Bento and tick the access.
+  4. In a chat, turn Bento on under the **+** menu.
+- **Codex** (the app, the CLI and the IDE extension share the setting): `codex mcp add bento --url https://bento.example.com/mcp`. Codex opens Bento's sign-in right away; `codex mcp login bento` signs in again later.
+
+On the sign-in page you tick what the app may do, area by area (**All** and **Read only** set them in one click). What the app asks for is ticked in advance, except **Delete rows** and **Tables and columns**: some apps ask for everything, so you tick those two yourself.
+
+| Permission | Allows | Needs |
+|------------|--------|-------|
+| Read everything | Tables and rows, the schema, dashboards, forms, saved queries and functions; analyses | always on |
+| Add and change rows | New and changed records, CSV imports | editor |
+| Delete rows | Removing records | editor |
+| Dashboards and saved queries | Creating, changing and deleting them | viewer |
+| Forms | Creating, changing and deleting entry forms | editor |
+| Tables and columns | Changing the schema — this can delete data | admin |
+| Functions and price sources | JavaScript functions, running price sources | admin |
+
+The app acts as you and never does more than your role allows; Bento checks every call it makes against what you ticked, so an app allowed to add rows cannot change the schema even when you are an admin. Users, API keys, credentials and connections are never reachable for apps. Each connected app appears under **Connected apps** with its permissions and when it was last used. Admins see every user's apps.
+
+Click an app to open it:
+
+- **What it may do**: the same checklist as when connecting. Tick or untick areas and choose **Save permissions**. The change applies to the app's next call; Claude shows newly allowed tools once it reconnects (for example after restarting Claude Desktop). What your role does not allow stays greyed out.
+- **Calls**: every call this app made, newest first, with how many failed. Click a call to see its full arguments and the error.
+- **Disconnect** ends its access at once.
+
+Claude also gets a **guide** (`bento_guide`): how Bento works and the exact formats of the schema, formulas, queries, dashboards, forms, the finance template and functions. It reads the matching part before building something, and asks before changing the schema or deleting.
+
+### Claude Desktop extension
+
+**Connections → AI apps → Download bento.mcpb** gives you a Claude Desktop extension with your Bento's address already filled in. Double-click it (or drag it into Claude Desktop) and install it. On first use your browser opens Bento's sign-in, just like for the connector: sign in and tick what Claude may do. The extension is a small bridge that runs inside Claude Desktop and forwards to `/mcp`; it keeps the sign-in in `~/.bento` (readable only by you) and renews it by itself. It appears under **Connected apps** as *Claude Desktop*; after a *Disconnect* the next use asks you to sign in again. The file is also at `/api/v1/mcp/bento.mcpb` and holds no secret.
+
+### Connect with an API key
+
+For other clients without sign-in, pass an [API key](#api-keys) as a header:
+
+```bash
+claude mcp add --transport http bento https://bento.example.com/mcp \
+  --header "Authorization: Bearer $BENTO_API_KEY"
+```
+
+A read key only reads; a read-write key may also add and change rows.
+
+### What Claude can do
+
+| Tool | Does | Permission |
+|------|------|------------|
+| `bento_guide` | How Bento works, topic by topic | read |
+| `describe_schema`, `get_model` | The tables at a glance; the full Model JSON | read |
+| `list_rows`, `get_row` | Rows with filters, search, sort and paging | read |
+| `aggregate`, `check_formula`, `list_formula_functions` | Analyses with the query API; checking formulas | read |
+| `list_saved_queries`, `run_saved_query`, `list_dashboards`, `get_dashboard`, `list_forms` | What exists | read |
+| `list_functions`, `get_function`, `list_price_sources` | Functions and price sources | read |
+| `call_api` | Any other API call, within the same permissions | read (and what the call needs) |
+| `create_row`, `update_row` | Add or change a row | add and change rows |
+| `delete_row` | Delete a row | delete rows |
+| `create_dashboard`, `update_dashboard`, `delete_dashboard`, `save_query`, `delete_saved_query` | Dashboards and saved queries | dashboards |
+| `create_form`, `update_form`, `delete_form` | Forms | forms |
+| `preview_schema_change`, `apply_schema_change` | Schema changes, previewed first | tables and columns |
+| `save_function`, `test_function`, `delete_function`, `run_price_source` | Functions and price sources | functions |
+
+A connection only sees the tools it may use. API keys work like a connection with read only (read keys), with rows, dashboards and forms (read-write keys), or with what was ticked for them (keys made with **Choose…**).
+
+**Recent calls** lists every tool call: when, which tool and arguments, through which app or key, the result and how long it took. Calls are kept 90 days.
+
+Behind a proxy that hides the scheme or host (for example Coolify, where HTTPS ends before Bento), set `PUBLIC_URL` so the address and the sign-in links point to the right place; the Coolify compose file does that already.

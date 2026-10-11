@@ -1,9 +1,10 @@
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dashboard, DashboardDocument } from "../api/dashboards";
 import type { AggregationQuery, QueryResult } from "../api/query";
+import { ApiClientError } from "../api/client";
 import { asOfPeriod, runnableQuery, variableRequests } from "../features/dashboards/formulaQueries";
 import { isRunningMeasure, toChartModel } from "../features/dashboards/widgetData";
 import { seedSetupInitializedForTest } from "../features/setup";
@@ -65,7 +66,8 @@ describe("formula queries", () => {
     expect(query.groupBy).toEqual([]);
     expect(query.asOf).toEqual({ bucket: "month", from: "2026-01-01", to: "2026-03-31", as: "month" });
     expect(query.filter).toBeUndefined();
-    expect(asOfPeriod({ from: null, to: null }, today)).toEqual({ from: "2025-10-01", to: "2026-10-04" });
+    // All time: the server begins where the data does.
+    expect(asOfPeriod({ from: null, to: null }, today)).toEqual({ to: "2026-10-04" });
     expect(asOfPeriod({ from: "2026-10-01", to: "2027-01-01" }, today)).toEqual({ from: "2026-10-01", to: "2026-10-04" });
   });
 
@@ -142,7 +144,7 @@ describe("dashboards with formulas", () => {
   const document: DashboardDocument = {
     dateRange: { preset: "last-3-months" },
     variables: [
-      { name: "runway", formula: "cash / burn_rate" },
+      { name: "runway", label: "months of cash", formula: "cash / burn_rate" },
       { name: "broken", formula: "nothing + 1" },
     ],
     widgets: [
@@ -158,6 +160,9 @@ describe("dashboards with formulas", () => {
 
     const runway = await screen.findByRole("article", { name: "Runway" });
     await waitFor(() => expect(runway.textContent).toMatch(/5[.,]3/));
+    // Under the value: the variable's label, not its formula name (beta feedback).
+    expect(within(runway).getByText("months of cash")).toBeInTheDocument();
+    expect(within(runway).queryByText("runway")).toBeNull();
     expect(within(await screen.findByRole("article", { name: "Broken" })).getByRole("alert").textContent).toContain("Column 'nothing' not found");
 
     const rate = await screen.findByRole("article", { name: "Savings rate" });
@@ -169,6 +174,47 @@ describe("dashboards with formulas", () => {
       { name: "runway", formula: "cash / burn_rate" },
       { name: "broken", formula: "nothing + 1" },
     ]);
+  });
+
+  it("waits for the variables before a widget formula that names one runs", async () => {
+    // Like "Depotwert": a key figure whose formula is a dashboard variable, on another table.
+    const withVariable: DashboardDocument = {
+      variables: [{ name: "depot", formula: "SUM(value_now)", source: "securities" }, { name: "broken", formula: "nothing + 1" }],
+      widgets: [
+        { id: "d", type: "kpi", title: "Depot", position: { x: 0, y: 0, w: 3, h: 2 }, data: { query: { source: "transactions", measures: [{ name: "v", formula: "depot" }] } } },
+        { id: "e", type: "kpi", title: "Uses broken", position: { x: 3, y: 0, w: 3, h: 2 }, data: { query: { source: "transactions", measures: [{ name: "v", formula: "broken" }] } } },
+        { id: "f", type: "kpi", title: "Count", position: { x: 6, y: 0, w: 3, h: 2 }, data: { query: { source: "transactions", measures: [{ name: "n", fn: "count" }] } } },
+      ],
+    };
+    let answer: (results: unknown[]) => void = () => undefined;
+    queryApi.evaluateVariables.mockImplementation(() => new Promise((resolve) => (answer = resolve)));
+    queryApi.runQuery.mockImplementation(async (query: AggregationQuery) => {
+      const measure = query.measures?.[0];
+      if (measure?.formula && !(query.variables && measure.formula in query.variables))
+        throw new ApiClientError(`Column '${measure.formula}' not found in Transactions.`, 400);
+      return { data: [{ [measure?.name ?? "v"]: 1234 }], meta: { truncated: false, columns: [{ name: measure?.name ?? "v", type: "currency", role: "measure" }] } } satisfies QueryResult;
+    });
+    dashboardsApi.getDashboard.mockResolvedValue(dashboard(withVariable));
+    render(<RouterProvider router={createTestRouter(["/dashboards/7"])} />);
+
+    // A widget without formulas loads at once; the formula widgets wait and show no error.
+    const count = await screen.findByRole("article", { name: "Count" });
+    await waitFor(() => expect(count.textContent).toMatch(/1[.,]234/));
+    expect(queryApi.runQuery.mock.calls.some(([q]) => (q as AggregationQuery).measures?.[0]?.formula === "depot")).toBe(false);
+    expect(within(screen.getByRole("article", { name: "Depot" })).queryByRole("alert")).toBeNull();
+
+    await act(async () =>
+      answer([
+        { name: "depot", type: "currency", value: 1234, error: null },
+        { name: "broken", type: null, value: null, error: "Column 'nothing' not found in the dashboard variables." },
+      ]),
+    );
+    const depot = screen.getByRole("article", { name: "Depot" });
+    await waitFor(() => expect(depot.textContent).toMatch(/1[.,]234/));
+    expect(within(depot).queryByRole("alert")).toBeNull();
+    // A variable that failed: its own error, not "Column 'broken' not found".
+    const broken = screen.getByRole("article", { name: "Uses broken" });
+    await waitFor(() => expect(within(broken).getByRole("alert").textContent).toContain("The variable broken could not be computed: Column 'nothing' not found"));
   });
 
   it("edits a value as a formula and by period end", async () => {

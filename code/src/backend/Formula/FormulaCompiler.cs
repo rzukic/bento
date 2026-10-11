@@ -5,7 +5,68 @@ using Bento.Api.Db.Schema;
 namespace Bento.Api.Formula;
 
 /// <summary>A formula translated into a SQL expression over one row of its table.</summary>
-public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns);
+/// <param name="Custom">
+/// Set when the formula is a <c>CUSTOM(…)</c> call (Step 4.1): its arguments
+/// as SQL, for the caller to run the function on. In a computed column the
+/// SQL reads the stored value; elsewhere it is <c>NULL</c>.
+/// </param>
+/// <param name="Series">
+/// Set when the formula is a return over a series (Step 4.3: XIRR, IRR, TWR,
+/// REBASE): its parts as SQL, for the query to compute after the database.
+/// </param>
+public sealed record CompiledFormula(string Sql, FormulaType Type, IReadOnlyList<string> Columns, CustomCall? Custom = null, SeriesCall? Series = null)
+{
+    /// <summary>The searches the SQL makes per row — related rows, LOOKUP_ASOF — so indexes can serve them (see <see cref="Services.QueryIndexes"/>).</summary>
+    public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
+    /// <summary>
+    /// Date columns compared with BUCKET_START()/BUCKET_END() (<c>trades.date &lt;= BUCKET_END()</c>):
+    /// where a series of values at period ends begins, for "all time".
+    /// </summary>
+    public IReadOnlyList<DateColumn> PeriodDates { get; init; } = [];
+}
+
+/// <summary>A date column of a table, by name.</summary>
+public sealed record DateColumn(string Table, string Column);
+
+/// <summary>
+/// A search the compiled SQL makes per row, which an index on
+/// <paramref name="Table"/> serves (see <see cref="Services.QueryIndexes"/>):
+/// the related rows of a link (<c>trades.security_id = securities.id</c>), or a
+/// LOOKUP_ASOF (<c>lower(isin) = …</c>, latest <paramref name="Then"/> first).
+/// </summary>
+/// <param name="Lower">The column is compared lower-cased (text), so the index is on <c>lower(column)</c>.</param>
+public sealed record IndexTarget(string Table, string Column, bool Lower = false, string? Then = null);
+
+/// <summary>
+/// XIRR/IRR over cash flows, TWR over values and flows at period ends, REBASE
+/// of a measure to its first value (Step 4.3). The database gives the parts per
+/// result row; <see cref="Returns"/> computes the result.
+/// </summary>
+/// <param name="Kind">xirr, irr, twr or rebase.</param>
+/// <param name="Parts">
+/// XIRR/IRR: "flows" (serialized amount|date;… of many rows) or "amount"/"date"
+/// pairs (one flow each). TWR: "value" and "flow". REBASE: "value".
+/// </param>
+/// <param name="Base">TWR: the index to start at (none: the cumulative return); REBASE: the first value's new value.</param>
+public sealed record SeriesCall(string Kind, IReadOnlyList<SeriesPart> Parts, decimal? Base);
+
+public sealed record SeriesPart(string Kind, string Sql);
+
+/// <summary>A <c>CUSTOM("name", …)</c> call: the function and its arguments as SQL over the row (or the group).</summary>
+/// <param name="Partition">
+/// <c>CUSTOM_ROWS</c> (Step 4.3b): the values that put rows into one group, which
+/// the function gets at once in <see cref="Order"/> (then by key). Null for <c>CUSTOM</c>.
+/// </param>
+public sealed record CustomCall(
+    CustomFunctionDef Function,
+    IReadOnlyList<CustomArgument> Arguments,
+    IReadOnlyList<CustomArgument>? Partition = null,
+    IReadOnlyList<CustomArgument>? Order = null)
+{
+    public bool OverRows => Partition is not null;
+}
+
+public sealed record CustomArgument(string Sql, FormulaType Type);
 
 public sealed record FormulaCheck(CompiledFormula? Result, IReadOnlyList<FormulaError> Errors)
 {
@@ -30,10 +91,20 @@ public sealed record FormulaContext
 
     /// <summary>Dashboard variables by name, used where no column has that name.</summary>
     public IReadOnlyDictionary<string, FormulaValue>? Variables { get; init; }
+
+    /// <summary>The custom functions <c>CUSTOM("name", …)</c> may call (Step 4.1).</summary>
+    public ICustomFunctionCatalog? Functions { get; init; }
 }
 
 /// <summary>A compiled measure: <c>RUNNING_SUM(…)</c> around the whole formula makes it a running total.</summary>
-public sealed record MeasureCheck(FormulaCheck Check, bool Running);
+public sealed record MeasureCheck(FormulaCheck Check, bool Running)
+{
+    /// <summary>ROLLING_SUM / ROLLING_AVG(measure, periods): the measure over the last periods of the date group.</summary>
+    public RollingWindow? Rolling { get; init; }
+}
+
+/// <summary>A window over the last <paramref name="Periods"/> periods (this one included); an average or a sum.</summary>
+public sealed record RollingWindow(int Periods, bool Average);
 
 /// <summary>
 /// Type-checks a parsed formula against a table and compiles it into a SQL
@@ -60,6 +131,10 @@ public sealed class FormulaCompiler
     private sealed record Expr(string Sql, FormulaType Type, FormulaNode Node, object? Constant = null, bool IsRows = false)
     {
         public bool IsConstant => Node is NumberLiteral or StringLiteral or BooleanLiteral or NullLiteral;
+        /// <summary>The stored column this is, if it is one.</summary>
+        public DateColumn? Column { get; init; }
+        /// <summary>BUCKET_START() or BUCKET_END().</summary>
+        public bool IsBucket { get; init; }
     }
 
     /// <summary>The table a column name is looked up in, and the SQL alias of its row.</summary>
@@ -73,6 +148,10 @@ public sealed class FormulaCompiler
         public FormulaContext Context { get; } = context;
         /// <summary>"table.column" of the computed columns being compiled, for cycle errors.</summary>
         public List<string> Chain { get; } = [];
+        /// <summary>Searches per row (related rows, LOOKUP_ASOF), the computed columns' included.</summary>
+        public List<IndexTarget> Indexes { get; } = [];
+        /// <summary>Date columns compared with the period (see <see cref="CompiledFormula.PeriodDates"/>).</summary>
+        public List<DateColumn> PeriodDates { get; } = [];
         private int _aliases;
         public string NextAlias(string prefix) => $"__{prefix}{++_aliases}";
     }
@@ -93,6 +172,8 @@ public sealed class FormulaCompiler
     private bool _inGroup;
     /// <summary>The fraction PERCENTILE asked for while its call binds (MEDIAN: 0.5).</summary>
     private double _percentile = 0.5;
+    /// <summary>LAST/FIRST: the order column, bound by the aggregate in the rows' scope.</summary>
+    private FormulaNode? _orderBy;
     private readonly List<FormulaError> _errors = [];
     private readonly List<string> _columns = [];
 
@@ -121,8 +202,13 @@ public sealed class FormulaCompiler
         var shared = new Shared(schema, provider == DatabaseProvider.Postgres, context ?? new FormulaContext());
         if (column is not null)
             shared.Chain.Add($"{table.Name}.{column}");
-        return new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected);
+        return WithLookups(new FormulaCompiler(shared, new Scope(table, alias)).Run(formula, expected, column), shared);
     }
+
+    private static FormulaCheck WithLookups(FormulaCheck check, Shared shared) =>
+        check.Result is { } result && (shared.Indexes.Count > 0 || shared.PeriodDates.Count > 0)
+            ? check with { Result = result with { Indexes = shared.Indexes.Distinct().ToList(), PeriodDates = shared.PeriodDates.Distinct().ToList() } }
+            : check;
 
     /// <summary>
     /// A measure over the rows of a group (a widget's value per month, per
@@ -149,15 +235,35 @@ public sealed class FormulaCompiler
             return new MeasureCheck(new FormulaCheck(null, [e.Error]), false);
         }
 
+        // ROLLING_SUM(measure, 12) / ROLLING_AVG(measure, 3): the measure inside, the window around it.
+        if (root is FunctionCall rolling && rolling.Name.ToUpperInvariant() is "ROLLING_SUM" or "ROLLING_AVG")
+        {
+            var average = rolling.Name.Equals("ROLLING_AVG", StringComparison.OrdinalIgnoreCase);
+            var usage = $"Write {rolling.Name.ToUpperInvariant()}(measure, periods), e.g. {rolling.Name.ToUpperInvariant()}(SUM(amount), 12).";
+            if (rolling.Arguments.Count != 2 || rolling.HasWhere)
+                return new MeasureCheck(new FormulaCheck(null, [new FormulaError(usage, root.Start, root.End)]), false);
+            if (rolling.Arguments[1] is not NumberLiteral { Value: >= 2 and <= 366 } periods || periods.Value != Math.Floor(periods.Value))
+                return new MeasureCheck(new FormulaCheck(null, [new FormulaError("The periods are a whole number from 2 to 366, e.g. 12.", rolling.Arguments[1].Start, rolling.Arguments[1].End)]), false);
+            var inner = compiler.RunNode(rolling.Arguments[0], (formula ?? "").Length, null, null);
+            if (inner.Result is { } value && (value.Custom is not null || value.Series is not null || !FormulaTypes.IsNumeric(value.Type)))
+                inner = new FormulaCheck(null, [new FormulaError($"{rolling.Name.ToUpperInvariant()} needs a number such as SUM(amount), not a return, CUSTOM(…) or {FormulaTypes.Describe(value.Type)}.", root.Start, root.End)]);
+            return new MeasureCheck(WithLookups(inner, shared), false) { Rolling = new RollingWindow((int)periods.Value, average) };
+        }
+
         var running = root is FunctionCall { Arguments.Count: 1, HasWhere: false } call &&
                       string.Equals(call.Name, "RUNNING_SUM", StringComparison.OrdinalIgnoreCase);
-        var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null);
+        var check = compiler.RunNode(running ? ((FunctionCall)root).Arguments[0] : root, (formula ?? "").Length, null, null);
+        if (running && check.Result?.Custom is not null)
+            check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a CUSTOM(…) value yet; add up its inputs instead.", root.Start, root.End)]);
+        if (running && check.Result?.Series is not null)
+            check = new FormulaCheck(null, [new FormulaError("RUNNING_SUM cannot add up a return; TWR(…) already accumulates over the periods.", root.Start, root.End)]);
         if (running && check.Result is { } result && !FormulaTypes.IsNumeric(result.Type))
             check = new FormulaCheck(null, [new FormulaError($"RUNNING_SUM needs a number, not {FormulaTypes.Describe(result.Type)}.", root.Start, root.End)]);
-        return new MeasureCheck(check, running);
+        return new MeasureCheck(WithLookups(check, shared), running);
     }
 
-    private FormulaCheck Run(string? formula, FormulaType? expected)
+    /// <param name="stored">The computed column the formula belongs to: there, CUSTOM(…) reads the stored value.</param>
+    private FormulaCheck Run(string? formula, FormulaType? expected, string? stored = null)
     {
         FormulaNode root;
         try
@@ -168,11 +274,16 @@ public sealed class FormulaCompiler
         {
             return new FormulaCheck(null, [e.Error]);
         }
-        return RunNode(root, (formula ?? "").Length, expected);
+        return RunNode(root, (formula ?? "").Length, expected, stored);
     }
 
-    private FormulaCheck RunNode(FormulaNode root, int length, FormulaType? expected)
+    private FormulaCheck RunNode(FormulaNode root, int length, FormulaType? expected, string? stored)
     {
+        if (root is FunctionCall call && IsCustom(call.Name))
+            return RunCustom(call, length, expected, stored);
+        if (root is FunctionCall series && IsSeries(series.Name))
+            return RunSeries(series);
+
         var expr = Bind(root);
         if (expr is null || _errors.Count > 0)
             return new FormulaCheck(null, _errors);
@@ -199,6 +310,329 @@ public sealed class FormulaCompiler
         actual == FormulaType.Null ||
         (expected is FormulaType.Number or FormulaType.Currency && FormulaTypes.IsNumeric(actual)) ||
         (expected == FormulaType.DateTime && actual == FormulaType.Date);
+
+    // ── Custom functions (Step 4.1) ──────────────────────────────────────
+
+    private static bool IsCustom(string name) =>
+        string.Equals(name, "CUSTOM", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "CUSTOM_ROWS", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The name of the table that keeps computed columns' CUSTOM values (in the data database).</summary>
+    public const string StoredValuesTable = "_bento_function_values";
+
+    /// <summary>
+    /// <c>CUSTOM("name", arg, …)</c> as the whole formula. The function runs
+    /// in the sandbox, not in SQL: a computed column reads the value stored by
+    /// the background recalculation (Tier 3); measures and variables run the
+    /// function on each result row. The arguments are checked and compiled
+    /// here, so callers only call the function.
+    /// </summary>
+    private FormulaCheck RunCustom(FunctionCall call, int length, FormulaType? expected, string? stored)
+    {
+        var overRows = string.Equals(call.Name, "CUSTOM_ROWS", StringComparison.OrdinalIgnoreCase);
+        var label = overRows ? "CUSTOM_ROWS" : "CUSTOM";
+        if (call.HasWhere)
+            return new FormulaCheck(null, [new FormulaError($"WHERE does not work in {label}; put the condition into an argument, e.g. SUM(amount WHERE amount > 0).", call.Start, call.End)]);
+        if (overRows && stored is null && (_shared.Context.Measure || _scope.Table.Columns.Count == 0))
+            return new FormulaCheck(null, [new FormulaError("CUSTOM_ROWS works in computed columns: it gives each row a value from its group's rows.", call.Start, call.End)]);
+        if (call.Arguments.Count == 0 || call.Arguments[0] is not StringLiteral nameLiteral)
+            return new FormulaCheck(null, [new FormulaError(overRows
+                    ? "CUSTOM_ROWS needs the function's name as text first: CUSTOM_ROWS(\"avg_cost\", PARTITION(isin), ORDER(date), shares, price, fees, \"realized\")."
+                    : "CUSTOM needs the function's name as text first: CUSTOM(\"risk_class\", volatility).",
+                call.Arguments.Count > 0 ? call.Arguments[0].Start : call.Start, call.Arguments.Count > 0 ? call.Arguments[0].End : call.End)]);
+
+        var functions = _shared.Context.Functions?.Functions ?? StaticFunctionCatalog.Empty.Functions;
+        if (!functions.TryGetValue(nameLiteral.Value.Trim(), out var function))
+        {
+            var suggestion = Suggest(nameLiteral.Value, functions.Keys);
+            return new FormulaCheck(null, [new FormulaError(
+                functions.Count == 0
+                    ? $"There is no custom function '{nameLiteral.Value}'; create one under Functions first."
+                    : $"There is no custom function '{nameLiteral.Value}'" + (suggestion is null ? "." : $" — did you mean '{suggestion}'?"),
+                nameLiteral.Start, nameLiteral.End)]);
+        }
+
+        if (!function.UsableInFormulas)
+            return new FormulaCheck(null, [new FormulaError(function.UsesNetwork
+                ? $"{function.Name} calls the internet; such functions run as price sources, not in formulas."
+                : $"{function.Name} gives any JSON value; formulas need a function with a declared result type.",
+                nameLiteral.Start, nameLiteral.End)]);
+        if (function.RowsMode != overRows)
+            return new FormulaCheck(null, [new FormulaError(function.RowsMode
+                    ? $"{function.Name} runs over a group of rows; call it as CUSTOM_ROWS(\"{function.Name}\", PARTITION(…), ORDER(…), …)."
+                    : $"{function.Name} runs on one row; call it as CUSTOM(\"{function.Name}\", …), or let it run over a group of rows in its editor.",
+                nameLiteral.Start, nameLiteral.End)]);
+
+        // CUSTOM_ROWS: PARTITION(…) and ORDER(…) come right after the name, both optional.
+        var rest = call.Arguments.Skip(1).ToList();
+        List<CustomArgument>? partition = overRows ? [] : null;
+        List<CustomArgument>? order = overRows ? [] : null;
+        while (overRows && rest.Count > 0 && rest[0] is FunctionCall { Name: var clause } group &&
+               (IsClause(clause, "PARTITION") || IsClause(clause, "ORDER")))
+        {
+            var into = IsClause(clause, "PARTITION") ? partition! : order!;
+            if (into.Count > 0 || group.HasWhere || group.Arguments.Count == 0)
+            {
+                Fail(group, $"{clause.ToUpperInvariant()}(…) comes once, with one or more values and no WHERE.");
+                break;
+            }
+            foreach (var node in group.Arguments)
+            {
+                var bound = Bind(node);
+                if (bound is null)
+                    continue;
+                if (bound.IsRows)
+                    Fail(node, $"{clause.ToUpperInvariant()}(…) takes values of the row, not COUNT(…) of rows.");
+                else
+                    into.Add(new CustomArgument(bound.Sql, bound.Type));
+            }
+            rest.RemoveAt(0);
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+
+        var given = rest.Count;
+        if (given != function.Arguments.Count)
+            return new FormulaCheck(null, [new FormulaError(
+                $"{function.Name} takes {Count(function.Arguments.Count, "argument")} ({string.Join(", ", function.Arguments.Select(a => a.Name))}), not {given}.",
+                call.Start, call.End)]);
+
+        var arguments = new List<CustomArgument>();
+        foreach (var (node, index) in rest.Select((n, i) => (n, i)))
+        {
+            var bound = Bind(node);
+            if (bound is null)
+                continue;
+            var declared = function.Arguments[index];
+            if (bound.IsRows)
+                Fail(node, $"'{declared.Name}' gets one value; count the rows with COUNT(…).");
+            else if (!CustomFunctionRules.Accepts(declared.Type, bound.Type))
+                Fail(node, $"'{declared.Name}' of {function.Name} takes {DescribeArgument(declared.Type)}, not {FormulaTypes.Describe(bound.Type)}.");
+            else
+                arguments.Add(new CustomArgument(bound.Sql, bound.Type));
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+
+        var type = function.Result;
+        var expr = new Expr("NULL", type, call);
+        if (stored is not null)
+        {
+            var table = _scope.Table;
+            var key = table.Columns.FirstOrDefault(c => c.PrimaryKey);
+            if (key is null)
+                return new FormulaCheck(null, [new FormulaError($"{label} in a computed column needs a primary key on {table.DisplayName ?? table.Name}.", call.Start, call.End)]);
+            var value = $"(SELECT v.value FROM {Q(StoredValuesTable)} v WHERE v.table_name = {Str(table.Name)} AND v.column_name = {Str(stored)} " +
+                        $"AND v.row_key = CAST({_scope.Alias}.{Q(key.Name)} AS TEXT))";
+            expr = expr with { Sql = CustomFunctionValues.ReadSql(value, type, _pg) };
+        }
+
+        var sql = expr.Sql;
+        if (expected is { } target && target != type)
+        {
+            if (!Fits(type, target))
+                return new FormulaCheck(null, [new FormulaError(
+                    $"{function.Name} gives {FormulaTypes.Describe(type)}, but the column holds {FormulaTypes.Describe(target)}.", 0, length)]);
+            sql = Convert(expr, target);
+            type = target;
+        }
+        return new FormulaCheck(new CompiledFormula(sql, type, _columns, new CustomCall(function, arguments, partition, order)), []);
+    }
+
+    private static bool IsClause(string name, string clause) => string.Equals(name, clause, StringComparison.OrdinalIgnoreCase);
+
+    private static string DescribeArgument(string type) =>
+        type == "any" ? "any value" : FormulaTypes.FromName(type) is { } known ? FormulaTypes.Describe(known) : type;
+
+    private static string Count(int n, string noun) => n == 1 ? $"1 {noun}" : $"{n} {noun}s";
+
+    // ── Returns (Step 4.3) ───────────────────────────────────────────────
+
+    private static readonly HashSet<string> SeriesFunctions = new(StringComparer.OrdinalIgnoreCase) { "XIRR", "IRR", "TWR", "REBASE" };
+
+    private static bool IsSeries(string name) => SeriesFunctions.Contains(name);
+
+    /// <summary>
+    /// XIRR/IRR/TWR/REBASE as the whole measure. Each part is a measure (or, for
+    /// XIRR/IRR, FLOWS(amount, date) over many rows) the database computes per
+    /// result row; the return itself is computed afterwards (<see cref="Returns"/>).
+    /// </summary>
+    private FormulaCheck RunSeries(FunctionCall call)
+    {
+        var name = call.Name.ToUpperInvariant();
+        if (!_shared.Context.Measure)
+            return new FormulaCheck(null, [new FormulaError($"{name} works in dashboard measures and variables, over the rows of a table.", call.Start, call.End)]);
+
+        var parts = new List<SeriesPart>();
+        decimal? @base = null;
+        switch (name)
+        {
+            case "XIRR" or "IRR":
+            {
+                var args = call.Arguments.ToList();
+                if (args.Count == 0)
+                    return Error(call, $"Write {name}(amount, date) over the rows, or {name}(FLOWS(amount, date), …, final_value, final_date).");
+                // Shorthand: XIRR(amount, date [WHERE condition], …) — the first two are the flows of the group's rows.
+                if (args[0] is not FunctionCall { Name: var first } || !string.Equals(first, "FLOWS", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (args.Count < 2)
+                        return Error(call, $"Write {name}(amount, date): the cash flows (paid out negative) and their dates.");
+                    var where = call.HasWhere ? args[^1] : null;
+                    if (where is not null && args.Count != 3)
+                        return Error(call, $"A condition goes into FLOWS when {name} has more parts: {name}(FLOWS(amount, date WHERE condition), …).");
+                    var flows = new FunctionCall("FLOWS", where is null ? [args[0], args[1]] : [args[0], args[1], where], call.NameEnd, args[0].Start, args[1].End) { HasWhere = where is not null };
+                    args = [flows, .. args.Skip(2).Take(where is null ? int.MaxValue : 0)];
+                }
+                else if (call.HasWhere)
+                {
+                    return Error(call, $"Put the condition into FLOWS: {name}(FLOWS(amount, date WHERE condition), …).");
+                }
+
+                for (var i = 0; i < args.Count; i++)
+                {
+                    if (args[i] is FunctionCall f && string.Equals(f.Name, "FLOWS", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (BindFlows(f) is { } sql)
+                            parts.Add(new SeriesPart("flows", sql));
+                        continue;
+                    }
+                    if (i + 1 >= args.Count)
+                        return Error(args[i], "A single flow is a pair: an amount and its date, e.g. SUM(value), TODAY().");
+                    var amount = Bind(args[i]);
+                    var date = Bind(args[i + 1]);
+                    i++;
+                    if (amount is null || date is null)
+                        continue;
+                    if (!RequireNumber(amount, $"The amount of {name}"))
+                        continue;
+                    var dateText = date.Node is StringLiteral literal &&
+                                   DateOnly.TryParseExact(literal.Value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+                    if (!FormulaTypes.IsTemporal(date.Type) && date.Type != FormulaType.Null && !dateText)
+                    {
+                        Fail(date.Node, $"The date of a flow must be a date (or \"yyyy-MM-dd\"), not {FormulaTypes.Describe(date.Type)}.");
+                        continue;
+                    }
+                    parts.Add(new SeriesPart("amount", amount.Sql));
+                    parts.Add(new SeriesPart("date", date.Sql));
+                }
+                break;
+            }
+            case "TWR":
+            {
+                // TWR(value, flow [, start]) or TWR(value, FLOWS(…), FLOWS(…) [, start]): dated flows weigh by the days they were in (Modified Dietz).
+                var args = call.Arguments.ToList();
+                if (args.Count > 2 && args[^1] is NumberLiteral start)
+                {
+                    if (start.Value <= 0)
+                        return Error(start, "The index starts at a positive number, e.g. TWR(value, flow, 100).");
+                    @base = start.Value;
+                    args.RemoveAt(args.Count - 1);
+                }
+                var flows = args.Skip(1).ToList();
+                var dated = flows.Count > 0 && flows.All(f => f is FunctionCall { Name: var n } && string.Equals(n, "FLOWS", StringComparison.OrdinalIgnoreCase));
+                if (call.HasWhere || args.Count < 2 || (!dated && flows.Count != 1))
+                    return Error(call, "Write TWR(value, flow [, 100]) — the value at each period end and the money put in during the period (taken out: negative) — or TWR(value, FLOWS(amount, date), … [, 100]) to weigh each payment by its day.");
+                var value = Bind(args[0]);
+                if (value is not null && RequireNumber(value, "The value of TWR"))
+                    parts.Add(new SeriesPart("value", value.Sql));
+                if (dated)
+                {
+                    foreach (var f in flows.Cast<FunctionCall>())
+                    {
+                        if (BindFlows(f) is { } sql)
+                            parts.Add(new SeriesPart("flows", sql));
+                    }
+                }
+                else
+                {
+                    var flow = Bind(flows[0]);
+                    if (flow is not null && RequireNumber(flow, "The flow of TWR"))
+                        parts.Add(new SeriesPart("flow", flow.Sql));
+                }
+                break;
+            }
+            default: // REBASE
+            {
+                if (call.HasWhere || call.Arguments.Count is < 1 or > 2)
+                    return Error(call, "Write REBASE(measure [, 100]): the measure relative to its first value in the range.");
+                var value = Bind(call.Arguments[0]);
+                if (value is not null && RequireNumber(value, "REBASE"))
+                    parts.Add(new SeriesPart("value", value.Sql));
+                if (call.Arguments.Count == 2)
+                {
+                    if (call.Arguments[1] is not NumberLiteral { Value: > 0 } start)
+                        return Error(call.Arguments[1], "The first value becomes a positive number, e.g. REBASE(SUM(value), 100).");
+                    @base = start.Value;
+                }
+                @base ??= 100;
+                break;
+            }
+        }
+        if (_errors.Count > 0)
+            return new FormulaCheck(null, _errors);
+        if (name is "XIRR" or "IRR" && parts.Count == 0)
+            return Error(call, $"{name} needs cash flows.");
+        return new FormulaCheck(new CompiledFormula("NULL", FormulaType.Number, _columns, Series: new SeriesCall(name.ToLowerInvariant(), parts, @base)), []);
+    }
+
+    private FormulaCheck Error(FormulaNode node, string message) => new(null, [new FormulaError(message, node.Start, node.End)]);
+
+    /// <summary>
+    /// FLOWS(amount, date [WHERE condition]): the cash flows of the group's rows,
+    /// or of each row's related rows (FLOWS(trades.amount, trades.date)), as
+    /// "amount|date;…" text for <see cref="Returns"/>.
+    /// </summary>
+    private string? BindFlows(FunctionCall call)
+    {
+        var valueCount = call.Arguments.Count - (call.HasWhere ? 1 : 0);
+        if (valueCount != 2)
+        {
+            Fail(call, "Write FLOWS(amount, date) or FLOWS(amount, date WHERE condition); money paid out is negative.");
+            return null;
+        }
+
+        var frame = new AggregateFrame(_scope);
+        var outerAggregate = _aggregate;
+        var outerGroup = _inGroup;
+        _aggregate = frame;
+        _inGroup = true;
+        var amount = Bind(call.Arguments[0]);
+        var date = Bind(call.Arguments[1]);
+        var condition = call.HasWhere ? Bind(call.Arguments[^1]) : null;
+        _aggregate = outerAggregate;
+        _inGroup = outerGroup;
+        if (amount is null || date is null || (call.HasWhere && condition is null))
+            return null;
+        if (!RequireNumber(amount, "The amount of FLOWS"))
+            return null;
+        if (!FormulaTypes.IsTemporal(date.Type))
+        {
+            Fail(date.Node, $"The date of FLOWS must be a date, not {FormulaTypes.Describe(date.Type)}.");
+            return null;
+        }
+        if (condition is not null && !RequireBoolean(condition, "The condition of FLOWS"))
+            return null;
+
+        var text = $"CAST({amount.Sql} AS TEXT) || '|' || {(_pg ? $"CAST({date.Sql} AS TEXT)" : date.Sql)}";
+        if (condition is not null)
+            text = $"CASE WHEN {condition.Sql} THEN {text} END";
+        string Concat(string value) => _pg ? $"STRING_AGG({value}, ';')" : $"GROUP_CONCAT({value}, ';')";
+
+        if (frame.Navigation is null)
+            return Concat(text);
+
+        // The related rows of each group row, then all of them.
+        var navigation = frame.Navigation;
+        var rows = frame.Rows!;
+        var key = _scope.Table.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (key is null || navigation.Kind != NavigationKind.Children)
+        {
+            Fail(call, "FLOWS follows links from a table to its rows in another, e.g. FLOWS(trades.amount, trades.date) on accounts.");
+            return null;
+        }
+        var related = $"(SELECT {Concat(text)} FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {_scope.Alias}.{Q(key.Name)})";
+        _shared.Indexes.Add(new IndexTarget(rows.Table.Name, navigation.ForeignKey!));
+        return Concat(related);
+    }
 
     // ── Binding ──────────────────────────────────────────────────────────
 
@@ -274,7 +708,7 @@ public sealed class FormulaCompiler
         {
             sql = _pg ? $"({sql} AT TIME ZONE 'UTC')" : $"datetime({sql})";
         }
-        return new Expr(sql, type, reference);
+        return new Expr(sql, type, reference) { Column = new DateColumn(_scope.Table.Name, column.Name) };
     }
 
     /// <summary>Another computed column: its formula inlined, cycles reported.</summary>
@@ -290,7 +724,7 @@ public sealed class FormulaCompiler
 
         _shared.Chain.Add(key);
         // A computed column is a row formula, also inside a measure.
-        var check = new FormulaCompiler(_shared, _scope) { _inGroup = true }.Run(column.Formula, FormulaTypes.FromName(column.ResultType));
+        var check = new FormulaCompiler(_shared, _scope) { _inGroup = true }.Run(column.Formula, FormulaTypes.FromName(column.ResultType), column.Name);
         _shared.Chain.RemoveAt(_shared.Chain.Count - 1);
 
         if (!check.IsValid)
@@ -497,6 +931,10 @@ public sealed class FormulaCompiler
             var r = AsTemporal(right, target);
             if (l is null || r is null)
                 return Fail(node, $"Cannot compare {FormulaTypes.Describe(left.Type)} with {FormulaTypes.Describe(right.Type)}.");
+            // trades.date <= BUCKET_END(): the series begins with the first trade.
+            var dated = left.IsBucket ? right : right.IsBucket ? left : null;
+            if (dated is { Column: { } column } && FormulaTypes.IsTemporal(dated.Type))
+                _shared.PeriodDates.Add(column);
             return new Expr($"({l} {op} {r})", FormulaType.Boolean, node);
         }
 
@@ -523,14 +961,26 @@ public sealed class FormulaCompiler
         }
 
         var name = info.Name;
+        if (name is "CUSTOM" or "CUSTOM_ROWS")
+            return Fail(call, $"{name}(…) must be the whole formula. Use its result in another computed column" + (name == "CUSTOM" ? " or dashboard variable." : "."));
+        if (name is "PARTITION" or "ORDER")
+            return Fail(call, $"{name}(…) is part of CUSTOM_ROWS: CUSTOM_ROWS(\"avg_cost\", PARTITION(isin), ORDER(date), …).");
+        if (IsSeries(name))
+            return Fail(call, $"{name}(…) must be the whole formula of a dashboard measure; show it as a percentage in the widget.");
+        if (name == "FLOWS")
+            return Fail(call, "FLOWS(amount, date) is an argument of XIRR or IRR: XIRR(FLOWS(-invested, date), SUM(value), TODAY()).");
         if (name == "PERCENTILE")
             return BindPercentile(call);
+        if (name is "LAST" or "FIRST")
+            return BindLastFirst(call, name);
         if (info.Category == FormulaFunctions.RelatedRows)
             return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(call, name) : BindAggregate(call, name);
         if (call.HasWhere)
             return Fail(call, $"WHERE only works inside SUM, COUNT, AVG, MIN, MAX, MEDIAN or PERCENTILE, not in {name}.");
         if (name == "RUNNING_SUM")
             return Fail(call, "RUNNING_SUM wraps a whole measure: RUNNING_SUM(SUM(amount)).");
+        if (name is "ROLLING_SUM" or "ROLLING_AVG")
+            return Fail(call, $"{name} wraps a whole measure: {name}(SUM(amount), 12).");
         if (name == "LOOKUP_ASOF")
             return BindLookupAsOf(call);
 
@@ -654,6 +1104,59 @@ public sealed class FormulaCompiler
                 if (!Arity(call, 2, 2) || !RequireNumber(args[0], name) | !RequireNumber(args[1], name))
                     return null;
                 return new Expr(Power(args[0].Sql, args[1].Sql), FormulaType.Number, call);
+            // Finance (Excel's sign convention: money paid out is negative)
+            case "FV" or "PV":
+            {
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, n, payment) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var other = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var growth = $"power(1 + {rate}, {n})";
+                var annuity = $"{payment} * (1 + {rate} * {due}) * ({growth} - 1) / {rate}";
+                var sql = name == "FV"
+                    ? $"(CASE WHEN {rate} = 0 THEN -({other} + {payment} * {n}) ELSE -({other} * {growth} + {annuity}) END)"
+                    : $"(CASE WHEN {rate} = 0 THEN -({other} + {payment} * {n}) ELSE -({other} + {annuity}) / {growth} END)";
+                return new Expr($"(CASE WHEN {rate} <= -1 THEN NULL ELSE {sql} END)", FormulaType.Number, call);
+            }
+            case "PMT":
+            {
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, n, present) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var future = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var growth = $"power(1 + {rate}, {n})";
+                return new Expr(
+                    $"(CASE WHEN {n} = 0 OR {rate} <= -1 THEN NULL WHEN {rate} = 0 THEN -({present} + {future}) / {n} " +
+                    $"ELSE -({rate} * ({future} + {present} * {growth})) / ((1 + {rate} * {due}) * ({growth} - 1)) END)",
+                    FormulaType.Number, call);
+            }
+            case "NPER":
+            {
+                // Excel: periods until payments reach future_value; empty when they never do.
+                if (!Arity(call, 3, 5) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var (rate, payment, present) = (Real(args[0]), Real(args[1]), Real(args[2]));
+                var future = args.Count > 3 ? Real(args[3]) : "0";
+                var due = args.Count > 4 ? $"(CASE WHEN {args[4].Sql} <> 0 THEN 1 ELSE 0 END)" : "0";
+                var paid = $"({payment} * (1 + {rate} * {due}))";
+                var ratio = $"(({paid} - {future} * {rate}) / NULLIF({paid} + {present} * {rate}, 0))";
+                return new Expr(
+                    $"(CASE WHEN {rate} <= -1 THEN NULL " +
+                    $"WHEN {rate} = 0 THEN -({present} + {future}) / NULLIF({payment}, 0) " +
+                    $"WHEN {ratio} <= 0 THEN NULL " +
+                    $"ELSE ln({ratio}) / ln(1 + {rate}) END)",
+                    FormulaType.Number, call);
+            }
+            case "NPV":
+            {
+                if (!Arity(call, 2, int.MaxValue) || args.Any(a => !RequireNumber(a, name)))
+                    return null;
+                var rate = Real(args[0]);
+                var terms = args.Skip(1).Select((a, i) => $"COALESCE({Real(a)}, 0) / power(1 + {rate}, {i + 1})");
+                return new Expr($"(CASE WHEN {rate} <= -1 THEN NULL ELSE ({string.Join(" + ", terms)}) END)", FormulaType.Number, call);
+            }
             case "SQRT":
                 if (!Arity(call, 1, 1) || !RequireNumber(args[0], name))
                     return null;
@@ -727,7 +1230,7 @@ public sealed class FormulaCompiler
                     return null;
                 if (_shared.Context.BucketAlias is not { } bucket)
                     return Fail(call, $"{name}() only works in queries by period end (\"Value at the end of each period\").");
-                return new Expr($"{bucket}.{Q(name == "BUCKET_START" ? "bucket" : "bucket_end")}", FormulaType.Date, call);
+                return new Expr($"{bucket}.{Q(name == "BUCKET_START" ? "bucket" : "bucket_end")}", FormulaType.Date, call) { IsBucket = true };
             }
             case "TODAY":
                 return Arity(call, 0, 0)
@@ -742,6 +1245,15 @@ public sealed class FormulaCompiler
                 if (!Arity(call, 1, 1) || RequireTemporal(args[0], name) is not { } value)
                     return null;
                 return new Expr(Part(value, name), FormulaType.Integer, call);
+            }
+            case "WEEKDAY":
+            {
+                // ISO: Monday 1 … Sunday 7. SQLite's %w counts Sunday as 0.
+                if (!Arity(call, 1, 1) || RequireTemporal(args[0], name) is not { } value)
+                    return null;
+                return new Expr(_pg
+                    ? $"CAST(EXTRACT(ISODOW FROM {value.Sql}) AS BIGINT)"
+                    : $"((CAST(strftime('%w', {value.Sql}) AS INTEGER) + 6) % 7 + 1)", FormulaType.Integer, call);
             }
             case "DATEDIFF":
             {
@@ -785,10 +1297,13 @@ public sealed class FormulaCompiler
             return Fail(call, $"{name} cannot be used inside another aggregate.");
 
         var frame = new AggregateFrame(_scope);
+        var orderNode = _orderBy;
+        _orderBy = null;
         _aggregate = frame;
         var args = call.Arguments.Select(Bind).ToList();
+        var order = orderNode is null ? null : Bind(orderNode);
         _aggregate = null;
-        if (args.Any(a => a is null))
+        if (args.Any(a => a is null) || (orderNode is not null && !RequireOrder(order, name)))
             return null;
 
         if (frame.Navigation is null || frame.Rows is null)
@@ -823,11 +1338,17 @@ public sealed class FormulaCompiler
                 type = value.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
                 aggregate = PercentileSql(value.Sql, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
                 break;
+            case "LAST" or "FIRST":
+                // Not an aggregate: the row itself, latest (earliest) first; built below.
+                type = value.Type == FormulaType.Null ? FormulaType.Text : value.Type;
+                aggregate = value.Sql;
+                break;
             default:
-                if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type)))
-                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                if (!(FormulaTypes.IsNumeric(value.Type) || FormulaTypes.IsTemporal(value.Type) || value.Type == FormulaType.Text))
+                    return Fail(value.Node, $"{name} needs numbers, dates or text, not {FormulaTypes.Describe(value.Type)}.");
                 type = value.Type;
-                aggregate = $"{fn}({value.Sql})";
+                // Text in character order, as in comparisons (Postgres would sort by locale).
+                aggregate = value.Type == FormulaType.Text && _pg ? $"{fn}({value.Sql} COLLATE \"C\")" : $"{fn}({value.Sql})";
                 break;
         }
 
@@ -849,6 +1370,7 @@ public sealed class FormulaCompiler
         if (navigation.Kind == NavigationKind.Children)
         {
             from = $"FROM {Q(rows.Table.Name)} {rows.Alias} WHERE {rows.Alias}.{Q(navigation.ForeignKey!)} = {outer.Alias}.{Q(key.Name)}";
+            _shared.Indexes.Add(new IndexTarget(rows.Table.Name, navigation.ForeignKey!));
         }
         else
         {
@@ -859,6 +1381,12 @@ public sealed class FormulaCompiler
         }
         if (condition is not null)
             from += $" AND {condition.Sql}";
+        if (fn is "LAST" or "FIRST")
+        {
+            var direction = fn == "LAST" ? "DESC" : "ASC";
+            var collate = order!.Type == FormulaType.Text && _pg ? " COLLATE \"C\"" : "";
+            return new Expr($"(SELECT {aggregate} {from} AND {order.Sql} IS NOT NULL ORDER BY {order.Sql}{collate} {direction} LIMIT 1)", type, call);
+        }
 
         return new Expr($"(SELECT {aggregate} {from})", type, call);
     }
@@ -883,11 +1411,14 @@ public sealed class FormulaCompiler
                 : $"Write {fn}(column) or {fn}(column WHERE condition), e.g. {fn}(amount WHERE amount < 0).");
         }
 
+        var orderNode = _orderBy;
+        _orderBy = null;
         _inGroup = true;
         var value = valueCount == 1 ? Bind(call.Arguments[0]) : null;
         var condition = hasCondition ? Bind(call.Arguments[^1]) : null;
+        var order = orderNode is null ? null : Bind(orderNode);
         _inGroup = false;
-        if ((valueCount == 1 && value is null) || (hasCondition && condition is null))
+        if ((valueCount == 1 && value is null) || (hasCondition && condition is null) || (orderNode is not null && !RequireOrder(order, name)))
             return null;
         if (condition is not null && !RequireBoolean(condition, $"The condition of {name}"))
             return null;
@@ -919,11 +1450,22 @@ public sealed class FormulaCompiler
                 type = value!.Type == FormulaType.Currency ? FormulaType.Currency : FormulaType.Number;
                 aggregate = PercentileSql(guarded, fn == "MEDIAN" ? 0.5 : _percentile, _pg);
                 break;
+            case "LAST" or "FIRST":
+            {
+                // The value of the group's row with the latest (earliest) order value.
+                type = value!.Type == FormulaType.Null ? FormulaType.Text : value.Type;
+                var kept = condition is null ? $"{order!.Sql} IS NOT NULL" : $"{order!.Sql} IS NOT NULL AND {condition.Sql}";
+                var collate = order.Type == FormulaType.Text && _pg ? " COLLATE \"C\"" : "";
+                aggregate = _pg
+                    ? $"(array_agg({value.Sql} ORDER BY {order.Sql}{collate} {(fn == "LAST" ? "DESC" : "ASC")}) FILTER (WHERE {kept}))[1]"
+                    : $"bento_{fn.ToLowerInvariant()}({value.Sql}, CASE WHEN {kept} THEN {order.Sql} END)";
+                break;
+            }
             default:
-                if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type)))
-                    return Fail(value.Node, $"{name} needs numbers or dates, not {FormulaTypes.Describe(value.Type)}.");
+                if (!(FormulaTypes.IsNumeric(value!.Type) || FormulaTypes.IsTemporal(value.Type) || value.Type == FormulaType.Text))
+                    return Fail(value.Node, $"{name} needs numbers, dates or text, not {FormulaTypes.Describe(value.Type)}.");
                 type = value.Type;
-                aggregate = $"{fn}({guarded})";
+                aggregate = value.Type == FormulaType.Text && _pg ? $"{fn}({guarded} COLLATE \"C\")" : $"{fn}({guarded})";
                 break;
         }
         if (type == FormulaType.Integer && fn != "COUNT")
@@ -955,6 +1497,41 @@ public sealed class FormulaCompiler
         {
             _percentile = previous;
         }
+    }
+
+    /// <summary>
+    /// LAST(column, date [WHERE condition]) / FIRST(…): the value of the row with the
+    /// latest (earliest) date — the order column is taken out, the rest binds like MAX.
+    /// </summary>
+    private Expr? BindLastFirst(FunctionCall call, string name)
+    {
+        var usage = $"Write {name}(column, date) or {name}(column, date WHERE condition), e.g. {name}(trades.price, trades.date).";
+        if (call.Arguments.Count != (call.HasWhere ? 3 : 2))
+            return Fail(call, usage);
+        var rest = call with { Arguments = [call.Arguments[0], .. call.Arguments.Skip(2)] };
+        var previous = _orderBy;
+        _orderBy = call.Arguments[1];
+        try
+        {
+            return _shared.Context.Measure && !_inGroup ? BindGroupAggregate(rest, name) : BindAggregate(rest, name);
+        }
+        finally
+        {
+            _orderBy = previous;
+        }
+    }
+
+    /// <summary>The order column of LAST/FIRST must be a date, a number or text.</summary>
+    private bool RequireOrder(Expr? order, string name)
+    {
+        if (order is null)
+            return false;
+        if (order.IsRows || !(FormulaTypes.IsNumeric(order.Type) || FormulaTypes.IsTemporal(order.Type) || order.Type == FormulaType.Text))
+        {
+            Fail(order.Node, $"{name} orders the rows by a date, a number or text, e.g. {name}(trades.price, trades.date).");
+            return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -1025,9 +1602,15 @@ public sealed class FormulaCompiler
             return Fail(args[3], $"'{dateName}' is not a date column.");
 
         var match = Compare(matchColumn, "=", matchValue, args[2]);
-        var onOrBefore = Compare(dateColumn, "<=", atDate, args[4]);
+        // The lookup's dates (prices back to 2010) are not where a series begins.
+        var onOrBefore = Compare(dateColumn with { Column = null }, "<=", atDate, args[4]);
         if (match is null || onOrBefore is null)
             return null;
+        // Stored columns only; text matches compare lower-cased, so the index uses the same expression.
+        ColumnDef? Stored(string name) => target.Columns.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase));
+        if (Stored(matchName) is { Type: ColumnType.Text or ColumnType.Integer or ColumnType.Reference } key &&
+            Stored(dateName) is { Type: ColumnType.Date or ColumnType.DateTime } when)
+            _shared.Indexes.Add(new IndexTarget(target.Name, key.Name, key.Type == ColumnType.Text, when.Name));
 
         return new Expr(
             $"(SELECT {valueColumn.Sql} FROM {Q(target.Name)} {alias} WHERE {match.Sql} AND {onOrBefore.Sql} ORDER BY {dateColumn.Sql} DESC LIMIT 1)",
@@ -1144,6 +1727,9 @@ public sealed class FormulaCompiler
     // ── SQL pieces ───────────────────────────────────────────────────────
 
     private string RealType => _pg ? "DOUBLE PRECISION" : "REAL";
+
+    /// <summary>A number as floating point, for the finance functions' powers.</summary>
+    private string Real(Expr e) => $"CAST({e.Sql} AS {RealType})";
 
     /// <summary>The value as SQL of the given (compatible) type.</summary>
     private string Convert(Expr e, FormulaType target)

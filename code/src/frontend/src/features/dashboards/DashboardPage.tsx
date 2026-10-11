@@ -11,22 +11,40 @@ import {
   type WidgetType,
 } from "../../api/dashboards";
 import { ApiClientError } from "../../api/client";
-import { evaluateVariables } from "../../api/query";
+import { evaluateVariables, type QueryVariableResult } from "../../api/query";
+import { loadCached, peekCached } from "../../api/queryCache";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { useAuthStore } from "../../stores/authStore";
+import { useFormsStore } from "../../stores/formsStore";
+import type { SavedForm } from "../../api/forms";
+import { Dialog } from "../../components/ui/Dialog";
+import { FormFill } from "../forms/FormFill";
+import { formsForDashboard } from "../forms/quickAdd";
+import { defaultBudget } from "./budget";
+import { BudgetEditor } from "./BudgetEditor";
+import { HistoryDialog } from "./HistoryDialog";
+import { QuickAddEditor } from "./QuickAddEditor";
+import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
 import { DashboardGrid } from "./DashboardGrid";
 import { DATE_RANGE_PRESETS, rangeFromSearch, rangeKey, rangeToSearch, resolveRange } from "./dateRange";
 import type { LayoutItem } from "./layout";
 import { WIDGET_LABELS, dataTables, isFinanceTable, newWidget } from "./starter";
-import { variableRequests, type VariableResults } from "./formulaQueries";
+import { runnableQuery, variableRequests, variableValues, type VariableResults } from "./formulaQueries";
+import { getAiStatus, type ExplainRequest } from "../../api/ai";
+import type { QueryResult } from "../../api/query";
+import { ExplainPanel } from "../ai/ExplainPanel";
 import { AnnotationsEditor } from "./AnnotationsEditor";
 import { appliedFilters, clearSelection, selectionFromSearch, selectionToSearch } from "./dashboardFilters";
 import { FilterBar, FiltersEditor } from "./FilterBar";
 import { drillUrl, type DrillTarget } from "./drill";
 import { VariablesEditor } from "./VariablesEditor";
+import { VariableInputs } from "./VariableInputs";
+import { clearInputs, inputToSearch, inputValuesFromSearch, withInputs } from "./inputValues";
+import { quoteTime, usePriceRefresh } from "./priceRefresh";
 import { LensEditor } from "./lens/LensEditor";
 import { WidgetContent, useChartTokens } from "./widgets/WidgetContent";
 import "./Dashboards.css";
@@ -55,14 +73,43 @@ export function DashboardPage() {
 
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);
   const [draft, setDraft] = useState<{ name: string; isShared: boolean; document: DashboardDocument } | null>(null);
+  // Sentences the AI built widgets from while editing (Step 4.9), for the dashboard's history.
+  const [described, setDescribed] = useState<string[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  // Widgets whose numbers are on their way, for the spinner in the interval switch.
+  const [loadingWidgets, setLoadingWidgets] = useState<ReadonlySet<string>>(() => new Set());
+  const setWidgetLoading = useCallback((id: string, loading: boolean) => {
+    setLoadingWidgets((current) => {
+      if (current.has(id) === loading) return current;
+      const next = new Set(current);
+      if (loading) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }, []);
+  const [restoredNote, setRestoredNote] = useState<string | null>(null);
+  const me = useAuthStore((state) => state.user?.username);
   const [editingWidgetId, setEditingWidgetId] = useState<string | null>(null);
   const [variablesOpen, setVariablesOpen] = useState(false);
+  // Step 4.7: "Explain this" — shown when the AI is set up; the panel's request.
+  const [aiEnabled, setAiEnabled] = useState(false);
+  const [explaining, setExplaining] = useState<ExplainRequest | null>(null);
+  const widgetResults = useRef(new Map<string, QueryResult | null>());
   const [annotationsOpen, setAnnotationsOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [variableResults, setVariableResults] = useState<VariableResults | undefined>(undefined);
   const [addOpen, setAddOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Step 4.4: pinned forms for the tables this dashboard shows, opened in a dialog.
+  const canWrite = useAuthStore((state) => state.user?.role === "admin" || state.user?.role === "editor");
+  const forms = useFormsStore((state) => state.forms);
+  const loadForms = useFormsStore((state) => state.load);
+  const [quickForm, setQuickForm] = useState<SavedForm | null>(null);
+  useEffect(() => {
+    if (canWrite) void loadForms();
+  }, [canWrite, loadForms]);
   const [refreshToken, setRefreshToken] = useState(0);
   const lastRefresh = useRef(Date.now());
 
@@ -90,8 +137,17 @@ export function DashboardPage() {
   const range: DashboardDateRange = rangeFromSearch(searchParams) ?? document?.dateRange ?? { preset: "last-12-months" };
   // The chosen filter values (from the address) travel with the range into every query.
   const selection = selectionFromSearch(searchParams);
+  // Step 4.5: intervals viewers chose for charts by date.
+  const intervals = intervalsFromSearch(searchParams);
   const selectionKey = JSON.stringify(selection);
-  const filterDefs = document?.filters;
+  // A filter in the address on a column the dashboard has no menu for (a row link from another
+  // dashboard) applies too, and shows in the bar so it can be cleared.
+  const filterDefs = useMemo(() => {
+    const declared = document?.filters ?? [];
+    const extra = Object.keys(selection).filter((column) => !declared.some((f) => f.column === column));
+    return extra.length > 0 ? [...declared, ...extra.map((column) => ({ column }))] : declared;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [document?.filters, selectionKey]);
   const filtersKey = JSON.stringify(filterDefs ?? []);
   const resolved = useMemo(
     () => {
@@ -129,13 +185,40 @@ export function DashboardPage() {
     };
   }, [refresh, refreshSeconds]);
 
+  // Prices older than their source's window are fetched on open and refresh (Step 4.2).
+  const prices = usePriceRefresh(dashboard?.dashboard, refreshToken, !editing, () => setRefreshToken((n) => n + 1));
+
   const tables = useMemo(() => snapshot?.tables ?? [], [snapshot]);
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
   const variables = useMemo(() => document?.variables ?? [], [document]);
   const annotations = useMemo(() => document?.annotations ?? [], [document]);
   // Drill-down: a click on a chart opens the rows behind it in the Data Explorer.
   const openRows = useCallback((target: DrillTarget) => navigate(drillUrl(target)), [navigate]);
-  const variablesKey = JSON.stringify(variables);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAiStatus().then(
+      (status) => !cancelled && setAiEnabled(status.enabled),
+      () => undefined,
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  // Variables viewers changed (?var.rate=0.07) replace their defaults for this view.
+  const inputValues = inputValuesFromSearch(searchParams);
+  const inputKey = JSON.stringify(inputValues);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const computedVariables = useMemo(() => withInputs(variables, inputValues), [variables, inputKey]);
+  const variablesKey = JSON.stringify(computedVariables);
+  const lastVariablesToken = useRef(refreshToken);
+  // The widgets get the variables once every one has a result: right after the
+  // dashboard loads, an earlier, empty result would let a formula such as
+  // "depot" run without its variable and fail as an unknown column.
+  const widgetVariables = useMemo(
+    () => (variableResults && variables.every((v) => v.name in variableResults) ? variableResults : undefined),
+    [variableResults, variables],
+  );
 
   // Variables are evaluated together (they may use each other), with the
   // range on their date column; while editing, after a pause in typing.
@@ -145,12 +228,24 @@ export function DashboardPage() {
       setVariableResults({});
       return;
     }
+    // Kept in the browser like widget results: a dashboard opened again shows its variables at once.
+    const requests = variableRequests(definitions, resolved);
+    const requestKey = JSON.stringify(["variables", requests]);
+    const force = refreshToken !== lastVariablesToken.current;
+    lastVariablesToken.current = refreshToken;
+    const byName = (results: QueryVariableResult[]) =>
+      Object.fromEntries(results.map((r) => [r.name, { ...r, label: definitions.find((d) => d.name === r.name)?.label || undefined }]));
+    const cached = peekCached<QueryVariableResult[]>(requestKey);
+    if (cached) {
+      setVariableResults(byName(cached.value));
+      if (cached.fresh && !force) return;
+    }
     let cancelled = false;
     const timer = window.setTimeout(
       () => {
-        evaluateVariables(variableRequests(definitions, resolved))
+        loadCached(requestKey, () => evaluateVariables(requests), force)
           .then((results) => {
-            if (!cancelled) setVariableResults(Object.fromEntries(results.map((r) => [r.name, r])));
+            if (!cancelled) setVariableResults(byName(results));
           })
           .catch((cause) => {
             if (cancelled) return;
@@ -187,6 +282,25 @@ export function DashboardPage() {
     setSearchParams(rangeToSearch(next, searchParams), { replace: true });
   };
 
+  /** What the AI gets: the widget, the query it ran (range and filters in it) and what it shows. */
+  const openExplain = (widget: DashboardWidget) => {
+    const data = widget.data;
+    const result = widgetResults.current.get(widget.id);
+    setExplaining({
+      language: navigator.language || "en",
+      dashboardId: dashboard?.id,
+      dashboard: dashboard?.name,
+      title: widget.title || WIDGET_LABELS[widget.type],
+      type: widget.type,
+      query: data?.query ? runnableQuery(data.query, data, resolved, variableValues(variableResults)) : undefined,
+      data,
+      result: result?.data,
+      // The range ends before `to`; the AI gets the last day itself.
+      range: { from: resolved.from, to: resolved.to ? new Date(Date.parse(resolved.to) - 86_400_000).toISOString().slice(0, 10) : null },
+      filters: resolved.filters,
+    });
+  };
+
   const startEditing = () => dashboard && setDraft({ name: dashboard.name, isShared: dashboard.isShared, document: dashboard.dashboard });
 
   const save = async () => {
@@ -196,9 +310,11 @@ export function DashboardPage() {
     try {
       // The range in use becomes the dashboard's default.
       const document = { ...draft.document, dateRange: range };
-      const saved = await updateDashboard(dashboard.id, { name: draft.name.trim() || dashboard.name, isShared: draft.isShared, dashboard: document });
+      const note = described.length > 0 ? `AI: ${described.join(" · ")}` : undefined;
+      const saved = await updateDashboard(dashboard.id, { name: draft.name.trim() || dashboard.name, isShared: draft.isShared, dashboard: document, note });
       setDashboard(saved);
       setDraft(null);
+      setDescribed([]);
       setEditingWidgetId(null);
       // The range becomes the default; the chosen filter values stay.
       const kept = new URLSearchParams();
@@ -226,7 +342,7 @@ export function DashboardPage() {
     const candidates = dataTables(tables);
     const used = [...widgets].reverse().map((w) => w.data?.query?.source).find(Boolean);
     const table = candidates.find((t) => t.name === used) ?? candidates.find(isFinanceTable) ?? candidates[0];
-    const widget = newWidget(type, table, layout);
+    const widget = newWidget(type, table, layout, type === "budget" ? defaultBudget(candidates, snapshot) : undefined);
     updateDocument((doc) => ({ ...doc, widgets: [...doc.widgets, widget] }));
     setAddOpen(false);
     setEditingWidgetId(widget.id);
@@ -321,10 +437,34 @@ export function DashboardPage() {
                 ))}
               </select>
             ) : (
-              <Button type="button" variant="ghost" size="sm" onClick={refresh} aria-label="Refresh" title="Refresh">
-                <Icon name="refresh" size={14} />
-              </Button>
+              <>
+                {prices ? (
+                  <span
+                    className={prices.error ? "dashboard-prices dashboard-prices--error" : "dashboard-prices"}
+                    role="status"
+                    title={prices.error ?? `From ${prices.sources.join(", ")}`}
+                  >
+                    {prices.fetching ? "Updating prices…" : `Prices as of ${quoteTime(prices.lastQuoteAt)}`}
+                    {prices.error && !prices.fetching ? " · update failed" : ""}
+                  </span>
+                ) : null}
+                <Button type="button" variant="ghost" size="sm" onClick={refresh} aria-label="Refresh" title="Refresh">
+                  <Icon name="refresh" size={14} />
+                </Button>
+                {canWrite
+                  ? formsForDashboard(forms, dashboard.dashboard).map((form) => (
+                      <Button key={form.id} type="button" size="sm" leadingIcon={<Icon name="plus" size={13} />} onClick={() => setQuickForm(form)}>
+                        {form.name}
+                      </Button>
+                    ))
+                  : null}
+              </>
             )}
+            {!editing ? (
+              <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="clock" size={13} />} onClick={() => setHistoryOpen(true)}>
+                History
+              </Button>
+            ) : null}
             {dashboard.isOwner ? (
               editing ? (
                 <>
@@ -340,10 +480,12 @@ export function DashboardPage() {
                     variant="ghost"
                     onClick={() => {
                       setDraft(null);
+                      setDescribed([]);
                       setEditingWidgetId(null);
                       setVariablesOpen(false);
                       setAnnotationsOpen(false);
                       setFiltersOpen(false);
+                      setQuickAddOpen(false);
                     }}
                   >
                     Cancel
@@ -366,9 +508,29 @@ export function DashboardPage() {
       </header>
 
       {error ? <Alert tone="error" message={error} /> : null}
+      {restoredNote && !editing ? <Alert tone="success" message={restoredNote} /> : null}
+      {historyOpen ? (
+        <HistoryDialog
+          dashboard={dashboard}
+          me={me}
+          onClose={() => setHistoryOpen(false)}
+          onRestored={(restored) => {
+            setDashboard(restored);
+            setHistoryOpen(false);
+            setRestoredNote("Restored. The state before is in the history, if you want it back.");
+          }}
+        />
+      ) : null}
+
+      <VariableInputs
+        variables={variables}
+        values={inputValues}
+        onChange={(name, value) => setSearchParams((current) => inputToSearch(name, value, current), { replace: true })}
+        onReset={() => setSearchParams((current) => clearInputs(current), { replace: true })}
+      />
 
       <FilterBar
-        filters={document?.filters ?? []}
+        filters={editing ? (document?.filters ?? []) : filterDefs}
         widgets={widgets}
         tables={dataTables(tables)}
         selection={selection}
@@ -401,6 +563,7 @@ export function DashboardPage() {
               setVariablesOpen((open) => !open);
               setAnnotationsOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -415,6 +578,7 @@ export function DashboardPage() {
               setAnnotationsOpen((open) => !open);
               setVariablesOpen(false);
               setFiltersOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
@@ -429,10 +593,26 @@ export function DashboardPage() {
               setFiltersOpen((open) => !open);
               setVariablesOpen(false);
               setAnnotationsOpen(false);
+              setQuickAddOpen(false);
               setEditingWidgetId(null);
             }}
           >
             Filters{(document?.filters ?? []).length > 0 ? ` (${document!.filters!.length})` : ""}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            leadingIcon={<Icon name="plus" size={13} />}
+            aria-expanded={quickAddOpen}
+            onClick={() => {
+              setQuickAddOpen((open) => !open);
+              setVariablesOpen(false);
+              setAnnotationsOpen(false);
+              setFiltersOpen(false);
+              setEditingWidgetId(null);
+            }}
+          >
+            Quick add{document?.quickAdd === "none" ? ": none" : Array.isArray(document?.quickAdd) ? ` (${document!.quickAdd.length})` : ""}
           </Button>
           <span className="dashboard-page__hint">Drag a widget by its title, resize it by its corner.</span>
         </div>
@@ -453,14 +633,57 @@ export function DashboardPage() {
           editing={editing}
           onLayoutChange={setLayout}
           renderItem={(widgetId) => {
-            const widget = widgets.find((w) => w.id === widgetId)!;
+            const own = widgets.find((w) => w.id === widgetId)!;
+            const options = editing ? [] : intervalOptions(own);
+            const widget = editing ? own : withInterval(own, intervals[own.id]);
+            const current = widget.data?.query?.groupBy?.find((g) => g.bucket)?.bucket;
             return (
               <article className={editingWidgetId === widget.id ? "widget-frame widget-frame--selected" : "widget-frame"} aria-label={widget.title || widget.type}>
                 <header className="widget-frame__header" data-drag-handle={editing ? "" : undefined}>
                   <h2 className="widget-frame__title">{widget.title}</h2>
+                  {options.length > 0 ? (
+                    <span
+                      className="widget-interval"
+                      role="group"
+                      aria-label={`${widget.title || "Chart"}: interval`}
+                      aria-busy={loadingWidgets.has(widget.id) || undefined}
+                    >
+                      {options.map((bucket) => {
+                        const busy = bucket === current && loadingWidgets.has(widget.id);
+                        return (
+                          <button
+                            key={bucket}
+                            type="button"
+                            className={busy ? "widget-interval__option widget-interval__option--busy" : "widget-interval__option"}
+                            aria-pressed={bucket === current}
+                            aria-label={INTERVAL_LABELS[bucket].long}
+                            title={busy ? `${INTERVAL_LABELS[bucket].long} — loading` : INTERVAL_LABELS[bucket].long}
+                            onClick={() => setSearchParams(intervalToSearch(own, bucket, searchParams), { replace: true })}
+                          >
+                            {INTERVAL_LABELS[bucket].short}
+                            {busy ? <span className="widget-interval__spinner" aria-hidden="true" /> : null}
+                          </button>
+                        );
+                      })}
+                    </span>
+                  ) : null}
+                  {!editing && aiEnabled && widget.type !== "text" ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="widget-explain"
+                      aria-label={`Explain ${widget.title || widget.type}`}
+                      aria-expanded={explaining?.title === (widget.title || WIDGET_LABELS[widget.type])}
+                      title="Explain this"
+                      onClick={() => openExplain(widget)}
+                    >
+                      <Icon name="sparkles" size={13} />
+                    </Button>
+                  ) : null}
                   {editing ? (
                     <span className="widget-frame__actions">
-                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); }}>
+                      <Button type="button" variant="ghost" size="sm" aria-label={`Configure ${widget.title || widget.type}`} onClick={() => { setEditingWidgetId(widget.id); setVariablesOpen(false); setAnnotationsOpen(false); setFiltersOpen(false); setQuickAddOpen(false); }}>
                         <Icon name="settings" size={13} />
                       </Button>
                       <Button
@@ -484,9 +707,12 @@ export function DashboardPage() {
                     range={resolved}
                     refreshToken={refreshToken}
                     tokens={tokens}
-                    variables={variableResults}
+                    variables={widgetVariables}
+                    variablesPending={widgetVariables === undefined && variables.length > 0}
                     annotations={annotations}
                     onDrill={editing ? undefined : openRows}
+                    onResult={(result) => widgetResults.current.set(widget.id, result)}
+                    onLoading={(loading) => setWidgetLoading(widget.id, loading)}
                   />
                 </div>
                 {editing ? <span className="widget-frame__resize" data-resize-handle="" aria-hidden="true" /> : null}
@@ -496,7 +722,15 @@ export function DashboardPage() {
         />
       )}
 
-      {editing && editingWidget ? (
+      {editing && editingWidget?.type === "budget" ? (
+        <BudgetEditor
+          widget={editingWidget}
+          tables={dataTables(tables)}
+          snapshot={snapshot}
+          onChange={setWidget}
+          onClose={() => setEditingWidgetId(null)}
+        />
+      ) : editing && editingWidget ? (
         <LensEditor
           widget={editingWidget}
           tables={tables}
@@ -507,6 +741,9 @@ export function DashboardPage() {
           range={resolved}
           refreshToken={refreshToken}
           tokens={tokens}
+          dashboardName={draft?.name ?? dashboard?.name}
+          otherWidgets={widgets.filter((w) => w.id !== editingWidget.id).map((w) => w.title).filter(Boolean)}
+          onDescribed={(sentence) => setDescribed((current) => [...current, sentence])}
           onChange={setWidget}
           onClose={() => setEditingWidgetId(null)}
         />
@@ -531,6 +768,34 @@ export function DashboardPage() {
           onClose={() => setFiltersOpen(false)}
         />
       ) : null}
+      {editing && quickAddOpen && document ? (
+        <QuickAddEditor
+          document={document}
+          forms={forms ?? []}
+          onChange={(quickAdd) => updateDocument((doc) => ({ ...doc, quickAdd }))}
+          onClose={() => setQuickAddOpen(false)}
+        />
+      ) : null}
+      {quickForm ? (
+        <Dialog open title={quickForm.name} onClose={() => setQuickForm(null)} panelClassName="form-dialog">
+          {snapshot?.tables.find((t) => t.name === quickForm.form.table) ? (
+            <FormFill
+              formKey={String(quickForm.id)}
+              form={quickForm.form}
+              table={snapshot.tables.find((t) => t.name === quickForm.form.table)!}
+              afterSave="close"
+              onSaved={() => {
+                setQuickForm(null);
+                refresh();
+              }}
+              onCancel={() => setQuickForm(null)}
+            />
+          ) : (
+            <Alert tone="error" message={`The table ${quickForm.form.table} no longer exists.`} />
+          )}
+        </Dialog>
+      ) : null}
+      {explaining ? <ExplainPanel key={JSON.stringify(explaining)} request={explaining} onClose={() => setExplaining(null)} /> : null}
       {editing && annotationsOpen ? (
         <AnnotationsEditor
           annotations={annotations}

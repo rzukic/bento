@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState, type DragEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import type { DashboardAnnotation, DashboardVariable, DashboardWidget, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
-import { listSavedQueries, type QueryResult, type SavedQuery } from "../../../api/query";
+import { listDashboards, type Dashboard } from "../../../api/dashboards";
+import type { ColumnDisplay, DashboardAnnotation, DashboardDateRange, DashboardVariable, DashboardWidget, DateRangePreset, ReferenceLine, TimeShift, WidgetDisplay, WidgetType } from "../../../api/dashboards";
+import { listSavedQueries, type QueryBucket, type QueryResult, type SavedQuery } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
 import { formatKindForType, formatNumber, toNumber } from "../../../lib/format";
 import type { ModelSnapshot, ModelTable } from "../../../types/api";
 import type { ChartTokens } from "../charts/chartOptions";
-import type { ResolvedRange } from "../dateRange";
+import { DATE_RANGE_PRESETS, type ResolvedRange } from "../dateRange";
 import { variableValues, type VariableResults } from "../formulaQueries";
 import { WIDGET_LABELS, dataTables, defaultQuery } from "../starter";
 import { useWidgetResult } from "../useWidgetResult";
@@ -38,6 +39,9 @@ import {
   type SlotId,
 } from "./model";
 import "./Lens.css";
+import { DescribeWidget } from "../../ai/DescribeWidget";
+import { ALL_INTERVALS, INTERVAL_LABELS, defaultIntervals, ownInterval } from "../interval";
+import { useAiEnabled } from "../../ai/useAiEnabled";
 
 const FIELD_DRAG = "application/x-bento-field";
 
@@ -73,6 +77,9 @@ export function LensEditor({
   range,
   refreshToken,
   tokens,
+  dashboardName,
+  otherWidgets = [],
+  onDescribed,
   onChange,
   onClose,
 }: {
@@ -86,9 +93,15 @@ export function LensEditor({
   range: ResolvedRange;
   refreshToken: number;
   tokens: ChartTokens;
+  dashboardName?: string;
+  /** The other widgets' titles, as context for the AI. */
+  otherWidgets?: string[];
+  /** The widget was built from a sentence (Step 4.9), for the dashboard's history. */
+  onDescribed?: (sentence: string) => void;
   onChange: (widget: DashboardWidget) => void;
   onClose: () => void;
 }) {
+  const aiEnabled = useAiEnabled();
   const [saved, setSaved] = useState<SavedQuery[]>([]);
   const [tab, setTab] = useState<"data" | "style">("data");
   const [editing, setEditing] = useState<Editing>(null);
@@ -252,6 +265,21 @@ export function LensEditor({
         </aside>
 
         <main className="lens__workspace" onDragOver={allowDrop} onDrop={drop()}>
+          {aiEnabled ? (
+            <DescribeWidget
+              widget={widget}
+              dashboard={dashboardName}
+              otherWidgets={otherWidgets}
+              range={range}
+              variables={variables}
+              values={values}
+              onApply={(next, sentence) => {
+                setEditing(null);
+                set(next);
+                if (sentence) onDescribed?.(sentence);
+              }}
+            />
+          ) : null}
           <div className={`lens__preview lens__preview--${widget.type}`} aria-label="Preview">
             <WidgetContent widget={widget} range={range} refreshToken={refreshToken} tokens={tokens} variables={variableResults} annotations={annotations} />
           </div>
@@ -557,7 +585,46 @@ function DataSettings({
           </select>
         </label>
       ) : null}
+      {!widget.data?.variable && widget.data?.dateColumn !== null ? <OwnRange widget={widget} onChange={onChange} /> : null}
     </div>
+  );
+}
+
+/** The widget's own date range (a forecast to 2045) instead of the dashboard's. */
+function OwnRange({ widget, onChange }: { widget: DashboardWidget; onChange: (widget: DashboardWidget) => void }) {
+  const own = widget.data?.range;
+  const set = (range: DashboardDateRange | undefined) => onChange({ ...widget, data: { ...widget.data, range } });
+  const today = new Date().toISOString().slice(0, 10);
+  return (
+    <>
+      <label className="lens-field" title="A widget with its own range ignores the dashboard's, e.g. a forecast over the next 20 years">
+        <span className="lens-field__label">Date range</span>
+        <select
+          className="field__control field__control--compact"
+          aria-label="Date range of this widget"
+          value={!own ? "" : "preset" in own ? own.preset : "custom"}
+          onChange={(event) => {
+            const value = event.target.value;
+            set(value === "" ? undefined : value === "custom" ? { from: today.slice(0, 8) + "01", to: `${Number(today.slice(0, 4)) + 10}-12-31` } : { preset: value as DateRangePreset });
+          }}
+        >
+          <option value="">The dashboard's</option>
+          {DATE_RANGE_PRESETS.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+          <option value="custom">From … to …</option>
+        </select>
+      </label>
+      {own && "from" in own ? (
+        <div className="lens-range">
+          <input className="field__control field__control--compact" type="date" aria-label="Widget range from" value={own.from} onChange={(event) => set({ ...own, from: event.target.value })} />
+          <span aria-hidden="true">–</span>
+          <input className="field__control field__control--compact" type="date" aria-label="Widget range to" value={own.to} onChange={(event) => set({ ...own, to: event.target.value })} />
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -695,6 +762,52 @@ function EditingPanel({
   );
 }
 
+/**
+ * Charts and summarized tables by date: whether viewers can switch the interval
+ * (M Q Y in the widget's header) and to which ones; the widget's own interval
+ * is always one of them.
+ */
+function IntervalSetting({ widget, setDisplay }: { widget: DashboardWidget; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const own = ownInterval(widget);
+  if (!own) return null;
+  const setting = widget.display?.intervals;
+  const on = setting !== false;
+  const chosen = setting === false ? defaultIntervals(own) : (setting ?? defaultIntervals(own));
+  const set = (next: QueryBucket[]) => {
+    const list = ALL_INTERVALS.filter((b) => b === own || next.includes(b));
+    const isDefault = list.length === defaultIntervals(own).length && list.every((b) => defaultIntervals(own).includes(b));
+    setDisplay({ intervals: isDefault ? undefined : list });
+  };
+  return (
+    <div className="lens-field">
+      <label className="lens-check" title="M Q Y in the widget's header: viewers change the interval without editing the widget">
+        <input type="checkbox" checked={on} onChange={(event) => setDisplay({ intervals: event.target.checked ? undefined : false })} />
+        Viewers can switch the interval
+      </label>
+      {on ? (
+        <div className="lens-intervals" role="group" aria-label="Intervals to switch between">
+          {ALL_INTERVALS.map((bucket) => {
+            const active = bucket === own || chosen.includes(bucket);
+            return (
+              <button
+                key={bucket}
+                type="button"
+                className="lens-intervals__option"
+                aria-pressed={active}
+                disabled={bucket === own}
+                title={bucket === own ? `${INTERVAL_LABELS[bucket].long} — the widget's own interval` : INTERVAL_LABELS[bucket].long}
+                onClick={() => set(active ? chosen.filter((b) => b !== bucket) : [...chosen, bucket])}
+              >
+                {INTERVAL_LABELS[bucket].long}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function StyleSettings({
   widget,
   table,
@@ -748,6 +861,21 @@ function StyleSettings({
           Colour by sign (green above 0, red below)
         </label>
       ) : null}
+      {widget.type === "donut" && table && (widget.data?.query?.groupBy ?? []).length === 1 ? (
+        <label className="lens-field" title="Clicking a slice shows its rows grouped by this column inside the donut, e.g. main category → category; a click there opens the rows">
+          <span className="lens-field__label">Drill into</span>
+          <select className="field__control field__control--compact" aria-label="Drill into" value={display.drill ?? ""} onChange={(event) => setDisplay({ drill: event.target.value || undefined })}>
+            <option value="">Nothing — a slice opens its rows</option>
+            {table.columns
+              .filter((c) => !c.primaryKey && c.name !== widget.data?.query?.groupBy?.[0]?.column && ["reference", "enum", "text", "computed"].includes(c.type))
+              .map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.displayName ?? c.name}
+                </option>
+              ))}
+          </select>
+        </label>
+      ) : null}
       {widget.type === "sankey" ? (
         <label className="lens-check" title="Labels show each node's share of the first column — for a cash flow, of the income">
           <input type="checkbox" checked={display.shares ?? false} onChange={(event) => setDisplay({ shares: event.target.checked || undefined })} />
@@ -760,7 +888,47 @@ function StyleSettings({
           Show annotations{annotationCount > 0 ? ` (${annotationCount})` : ""}
         </label>
       ) : null}
+      <IntervalSetting widget={widget} setDisplay={setDisplay} />
       {isChart ? <ReferenceLines lines={display.referenceLines ?? []} variables={variables} onChange={(referenceLines) => setDisplay({ referenceLines: referenceLines.length > 0 ? referenceLines : undefined })} /> : null}
+      {isChart ? (
+        <label className="lens-field" title="Prices and values over time read better near their data than squeezed above 0">
+          <span className="lens-field__label">Value axis starts at</span>
+          <div className="lens-goal">
+            <select
+              className="field__control field__control--compact"
+              aria-label="Value axis starts at"
+              value={display.yAxis?.min === undefined ? "" : typeof display.yAxis.min === "number" ? "number" : display.yAxis.min}
+              onChange={(event) => {
+                const value = event.target.value;
+                setDisplay({ yAxis: value === "" ? undefined : { min: value === "number" ? 0 : (value as "auto" | "zero") } });
+              }}
+            >
+              <option value="">Automatic (0)</option>
+              <option value="zero">0, always</option>
+              <option value="auto">Near the data</option>
+              <option value="number">A number</option>
+            </select>
+            {typeof display.yAxis?.min === "number" ? (
+              <input className="field__control field__control--compact" type="number" aria-label="Value axis minimum" value={display.yAxis.min} onChange={(event) => setDisplay({ yAxis: { min: Number(event.target.value) } })} />
+            ) : null}
+          </div>
+        </label>
+      ) : null}
+      {isChart && (widget.data?.query?.groupBy ?? []).some((g) => g.bucket) ? (
+        <label className="lens-field" title="Periods without a value — also those before the first one, e.g. a depot before the first purchase">
+          <span className="lens-field__label">Periods without a value</span>
+          <select
+            className="field__control field__control--compact"
+            aria-label="Periods without a value"
+            value={display.emptyPeriods ?? "zero"}
+            onChange={(event) => setDisplay({ emptyPeriods: event.target.value === "zero" ? undefined : (event.target.value as "gap" | "connect") })}
+          >
+            <option value="zero">Count as 0</option>
+            <option value="gap">Leave a gap (and start at the first value)</option>
+            <option value="connect">Connect the line (and start at the first value)</option>
+          </select>
+        </label>
+      ) : null}
       {widget.type === "kpi" ? (
         <>
           <label className="lens-check">
@@ -818,6 +986,8 @@ function StyleSettings({
           Total row
         </label>
       ) : null}
+      {widget.type === "table" ? <ColumnFormats widget={widget} table={table} setDisplay={setDisplay} /> : null}
+      {widget.type === "table" ? <RowLinkSetting widget={widget} table={table} setDisplay={setDisplay} /> : null}
       {rows ? (
         <>
           <label className="lens-field">
@@ -863,6 +1033,110 @@ function StyleSettings({
         </>
       ) : null}
     </div>
+  );
+}
+
+/** Tables: a click on a row opens another dashboard, filtered by the row's value of a column. */
+function RowLinkSetting({ widget, table, setDisplay }: { widget: DashboardWidget; table: ModelTable | undefined; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const [dashboards, setDashboards] = useState<Dashboard[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listDashboards()
+      .then((list) => !cancelled && setDashboards(list))
+      .catch(() => !cancelled && setDashboards([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const link = widget.display?.link;
+  const rows = widget.data?.rows;
+  const columns = rows ? rows.columns : (widget.data?.query?.groupBy ?? []).filter((g) => !g.bucket).map((g) => g.as ?? g.column);
+  if (columns.length === 0) return null;
+  const label = (name: string) => fieldsOf(table).find((f) => f.name === name)?.label ?? name;
+  return (
+    <label className="lens-field" title="E.g. a position opens the asset's dashboard for that security. The range goes along.">
+      <span className="lens-field__label">A click on a row opens</span>
+      <div className="lens-goal">
+        <select
+          className="field__control field__control--compact"
+          aria-label="Dashboard a row opens"
+          value={link?.dashboard ?? ""}
+          onChange={(event) => {
+            const id = Number(event.target.value);
+            setDisplay({ link: event.target.value ? { dashboard: id, column: link?.column ?? columns[0] } : undefined });
+          }}
+        >
+          <option value="">Nothing</option>
+          {(dashboards ?? []).map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+        {link ? (
+          <select
+            className="field__control field__control--compact"
+            aria-label="Filtered by the row's"
+            value={link.column}
+            onChange={(event) => setDisplay({ link: { ...link, column: event.target.value } })}
+          >
+            {columns.map((name) => (
+              <option key={name} value={name}>
+                by {label(name)}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </div>
+    </label>
+  );
+}
+
+/** Tables: how each number column is written — its own format, a + for gains, green and red by sign. */
+function ColumnFormats({ widget, table, setDisplay }: { widget: DashboardWidget; table: ModelTable | undefined; setDisplay: (patch: Partial<WidgetDisplay>) => void }) {
+  const rows = widget.data?.rows;
+  const numberTypes = ["integer", "float", "currency", "number"];
+  const names = rows
+    ? rows.columns.filter((name) => numberTypes.includes(fieldsOf(table).find((f) => f.name === name)?.type ?? ""))
+    : (widget.data?.query?.measures ?? []).map((m) => m.name);
+  if (names.length === 0) return null;
+  const columns = widget.display?.columns ?? {};
+  const update = (name: string, patch: Partial<ColumnDisplay>) => {
+    const next: ColumnDisplay = { ...columns[name], ...patch };
+    (Object.keys(next) as (keyof ColumnDisplay)[]).forEach((key) => (next[key] === undefined || next[key] === false || next[key] === "auto") && delete next[key]);
+    const all = { ...columns, [name]: next };
+    if (Object.keys(next).length === 0) delete all[name];
+    setDisplay({ columns: Object.keys(all).length > 0 ? all : undefined });
+  };
+  return (
+    <fieldset className="lens-columns">
+      <legend className="lens-field__label">Columns</legend>
+      {names.map((name) => {
+        const own = columns[name] ?? {};
+        const label = fieldsOf(table).find((f) => f.name === name)?.label ?? name;
+        return (
+          <div key={name} className="lens-columns__row">
+            <span className="lens-columns__name" title={name}>
+              {label}
+            </span>
+            <select className="field__control field__control--compact" aria-label={`Format of ${label}`} value={own.format ?? "auto"} onChange={(event) => update(name, { format: event.target.value as ColumnDisplay["format"] })}>
+              {FORMATS.map((f) => (
+                <option key={f.value} value={f.value}>
+                  {f.value === "auto" ? "As the table" : f.label}
+                </option>
+              ))}
+            </select>
+            <label className="lens-check" title="A + in front of positive values: +10 %">
+              <input type="checkbox" checked={own.signed ?? false} onChange={(event) => update(name, { signed: event.target.checked })} />+/−
+            </label>
+            <label className="lens-check" title="Green above 0, red below">
+              <input type="checkbox" aria-label={`Colour ${label} by sign`} checked={own.colorBySign ?? false} onChange={(event) => update(name, { colorBySign: event.target.checked })} />
+              Colour
+            </label>
+          </div>
+        );
+      })}
+    </fieldset>
   );
 }
 

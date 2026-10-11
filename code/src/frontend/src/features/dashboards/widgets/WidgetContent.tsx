@@ -1,21 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import type { DashboardAnnotation, DashboardWidget } from "../../../api/dashboards";
-import type { QueryResult, VariableValue } from "../../../api/query";
+import type { AggregationQuery, QueryResult, VariableValue } from "../../../api/query";
 import { Icon } from "../../../components/common/Icon";
 import { formatKindForType, formatNumber, toNumber, type NumberFormatKind } from "../../../lib/format";
 import { useAppStore } from "../../../stores/appStore";
 import { EChart, type ChartClick } from "../charts/EChart";
-import { buildChartOption, buildSankeyOption, formatBucketLabel, readChartTokens, type ChartTokens } from "../charts/chartOptions";
+import { buildChartOption, buildSankeyOption, formatBucketLabel, formatBucketTitle, readChartTokens, type ChartTokens } from "../charts/chartOptions";
 import { drillTarget, signFilter, type DrillTarget, type GroupPick } from "../drill";
 import { sankeyMode, toSankeyModel } from "../sankey";
-import type { ResolvedRange } from "../dateRange";
+import { rangeKey, resolveRange, type ResolvedRange } from "../dateRange";
 import { runnableQuery, variableValues, type VariableResults } from "../formulaQueries";
 import { kpiExtraQueries, useQueryRun, useRows } from "../useExtraQueries";
 import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
 import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
+import { valueTypeOf } from "../../../lib/columns";
 import { useSchemaStore } from "../../../stores/schemaStore";
+import { BudgetWidget } from "./BudgetWidget";
+import { INTERVAL_LABELS } from "../interval";
 
 /** Re-reads the chart colors whenever the light/dark theme changes. */
 export function useChartTokens(): ChartTokens {
@@ -38,14 +42,40 @@ function overrideFormat(widget: DashboardWidget): NumberFormatKind | undefined {
   return format && format !== "auto" ? format : undefined;
 }
 
+/**
+ * A table cell's number as its column is set to show it (display.columns):
+ * its own format, a + for positive values, green or red by sign.
+ */
+function numberCell(widget: DashboardWidget, column: string, value: number, fallback: NumberFormatKind): { text: string; className: string } {
+  const own = widget.display?.columns?.[column];
+  const kind = own?.format && own.format !== "auto" ? own.format : fallback;
+  const sign = own?.colorBySign && value !== 0 ? (value > 0 ? " widget-table__number--positive" : " widget-table__number--negative") : "";
+  return { text: formatNumber(value, kind, undefined, own?.signed ?? false), className: `widget-table__number${sign}` };
+}
+
+const LOADING_DELAY_MS = 150;
+
+/**
+ * "Column 'depot' not found …" for a formula naming a dashboard variable that
+ * could not be computed: say what is wrong with the variable instead.
+ */
+export function variableErrorFor(error: string | null, variables: VariableResults | undefined): string | null {
+  const name = error?.match(/Column '([^']+)' not found/)?.[1];
+  const variable = name ? variables?.[name] : undefined;
+  return variable?.error ? `The variable ${name} could not be computed: ${variable.error}` : null;
+}
+
 export function WidgetContent({
   widget,
-  range,
+  range: dashboardRange,
   refreshToken,
   tokens,
   variables,
   annotations,
   onDrill,
+  onResult,
+  onLoading,
+  variablesPending = false,
 }: {
   widget: DashboardWidget;
   range: ResolvedRange;
@@ -57,13 +87,52 @@ export function WidgetContent({
   annotations?: DashboardAnnotation[];
   /** Opens the rows behind a click (view mode only). */
   onDrill?: (target: DrillTarget) => void;
+  /** The rows the widget shows, for "Explain this" (Step 4.7). */
+  onResult?: (result: QueryResult | null) => void;
+  /** Whether numbers are on their way — first load or a refresh behind the shown ones (for the interval switch's spinner). */
+  onLoading?: (loading: boolean) => void;
+  /** The dashboard is still computing its variables; widgets with formulas wait for them. */
+  variablesPending?: boolean;
 }) {
   const values = useMemo(() => variableValues(variables), [variables]);
-  const state = useWidgetResult(widget, range, refreshToken, values);
+  // A widget with its own range (a forecast to 2045) ignores the dashboard's; the dashboard's filters still apply.
+  const ownRange = widget.data?.range;
+  const ownRangeKey = ownRange ? rangeKey(ownRange) : null;
+  const range = useMemo(
+    () => (ownRange ? { ...resolveRange(ownRange), filters: dashboardRange.filters } : dashboardRange),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [ownRangeKey, dashboardRange],
+  );
+  // Step 4.5: a donut with "drill into" shows the clicked slice's next level inside itself.
+  const [level, setLevel] = useState<{ value: unknown; label: string } | null>(null);
+  const shown = useMemo(() => (level ? drilledWidget(widget, level.value) : widget), [widget, level]);
+  // Formulas may use the dashboard's variables: while those are computed, wait for them.
+  const usesFormulas = (shown.data?.query?.measures ?? []).some((m) => m.formula);
+  const state = useWidgetResult(shown, range, refreshToken, values, !(variablesPending && usesFormulas));
+  useEffect(() => {
+    onResult?.(state.result);
+  }, [onResult, state.result]);
+  const loading = state.status === "loading" || state.refreshing;
+  useEffect(() => {
+    if (!loading) {
+      onLoading?.(false);
+      return;
+    }
+    // Only a load that takes a moment shows: a quick one would just flicker.
+    const timer = window.setTimeout(() => onLoading?.(true), LOADING_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [onLoading, loading]);
 
   if (widget.type === "text") return <TextWidget text={widget.display?.text ?? ""} />;
   if (widget.type === "kpi" && widget.data?.variable) {
     return <VariableKpi widget={widget} name={widget.data.variable} variables={variables} />;
+  }
+  if (widget.type === "budget") {
+    return widget.data?.budget ? (
+      <BudgetWidget config={widget.data.budget} range={range} refreshToken={refreshToken} onDrill={onDrill} />
+    ) : (
+      <p className="widget-note">Choose the spending table and the limits in the widget's settings.</p>
+    );
   }
   if (widget.type === "table" && widget.data?.rows) {
     return <RowsTable widget={widget} range={range} refreshToken={refreshToken} />;
@@ -74,7 +143,7 @@ export function WidgetContent({
   if (state.status === "error") {
     return (
       <p className="widget-note widget-note--error" role="alert">
-        <Icon name="activity" size={13} /> {state.error}
+        <Icon name="activity" size={13} /> {variableErrorFor(state.error, variables) ?? state.error}
       </p>
     );
   }
@@ -95,10 +164,42 @@ export function WidgetContent({
         />
       );
     case "table":
-      return <TableWidget result={state.result} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
+      return <TableWidget result={state.result} query={state.query} widget={widget} range={range} refreshToken={refreshToken} values={values} />;
     case "sankey":
       return <SankeyWidget widget={widget} result={state.result} query={state.query} range={range} tokens={tokens} onDrill={onDrill} />;
     default:
+      if (widget.type === "donut" && widget.display?.drill) {
+        return (
+          <div className="widget-drill">
+            <nav className="widget-drill__path" aria-label="Level">
+              {level ? (
+                <>
+                  <button type="button" className="widget-drill__up" onClick={() => setLevel(null)}>
+                    All
+                  </button>
+                  <span aria-hidden="true">›</span>
+                  <span aria-current="true">{level.label}</span>
+                </>
+              ) : (
+                <span className="widget-drill__hint">Click a slice to see what is in it</span>
+              )}
+            </nav>
+            <ChartWidget
+              onDrill={onDrill}
+              onDrillDown={level ? undefined : (value, label) => setLevel({ value, label })}
+              widget={shown}
+              result={state.result}
+              query={state.query}
+              range={range}
+              tokens={tokens}
+              refreshToken={refreshToken}
+              values={values}
+              annotations={annotations}
+              stale={state.refreshing && state.forRange !== JSON.stringify([range.from, range.to])}
+            />
+          </div>
+        );
+      }
       return (
         <ChartWidget
           onDrill={onDrill}
@@ -110,6 +211,7 @@ export function WidgetContent({
           refreshToken={refreshToken}
           values={values}
           annotations={annotations}
+          stale={state.refreshing && state.forRange !== JSON.stringify([range.from, range.to])}
         />
       );
   }
@@ -125,6 +227,8 @@ function ChartWidget({
   values,
   annotations,
   onDrill,
+  onDrillDown,
+  stale = false,
 }: {
   widget: DashboardWidget;
   result: QueryResult;
@@ -135,6 +239,10 @@ function ChartWidget({
   values: Record<string, VariableValue>;
   annotations?: DashboardAnnotation[];
   onDrill?: (target: DrillTarget) => void;
+  /** Donuts with "drill into": a slice opens its next level instead of its rows. */
+  onDrillDown?: (value: unknown, label: string) => void;
+  /** A new result is loading (1y → 3y): periods the shown one does not cover stay empty, not 0. */
+  stale?: boolean;
 }) {
   const display = widget.display;
   const stacked = display?.stacked ?? false;
@@ -152,13 +260,14 @@ function ChartWidget({
   const model = useMemo(() => {
     const format = overrideFormat(widget);
     const measures = query?.measures ?? [];
-    let next = withMeasureColors(applyMeasureShows(toChartModel(result, query ?? undefined, range, format), measures, hasBreakdown), measures, hasBreakdown);
+    const empty = { emptyPeriods: display?.emptyPeriods, stale };
+    let next = withMeasureColors(applyMeasureShows(toChartModel(result, query ?? undefined, range, format, undefined, empty), measures, hasBreakdown), measures, hasBreakdown);
     if (shift && earlier && shiftedResult) {
-      next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format), measures, false), shift);
+      next = withShifted(next, applyMeasureShows(toChartModel(shiftedResult, query ?? undefined, earlier, format, undefined, empty), measures, false), shift);
     }
     if (stacked && display?.totalLine) next = withTotal(next);
     return next;
-  }, [result, query, range, widget, shift, earlier, shiftedResult, stacked, hasBreakdown, display?.totalLine]);
+  }, [result, query, range, widget, shift, earlier, shiftedResult, stacked, hasBreakdown, display?.totalLine, display?.emptyPeriods, stale]);
 
   // The series under the pointer, read by the tooltip when it renders.
   const hovered = useRef<number | null>(null);
@@ -176,8 +285,10 @@ function ChartWidget({
         referenceLines,
         colorBySign: display?.colorBySign ?? false,
         annotations: placed,
+        yMin: display?.yAxis?.min,
+        connectNulls: display?.emptyPeriods === "connect",
       }),
-    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign, placed],
+    [widget.type, stacked, model, tokens, referenceLines, display?.colorBySign, placed, display?.yAxis?.min, display?.emptyPeriods],
   );
   const onHoverSeries = useCallback((index: number | null) => {
     hovered.current = index;
@@ -185,7 +296,12 @@ function ChartWidget({
   // A bar, point or slice opens its rows: the period or category, and the breakdown's value.
   const onItemClick = useCallback(
     (click: ChartClick) => {
-      if (!onDrill || click.componentType !== "series") return;
+      if (click.componentType !== "series") return;
+      if (widget.type === "donut" && onDrillDown) {
+        const pick = model.categoryPicks?.[model.categories.indexOf(String(click.name))];
+        if (pick && !pick.other) return onDrillDown(pick.value, String(click.name));
+      }
+      if (!onDrill) return;
       let picks: (GroupPick | null | undefined)[];
       if (widget.type === "donut") {
         picks = [model.categoryPicks?.[model.categories.indexOf(String(click.name))]];
@@ -198,10 +314,10 @@ function ChartWidget({
       const target = drillTarget(query, widget.data, range, picks.filter((p): p is GroupPick => Boolean(p)));
       if (target) onDrill(target);
     },
-    [onDrill, widget.type, widget.data, model, query, range],
+    [onDrill, onDrillDown, widget.type, widget.data, model, query, range],
   );
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill ? onItemClick : undefined} />;
+  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill || onDrillDown ? onItemClick : undefined} />;
 }
 
 function SankeyWidget({
@@ -391,7 +507,8 @@ function VariableKpi({ widget, name, variables }: { widget: DashboardWidget; nam
       <span className={number !== null && number < 0 && format === "currency" ? "widget-kpi__value widget-kpi__value--negative" : "widget-kpi__value"}>
         {number !== null ? formatNumber(number, format) : result.value === null ? "—" : String(result.value)}
       </span>
-      <span className="widget-kpi__since">{name}</span>
+      {/* The variable's label, not its formula name (plan_net); the card's title says the rest. */}
+      {result.label ? <span className="widget-kpi__since">{result.label}</span> : null}
     </div>
   );
 }
@@ -405,12 +522,15 @@ function previousLabel(result: QueryResult): string | null {
 
 function TableWidget({
   result,
+  query: shownQuery,
   widget,
   range,
   refreshToken,
   values,
 }: {
   result: QueryResult;
+  /** The query behind the shown result — while another interval loads, still the previous one. */
+  query: AggregationQuery | null;
   widget: DashboardWidget;
   range: ResolvedRange;
   refreshToken: number;
@@ -429,10 +549,15 @@ function TableWidget({
   const labelled = new Set(result.meta.columns.filter((c) => c.role === "label").map((c) => c.labelOf));
   const columns = result.meta.columns.filter((c) => c.role !== "other" && !(c.role === "group" && labelled.has(c.name)));
   if (result.data.length === 0) return <p className="widget-note">No data in this range.</p>;
+  // The date group reads as periods ("September 2026", "Q3 2026"), headed by its interval.
+  // Label the periods by the query that produced these rows, not by an interval still loading.
+  const dateGroup = (shownQuery ?? widget.data?.query)?.groupBy?.find((g) => g.bucket);
+  const dateKey = dateGroup ? (dateGroup.as ?? dateGroup.column) : null;
   const cell = (row: QueryResult["data"][number], column: QueryResult["meta"]["columns"][number]) => {
     const value = row[column.name];
+    if (dateGroup?.bucket && column.name === dateKey && typeof value === "string") return formatBucketTitle(value.slice(0, 10), dateGroup.bucket);
     const number = column.role === "measure" ? toNumber(value) : null;
-    if (number !== null) return formatNumber(number, format ?? formatKindForType(column.type));
+    if (number !== null) return numberCell(widget, column.name, number, format ?? formatKindForType(column.type)).text;
     const group = column.role === "label" ? column.labelOf! : column.name;
     if (column.role === "group" || column.role === "label") {
       const shown = labelOf(row, group, column.role === "label" ? column.name : undefined, otherKeyOf(result, group));
@@ -447,20 +572,25 @@ function TableWidget({
           <tr>
             {columns.map((column) => (
               <th key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                {column.role === "label" ? column.labelOf : column.name}
+                {dateGroup?.bucket && column.name === dateKey ? INTERVAL_LABELS[dateGroup.bucket].long : column.role === "label" ? column.labelOf : column.name}
               </th>
             ))}
           </tr>
         </thead>
         <tbody>
           {result.data.map((row, index) => (
-            <tr key={index}>
-              {columns.map((column) => (
-                <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                  {cell(row, column)}
-                </td>
-              ))}
-            </tr>
+            <TableRow key={index} widget={widget} value={linkValue(widget, row, otherKeyOf(result, widget.display?.link?.column ?? ""))}>
+              {columns.map((column) => {
+                const number = column.role === "measure" ? toNumber(row[column.name]) : null;
+                const className =
+                  number !== null ? numberCell(widget, column.name, number, format ?? formatKindForType(column.type)).className : column.role === "measure" ? "widget-table__number" : undefined;
+                return (
+                  <td key={column.name} className={className}>
+                    {cell(row, column)}
+                  </td>
+                );
+              })}
+            </TableRow>
           ))}
         </tbody>
         {total && total.data[0] ? (
@@ -468,9 +598,10 @@ function TableWidget({
             <tr>
               {columns.map((column, index) => {
                 const number = column.role === "measure" ? toNumber(total.data[0][column.name]) : null;
+                const shown = number !== null ? numberCell(widget, column.name, number, format ?? formatKindForType(column.type)) : null;
                 return (
-                  <td key={column.name} className={column.role === "measure" ? "widget-table__number" : undefined}>
-                    {number !== null ? formatNumber(number, format ?? formatKindForType(column.type)) : index === 0 ? "Total" : ""}
+                  <td key={column.name} className={shown?.className ?? (column.role === "measure" ? "widget-table__number" : undefined)}>
+                    {shown ? shown.text : index === 0 ? "Total" : ""}
                   </td>
                 );
               })}
@@ -509,11 +640,18 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
         </thead>
         <tbody>
           {state.rows.map((row, index) => (
-            <tr key={index}>
-              {columns.map((column) => (
-                <td key={column.name}>{renderCellValue(column, row[column.name])}</td>
-              ))}
-            </tr>
+            <TableRow key={index} widget={widget} value={linkValue(widget, row)}>
+              {columns.map((column) => {
+                // A column set to a format (display.columns) writes its number that way; others as in the data view.
+                const number = widget.display?.columns?.[column.name] ? toNumber(row[column.name]) : null;
+                const shown = number !== null ? numberCell(widget, column.name, number, formatKindForType(valueTypeOf(column))) : null;
+                return (
+                  <td key={column.name} className={shown?.className}>
+                    {shown ? shown.text : renderCellValue(column, row[column.name])}
+                  </td>
+                );
+              })}
+            </TableRow>
           ))}
         </tbody>
       </table>
@@ -523,6 +661,53 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** The value a row passes to the linked dashboard (display.link); none for "Other" and empty values. */
+function linkValue(widget: DashboardWidget, row: Record<string, unknown>, otherKey?: string): string | null {
+  const column = widget.display?.link?.column;
+  if (!column || (otherKey && row[otherKey] === true)) return null;
+  const value = row[column];
+  return value === null || value === undefined || value === "" ? null : String(value);
+}
+
+/** A table row; with display.link, a click (or Enter) opens the other dashboard filtered by the row's value. */
+function TableRow({ widget, value, children }: { widget: DashboardWidget; value: string | null; children: ReactNode }) {
+  const link = widget.display?.link;
+  if (!link || value === null) return <tr>{children}</tr>;
+  return (
+    <LinkedRow dashboard={link.dashboard} filter={link.filter || link.column} value={value}>
+      {children}
+    </LinkedRow>
+  );
+}
+
+/** Kept apart so tables without a link need no router. The dashboard's range goes along. */
+function LinkedRow({ dashboard, filter, value, children }: { dashboard: number; filter: string; value: string; children: ReactNode }) {
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const open = () => {
+    const next = new URLSearchParams();
+    for (const key of ["range", "from", "to"]) {
+      const kept = params.get(key);
+      if (kept) next.set(key, kept);
+    }
+    next.set(`filter.${filter}`, value);
+    navigate(`/dashboards/${dashboard}?${next.toString()}`);
+  };
+  return (
+    <tr
+      className="widget-table__link"
+      tabIndex={0}
+      title="Open in the linked dashboard"
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") open();
+      }}
+    >
+      {children}
+    </tr>
   );
 }
 
@@ -555,4 +740,22 @@ function TextWidget({ text }: { text: string }) {
   }
   flush();
   return <div className="widget-text">{blocks.length > 0 ? blocks : <p className="widget-note">Add some text.</p>}</div>;
+}
+
+/**
+ * A donut one level down (Step 4.5): the rows of the clicked slice, grouped
+ * by the "drill into" column — e.g. the subcategories of "Food".
+ */
+export function drilledWidget(widget: DashboardWidget, value: unknown): DashboardWidget {
+  const query = widget.data?.query;
+  const first = query?.groupBy?.[0];
+  const drill = widget.display?.drill;
+  if (!query || !first || !drill) return widget;
+  return {
+    ...widget,
+    data: {
+      ...widget.data,
+      query: { ...query, filter: { ...query.filter, [first.column]: value === undefined || value === "" ? null : value }, groupBy: [{ ...first, column: drill, as: undefined }] },
+    },
+  };
 }

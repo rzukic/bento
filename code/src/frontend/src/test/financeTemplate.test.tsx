@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DashboardDocument } from "../api/dashboards";
 import type { ModelTable, SchemaModelDocument } from "../types/api";
 import {
+  ensureCostFunction,
   exampleRows,
   financeCashFlow,
   financeConflicts,
@@ -20,9 +21,31 @@ import {
 const schemaApi = vi.hoisted(() => ({ getCanonicalSchemaSnapshot: vi.fn(), previewSchemaDraft: vi.fn(), applySchemaDraft: vi.fn() }));
 const dashboardsApi = vi.hoisted(() => ({ createDashboard: vi.fn() }));
 const dataApi = vi.hoisted(() => ({ createRow: vi.fn() }));
+const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn(), listFunctionTemplates: vi.fn(), createFunction: vi.fn() }));
+const formsApi = vi.hoisted(() => ({ createForm: vi.fn(), listForms: vi.fn() }));
 vi.mock("../api/schema", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/schema")>()), ...schemaApi }));
 vi.mock("../api/dashboards", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/dashboards")>()), ...dashboardsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
+vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
+vi.mock("../api/forms", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/forms")>()), ...formsApi }));
+
+const avgCostTemplate = {
+  id: "avg-cost",
+  title: "Realised gains by average cost",
+  description: "By average cost",
+  name: "avg_cost",
+  arguments: [
+    { name: "shares", type: "float" as const },
+    { name: "price", type: "float" as const },
+    { name: "fees", type: "float" as const },
+    { name: "what", type: "text" as const },
+  ],
+  resultType: "float" as const,
+  code: "return shares;",
+  allowedHosts: [],
+  credentials: [],
+  mode: "rows" as const,
+};
 
 afterEach(() => {
   cleanup();
@@ -59,6 +82,7 @@ describe("finance template", () => {
     expect(draft.relations.slice(1).map((r) => [r.from, r.to, r.column])).toEqual([
       ["finance_accounts", "finance_transactions", "account_id"],
       ["finance_categories", "finance_transactions", "category_id"],
+      ["finance_categories", "finance_categories", "parent_id"],
       ["finance_accounts", "finance_trades", "account_id"],
       ["finance_accounts", "finance_dividends", "account_id"],
     ]);
@@ -122,6 +146,11 @@ describe("finance template", () => {
     schemaApi.previewSchemaDraft.mockResolvedValue({ isValid: true, errors: [] });
     schemaApi.applySchemaDraft.mockResolvedValue({});
     dataApi.createRow.mockImplementation(async (_t: string, row: Record<string, unknown>) => ({ ...row, id: 1 }));
+    functionsApi.listFunctions.mockResolvedValue([]);
+    functionsApi.listFunctionTemplates.mockResolvedValue([avgCostTemplate]);
+    functionsApi.createFunction.mockResolvedValue({});
+    formsApi.createForm.mockResolvedValue({ id: 3 });
+    formsApi.listForms.mockResolvedValue([]);
     dashboardsApi.createDashboard.mockImplementation(async (name: string, document: DashboardDocument) => ({ id: name === "Wealth" ? 9 : 8, name, dashboard: document }));
     const applied = withFinanceTables(existing, financeNames("finance_"));
     useSchemaStore.setState({ load: vi.fn(async () => applied as never) });
@@ -140,6 +169,22 @@ describe("finance template", () => {
     expect(schemaApi.applySchemaDraft).toHaveBeenCalledWith(applied);
     await waitFor(() => expect(dashboardsApi.createDashboard.mock.calls.map(([name]) => name)).toEqual(["Cash flow", "Wealth"]));
     expect(dataApi.createRow).toHaveBeenCalledWith("finance_accounts", expect.objectContaining({ name: "Checking" }));
+    // The function the trades' realised gains call is created before the tables are checked.
+    expect(functionsApi.createFunction).toHaveBeenCalledWith(expect.objectContaining({ name: "avg_cost", mode: "rows", code: "return shares;" }));
+    expect(functionsApi.createFunction.mock.invocationCallOrder[0]).toBeLessThan(schemaApi.previewSchemaDraft.mock.invocationCallOrder[0]);
+    // Quick entry: a shared, pinned form for the new transactions.
+    expect(formsApi.createForm).toHaveBeenCalledWith("Add transaction", expect.objectContaining({ table: "finance_transactions", pinned: true }), true);
+  });
+
+  it("uses an existing avg_cost over rows and refuses one that is not", async () => {
+    const create = vi.fn();
+    const templates = vi.fn(async () => [avgCostTemplate]);
+    const existing = { ...avgCostTemplate, version: 1, createdAt: "", updatedAt: "", usedBy: [], usableInFormulas: true, description: null };
+    await ensureCostFunction({ list: async () => [existing], templates, create });
+    expect(create).not.toHaveBeenCalled();
+    await expect(ensureCostFunction({ list: async () => [{ ...existing, mode: "row" }], templates, create })).rejects.toThrow(
+      "A function named avg_cost exists already and does not run over a group of rows; rename it under Functions first.",
+    );
   });
 });
 
@@ -150,6 +195,40 @@ describe("cash-flow starter", () => {
     expect(pickColumns(transactions).category?.name).toBe("category_id");
     const cashFlow = financeCashFlow(transactions);
     expect(cashFlow.widgets.find((w) => w.id === "money-flow")?.data?.query?.groupBy?.[0].column).toBe("category_id");
-    expect(cashFlow.widgets.find((w) => w.id === "spending-by-category")?.title).toBe("Spending by Category");
+    // Step 4.5: spending by main category, a slice opens its categories; budgets of this month.
+    const spending = cashFlow.widgets.find((w) => w.id === "spending-by-category");
+    expect(spending?.title).toBe("Spending by category");
+    expect(spending?.data?.query?.groupBy).toEqual([{ column: "main_category" }]);
+    expect(spending?.display?.drill).toBe("category_id");
+    expect(cashFlow.widgets.find((w) => w.type === "budget")?.data?.budget).toEqual({
+      source: "transactions",
+      amount: "amount",
+      date: "date",
+      category: "category_id",
+      limit: "budget",
+      expenses: "negative",
+      period: "month",
+    });
+    const overlaps = cashFlow.widgets.flatMap((a, i) =>
+      cashFlow.widgets.slice(i + 1).filter((b) => a.position.x < b.position.x + b.position.w && b.position.x < a.position.x + a.position.w && a.position.y < b.position.y + b.position.h && b.position.y < a.position.y + a.position.h).map((b) => `${a.id}/${b.id}`),
+    );
+    expect(overlaps).toEqual([]);
+  });
+
+  it("seeds subcategories after their parent, with budgets, and this month's groceries", async () => {
+    const created: [string, Record<string, unknown>][] = [];
+    let next = 1;
+    await seedExamples(financeNames(""), async (table, row) => {
+      created.push([table, row]);
+      return { ...row, id: next++ };
+    });
+    const categories = created.filter(([t]) => t === "categories").map(([, row]) => row);
+    // Ids count up: two accounts (1, 2), then the categories from 3 in their order.
+    const food = 3 + categories.findIndex((c) => c.name === "Food");
+    expect(categories.find((c) => c.name === "Groceries")).toMatchObject({ budget: 250, parent_id: food });
+    expect(categories.findIndex((c) => c.name === "Food")).toBeLessThan(categories.findIndex((c) => c.name === "Groceries"));
+    const now = new Date();
+    const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+    expect(created.filter(([t, r]) => t === "transactions" && String(r.date).startsWith(thisMonth)).map(([, r]) => r.amount)).toEqual([-205]);
   });
 });

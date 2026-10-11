@@ -12,6 +12,7 @@ import type { SchemaModelDocument } from "../../types/api";
 import { FormulaEditor } from "./FormulaEditor";
 import { describeFormulaType, formulaLinks, usableColumns } from "./formulaLanguage";
 import "./Formulas.css";
+import { DescribeFormula } from "../ai/DescribeFormula";
 
 type FormulaFieldProps = {
   /** The table the formula belongs to. */
@@ -117,6 +118,7 @@ export function FormulaField({ table, column, model, value, onChange, previewRow
         links={links}
         errors={errors}
       />
+      <DescribeFormula table={table} kind="column" current={value} onFormula={onChange} />
       <FormulaStatus check={check} hasColumns={usable.length > 0} />
       {check.status === "done" && check.preview && check.preview.rows.length > 0 ? (
         <FormulaPreviewTable

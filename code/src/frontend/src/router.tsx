@@ -3,20 +3,24 @@ import { createBrowserRouter, createMemoryRouter, type RouteObject } from "react
 import { App } from "./App";
 import { RequireAuth } from "./components/auth/RequireAuth";
 import { ShellLayout } from "./components/layout/ShellLayout";
-import { DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
+import { CategorisePage, DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
-import { AiPage } from "./routes/AiPage";
 import { Spinner } from "./components/ui/Spinner";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
 const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
 const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
+const FunctionsPage = lazy(() => import("./features/functions/FunctionsPage").then((m) => ({ default: m.FunctionsPage })));
 const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
+const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormsPage })));
+const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
+const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
+const AiPage = lazy(() => import("./features/ai/AiPage").then((m) => ({ default: m.AiPage })));
+const OAuthConsentPage = lazy(() => import("./features/connections/OAuthConsentPage").then((m) => ({ default: m.OAuthConsentPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
   return <Suspense fallback={<Spinner label="Loading" />}>{children}</Suspense>;
 }
-import { FormsPage } from "./routes/FormsPage";
 import { HomePage } from "./routes/HomePage";
 import { LoginPage } from "./routes/LoginPage";
 import { ModelPage } from "./routes/ModelPage";
@@ -83,6 +87,15 @@ const shellRoutes: RouteObject[] = [
     } satisfies AppRouteHandle
   },
   {
+    path: "data/:tableId/categorise",
+    element: <CategorisePage />,
+    handle: {
+      title: ({ tableId }) => `Categorise ${tableId ?? "table"}`,
+      hidePageHeader: true,
+      breadcrumbParent: { label: "Data Explorer", to: "/data" }
+    } satisfies AppRouteHandle
+  },
+  {
     path: "model",
     element: <ModelPage />,
     handle: {
@@ -121,6 +134,20 @@ const shellRoutes: RouteObject[] = [
     } satisfies AppRouteHandle
   },
   {
+    path: "functions",
+    element: (
+      <Lazy>
+        <FunctionsPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Functions",
+      hidePageHeader: true,
+      navLabel: "Functions",
+      navGroup: "Workspace"
+    } satisfies AppRouteHandle
+  },
+  {
     path: "connections",
     element: (
       <Lazy>
@@ -136,20 +163,57 @@ const shellRoutes: RouteObject[] = [
   },
   {
     path: "forms",
-    element: <FormsPage />,
+    element: (
+      <Lazy>
+        <FormsPage />
+      </Lazy>
+    ),
     handle: {
       title: "Forms",
+      hidePageHeader: true,
       navLabel: "Forms",
-      navGroup: "Coming soon"
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {
+    path: "forms/new",
+    element: (
+      <Lazy>
+        <FormBuilder />
+      </Lazy>
+    ),
+    handle: { title: "New form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
+  },
+  {
+    path: "forms/:formId",
+    element: (
+      <Lazy>
+        <FormPage />
+      </Lazy>
+    ),
+    handle: { title: "Form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
+  },
+  {
+    path: "forms/:formId/edit",
+    element: (
+      <Lazy>
+        <FormBuilder />
+      </Lazy>
+    ),
+    handle: { title: "Edit form", hidePageHeader: true, breadcrumbParent: { label: "Forms", to: "/forms" } } satisfies AppRouteHandle
+  },
+  {
     path: "ai",
-    element: <AiPage />,
+    element: (
+      <Lazy>
+        <AiPage />
+      </Lazy>
+    ),
     handle: {
-      title: "AI Assistant",
+      title: "AI",
+      hidePageHeader: true,
       navLabel: "AI",
-      navGroup: "Coming soon"
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {
@@ -191,6 +255,16 @@ export const appRoutes: RouteObject[] = [
           {
             element: <RequireAuth />,
             children: [
+              {
+                // An MCP client (Claude) asks to connect; full-screen like the login.
+                path: "oauth/authorize",
+                element: (
+                  <Lazy>
+                    <OAuthConsentPage />
+                  </Lazy>
+                ),
+                handle: { title: "Connect an app" } satisfies AppRouteHandle
+              },
               {
                 element: <ShellLayout />,
                 children: shellRoutes

@@ -71,6 +71,19 @@ See [Schema Designer](schema-designer.md) for the designer walkthrough.
 docker compose -f code/docker-compose.yml -f code/docker-compose.postgres.yml --env-file code/.env up -d --build
 ```
 
+### On Coolify
+
+`code/docker-compose.coolify.yml` runs the whole stack with Postgres on a [Coolify](https://coolify.io) server, which provides HTTPS and redeploys on every push:
+
+1. **New resource** → your Git repository (private repositories through Coolify's GitHub App), branch e.g. `dev` or `main`.
+2. **Build pack** *Docker Compose*, **Base directory** `/code`, **Docker Compose file** `/docker-compose.coolify.yml`.
+3. Set the domain on the **proxy** service (`https://bento.example.com`) and point its DNS record (A or CNAME) at the server.
+4. **Deploy**, open the domain and finish the setup wizard.
+
+Coolify generates the Postgres passwords and the JWT secret on the first deploy and keeps them. The data lives in named volumes, so redeploys and updates keep it; with automatic deploys on, each push to the branch updates Bento. Before the backend starts, the one-shot `postgres-init` service re-applies the database roles on every deploy.
+
+The server must accept inbound traffic on ports **80 and 443**: Let's Encrypt checks port 80 before it issues the certificate, and GitHub only delivers push webhooks (automatic deploys) to a dashboard with a valid certificate.
+
 ### Stopping
 
 ```bash
@@ -245,3 +258,9 @@ Try these checks first:
 5. For Postgres, confirm you replaced the placeholder passwords in `code/.env`
 
 For a deeper technical validation path, see [../backend/packaged-mvp1-validation.md](../backend/packaged-mvp1-validation.md).
+
+## Numbers, Dates And Currency
+
+Bento writes numbers, dates and amounts the way your browser's language does, e.g. `-1.250,00 €` in German and `-€1,250.00` in English.
+- **Settings → Appearance → Numbers and dates** picks another way for this browser.
+- Admins set the default for everyone under **Settings → Workspace**: the language and region, e.g. Deutsch (Österreich), and the currency of amounts.

@@ -16,6 +16,9 @@ export type SetupStatus = {
   /** Whether the one-time demo workspace can still be loaded. */
   sample_data_available: boolean;
   version: string;
+  /** How the workspace writes numbers and dates (null: each browser's language) and the currency of amounts. */
+  locale?: string | null;
+  currency?: string;
 };
 
 /** Mirrors `SampleDataResponse`: summary returned after the demo workspace was loaded. */

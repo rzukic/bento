@@ -10,8 +10,12 @@ namespace Bento.Api.Formula;
 
 /// <summary>A computed column compiled for queries on its table (alias = the quoted table name).</summary>
 /// <param name="Error">Set when the stored formula does not check; the value is then empty.</param>
-public sealed record ComputedColumn(ColumnDef Column, string Sql, FormulaType Type, string? Error)
+/// <param name="Custom">A CUSTOM(…) column (Step 4.1): <see cref="Sql"/> reads the stored value; the arguments feed the recalculation.</param>
+public sealed record ComputedColumn(ColumnDef Column, string Sql, FormulaType Type, string? Error, CustomCall? Custom = null)
 {
+    /// <summary>The searches per row the formula makes (related rows, LOOKUP_ASOF).</summary>
+    public IReadOnlyList<IndexTarget> Indexes { get; init; } = [];
+
     /// <summary>The column type the value behaves like (formatting, filters, aggregation).</summary>
     public ColumnType ValueType => FormulaTypes.ToColumnType(Type);
 }
@@ -19,7 +23,9 @@ public sealed record ComputedColumn(ColumnDef Column, string Sql, FormulaType Ty
 /// <summary>
 /// Computed columns (Step 3.5) as SQL for every query that reads a table:
 /// the list, a single row, related rows, filters, sorts and aggregation
-/// queries. Always live — nothing is stored. Compiled once per schema version.
+/// queries. Always live — nothing is stored — except CUSTOM(…) columns, whose
+/// values the background recalculation stores (Tier 3). Compiled once per
+/// schema version and custom function change.
 /// </summary>
 public sealed class ComputedColumns
 {
@@ -28,8 +34,10 @@ public sealed class ComputedColumns
 
     private readonly SchemaCache _schemaCache;
     private readonly DatabaseConfig _dbConfig;
+    private readonly ICustomFunctionCatalog _functions;
     private readonly ILogger<ComputedColumns>? _logger;
-    private readonly ConditionalWeakTable<ModelJson, Compiled> _compiled = new();
+    private ConditionalWeakTable<ModelJson, Compiled> _compiled = new();
+    private long _functionsVersion = -1;
 
     private sealed class Compiled(ModelJson model)
     {
@@ -37,12 +45,15 @@ public sealed class ComputedColumns
         public ConcurrentDictionary<string, IReadOnlyDictionary<string, ComputedColumn>> Tables { get; } = new(StringComparer.OrdinalIgnoreCase);
     }
 
-    public ComputedColumns(SchemaCache schemaCache, DatabaseConfig dbConfig, ILogger<ComputedColumns>? logger = null)
+    public ComputedColumns(SchemaCache schemaCache, DatabaseConfig dbConfig, ICustomFunctionCatalog? functions = null, ILogger<ComputedColumns>? logger = null)
     {
         _schemaCache = schemaCache;
         _dbConfig = dbConfig;
+        _functions = functions ?? StaticFunctionCatalog.Empty;
         _logger = logger;
     }
+
+    public ICustomFunctionCatalog Functions => _functions;
 
     public DatabaseProvider Provider => _dbConfig.Provider;
 
@@ -53,6 +64,9 @@ public sealed class ComputedColumns
             return None;
 
         var model = _schemaCache.Current;
+        var version = _functions.Version;
+        if (Interlocked.Exchange(ref _functionsVersion, version) != version)
+            _compiled = new ConditionalWeakTable<ModelJson, Compiled>();
         var compiled = _compiled.GetValue(model, m => new Compiled(m));
         var current = compiled.Schema.Table(table.Name);
         if (current is null || !ReferenceEquals(current, table))
@@ -67,10 +81,11 @@ public sealed class ComputedColumns
         {
             var declared = FormulaTypes.FromName(column.ResultType);
             var check = FormulaCompiler.Compile(column.Formula ?? "", table, schema, _dbConfig.Provider,
-                alias: Quote(table.Name), expected: declared, column: column.Name);
+                alias: Quote(table.Name), expected: declared, column: column.Name,
+                context: new FormulaContext { Functions = _functions });
             if (check.IsValid)
             {
-                result[column.Name] = new ComputedColumn(column, check.Result!.Sql, check.Result.Type, null);
+                result[column.Name] = new ComputedColumn(column, check.Result!.Sql, check.Result.Type, null, check.Result.Custom) { Indexes = check.Result.Indexes };
                 continue;
             }
 

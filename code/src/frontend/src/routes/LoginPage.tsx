@@ -9,7 +9,7 @@ import { useAuthStore } from "../stores/authStore";
 import "./LoginPage.css";
 import { SushiMascot } from "../components/brand";
 
-type LocationState = { from?: { pathname?: string } } | null;
+type LocationState = { from?: { pathname?: string; search?: string } } | null;
 
 export function LoginPage() {
   // The shell sets titles for app routes; /login lives outside the shell, so
@@ -25,7 +25,9 @@ export function LoginPage() {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const redirectTarget = (location.state as LocationState)?.from?.pathname ?? "/";
+  // Keep the query: the OAuth consent page (/oauth/authorize?client_id=…) needs it after sign-in.
+  const from = (location.state as LocationState)?.from;
+  const redirectTarget = from?.pathname ? from.pathname + (from.search ?? "") : "/";
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -60,7 +62,7 @@ export function LoginPage() {
   return (
     <main className="login" aria-labelledby="login-title">
       <Sky />
-      <Glyph value="Be" />
+      <Glyph value="Bento" />
       <div className="login__frame">
         <header className="login__header">
           <div className="login__brand">

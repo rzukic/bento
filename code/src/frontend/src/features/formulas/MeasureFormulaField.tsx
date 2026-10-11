@@ -5,6 +5,7 @@ import type { ModelSnapshot } from "../../types/api";
 import { FormulaEditor } from "./FormulaEditor";
 import { describeFormulaType, formulaLinks, type FormulaColumn } from "./formulaLanguage";
 import "./Formulas.css";
+import { DescribeFormula } from "../ai/DescribeFormula";
 
 type MeasureFormulaFieldProps = {
   /** The table the measure runs over; none = a formula over variables only. */
@@ -109,6 +110,7 @@ export function MeasureFormulaField({
         ariaLabel={ariaLabel}
         placeholder={placeholder}
       />
+      {table ? <DescribeFormula table={table} kind="measure" current={value} onFormula={onChange} /> : null}
       {check === null ? null : check.valid ? (
         <p className="formula-field__status formula-field__status--ok">
           Gives {describeFormulaType(check.type ?? "float")}
