@@ -761,10 +761,21 @@ public sealed class CrudService
     /// Inserts already validated rows (CRUD request bodies) in one transaction:
     /// either every row is written or none is. Used by the file import.
     /// </summary>
-    public async Task<int> InsertManyAsync(TableDef table, IReadOnlyList<JsonElement> bodies)
+    public async Task<int> InsertManyAsync(TableDef table, IReadOnlyList<JsonElement> bodies) =>
+        (await ImportManyAsync(table, bodies, [])).Inserted;
+
+    /// <summary>
+    /// Inserts and updates already validated rows in one transaction: every
+    /// row is written or none is. An update is a PATCH body for the row with
+    /// that primary key. Used by the file import.
+    /// </summary>
+    public async Task<(int Inserted, int Updated)> ImportManyAsync(
+        TableDef table,
+        IReadOnlyList<JsonElement> bodies,
+        IReadOnlyList<(object Id, JsonElement Body)> updates)
     {
-        if (bodies.Count == 0)
-            return 0;
+        if (bodies.Count == 0 && updates.Count == 0)
+            return (0, 0);
 
         var columns = GetWritableColumns(table);
         var primaryKeyColumns = GetPrimaryKeyColumns(table);
@@ -787,8 +798,18 @@ public sealed class CrudService
             }
             await InsertAsync(scope, table.Name, data, transaction);
         }
+        if (updates.Count > 0)
+        {
+            var key = GetPrimaryKeyColumn(table);
+            foreach (var (id, body) in updates)
+            {
+                var data = ExtractColumnValues(body, columns);
+                if (data.Count > 0)
+                    await scope.Db.Query(table.Name).Where(key.Name, id).UpdateAsync(data, transaction);
+            }
+        }
         transaction.Commit();
-        return bodies.Count;
+        return (bodies.Count, updates.Count);
     }
 
     private static List<ColumnDef> GetPrimaryKeyColumns(TableDef table)

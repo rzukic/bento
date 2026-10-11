@@ -8,9 +8,28 @@ export type ImportFileSettings = {
   headerLine?: number;
   decimalSeparator?: string;
   dateFormat?: string;
+  /** Detected from the file when missing. */
+  format?: ImportFormat;
+  /** Excel: the sheet to read (the first when missing). */
+  sheet?: string | null;
+  /** JSON: where the list of records is, e.g. `data.transactions` (found when missing). */
+  jsonPath?: string | null;
 };
 
-export type ImportResolvedSettings = Required<ImportFileSettings>;
+export type ImportFormat = "csv" | "xlsx" | "json";
+
+export type ImportResolvedSettings = {
+  encoding: string;
+  delimiter: string;
+  headerLine: number;
+  decimalSeparator: string;
+  dateFormat: string;
+  format?: ImportFormat;
+  sheet?: string | null;
+  /** Excel: the workbook's sheets. */
+  sheets?: string[] | null;
+  jsonPath?: string | null;
+};
 
 export type ImportAnalyzedColumn = {
   index: number;
@@ -49,17 +68,21 @@ export type ImportRunPayload = {
   keyColumns: string[];
   /** Also skip repeats within the file (filling a lookup table once per value). */
   distinctKeys?: boolean;
+  /** With key columns: update rows whose other values changed at the source instead of skipping them. */
+  updateChanged?: boolean;
   /** Values chosen per row in the review, by file line — e.g. categories (Step 4.8); they win over the file. */
   assign?: { column: string; values: Record<string, string> };
 };
 
-export type ImportRowStatus = "new" | "duplicate" | "invalid";
+export type ImportRowStatus = "new" | "duplicate" | "changed" | "invalid";
 
 export type ImportRowResult = {
   line: number;
   status: ImportRowStatus;
   display: Record<string, string | null>;
   errors: { field: string; message: string }[];
+  /** A changed row: the values it has in the table now, for the columns that change. */
+  before?: Record<string, string | null> | null;
 };
 
 export type ImportRunResult = {
@@ -71,12 +94,16 @@ export type ImportRunResult = {
   inserted: number;
   rows: ImportRowResult[];
   rowsTruncated: boolean;
+  /** Rows in the table whose other values differ (written with `updateChanged`). */
+  changed?: number;
+  updated?: number;
 };
 
 export type ImportProfileConfig = {
   settings?: ImportFileSettings;
   mapping?: ImportColumnMapping[];
   keyColumns?: string[];
+  updateChanged?: boolean;
 };
 
 export type ImportProfile = {
@@ -92,7 +119,7 @@ type DataEnvelope<T> = { data: T };
 
 const tablePath = (table: string) => `/import/${encodeURIComponent(table)}`;
 
-/** POST /api/v1/import/analyze — detect encoding, delimiter, header and locale. */
+/** POST /api/v1/import/analyze — detect the format (CSV, Excel, JSON), encoding, delimiter, header and locale. */
 export async function analyzeImport(content: string, settings: ImportFileSettings = {}, fileName?: string): Promise<ImportAnalysis> {
   const response = await apiClient.post<DataEnvelope<ImportAnalysis>>("/import/analyze", { content, fileName, settings });
   return response.data;

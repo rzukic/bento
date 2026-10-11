@@ -102,7 +102,7 @@ describe("New table from CSV", () => {
     render(<RouterProvider router={createTestRouter(["/data/new/csv"])} />);
 
     await user.upload(
-      await screen.findByLabelText("CSV file"),
+      await screen.findByLabelText("File to import"),
       new File(["x"], "girokonto-2026-09.csv", { type: "text/csv" }),
     );
 
@@ -149,7 +149,7 @@ describe("New table from CSV", () => {
   it("blocks a name that is already taken", async () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/new/csv"])} />);
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
 
     const name = await screen.findByLabelText(/^Name/);
     await user.clear(name);
@@ -164,7 +164,7 @@ describe("New table from CSV", () => {
     schemaApi.applySchemaDraft.mockRejectedValue(new ApiClientError("Forbidden", 403, "FORBIDDEN"));
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/new/csv"])} />);
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
 
     await user.click(await screen.findByRole("button", { name: "Create table and continue" }));
 

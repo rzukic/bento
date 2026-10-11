@@ -118,7 +118,7 @@ export function applyProfile(
   config: ImportProfileConfig,
   headers: string[],
   columns: ModelColumn[],
-): { mapping: MappingState; keyColumns: string[] } {
+): { mapping: MappingState; keyColumns: string[]; updateChanged: boolean } {
   const mapping: MappingState = Object.fromEntries(columns.map((column) => [column.name, ""]));
   for (const entry of config.mapping ?? []) {
     const column = columns.find((c) => c.name.toLowerCase() === entry.target.toLowerCase());
@@ -131,7 +131,7 @@ export function applyProfile(
     if (header) mapping[column.name] = header;
   }
   const keyColumns = (config.keyColumns ?? []).filter((name) => mapping[name]);
-  return { mapping, keyColumns };
+  return { mapping, keyColumns, updateChanged: !!config.updateChanged && keyColumns.length > 0 };
 }
 
 /** Keeps mapped headers that still exist after the file was read differently. */

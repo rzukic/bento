@@ -421,22 +421,23 @@ public sealed class OpenApiDocumentBuilder
             ["settings"] = anyObject.DeepClone(),
             ["mapping"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["source"] = Str(), ["target"] = Str(), ["value"] = Str(example: "Checking") }) },
             ["keyColumns"] = new JsonObject { ["type"] = "array", ["items"] = Str() },
-            ["distinctKeys"] = new JsonObject { ["type"] = "boolean" }
+            ["distinctKeys"] = new JsonObject { ["type"] = "boolean" },
+            ["updateChanged"] = new JsonObject { ["type"] = "boolean", ["description"] = "With keyColumns: update rows whose other values changed instead of skipping them." }
         });
         paths["/import/analyze"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Read a CSV file", "write", "Detects encoding, separator, header and number/date format.",
-                body: Obj(new JsonObject { ["content"] = Str(example: "base64 of the file") }),
+            ["post"] = Operation("Import", "Read a file", "write", "CSV, Excel (.xlsx) or JSON: detects the format, encoding, separator, header, sheet or list of records, and number/date format.",
+                body: Obj(new JsonObject { ["content"] = Str(example: "base64 of the file"), ["fileName"] = Str(example: "umsaetze.xlsx") }),
                 responses: Responses(200, "Settings, columns and samples.", anyObject.DeepClone()))
         };
         paths["/import/{table}/preview"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Check a CSV import", "write", "Nothing is written.", parameters: new JsonArray(tableParam.DeepClone()),
+            ["post"] = Operation("Import", "Check an import", "write", "Nothing is written.", parameters: new JsonArray(tableParam.DeepClone()),
                 body: importBody.DeepClone(), responses: Responses(200, "Rows by status.", anyObject.DeepClone()))
         };
         paths["/import/{table}"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Import a CSV file", "write", "New, valid rows in one transaction.", parameters: new JsonArray(tableParam.DeepClone()),
+            ["post"] = Operation("Import", "Import a file", "write", "New, valid rows (and with updateChanged the changed ones) in one transaction.", parameters: new JsonArray(tableParam.DeepClone()),
                 body: importBody.DeepClone(), responses: Responses(200, "Counts and rows by status.", anyObject.DeepClone()))
         };
         paths["/admin/schema"] = new JsonObject
