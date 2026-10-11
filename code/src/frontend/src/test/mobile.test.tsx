@@ -1,7 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { EChart, type ChartClick } from "../features/dashboards/charts/EChart";
+import { EChart, HOLD_MS, holdToScrub, touchTooltipPosition, withTouchTooltip, type ChartClick } from "../features/dashboards/charts/EChart";
 import { seedSetupInitializedForTest } from "../features/setup";
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest, useAppStore } from "../stores/appStore";
@@ -124,5 +124,43 @@ describe("tapping a chart", () => {
     act(() => chart.handlers.click!(point));
     expect(onItemClick).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: /Show rows/ })).not.toBeInTheDocument();
+  });
+});
+
+describe("holding and sliding on a chart", () => {
+  const size = { contentSize: [200, 120] as [number, number], viewSize: [320, 300] as [number, number] };
+
+  it("puts the tooltip at the top, on the side away from the finger, and lets touches through", () => {
+    expect(touchTooltipPosition([60, 200], size)).toEqual([116, 36]);
+    expect(touchTooltipPosition([260, 200], size)).toEqual([4, 36]);
+    const option = withTouchTooltip({ tooltip: { trigger: "axis" }, series: [] }) as { tooltip: { extraCssText: string; position: unknown; trigger: string } };
+    expect(option.tooltip.trigger).toBe("axis");
+    expect(option.tooltip.extraCssText).toContain("pointer-events:none");
+    expect(typeof option.tooltip.position).toBe("function");
+  });
+
+  it("keeps the page still once a finger has rested; a quick swipe still scrolls", () => {
+    vi.useFakeTimers();
+    const element = document.createElement("div");
+    const release = holdToScrub(element);
+    const touch = (type: string, x: number, y: number) => {
+      const event = new Event(type, { cancelable: true }) as Event & { touches: { clientX: number; clientY: number }[] };
+      Object.defineProperty(event, "touches", { value: type === "touchend" ? [] : [{ clientX: x, clientY: y }] });
+      element.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+
+    touch("touchstart", 100, 100);
+    expect(touch("touchmove", 100, 130)).toBe(false);
+    touch("touchend", 100, 130);
+
+    touch("touchstart", 100, 100);
+    vi.advanceTimersByTime(HOLD_MS + 50);
+    expect(touch("touchmove", 140, 108)).toBe(true);
+    expect(touch("touchmove", 200, 95)).toBe(true);
+    touch("touchend", 200, 95);
+
+    release();
+    vi.useRealTimers();
   });
 });
