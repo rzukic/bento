@@ -156,6 +156,109 @@ public sealed class ShareTests
         await Status(await Share(host, HttpMethod.Get, "/api/v1/share", "bento_s_made-up"), HttpStatusCode.NotFound);
     }
 
+    internal const string FormSchema = """
+        { "tables": [
+            { "name": "categories", "columns": [
+                { "name": "id", "type": "integer", "primaryKey": true },
+                { "name": "name", "type": "text" },
+                { "name": "budget", "type": "currency" } ] },
+            { "name": "entries", "columns": [
+                { "name": "id", "type": "integer", "primaryKey": true },
+                { "name": "amount", "type": "currency" },
+                { "name": "category_id", "type": "reference", "references": "categories" },
+                { "name": "note", "type": "text" },
+                { "name": "source", "type": "text" },
+                { "name": "secret", "type": "text" } ] } ] }
+        """;
+
+    [Fact]
+    public async Task FormLinks_AddRowsAndNothingElse() => await FormsAsync(await HostAsync(FormSchema));
+
+    internal static async Task<ApiIntegrationTestHost> HostAsync(string schema)
+    {
+        var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "standard",
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "100",
+            ["Backend:PublicUrl"] = "https://bento.example",
+            ["Schema:AutoMigrateOnStartup"] = "false"
+        });
+        await host.ApplySchemaAsync(schema);
+        return host;
+    }
+
+    internal static async Task FormsAsync(ApiIntegrationTestHost host)
+    {
+        await using var disposable = host;
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var food = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/data/categories", admin, new { name = "Food", budget = 400 }));
+        var form = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/forms", admin, new
+        {
+            name = "Expense",
+            form = new
+            {
+                table = "entries",
+                fields = new object[]
+                {
+                    new { column = "amount" },
+                    new { column = "category_id" },
+                    new { column = "note" },
+                    new { column = "source", hidden = true, @default = new { kind = "value", value = "web" } }
+                }
+            }
+        }));
+        var formId = form.GetProperty("id").GetInt64();
+        string token;
+        using (var created = await ApiKeyTests.SendAsync(host, HttpMethod.Post, $"/api/v1/forms/{formId}/shares", admin, new { name = "Public", perHour = 2, thanks = "Danke!" }))
+        {
+            var text = await created.Content.ReadAsStringAsync();
+            Assert.True(created.StatusCode == HttpStatusCode.Created, text);
+            token = JsonDocument.Parse(text).RootElement.GetProperty("token").GetString()!;
+        }
+
+        var info = await Data(await Share(host, HttpMethod.Get, "/api/v1/share", token));
+        Assert.Equal("form", info.GetProperty("kind").GetString());
+        Assert.Equal(formId, info.GetProperty("formId").GetInt64());
+        Assert.Equal("Danke!", info.GetProperty("thanks").GetString());
+        await Ok(await Share(host, HttpMethod.Get, $"/api/v1/forms/{formId}", token));
+        var schema = await (await Share(host, HttpMethod.Get, "/api/v1/admin/schema", token)).Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(["categories", "entries"], schema.GetProperty("tables").EnumerateArray().Select(t => t.GetProperty("name").GetString()).Order().ToArray());
+
+        // The choices: named only, no budget.
+        var choices = await Data(await Share(host, HttpMethod.Get, "/api/v1/data/categories?per_page=50&sort=name", token));
+        var choice = Assert.Single(choices.EnumerateArray());
+        Assert.Equal("Food", choice.GetProperty("name").GetString());
+        Assert.False(choice.TryGetProperty("budget", out _));
+        await Status(await Share(host, HttpMethod.Get, "/api/v1/data/categories?filter[budget][gt]=100", token), HttpStatusCode.Forbidden);
+        await Status(await Share(host, HttpMethod.Get, "/api/v1/data/entries", token), HttpStatusCode.Forbidden);
+        await Status(await Share(host, HttpMethod.Post, "/api/v1/query", token, new { source = "entries", measures = new[] { new { name = "n", fn = "count" } } }), HttpStatusCode.Forbidden);
+
+        // Sending: only the form's fields; the hidden one keeps its value; robots and floods refused.
+        var sent = await Data(await Entry(host, token, new { amount = -12.5, category_id = food.GetProperty("id").GetInt64(), note = "Bakery", source = "hack" }));
+        Assert.True(sent.TryGetProperty("id", out _));
+        Assert.False(sent.TryGetProperty("amount", out _));
+        var stored = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/data/entries/{sent.GetProperty("id").GetInt64()}", admin));
+        Assert.Equal("web", stored.GetProperty("source").GetString());
+        Assert.Equal("Bakery", stored.GetProperty("note").GetString());
+        await Status(await Entry(host, token, new { amount = 1, secret = "x" }), HttpStatusCode.Forbidden, "not a field of this form");
+        await Status(await Entry(host, token, new { amount = 1 }, trap: "ok:http://spam.example"), HttpStatusCode.BadRequest, "automatic");
+        await Status(await Entry(host, token, new { amount = 1 }, elapsed: "0.4"), HttpStatusCode.BadRequest, "automatic");
+        await Status(await Share(host, HttpMethod.Post, "/api/v1/data/categories", token, new { name = "Mine" }), HttpStatusCode.Forbidden);
+        await Ok(await Entry(host, token, new { amount = -3 }));
+        await Status(await Entry(host, token, new { amount = -4 }), HttpStatusCode.TooManyRequests, "enough entries");
+        Assert.Equal(2L, await host.QueryDataScalarAsync<long>("SELECT COUNT(*) FROM entries"));
+    }
+
+    private static async Task<HttpResponseMessage> Entry(ApiIntegrationTestHost host, string token, object body, string trap = "ok:", string elapsed = "6")
+    {
+        var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/data/entries") { Content = JsonContent.Create(body) };
+        request.Headers.Add("X-Bento-Share", token);
+        request.Headers.Add("X-Bento-Form-Check", trap);
+        request.Headers.Add("X-Bento-Form-Elapsed", elapsed);
+        return await host.Client.SendAsync(request);
+    }
+
     private static async Task<HttpResponseMessage> Share(ApiIntegrationTestHost host, HttpMethod method, string url, string token, object? body = null)
     {
         var request = new HttpRequestMessage(method, url) { Content = body is null ? null : JsonContent.Create(body) };
@@ -210,5 +313,20 @@ public sealed class PostgresShareTests
         });
         await host.ApplySchemaAsync(ShareTests.Schema);
         await ShareTests.SharesAsync(host);
+    }
+
+    [PostgresFact]
+    public async Task FormLinks_OnPostgres()
+    {
+        var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "standard",
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "100",
+            ["Backend:PublicUrl"] = "https://bento.example",
+            ["Schema:AutoMigrateOnStartup"] = "false"
+        });
+        await host.ApplySchemaAsync(ShareTests.FormSchema);
+        await ShareTests.FormsAsync(host);
     }
 }

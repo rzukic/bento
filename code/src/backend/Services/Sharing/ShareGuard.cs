@@ -50,6 +50,8 @@ public sealed class ShareGuard
     private async Task<Plan> PlanAsync(ShareService.Visitor visitor)
     {
         var link = visitor.Link;
+        if (link.Kind != "dashboard")
+            throw NotShared();
         using var conn = await _systemPool.GetConnectionAsync();
         var table = _systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboards" : "dashboards";
         var json = await conn.ExecuteScalarAsync<string?>(
@@ -190,6 +192,8 @@ public sealed class ShareGuard
     /// <summary>A table of rows on the dashboard, or the targets a target widget reads; the link's filters added.</summary>
     public async Task<ListQueryParameters> CheckRowsAsync(ShareService.Visitor visitor, TableDef table, ListQueryParameters parameters)
     {
+        if (visitor.Link.Kind == "form")
+            return await CheckChoicesAsync(visitor, table, parameters);
         var plan = await PlanAsync(visitor);
         if (parameters.Includes.Count > 0 || parameters.Fields is not null || !string.IsNullOrEmpty(parameters.Search))
             throw NotShared();
@@ -219,13 +223,97 @@ public sealed class ShareGuard
     /// <summary>The model of the tables the dashboard reads: nothing about the rest of the workspace.</summary>
     public async Task<ModelJson> SchemaAsync(ShareService.Visitor visitor, ModelJson model)
     {
-        var plan = await PlanAsync(visitor);
+        var tables = visitor.Link.Kind == "form" ? (await FormAsync(visitor)).Tables : (await PlanAsync(visitor)).Tables;
         return new ModelJson
         {
             Version = model.Version,
-            Tables = model.Tables.Where(t => plan.Tables.Contains(t.Name)).ToList(),
-            Relations = model.Relations.Where(r => plan.Tables.Contains(r.From) && plan.Tables.Contains(r.To)).ToList()
+            Tables = model.Tables.Where(t => tables.Contains(t.Name)).ToList(),
+            Relations = model.Relations.Where(r => tables.Contains(r.From) && tables.Contains(r.To)).ToList()
         };
+    }
+
+    // ── Forms (part B) ───────────────────────────────────────────────────
+
+    /// <summary>A field of the form: its column, and the value it always gets when hidden with a fixed one.</summary>
+    private sealed record FormField(string Column, bool Hidden, JsonNode? FixedValue);
+
+    /// <param name="Links">The tables its visible link fields choose from.</param>
+    private sealed record FormPlan(long FormId, string Table, IReadOnlyList<FormField> Fields, IReadOnlySet<string> Links, IReadOnlySet<string> Tables);
+
+    private async Task<FormPlan> FormAsync(ShareService.Visitor visitor)
+    {
+        var link = visitor.Link;
+        if (link.Kind != "form")
+            throw NotShared();
+        using var conn = await _systemPool.GetConnectionAsync();
+        var forms = _systemPool.Provider == DatabaseProvider.Postgres ? "_system.forms" : "forms";
+        var row = await conn.QuerySingleOrDefaultAsync<(string Table, string Json)?>(
+            $"SELECT table_name, CAST(form_json AS TEXT) FROM {forms} WHERE id = @Id AND workspace_id = @Ws", new { Id = link.TargetId, Ws = link.WorkspaceId })
+            ?? throw new ApiNotFoundException("This form is no longer there.");
+        var table = _schemaCache.GetTable(row.Table) ?? throw new ApiNotFoundException("This form's table is no longer there.");
+        var document = JsonNode.Parse(row.Json) as JsonObject ?? new JsonObject();
+        var fields = (document["fields"] as JsonArray ?? []).OfType<JsonObject>()
+            .Where(f => Text(f, "column") is not null)
+            .Select(f =>
+            {
+                var hidden = Flag(f["hidden"]);
+                var fixedValue = hidden && f["default"] is JsonObject d && Text(d, "kind") == "value" ? d["value"]?.DeepClone() : null;
+                return new FormField(Text(f, "column")!, hidden, fixedValue);
+            })
+            .Where(f => table.Columns.Any(c => string.Equals(c.Name, f.Column, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+        var links = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var field in fields.Where(f => !f.Hidden))
+        {
+            if (table.Columns.First(c => string.Equals(c.Name, field.Column, StringComparison.OrdinalIgnoreCase)).References is { } target)
+                links.Add(target);
+        }
+        var tables = new HashSet<string>(links, StringComparer.OrdinalIgnoreCase) { table.Name };
+        return new FormPlan(link.TargetId, table.Name, fields, links, tables);
+    }
+
+    public async Task CheckFormAsync(ShareService.Visitor visitor, long id)
+    {
+        if ((await FormAsync(visitor)).FormId != id)
+            throw NotShared();
+    }
+
+    /// <summary>
+    /// The choices of a link field: the linked table's rows, named only — its
+    /// key and the columns that label a record, nothing else of them.
+    /// </summary>
+    private async Task<ListQueryParameters> CheckChoicesAsync(ShareService.Visitor visitor, TableDef table, ListQueryParameters parameters)
+    {
+        var form = await FormAsync(visitor);
+        if (!form.Links.Contains(table.Name) || parameters.Includes.Count > 0 || parameters.Filters.Count > 0 || parameters.PerPage > 50)
+            throw NotShared();
+        var label = CrudService.GetRecordLabelColumns(table);
+        if (parameters.Sorts.Any(s => !label.Contains(s.Column, StringComparer.OrdinalIgnoreCase)))
+            throw NotShared();
+        var key = table.Columns.FirstOrDefault(c => c.PrimaryKey)?.Name ?? "id";
+        return parameters with { Fields = [key, .. label.Where(l => !string.Equals(l, key, StringComparison.OrdinalIgnoreCase))] };
+    }
+
+    /// <summary>
+    /// A row sent through the form: only its fields, into its table; hidden
+    /// fields with a fixed value get that value, whatever the browser sent.
+    /// </summary>
+    public async Task<JsonElement> CheckEntryAsync(ShareService.Visitor visitor, TableDef table, JsonElement body)
+    {
+        var form = await FormAsync(visitor);
+        if (!string.Equals(form.Table, table.Name, StringComparison.OrdinalIgnoreCase) || body.ValueKind != JsonValueKind.Object)
+            throw NotShared();
+        var row = JsonNode.Parse(body.GetRawText()) as JsonObject ?? new JsonObject();
+        var unknown = row.Select(p => p.Key).FirstOrDefault(k => !form.Fields.Any(f => string.Equals(f.Column, k, StringComparison.OrdinalIgnoreCase)));
+        if (unknown is not null)
+            throw new ApiForbiddenException($"'{unknown}' is not a field of this form.", new Dictionary<string, object?> { ["field"] = unknown });
+        foreach (var field in form.Fields.Where(f => f.FixedValue is not null))
+        {
+            foreach (var key in row.Select(p => p.Key).Where(k => string.Equals(k, field.Column, StringComparison.OrdinalIgnoreCase)).ToList())
+                row.Remove(key);
+            row[field.Column] = field.FixedValue!.DeepClone();
+        }
+        return JsonSerializer.Deserialize<JsonElement>(row.ToJsonString());
     }
 
     // ── Matching ─────────────────────────────────────────────────────────

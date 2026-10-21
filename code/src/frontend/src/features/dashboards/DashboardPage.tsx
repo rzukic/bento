@@ -526,7 +526,9 @@ export function DashboardPage({ shared }: { shared?: SharedView } = {}) {
 
       {error ? <Alert tone="error" message={error} /> : null}
       {restoredNote && !editing ? <Alert tone="success" message={restoredNote} /> : null}
-      {shareOpen ? <ShareDialog dashboard={dashboard} onClose={() => setShareOpen(false)} /> : null}
+      {shareOpen ? (
+        <ShareDialog kind="dashboard" targetId={dashboard.id} title={dashboard.name} filters={dashboard.dashboard.filters ?? []} onClose={() => setShareOpen(false)} />
+      ) : null}
       {historyOpen ? (
         <HistoryDialog
           dashboard={dashboard}

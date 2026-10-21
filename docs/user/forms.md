@@ -41,3 +41,13 @@ Renaming the table or a column in the Schema Designer updates the form. A field 
 ## API
 
 Forms are Form JSON under `/api/v1/forms`: the `table` and its `fields` in order, each `{ column, label?, help?, hidden?, default?: { kind: "today" | "now" | "last" | "value", value? }, sign?: "negative" | "positive" }` or `{ section }`, plus `pinned`. A filled form is an ordinary `POST /api/v1/data/{table}`, checked like any other row.
+
+## A Public Form
+
+**Share** on a form (its owner and the workspace's admins) makes a link anyone can fill in without an account — a booking request on your website, a sign-up, a feedback box:
+
+- It adds a row to the form's table and shows nothing of it: the visitor sees the form, and the choices of its link fields by their name only (no other columns of those tables). They cannot read, change or delete rows.
+- Only the form's fields are sent; a **hidden field with a value** (e.g. *channel = website*) always gets that value.
+- **Entries per visitor an hour** (default 10) and at most 500 a day per link; a hidden trap field and a few seconds' minimum keep simple robots out. A determined attacker can still send up to the limits — use an expiry and revoke a link when it is abused.
+- **Thank-you text** shown after sending; the form starts over for the next entry. Nothing the visitor types is kept in their browser.
+- Expiry, revocation, opens and embedding (an `<iframe>` on your site) work as for dashboards.

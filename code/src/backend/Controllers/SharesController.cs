@@ -26,10 +26,14 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
         /// <summary>Fixed filter values by column (the dashboard's filters).</summary>
         public Dictionary<string, List<JsonElement>>? Filters { get; init; }
         public bool Embed { get; init; }
+        /// <summary>A form: entries one visitor may send an hour (default 10).</summary>
+        public int? PerHour { get; init; }
+        /// <summary>A form: what the visitor reads after sending.</summary>
+        public string? Thanks { get; init; }
     }
 
     public sealed record ShareResponse(long Id, string Name, string Prefix, string Status, string? CreatedBy, string CreatedAt, string? ExpiresAt,
-        string? LastUsedAt, int Views, Dictionary<string, List<JsonElement>>? Filters, bool Embed);
+        string? LastUsedAt, int Views, Dictionary<string, List<JsonElement>>? Filters, bool Embed, int? PerHour = null, string? Thanks = null);
 
     [HttpGet(ApiRoutes.Dashboards + "/{id:long}/shares")]
     [RequireRole("viewer")]
@@ -62,12 +66,36 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
         });
     }
 
+    // ── Forms (part B): a form for people without an account ─────────────
+
+    [HttpGet(ApiRoutes.Forms + "/{id:long}/shares")]
+    [RequireRole("viewer")]
+    public async Task<IActionResult> ListForForm(long id)
+    {
+        await RequireFormAsync(id);
+        return Ok(new { data = (await shares.ListAsync("form", id)).Select(ToResponse) });
+    }
+
+    [HttpPost(ApiRoutes.Forms + "/{id:long}/shares")]
+    [RequireRole("viewer")]
+    public async Task<IActionResult> CreateForForm(long id, [FromBody] ShareRequest request)
+    {
+        await RequireFormAsync(id);
+        var (link, token) = await shares.CreateAsync("form", id, request.Name, request.ExpiresInDays,
+            new ShareService.ShareOptions(null, request.Embed, request.PerHour ?? ShareService.DefaultPerHour, string.IsNullOrWhiteSpace(request.Thanks) ? null : request.Thanks.Trim()),
+            User.GetUserId()!.Value);
+        return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(link), token });
+    }
+
     [HttpDelete(ApiRoutes.Prefix + "/shares/{id:long}")]
     [RequireRole("viewer")]
     public async Task<IActionResult> Revoke(long id)
     {
         var link = await shares.GetAsync(id);
-        await RequireDashboardAsync(link.TargetId);
+        if (link.Kind == "form")
+            await RequireFormAsync(link.TargetId);
+        else
+            await RequireDashboardAsync(link.TargetId);
         await shares.RevokeAsync(id);
         return NoContent();
     }
@@ -77,14 +105,19 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
     public async Task<IActionResult> Info([FromServices] ShareGuard guard, [FromServices] WorkspaceSettings settings)
     {
         var visitor = HttpContext.ShareVisitor() ?? throw new ApiNotFoundException("Open this with a share link.");
-        await guard.CheckDashboardAsync(visitor, visitor.Link.TargetId);
+        if (visitor.Link.Kind == "form")
+            await guard.CheckFormAsync(visitor, visitor.Link.TargetId);
+        else
+            await guard.CheckDashboardAsync(visitor, visitor.Link.TargetId);
         var format = await settings.GetAsync();
         return Ok(new
         {
             data = new
             {
                 kind = visitor.Link.Kind,
-                dashboardId = visitor.Link.TargetId,
+                dashboardId = visitor.Link.Kind == "dashboard" ? visitor.Link.TargetId : (long?)null,
+                formId = visitor.Link.Kind == "form" ? visitor.Link.TargetId : (long?)null,
+                thanks = visitor.Link.Options.Thanks,
                 name = visitor.Link.Name,
                 filters = visitor.Link.Options.Filters,
                 embed = visitor.Link.Options.Embed,
@@ -118,11 +151,28 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
         return JsonDocument.Parse(found.Json).RootElement.Clone();
     }
 
+    /// <summary>The form's owner and the workspace's admins share it.</summary>
+    private async Task RequireFormAsync(long id)
+    {
+        if (User.FindFirst("auth_method") is not null)
+            throw new ApiForbiddenException("Share links are made by people signed in to Bento.");
+        var table = systemPool.Provider == DatabaseProvider.Postgres ? "_system.forms" : "forms";
+        using var conn = await systemPool.GetConnectionAsync();
+        var owner = await conn.QuerySingleOrDefaultAsync<long?>(
+            $"SELECT owner_user_id FROM {table} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws = Services.Workspaces.WorkspaceContext.Id });
+        if (owner is null && await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {table} WHERE id = @Id AND workspace_id = @Ws",
+                new { Id = id, Ws = Services.Workspaces.WorkspaceContext.Id }) == 0)
+            throw new ApiNotFoundException($"Form {id} not found.");
+        if (owner != User.GetUserId() && User.GetRole() != "admin")
+            throw new ApiForbiddenException("Only the form's owner and the workspace's admins share it.");
+    }
+
     private static HashSet<string> Declared(JsonElement dashboard) =>
         dashboard.TryGetProperty("filters", out var filters) && filters.ValueKind == JsonValueKind.Array
             ? filters.EnumerateArray().Where(f => f.TryGetProperty("column", out _)).Select(f => f.GetProperty("column").GetString() ?? "").ToHashSet(StringComparer.OrdinalIgnoreCase)
             : [];
 
     private static ShareResponse ToResponse(ShareService.ShareLink link) =>
-        new(link.Id, link.Name, link.Prefix, link.Status, link.CreatedByName, link.CreatedAt, link.ExpiresAt, link.LastUsedAt, link.Views, link.Options.Filters, link.Options.Embed);
+        new(link.Id, link.Name, link.Prefix, link.Status, link.CreatedByName, link.CreatedAt, link.ExpiresAt, link.LastUsedAt, link.Views, link.Options.Filters, link.Options.Embed,
+            link.Options.PerHour, link.Options.Thanks);
 }

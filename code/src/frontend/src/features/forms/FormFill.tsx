@@ -50,6 +50,12 @@ type FormFillProps = {
   afterSave?: "reset" | "close";
   onSaved?: (row: Record<string, unknown>) => void;
   onCancel?: () => void;
+  /**
+   * A public form (Step 5.6): nothing kept in the browser — no "last used"
+   * values, no suggestions of earlier entries (the next visitor of a shared
+   * computer would see them) — and no link into the app after saving.
+   */
+  publicForm?: boolean;
 };
 
 /**
@@ -57,15 +63,15 @@ type FormFillProps = {
  * save the form starts over for the next entry: dates and "last used" values
  * as defaults, the rest empty, and the cursor in the first field.
  */
-export function FormFill({ formKey, form, table, readOnly = false, preview = false, afterSave = "reset", onSaved, onCancel }: FormFillProps) {
-  const start = () => initialState(form, table, readLastValues(formKey));
+export function FormFill({ formKey, form, table, readOnly = false, preview = false, afterSave = "reset", onSaved, onCancel, publicForm = false }: FormFillProps) {
+  const start = () => initialState(form, table, publicForm ? {} : readLastValues(formKey));
   const [state, setState] = useState<{ values: FormValues; signs: FormSigns }>(start);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ row: Record<string, unknown>; summary: string } | null>(null);
   const [round, setRound] = useState(0);
-  const [recent, setRecent] = useState(() => readRecent(formKey));
+  const [recent, setRecent] = useState(() => (publicForm ? {} : readRecent(formKey)));
 
   const fields = useMemo(() => formFields(form, table), [form, table]);
   const missing = useMemo(() => missingRequired(form, table), [form, table]);
@@ -96,12 +102,14 @@ export function FormFill({ formKey, form, table, readOnly = false, preview = fal
     setError(null);
     try {
       const created = await createRow(table.name, built.row);
-      writeLastValues(formKey, built.row);
-      setRecent((current) => rememberRecent(formKey, current, built.row, fields.filter(({ column }) => fieldKind(column) === "text").map(({ column }) => column.name)));
+      if (!publicForm) {
+        writeLastValues(formKey, built.row);
+        setRecent((current) => rememberRecent(formKey, current, built.row, fields.filter(({ column }) => fieldKind(column) === "text").map(({ column }) => column.name)));
+      }
       setSaved({ row: created, summary: summarize(built.row) });
       onSaved?.(created);
       if (afterSave === "reset") {
-        setState(initialState(form, table, readLastValues(formKey)));
+        setState(initialState(form, table, publicForm ? {} : readLastValues(formKey)));
         setRound((r) => r + 1);
       }
     } catch (cause) {
@@ -135,7 +143,7 @@ export function FormFill({ formKey, form, table, readOnly = false, preview = fal
         <Alert tone="warning" title="This form cannot add rows" message={`${table.displayName ?? table.name} needs ${missing.map((c) => columnLabel(c)).join(", ")}, which the form does not ask for. Edit the form to add ${missing.length === 1 ? "it" : "them"}.`} />
       ) : null}
       {gone.length > 0 ? <Alert tone="info" message={`Left out, the table no longer has: ${gone.join(", ")}.`} /> : null}
-      {saved && afterSave === "reset" ? (
+      {saved && afterSave === "reset" && !publicForm ? (
         <div className="form-fill__saved" role="status">
           <span>
             Saved{saved.summary ? `: ${saved.summary}` : ""}.

@@ -19,7 +19,14 @@ export type ShareLink = {
   views: number;
   filters: ShareFilters | null;
   embed: boolean;
+  /** A form: entries one visitor may send an hour. */
+  perHour?: number | null;
+  thanks?: string | null;
 };
+
+export type ShareKind = "dashboard" | "form";
+
+const base = (kind: ShareKind, id: number) => (kind === "form" ? `/forms/${id}/shares` : `/dashboards/${id}/shares`);
 
 export type CreatedShare = { link: ShareLink; url: string; embed: string | null };
 
@@ -32,16 +39,17 @@ function addresses(token: string, embeddable: boolean): { url: string; embed: st
   };
 }
 
-export async function listShares(dashboardId: number): Promise<ShareLink[]> {
-  return (await apiClient.get<DataEnvelope<ShareLink[]>>(`/dashboards/${dashboardId}/shares`)).data;
+export async function listShares(kind: ShareKind, id: number): Promise<ShareLink[]> {
+  return (await apiClient.get<DataEnvelope<ShareLink[]>>(base(kind, id))).data;
 }
 
 /** The address comes back once. */
 export async function createShare(
-  dashboardId: number,
-  share: { name: string; expiresInDays?: number; filters?: ShareFilters; embed: boolean },
+  kind: ShareKind,
+  id: number,
+  share: { name: string; expiresInDays?: number; filters?: ShareFilters; embed: boolean; perHour?: number; thanks?: string },
 ): Promise<CreatedShare> {
-  const response = await apiClient.post<{ data: ShareLink; token: string }>(`/dashboards/${dashboardId}/shares`, share);
+  const response = await apiClient.post<{ data: ShareLink; token: string }>(base(kind, id), share);
   return { link: response.data, ...addresses(response.token, share.embed) };
 }
 
@@ -51,8 +59,11 @@ export async function revokeShare(id: number): Promise<void> {
 
 /** For a link's visitor: what it shows and how numbers and dates read. */
 export type ShareInfo = {
-  kind: "dashboard";
-  dashboardId: number;
+  kind: ShareKind;
+  dashboardId: number | null;
+  formId: number | null;
+  /** A form: what the visitor reads after sending. */
+  thanks: string | null;
   name: string;
   filters: ShareFilters | null;
   embed: boolean;

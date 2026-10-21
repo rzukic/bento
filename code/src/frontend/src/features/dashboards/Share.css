@@ -127,3 +127,48 @@
   color: var(--text-2);
   text-align: center;
 }
+
+/* A public form (part B) */
+.shared-form {
+  display: grid;
+  justify-items: center;
+}
+
+.shared-form__card {
+  width: min(36rem, 100%);
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 12px);
+  background: var(--surface);
+}
+
+.shared-page--embed .shared-form__card {
+  border: 0;
+  padding: 0;
+}
+
+.shared-form__title {
+  margin: 0 0 1rem;
+  font-size: var(--fs-xl, 1.5rem);
+}
+
+.shared-form__thanks {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Out of sight for people, there for robots. */
+.shared-form__trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* The save bar fades into the card, not into the page behind it. */
+.shared-form__card .form-fill__actions {
+  background: linear-gradient(to top, var(--surface) 70%, transparent);
+}

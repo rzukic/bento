@@ -65,8 +65,10 @@ public sealed class FormsController : ControllerBase
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id)
+    public async Task<IActionResult> Get(long id, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+            await guard.CheckFormAsync(visitor, id);
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
