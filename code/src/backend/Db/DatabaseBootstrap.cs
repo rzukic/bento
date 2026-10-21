@@ -559,6 +559,8 @@ public class DatabaseBootstrap : IHostedService
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS _system.apps (
                 id              SERIAL PRIMARY KEY,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
                 name            VARCHAR(255) NOT NULL,
                 kind            VARCHAR(30) NOT NULL,
                 config          JSONB NOT NULL DEFAULT '{}',
@@ -1080,6 +1082,8 @@ public class DatabaseBootstrap : IHostedService
         await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS apps (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
                 name            TEXT NOT NULL,
                 kind            TEXT NOT NULL,
                 config          TEXT NOT NULL DEFAULT '{}',
