@@ -48,13 +48,13 @@ public sealed class ViewsController : ControllerBase
                 {CreatedAtText} AS CreatedAt,
                 {UpdatedAtText} AS UpdatedAt
             FROM {ViewsTable}
-            WHERE table_name = @TableName
+            WHERE workspace_id = @Ws AND table_name = @TableName
               AND (owner_user_id = @UserId OR (is_shared AND owner_user_id <> @UserId))
             ORDER BY
                 CASE WHEN owner_user_id = @UserId THEN 0 ELSE 1 END,
                 created_at ASC
             """,
-            new { TableName = tableId, UserId = userId });
+            new { TableName = tableId, UserId = userId, Ws });
 
         var pref = await conn.QuerySingleOrDefaultAsync<UserTableExplorerPreferences>(
             $"""
@@ -66,10 +66,10 @@ public sealed class ViewsController : ControllerBase
                 {CreatedAtText} AS CreatedAt,
                 {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
-            WHERE user_id = @UserId
+            WHERE workspace_id = @Ws AND user_id = @UserId
               AND table_name = @TableName
             """,
-            new { UserId = userId, TableName = tableId });
+            new { UserId = userId, TableName = tableId, Ws });
 
         // Ensure we never report a default_view_id that isn't currently visible
         // to the user (e.g. deleted view on SQLite where FK constraints may be off).
@@ -118,9 +118,9 @@ public sealed class ViewsController : ControllerBase
         var id = await conn.ExecuteScalarAsync<int>(
             $"""
             INSERT INTO {ViewsTable}
-                (name, table_name, owner_user_id, type, config, is_shared, created_at, updated_at)
+                (workspace_id, name, table_name, owner_user_id, type, config, is_shared, created_at, updated_at)
             VALUES
-                (@Name, @TableName, @OwnerId, @Type, {ConfigParam}, @IsShared, {NowParam}, {NowParam})
+                (@Ws, @Name, @TableName, @OwnerId, @Type, {ConfigParam}, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
             new
@@ -131,7 +131,8 @@ public sealed class ViewsController : ControllerBase
                 Type      = type,
                 Config    = configJson,
                 IsShared  = request.IsShared,
-                Now       = now
+                Now       = now,
+                Ws
             });
 
         var created = await GetByIdAsync(conn, id);
@@ -204,6 +205,8 @@ public sealed class ViewsController : ControllerBase
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
 
     private string ViewsTable =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.system_views" : "system_views";
@@ -341,9 +344,9 @@ public sealed class ViewsController : ControllerBase
                 {CreatedAtText} AS CreatedAt,
                 {UpdatedAtText} AS UpdatedAt
             FROM {ViewsTable}
-            WHERE id = @Id
+            WHERE id = @Id AND workspace_id = @Ws
             """,
-            new { Id = id });
+            new { Id = id, Ws });
     }
 
     private static object MapToResponse(SystemView v)

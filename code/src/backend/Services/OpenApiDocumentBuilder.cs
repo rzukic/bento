@@ -88,6 +88,7 @@ public sealed class OpenApiDocumentBuilder
             ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
             ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
             ("Prices", "Price sources: your functions fetch prices into a table of your model."),
+            ("Workspaces", "The separate areas of this installation."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
             ("Forms", "Quick entry forms: the table, its fields in order, sections and defaults. Submissions go through the data API."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
@@ -111,9 +112,14 @@ public sealed class OpenApiDocumentBuilder
                     "The API of this Bento installation, generated from its current schema. " +
                     "Authenticate with an API key (`X-API-Key: bento_…` or `Authorization: Bearer bento_…`) " +
                     "or a session token from `POST /auth/login`. Read keys may call operations marked `read`; " +
-                    "read-write keys also `write`. Errors use `{ \"error\": { \"code\", \"message\", \"details\" } }`."
+                    "read-write keys also `write`. Errors use `{ \"error\": { \"code\", \"message\", \"details\" } }`. " +
+                    $"This document describes the workspace `{Workspaces.WorkspaceContext.Current.Slug}`; another workspace is addressed as " +
+                    "`/api/v1/w/<slug>/…` or with the header `X-Bento-Workspace: <slug>` (without either: the default workspace)."
             },
-            ["servers"] = new JsonArray(new JsonObject { ["url"] = "/" + ApiRoutes.Prefix }),
+            ["servers"] = new JsonArray(new JsonObject
+            {
+                ["url"] = "/" + ApiRoutes.Prefix + (Workspaces.WorkspaceContext.Current.IsDefault ? "" : "/w/" + Workspaces.WorkspaceContext.Current.Slug)
+            }),
             ["tags"] = tags,
             ["paths"] = paths,
             ["components"] = new JsonObject
@@ -377,6 +383,12 @@ public sealed class OpenApiDocumentBuilder
             ["get"] = Operation("Functions", "List function templates", "read",
                 "Starting points for new functions, e.g. prices from Yahoo Finance, Xetra symbols for ISINs, or realised gains by average cost and FIFO (mode `rows`).",
                 responses: Responses(200, "The templates.", anyObject.DeepClone()))
+        };
+        paths["/workspaces"] = new JsonObject
+        {
+            ["get"] = Operation("Workspaces", "List workspaces", "read",
+                "The separate areas of this installation, each with its own tables, dashboards, forms, functions, imports, rules and settings. Address one as `/api/v1/w/<slug>/…`, with the header `X-Bento-Workspace`, or over MCP at `/mcp/<slug>`.",
+                responses: Responses(200, "The workspaces: id, slug, name, isDefault.", anyObject.DeepClone()))
         };
         paths["/price-sources"] = new JsonObject
         {

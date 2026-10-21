@@ -12,6 +12,9 @@ namespace Bento.Api.Services;
 /// calendar — the time zone "today" and every schedule are in, the day weeks
 /// start on and the month the (fiscal) year starts in. Kept in memory once read;
 /// every change goes through <see cref="SetAsync"/>.
+/// Per workspace (Step 5.5): the default workspace's values are the
+/// installation's and every other workspace starts from them; a value set in
+/// a workspace is kept under <c>key@id</c>.
 /// </summary>
 public sealed partial class WorkspaceSettings
 {
@@ -19,7 +22,7 @@ public sealed partial class WorkspaceSettings
     public static readonly string[] WeekStarts = ["monday", "sunday", "saturday"];
 
     private readonly ISystemPool _systemPool;
-    private volatile Values? _current;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, Values> _current = new();
 
     public WorkspaceSettings(ISystemPool systemPool)
     {
@@ -37,7 +40,7 @@ public sealed partial class WorkspaceSettings
     }
 
     /// <summary>The settings as last read or saved; the defaults before the first read.</summary>
-    public Values Current => _current ?? new Values(null, DefaultCurrency);
+    public Values Current => _current.GetValueOrDefault(Ws) ?? _current.GetValueOrDefault(Workspaces.Workspace.DefaultId) ?? new Values(null, DefaultCurrency);
 
     /// <summary>The calendar in effect now (time zone, week and year start).</summary>
     public WorkspaceCalendar Calendar => Current.Calendar;
@@ -47,21 +50,24 @@ public sealed partial class WorkspaceSettings
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = (await conn.QueryAsync<(string Key, string? Value)>($"SELECT key, value FROM {Table}"))
             .ToDictionary(r => r.Key, r => r.Value, StringComparer.Ordinal);
-        string? Text(string key) => rows.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
+        var suffix = Suffix;
+        // The workspace's own value (even an empty one: "each browser's language"), else the installation's.
+        string? Text(string key) =>
+            (suffix.Length > 0 && rows.TryGetValue(key + suffix, out var own) ? own : rows.GetValueOrDefault(key)) is { } value && !string.IsNullOrWhiteSpace(value) ? value : null;
         var values = new Values(
             Text("locale"),
             Text("currency") ?? DefaultCurrency,
             Text("time_zone"),
             Text("week_start") is { } week && WeekStarts.Contains(week) ? week : "monday",
             int.TryParse(Text("year_start"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var month) && month is >= 1 and <= 12 ? month : 1);
-        _current = values;
+        _current[Ws] = values;
         return values;
     }
 
     /// <summary>Reads the settings once, so <see cref="Current"/> holds them; a database not ready yet leaves the defaults.</summary>
     public async Task EnsureLoadedAsync()
     {
-        if (_current is not null)
+        if (_current.ContainsKey(Ws))
             return;
         try
         {
@@ -81,7 +87,7 @@ public sealed partial class WorkspaceSettings
     }
 
     /// <summary>Forgets what was read (the bootstrap changed the table).</summary>
-    public void Invalidate() => _current = null;
+    public void Invalidate() => _current.Clear();
 
     public sealed record Changes(string? Locale, string? Currency, string? TimeZone = null, string? WeekStart = null, int? YearStart = null);
 
@@ -131,11 +137,13 @@ public sealed partial class WorkspaceSettings
                      ("year_start", yearStart.ToString(CultureInfo.InvariantCulture))
                  })
         {
-            await conn.ExecuteAsync($"DELETE FROM {Table} WHERE key = @Key", new { Key = key });
-            await conn.ExecuteAsync($"INSERT INTO {Table} (key, value) VALUES (@Key, @Value)", new { Key = key, Value = value });
+            await conn.ExecuteAsync($"DELETE FROM {Table} WHERE key = @Key", new { Key = key + Suffix });
+            await conn.ExecuteAsync($"INSERT INTO {Table} (key, value) VALUES (@Key, @Value)", new { Key = key + Suffix, Value = value });
         }
         var values = new Values(locale, code, timeZone, weekStart, yearStart);
-        _current = values;
+        if (Ws == Workspaces.Workspace.DefaultId)
+            _current.Clear(); // other workspaces may start from these
+        _current[Ws] = values;
         return values;
     }
 
@@ -156,6 +164,11 @@ public sealed partial class WorkspaceSettings
     /// <summary>Area/Location (America/Argentina/Buenos_Aires, Etc/GMT+5) or UTC.</summary>
     [GeneratedRegex(@"^(?:UTC|[A-Za-z]+(?:/[A-Za-z0-9_+\-]+){1,2})$")]
     private static partial Regex ZoneName();
+
+    private static long Ws => Workspaces.WorkspaceContext.Id;
+
+    /// <summary>"" for the default workspace (the installation's values), "@3" for workspace 3.</summary>
+    private static string Suffix => Ws == Workspaces.Workspace.DefaultId ? "" : "@" + Ws.ToString(CultureInfo.InvariantCulture);
 
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.workspace_settings" : "workspace_settings";
 }

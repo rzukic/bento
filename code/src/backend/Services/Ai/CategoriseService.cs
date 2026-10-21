@@ -476,10 +476,10 @@ public sealed class CategoriseService
             SELECT id, table_name AS TableName, target_column AS TargetColumn, match_column AS MatchColumn, pattern, value,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt
             FROM {RulesTable}
-            WHERE table_name = @Table AND (@Column IS NULL OR target_column = @Column)
+            WHERE workspace_id = @Ws AND table_name = @Table AND (@Column IS NULL OR target_column = @Column)
             ORDER BY target_column, LOWER(pattern)
             """,
-            new { Table = table.Name, Column = column })).ToList();
+            new { Table = table.Name, Column = column, Ws })).ToList();
 
         // Labels for the linked records, so the list reads "REWE → Groceries".
         var labels = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
@@ -517,14 +517,14 @@ public sealed class CategoriseService
         foreach (var (column, match, pattern, value) in validated)
         {
             await conn.ExecuteAsync(
-                $"DELETE FROM {RulesTable} WHERE table_name = @Table AND target_column = @Column AND match_column = @Match AND LOWER(pattern) = LOWER(@Pattern)",
-                new { Table = table.Name, Column = column, Match = match, Pattern = pattern }, transaction);
+                $"DELETE FROM {RulesTable} WHERE workspace_id = @Ws AND table_name = @Table AND target_column = @Column AND match_column = @Match AND LOWER(pattern) = LOWER(@Pattern)",
+                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Ws }, transaction);
             await conn.ExecuteAsync(
                 $"""
-                INSERT INTO {RulesTable} (table_name, target_column, match_column, pattern, value, created_by, created_at)
-                VALUES (@Table, @Column, @Match, @Pattern, @Value, @UserId, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
+                INSERT INTO {RulesTable} (workspace_id, table_name, target_column, match_column, pattern, value, created_by, created_at)
+                VALUES (@Ws, @Table, @Column, @Match, @Pattern, @Value, @UserId, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
                 """,
-                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Value = value, UserId = userId, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) },
+                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Value = value, UserId = userId, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), Ws },
                 transaction);
         }
         transaction.Commit();
@@ -536,7 +536,7 @@ public sealed class CategoriseService
         var table = _schemaCache.GetTable(tableName)
             ?? throw new ApiNotFoundException($"Table '{tableName}' does not exist.", new Dictionary<string, object?> { ["table"] = tableName });
         using var conn = await _systemPool.GetConnectionAsync();
-        var deleted = await conn.ExecuteAsync($"DELETE FROM {RulesTable} WHERE id = @Id AND table_name = @Table", new { Id = id, Table = table.Name });
+        var deleted = await conn.ExecuteAsync($"DELETE FROM {RulesTable} WHERE id = @Id AND workspace_id = @Ws AND table_name = @Table", new { Id = id, Table = table.Name, Ws });
         if (deleted == 0)
             throw new ApiNotFoundException($"Rule {id} not found for '{table.Name}'.");
     }
@@ -552,6 +552,7 @@ public sealed class CategoriseService
         public string CreatedAt { get; init; } = "";
     }
 
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string RulesTable => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.category_rules" : "category_rules";
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";

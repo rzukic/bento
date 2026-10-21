@@ -3,7 +3,8 @@ using Bento.Api.Db.Schema;
 namespace Bento.Api.Services;
 
 /// <summary>
-/// Holds the current Model JSON in memory for fast table lookups.
+/// Holds each workspace's Model JSON in memory for fast table lookups;
+/// <see cref="Current"/> is the model of the current workspace (Step 5.5).
 /// Reloaded after schema changes so new/removed tables are visible immediately.
 /// </summary>
 public sealed class SchemaCache
@@ -12,7 +13,7 @@ public sealed class SchemaCache
     private readonly ILogger<SchemaCache> _logger;
     private readonly object _lock = new();
 
-    private volatile ModelJson _current = new() { Version = 0 };
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, ModelJson> _models = new();
     private readonly List<Action<ModelJson>> _listeners = [];
 
     public SchemaCache(ModelJsonStore store, ILogger<SchemaCache> logger)
@@ -21,11 +22,14 @@ public sealed class SchemaCache
         _logger = logger;
     }
 
-    public ModelJson Current => _current;
+    /// <summary>The model of the current workspace; empty until it is loaded.</summary>
+    public ModelJson Current => _models.GetValueOrDefault(Workspaces.WorkspaceContext.Id) ?? Empty;
+
+    private static readonly ModelJson Empty = new() { Version = 0 };
 
     public TableDef? GetTable(string tableName)
     {
-        return _current.Tables.FirstOrDefault(
+        return Current.Tables.FirstOrDefault(
             t => string.Equals(t.Name, tableName, StringComparison.OrdinalIgnoreCase));
     }
 
@@ -36,19 +40,21 @@ public sealed class SchemaCache
 
     public IReadOnlyList<string> GetTableNames()
     {
-        return _current.Tables.Select(t => t.Name).ToList();
+        return Current.Tables.Select(t => t.Name).ToList();
     }
 
     /// <summary>
-    /// Reload the schema from the store. Called at startup and after schema changes.
+    /// Reload the current workspace's schema from the store. Called at startup
+    /// (per workspace) and after schema changes.
     /// </summary>
     public async Task ReloadAsync()
     {
         var model = await _store.GetCurrentAsync() ?? new ModelJson { Version = 0 };
 
-        _current = model;
+        _models[Workspaces.WorkspaceContext.Id] = model;
         _logger.LogInformation(
-            "Schema cache reloaded: version {Version}, {TableCount} tables.",
+            "Schema cache reloaded for {Workspace}: version {Version}, {TableCount} tables.",
+            Workspaces.WorkspaceContext.Current.Slug,
             model.Version,
             model.Tables.Count);
 

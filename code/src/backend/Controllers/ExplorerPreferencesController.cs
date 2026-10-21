@@ -35,10 +35,10 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 {CreatedAtText} AS CreatedAt,
                 {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
-            WHERE user_id = @UserId
+            WHERE workspace_id = @Ws AND user_id = @UserId
               AND table_name = @TableName
             """,
-            new { UserId = userId, TableName = tableId });
+            new { UserId = userId, TableName = tableId, Ws });
 
         return Ok(new
         {
@@ -68,10 +68,10 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 {CreatedAtText} AS CreatedAt,
                 {UpdatedAtText} AS UpdatedAt
             FROM {PreferencesTable}
-            WHERE user_id = @UserId
+            WHERE workspace_id = @Ws AND user_id = @UserId
               AND table_name = @TableName
             """,
-            new { UserId = userId, TableName = tableId });
+            new { UserId = userId, TableName = tableId, Ws });
 
         var nextDefaultViewId = existing?.DefaultViewId;
         if (request.DefaultViewId.HasValue)
@@ -88,11 +88,11 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 $"""
                 SELECT COUNT(1)
                 FROM {ViewsTable}
-                WHERE id = @Id
+                WHERE id = @Id AND workspace_id = @Ws
                   AND table_name = @TableName
                   AND owner_user_id = @UserId
                 """,
-                new { Id = nextDefaultViewId.Value, TableName = tableId, UserId = userId });
+                new { Id = nextDefaultViewId.Value, TableName = tableId, UserId = userId, Ws });
 
             if (count == 0)
             {
@@ -111,7 +111,7 @@ public sealed class ExplorerPreferencesController : ControllerBase
             SET default_view_id = @DefaultViewId,
                 auto_save = @AutoSave,
                 updated_at = {NowParam}
-            WHERE user_id = @UserId
+            WHERE workspace_id = @Ws AND user_id = @UserId
               AND table_name = @TableName
             """,
             new
@@ -120,7 +120,8 @@ public sealed class ExplorerPreferencesController : ControllerBase
                 AutoSave = nextAutoSave,
                 Now = now,
                 UserId = userId,
-                TableName = tableId
+                TableName = tableId,
+                Ws
             });
 
         if (updated == 0)
@@ -128,9 +129,9 @@ public sealed class ExplorerPreferencesController : ControllerBase
             await conn.ExecuteAsync(
                 $"""
                 INSERT INTO {PreferencesTable}
-                    (user_id, table_name, default_view_id, auto_save, created_at, updated_at)
+                    (workspace_id, user_id, table_name, default_view_id, auto_save, created_at, updated_at)
                 VALUES
-                    (@UserId, @TableName, @DefaultViewId, @AutoSave, {NowParam}, {NowParam})
+                    (@Ws, @UserId, @TableName, @DefaultViewId, @AutoSave, {NowParam}, {NowParam})
                 """,
                 new
                 {
@@ -138,7 +139,8 @@ public sealed class ExplorerPreferencesController : ControllerBase
                     TableName = tableId,
                     DefaultViewId = nextDefaultViewId,
                     AutoSave = nextAutoSave,
-                    Now = now
+                    Now = now,
+                    Ws
                 });
         }
 
@@ -150,6 +152,8 @@ public sealed class ExplorerPreferencesController : ControllerBase
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
 
     private string PreferencesTable =>
         _systemPool.Provider == DatabaseProvider.Postgres

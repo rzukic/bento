@@ -9,6 +9,7 @@ import { ReportsPanel } from "../features/notifications/ReportsPanel";
 import { RulesPanel } from "../features/notifications/RulesPanel";
 import { ProblemsPanel } from "../features/problems/ProblemsPanel";
 import { BrowserFormatRow, WorkspaceFormatPanel } from "../features/settings/FormatSettings";
+import { WorkspacesPanel } from "../features/workspaces/WorkspacesPanel";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useAuthStore } from "../stores/authStore";
 import "./SettingsPage.css";
@@ -45,6 +46,8 @@ export function SettingsPage() {
           ))}
         </dl>
       </Panel>
+
+      {user?.role === "admin" ? <WorkspacesPanel /> : null}
 
       {user?.role === "admin" ? <WorkspaceFormatPanel /> : null}
 

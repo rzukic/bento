@@ -24,7 +24,7 @@ namespace Bento.Api.Controllers;
 /// </summary>
 [ApiController]
 [Route("dav")]
-public sealed class DavController(AppService apps, CalDavService calDav, AuthRateLimiter limiter) : ControllerBase
+public sealed class DavController(AppService apps, CalDavService calDav, AuthRateLimiter limiter, Services.Workspaces.WorkspaceService workspaces) : ControllerBase
 {
     private static readonly XNamespace D = "DAV:";
     private static readonly XNamespace C = "urn:ietf:params:xml:ns:caldav";
@@ -64,6 +64,12 @@ public sealed class DavController(AppService apps, CalDavService calDav, AuthRat
             Response.Headers.WWWAuthenticate = "Basic realm=\"Bento\", charset=\"UTF-8\"";
             return Text(StatusCodes.Status401Unauthorized, "Sign in with the device's app password (Bento → Apps).");
         }
+
+        // A device works in its app's workspace: its tables, model and settings.
+        var workspace = workspaces.Find(app.WorkspaceId) ?? (await workspaces.ReloadAsync()).FirstOrDefault(w => w.Id == app.WorkspaceId);
+        if (workspace is null)
+            return Text(StatusCodes.Status401Unauthorized, "This app's workspace is gone.");
+        using var inWorkspace = Services.Workspaces.WorkspaceContext.Use(workspace);
 
         if (method is "MKCALENDAR" or "MKCOL")
             return Text(StatusCodes.Status403Forbidden, "Calendars are set up in Bento (Apps).");

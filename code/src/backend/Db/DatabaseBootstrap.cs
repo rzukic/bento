@@ -29,11 +29,119 @@ public class DatabaseBootstrap : IHostedService
             await BootstrapPostgres(conn);
         else
             await BootstrapSqlite(conn);
+        await AddWorkspacesAsync(conn);
         await KeepCalendarAsync(conn);
         await UpgradeWidgetsAsync(conn);
         _workspace?.Invalidate();
 
         _logger.LogInformation("Database bootstrap complete.");
+    }
+
+    /// <summary>
+    /// Workspaces (Step 5.5): the register with the default workspace (id 1, the
+    /// data that was there before), and <c>workspace_id</c> on every system table
+    /// whose rows belong to one — existing rows to the default one.
+    /// </summary>
+    private async Task AddWorkspacesAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        await conn.ExecuteAsync(pg
+            ? """
+              CREATE TABLE IF NOT EXISTS _system.workspaces (
+                  id              SERIAL PRIMARY KEY,
+                  slug            VARCHAR(40) NOT NULL UNIQUE,
+                  name            VARCHAR(100) NOT NULL,
+                  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+              INSERT INTO _system.workspaces (id, slug, name) VALUES (1, 'default', 'Default') ON CONFLICT (id) DO NOTHING;
+              SELECT setval(pg_get_serial_sequence('_system.workspaces', 'id'), GREATEST((SELECT MAX(id) FROM _system.workspaces), 1));
+              """
+            : """
+              CREATE TABLE IF NOT EXISTS workspaces (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  slug            TEXT NOT NULL UNIQUE,
+                  name            TEXT NOT NULL,
+                  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+              );
+              INSERT OR IGNORE INTO workspaces (id, slug, name) VALUES (1, 'default', 'Default');
+              """);
+        foreach (var table in Services.Workspaces.WorkspaceService.ScopedTables)
+        {
+            if (pg)
+            {
+                await conn.ExecuteAsync($"ALTER TABLE _system.{table} ADD COLUMN IF NOT EXISTS workspace_id INTEGER NOT NULL DEFAULT 1");
+            }
+            else if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'workspace_id'") == 0)
+            {
+                await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1");
+            }
+            await conn.ExecuteAsync($"CREATE INDEX IF NOT EXISTS idx_{table}_workspace ON {prefix}{table}(workspace_id)");
+        }
+
+        // Names unique per workspace, not per installation: two workspaces may both
+        // have a function "fx" or a price source "ETFs", and their own explorer preferences.
+        if (pg)
+        {
+            await conn.ExecuteAsync("""
+                ALTER TABLE _system.functions DROP CONSTRAINT IF EXISTS functions_name_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_functions_workspace_name ON _system.functions(workspace_id, name);
+                ALTER TABLE _system.function_versions DROP CONSTRAINT IF EXISTS function_versions_function_name_version_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_function_versions_workspace ON _system.function_versions(workspace_id, function_name, version);
+                ALTER TABLE _system.price_sources DROP CONSTRAINT IF EXISTS price_sources_name_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_price_sources_workspace_name ON _system.price_sources(workspace_id, name);
+                """);
+            var key = await conn.ExecuteScalarAsync<long>("""
+                SELECT COUNT(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = '_system.user_table_explorer_preferences'::regclass AND i.indisprimary AND a.attname = 'workspace_id'
+                """);
+            if (key == 0)
+                await conn.ExecuteAsync("""
+                    ALTER TABLE _system.user_table_explorer_preferences DROP CONSTRAINT IF EXISTS user_table_explorer_preferences_pkey;
+                    ALTER TABLE _system.user_table_explorer_preferences ADD PRIMARY KEY (workspace_id, user_id, table_name);
+                    """);
+        }
+        else
+        {
+            await RebuildSqliteAsync(conn, "functions", sql => sql.Replace("name            TEXT NOT NULL UNIQUE", "name            TEXT NOT NULL"),
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_functions_workspace_name ON functions(workspace_id, name)");
+            await RebuildSqliteAsync(conn, "function_versions", sql => sql.Replace("UNIQUE (function_name, version)", "UNIQUE (workspace_id, function_name, version)"), null);
+            await RebuildSqliteAsync(conn, "price_sources", sql => sql.Replace("name            TEXT NOT NULL UNIQUE", "name            TEXT NOT NULL"),
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_price_sources_workspace_name ON price_sources(workspace_id, name)");
+            await RebuildSqliteAsync(conn, "user_table_explorer_preferences", sql => sql.Replace("PRIMARY KEY (user_id, table_name)", "PRIMARY KEY (workspace_id, user_id, table_name)"), null);
+        }
+    }
+
+    /// <summary>
+    /// SQLite cannot drop a UNIQUE or change a key in place: the table is made
+    /// again from its own definition with <paramref name="change"/> applied,
+    /// its rows copied over and its indexes made again. Skipped when the
+    /// definition already has the change.
+    /// </summary>
+    private static async Task RebuildSqliteAsync(System.Data.IDbConnection conn, string table, Func<string, string> change, string? extraIndex)
+    {
+        var sql = await conn.ExecuteScalarAsync<string?>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = @Table", new { Table = table });
+        if (sql is null)
+            return;
+        var changed = change(sql);
+        if (!string.Equals(changed, sql, StringComparison.Ordinal))
+        {
+            var indexes = (await conn.QueryAsync<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = @Table AND sql IS NOT NULL", new { Table = table })).ToList();
+            await conn.ExecuteAsync("PRAGMA foreign_keys = OFF");
+            using (var tx = conn.BeginTransaction())
+            {
+                await conn.ExecuteAsync($"ALTER TABLE {table} RENAME TO {table}__before_workspaces", transaction: tx);
+                await conn.ExecuteAsync(changed, transaction: tx);
+                await conn.ExecuteAsync($"INSERT INTO {table} SELECT * FROM {table}__before_workspaces", transaction: tx);
+                await conn.ExecuteAsync($"DROP TABLE {table}__before_workspaces", transaction: tx);
+                foreach (var index in indexes)
+                    await conn.ExecuteAsync(index.Replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ").Replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS "), transaction: tx);
+                tx.Commit();
+            }
+            await conn.ExecuteAsync("PRAGMA foreign_keys = ON");
+        }
+        if (extraIndex is not null)
+            await conn.ExecuteAsync(extraIndex);
     }
 
     /// <summary>

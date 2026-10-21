@@ -36,17 +36,29 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
     private readonly ILogger<StoredCustomValues>? _logger;
     private readonly Channel<bool> _requests = Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
     private readonly SemaphoreSlim _running = new(1, 1);
-    private volatile bool _tableReady;
-    private volatile bool _pending;
-    private volatile CustomValueStatus _status = new(false, null, 0, []);
+    // Per workspace (Step 5.5): its values table, whether a run is asked for, the last run.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, bool> _tableReady = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, bool> _pending = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, CustomValueStatus> _status = new();
+    private readonly Services.Workspaces.WorkspaceService? _workspaces;
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
+
+    private CustomValueStatus CurrentStatus
+    {
+        get => _status.GetValueOrDefault(Ws) ?? new CustomValueStatus(false, null, 0, []);
+        set => _status[Ws] = value;
+    }
 
     public StoredCustomValues(
         IDataPool dataPool,
         ISystemPool systemPool,
         SchemaCache schemaCache,
         ComputedColumns computed,
-        ILogger<StoredCustomValues>? logger = null)
+        ILogger<StoredCustomValues>? logger = null,
+        Services.Workspaces.WorkspaceService? workspaces = null)
     {
+        _workspaces = workspaces;
         _dataPool = dataPool;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
@@ -58,15 +70,35 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
     /// <summary>The values table must exist before the first query reads a CUSTOM column.</summary>
     public override async Task StartAsync(CancellationToken cancellationToken)
     {
-        await EnsureTableAsync();
+        foreach (var workspace in await WorkspacesAsync())
+        {
+            using var _ = Services.Workspaces.WorkspaceContext.Use(workspace);
+            await EnsureTableAsync();
+        }
         await base.StartAsync(cancellationToken);
     }
 
-    public CustomValueStatus Status => _status with { Pending = _pending || _status.Pending };
+    private async Task<IReadOnlyList<Services.Workspaces.Workspace>> WorkspacesAsync()
+    {
+        if (_workspaces is null)
+            return [Services.Workspaces.WorkspaceContext.Current];
+        try
+        {
+            return await _workspaces.ReloadAsync();
+        }
+        catch (Exception e) when (e is System.Data.Common.DbException or InvalidOperationException)
+        {
+            return _workspaces.All;
+        }
+    }
 
+    /// <summary>The current workspace's last run.</summary>
+    public CustomValueStatus Status => CurrentStatus with { Pending = _pending.GetValueOrDefault(Ws) || CurrentStatus.Pending };
+
+    /// <summary>Asks for a run in the current workspace.</summary>
     public void Request()
     {
-        _pending = true;
+        _pending[Ws] = true;
         _requests.Writer.TryWrite(true);
     }
 
@@ -88,7 +120,14 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
                 {
                     // The minute passed without a request: sweep anyway.
                 }
-                await RunAsync(stoppingToken);
+                // The workspaces asked for, or all of them on the minute's sweep.
+                var all = await WorkspacesAsync();
+                var asked = all.Where(w => _pending.GetValueOrDefault(w.Id)).ToList();
+                foreach (var workspace in asked.Count > 0 ? asked : all)
+                {
+                    using var _ = Services.Workspaces.WorkspaceContext.Use(workspace);
+                    await RunAsync(stoppingToken);
+                }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
             {
@@ -127,8 +166,8 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
         await _running.WaitAsync(cancellationToken);
         try
         {
-            _pending = false;
-            _status = _status with { Pending = true };
+            _pending[Ws] = false;
+            CurrentStatus = CurrentStatus with { Pending = true };
             await EnsureTableAsync();
 
             var updated = 0;
@@ -155,14 +194,14 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
                     break;
             }
 
-            _status = new CustomValueStatus(false, DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture), updated, failures);
+            CurrentStatus = new CustomValueStatus(false, DateTime.UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture), updated, failures);
             if (updated > 0)
                 _logger?.LogInformation("Stored custom function values updated: {Count}.", updated);
         }
         finally
         {
-            if (_status.Pending)
-                _status = _status with { Pending = false };
+            if (CurrentStatus.Pending)
+                CurrentStatus = CurrentStatus with { Pending = false };
             _running.Release();
         }
     }
@@ -368,10 +407,10 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
     /// </summary>
     public async Task EnsureTableAsync()
     {
-        if (_tableReady)
+        if (_tableReady.GetValueOrDefault(Ws))
             return;
         var ddl = $"""
-            CREATE TABLE IF NOT EXISTS {(Pg ? "public." : "")}{Values} (
+            CREATE TABLE IF NOT EXISTS {(Pg ? "\"" + Services.Workspaces.WorkspaceContext.Current.DataSchema + "\"." : "")}{Values} (
                 table_name       TEXT NOT NULL,
                 column_name      TEXT NOT NULL,
                 row_key          TEXT NOT NULL,
@@ -393,6 +432,6 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
             using var conn = await _dataPool.GetConnectionAsync();
             await conn.ExecuteAsync(ddl);
         }
-        _tableReady = true;
+        _tableReady[Ws] = true;
     }
 }

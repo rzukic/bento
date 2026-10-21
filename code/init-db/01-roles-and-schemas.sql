@@ -40,6 +40,8 @@ WHERE NOT EXISTS (
 ) \gexec
 ALTER ROLE :"system_role" WITH LOGIN PASSWORD :'bento_system_password';
 GRANT ALL ON SCHEMA _system TO :"system_role";
+-- Workspaces (Step 5.5): the system role makes a schema per workspace (ws_<slug>).
+SELECT format('GRANT CREATE ON DATABASE %I TO %I', current_database(), :'system_role') \gexec
 GRANT ALL ON SCHEMA public TO :"system_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"system_role" IN SCHEMA _system GRANT ALL ON TABLES TO :"system_role";
 ALTER DEFAULT PRIVILEGES FOR ROLE :"system_role" IN SCHEMA public GRANT ALL ON TABLES TO :"system_role";

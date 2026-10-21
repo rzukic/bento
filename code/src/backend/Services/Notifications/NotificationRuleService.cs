@@ -66,6 +66,7 @@ public sealed class NotificationRuleService
     private bool Pg => _systemPool.Provider == DatabaseProvider.Postgres;
     /// <summary>The workspace's calendar: its time zone, week and year start (read in <see cref="LoadAsync"/>).</summary>
     private WorkspaceCalendar Cal => _workspace.Calendar;
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string Rules => Pg ? "_system.notification_rules" : "notification_rules";
     private string Dashboards => Pg ? "_system.dashboards" : "dashboards";
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
@@ -96,8 +97,8 @@ public sealed class NotificationRuleService
             $"""
             SELECT id, name, kind, CAST(config AS TEXT) AS Config, channels, enabled, state,
                    {Ts("created_at")} AS CreatedAt, {Ts("updated_at")} AS UpdatedAt
-            FROM {Rules}{(id is null ? "" : " WHERE id = @Id")} ORDER BY name
-            """, new { Id = id });
+            FROM {Rules} WHERE workspace_id = @Ws{(id is null ? "" : " AND id = @Id")} ORDER BY name
+            """, new { Id = id, Ws });
         return rows.Select(r => new Rule(r.Id, r.Name, r.Kind,
             JsonSerializer.Deserialize<NotificationRuleConfig>(r.Config, Json) ?? new NotificationRuleConfig(),
             JsonSerializer.Deserialize<List<long>>(r.Channels, Json) ?? [],
@@ -131,11 +132,11 @@ public sealed class NotificationRuleService
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Rules} (name, kind, config, channels, enabled, state, created_by, created_at, updated_at)
-            VALUES (@Name, @Kind, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Channels, @Enabled, @State, @CreatedBy, {NowParam}, {NowParam})
+            INSERT INTO {Rules} (workspace_id, name, kind, config, channels, enabled, state, created_by, created_at, updated_at)
+            VALUES (@Ws, @Name, @Kind, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Channels, @Enabled, @State, @CreatedBy, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Kind = kind, Config = JsonSerializer.Serialize(config, Json), Channels = JsonSerializer.Serialize(channels), Enabled = request.Enabled ?? true, State = "{}", CreatedBy = userId, Now = UtcNowIso() });
+            new { Name = name, Kind = kind, Config = JsonSerializer.Serialize(config, Json), Channels = JsonSerializer.Serialize(channels), Enabled = request.Enabled ?? true, State = "{}", CreatedBy = userId, Now = UtcNowIso(), Ws });
         return await GetAsync(id);
     }
 
@@ -316,7 +317,7 @@ public sealed class NotificationRuleService
         using (var conn = await _systemPool.GetConnectionAsync())
         {
             var row = await conn.QuerySingleOrDefaultAsync<(string Name, string Json)?>(
-                $"SELECT name, CAST(dashboard_json AS TEXT) FROM {Dashboards} WHERE id = @Id", new { Id = dashboardId });
+                $"SELECT name, CAST(dashboard_json AS TEXT) FROM {Dashboards} WHERE id = @Id AND workspace_id = @Ws", new { Id = dashboardId, Ws });
             (name, json) = row is { } found ? (found.Name, found.Json) : (null, null);
         }
         if (json is null)

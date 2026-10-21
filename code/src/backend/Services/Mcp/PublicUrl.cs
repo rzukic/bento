@@ -17,8 +17,13 @@ public static class PublicUrl
         return $"{request.Scheme}://{request.Host.Value}".TrimEnd('/');
     }
 
-    public static string McpEndpoint(HttpRequest request, BackendRuntimeOptions options) => For(request, options) + "/mcp";
+    /// <summary>The MCP address of the current workspace: /mcp for the default one, /mcp/&lt;slug&gt; for others.</summary>
+    public static string McpEndpoint(HttpRequest request, BackendRuntimeOptions options) =>
+        For(request, options) + "/mcp" + (Workspaces.WorkspaceContext.Current.IsDefault ? "" : "/" + Workspaces.WorkspaceContext.Current.Slug);
 
     public static string ResourceMetadata(HttpRequest request, BackendRuntimeOptions options) =>
-        For(request, options) + "/.well-known/oauth-protected-resource";
+        For(request, options) + "/.well-known/oauth-protected-resource" +
+        (request.HttpContext.Items.TryGetValue(Middleware.WorkspaceMiddleware.AddressItem, out var slug) && slug is string name && request.Path.StartsWithSegments("/mcp")
+            ? "/mcp/" + Uri.EscapeDataString(name)
+            : "");
 }

@@ -23,13 +23,15 @@ public sealed class WellKnownController : ControllerBase
 
     [HttpGet("oauth-protected-resource")]
     [HttpGet("oauth-protected-resource/mcp")]
-    public IActionResult ProtectedResource()
+    [HttpGet("oauth-protected-resource/mcp/{workspace}")]
+    public IActionResult ProtectedResource(string? workspace = null)
     {
         var baseUrl = PublicUrl.For(Request, _runtimeOptions);
         AllowAnyOrigin();
         return Ok(new Dictionary<string, object?>
         {
-            ["resource"] = baseUrl + "/mcp",
+            // A workspace's own MCP address (Step 5.5): /mcp/<slug>.
+            ["resource"] = baseUrl + "/mcp" + (string.IsNullOrWhiteSpace(workspace) ? "" : "/" + Uri.EscapeDataString(workspace)),
             ["authorization_servers"] = new[] { baseUrl },
             ["scopes_supported"] = McpPermissions.All.Concat(["read", "write"]).ToArray(),
             ["bearer_methods_supported"] = new[] { "header" },

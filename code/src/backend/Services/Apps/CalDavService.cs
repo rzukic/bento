@@ -183,10 +183,10 @@ public sealed class CalDavService
             new { AppId = appId, Calendar = calendar, RowId = rowId, Href = href });
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Links} (app_id, calendar, row_id, href, uid, raw, updated_at)
-            VALUES (@AppId, @Calendar, @RowId, @Href, @Uid, @Raw, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
+            INSERT INTO {Links} (workspace_id, app_id, calendar, row_id, href, uid, raw, updated_at)
+            VALUES (@Ws, @AppId, @Calendar, @RowId, @Href, @Uid, @Raw, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
             """,
-            new { AppId = appId, Calendar = calendar, RowId = rowId, Href = href, Uid = uid, Raw = raw, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) });
+            new { AppId = appId, Calendar = calendar, RowId = rowId, Href = href, Uid = uid, Raw = raw, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), Ws = Workspaces.WorkspaceContext.Id });
     }
 
     /// <summary>

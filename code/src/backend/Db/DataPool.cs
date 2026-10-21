@@ -45,16 +45,17 @@ public class DataPool : IDataPool, IDisposable
         {
             var conn = _pgDataSource!.CreateConnection();
             await conn.OpenAsync();
-            // Lock to public schema only — bento_data role cannot access _system.
-            // bento.time_zone: the zone TODAY() reads (an IANA name, checked when saved).
+            // Lock to the workspace's schema (public for the default one) — bento_data
+            // cannot access _system. bento.time_zone: the zone TODAY() reads (an IANA name, checked when saved).
+            var schema = Services.Workspaces.WorkspaceContext.Current.DataSchema.Replace("\"", "\"\"");
             await using var cmd = conn.CreateCommand();
-            cmd.CommandText = $"SET search_path TO public; SET bento.time_zone = '{calendar.ZoneId.Replace("'", "''")}';";
+            cmd.CommandText = $"SET search_path TO \"{schema}\"; SET bento.time_zone = '{calendar.ZoneId.Replace("'", "''")}';";
             await cmd.ExecuteNonQueryAsync();
             return conn;
         }
         else
         {
-            var dbPath = Path.Combine(_config.DataConnection, "data.db");
+            var dbPath = Path.Combine(_config.DataConnection, Services.Workspaces.WorkspaceContext.Current.DataFile);
             var connStr = new SqliteConnectionStringBuilder
             {
                 DataSource = dbPath,

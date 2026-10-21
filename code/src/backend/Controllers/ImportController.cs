@@ -89,10 +89,10 @@ public sealed class ImportController : ControllerBase
             SELECT id, name, table_name AS TableName, config,
                    {CreatedAtText} AS CreatedAt, {UpdatedAtText} AS UpdatedAt
             FROM {ProfilesTable}
-            WHERE table_name = @TableName
+            WHERE workspace_id = @Ws AND table_name = @TableName
             ORDER BY name
             """,
-            new { TableName = tableName });
+            new { TableName = tableName, Ws });
         return Ok(new { data = rows.Select(ToResponse) });
     }
 
@@ -108,11 +108,11 @@ public sealed class ImportController : ControllerBase
         await EnsureNameFreeAsync(conn, tableName, name, exceptId: null);
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {ProfilesTable} (name, table_name, config, created_by, created_at, updated_at)
-            VALUES (@Name, @TableName, {ConfigParam}, @CreatedBy, {NowParam}, {NowParam})
+            INSERT INTO {ProfilesTable} (workspace_id, name, table_name, config, created_by, created_at, updated_at)
+            VALUES (@Ws, @Name, @TableName, {ConfigParam}, @CreatedBy, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, TableName = tableName, Config = config, CreatedBy = HttpContext.User.GetUserId(), Now = now });
+            new { Name = name, TableName = tableName, Config = config, CreatedBy = HttpContext.User.GetUserId(), Now = now, Ws });
 
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetProfileAsync(conn, tableName, id)) });
     }
@@ -169,17 +169,17 @@ public sealed class ImportController : ControllerBase
             SELECT id, name, table_name AS TableName, config,
                    {CreatedAtText} AS CreatedAt, {UpdatedAtText} AS UpdatedAt
             FROM {ProfilesTable}
-            WHERE id = @Id AND table_name = @TableName
+            WHERE id = @Id AND workspace_id = @Ws AND table_name = @TableName
             """,
-            new { Id = id, TableName = tableName })
+            new { Id = id, TableName = tableName, Ws })
             ?? throw new ApiNotFoundException($"Import profile {id} not found for '{tableName}'.");
     }
 
     private async Task EnsureNameFreeAsync(System.Data.IDbConnection conn, string tableName, string name, long? exceptId)
     {
         var taken = await conn.ExecuteScalarAsync<long>(
-            $"SELECT COUNT(*) FROM {ProfilesTable} WHERE table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
-            new { TableName = tableName, Name = name, ExceptId = exceptId });
+            $"SELECT COUNT(*) FROM {ProfilesTable} WHERE workspace_id = @Ws AND table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
+            new { TableName = tableName, Name = name, ExceptId = exceptId, Ws });
         if (taken > 0)
             throw new ApiConflictException($"A profile named '{name}' already exists for this table.",
                 new Dictionary<string, object?> { ["field"] = "name" });
@@ -202,6 +202,8 @@ public sealed class ImportController : ControllerBase
 
     private static string SerializeConfig(ImportProfileConfig? config) =>
         JsonSerializer.Serialize(config ?? new ImportProfileConfig(), ConfigJson);
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
 
     private string ProfilesTable =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.import_profiles" : "import_profiles";

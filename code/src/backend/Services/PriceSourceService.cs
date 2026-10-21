@@ -71,6 +71,7 @@ public sealed class PriceSourceService
 
     private bool SystemPg => _systemPool.Provider == DatabaseProvider.Postgres;
     private bool DataPg => _dataPool.Provider == DatabaseProvider.Postgres;
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string Sources => SystemPg ? "_system.price_sources" : "price_sources";
     private string Runs => SystemPg ? "_system.price_source_runs" : "price_source_runs";
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
@@ -92,8 +93,8 @@ public sealed class PriceSourceService
     {
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = await conn.QueryAsync<SourceRow>(
-            $"SELECT id, name, CAST(config AS TEXT) AS Config, enabled FROM {Sources}{(id is null ? "" : " WHERE id = @Id")} ORDER BY name",
-            new { Id = id });
+            $"SELECT id, name, CAST(config AS TEXT) AS Config, enabled FROM {Sources} WHERE workspace_id = @Ws{(id is null ? "" : " AND id = @Id")} ORDER BY name",
+            new { Id = id, Ws });
         return rows.Select(r => new Source(r.Id, r.Name, r.Enabled,
             JsonSerializer.Deserialize<PriceSourceConfig>(r.Config, Json) ?? new PriceSourceConfig())).ToList();
     }
@@ -116,15 +117,15 @@ public sealed class PriceSourceService
         var name = RequireName(request.Name);
         var config = Validate(request.Config);
         using var conn = await _systemPool.GetConnectionAsync();
-        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE LOWER(name) = LOWER(@Name)", new { Name = name }) > 0)
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE workspace_id = @Ws AND LOWER(name) = LOWER(@Name)", new { Name = name, Ws }) > 0)
             throw new ApiConflictException($"A price source named '{name}' already exists.", new Dictionary<string, object?> { ["field"] = "name" });
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Sources} (name, config, enabled, created_at, updated_at)
-            VALUES (@Name, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, {NowParam}, {NowParam})
+            INSERT INTO {Sources} (workspace_id, name, config, enabled, created_at, updated_at)
+            VALUES (@Ws, @Name, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, Now = UtcNowIso() });
+            new { Name = name, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, Now = UtcNowIso(), Ws });
         return await GetAsync(id);
     }
 
@@ -134,7 +135,7 @@ public sealed class PriceSourceService
         var name = request.Name is null ? existing.Name : RequireName(request.Name);
         var config = request.Config is null ? existing.Config : Validate(request.Config);
         using var conn = await _systemPool.GetConnectionAsync();
-        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE LOWER(name) = LOWER(@Name) AND id <> @Id", new { Name = name, Id = id }) > 0)
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE workspace_id = @Ws AND LOWER(name) = LOWER(@Name) AND id <> @Id", new { Name = name, Id = id, Ws }) > 0)
             throw new ApiConflictException($"A price source named '{name}' already exists.", new Dictionary<string, object?> { ["field"] = "name" });
         await conn.ExecuteAsync(
             $"""
@@ -404,8 +405,8 @@ public sealed class PriceSourceService
         using (var conn = await _systemPool.GetConnectionAsync())
         {
             runId = await conn.ExecuteScalarAsync<long>(
-                $"INSERT INTO {Runs} (source_id, kind, started_at) VALUES (@Source, @Kind, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Started")}) RETURNING id",
-                new { Source = source.Id, Kind = kind, Started = started });
+                $"INSERT INTO {Runs} (workspace_id, source_id, kind, started_at) VALUES (@Ws, @Source, @Kind, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Started")}) RETURNING id",
+                new { Source = source.Id, Kind = kind, Started = started, Ws });
         }
 
         var requests = 0;

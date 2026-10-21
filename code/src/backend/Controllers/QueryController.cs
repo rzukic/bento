@@ -73,11 +73,11 @@ public sealed class SavedQueriesController : ControllerBase
             $"""
             SELECT {Columns}
             FROM {Table}
-            WHERE (owner_user_id = @UserId OR is_shared {SharedTrue})
+            WHERE workspace_id = @Ws AND (owner_user_id = @UserId OR is_shared {SharedTrue})
               AND (@Source IS NULL OR LOWER(source_table) = LOWER(@Source))
             ORDER BY LOWER(name)
             """,
-            new { UserId = userId, Source = string.IsNullOrWhiteSpace(source) ? null : source.Trim() });
+            new { UserId = userId, Source = string.IsNullOrWhiteSpace(source) ? null : source.Trim(), Ws });
         return Ok(new { data = rows.Select(r => ToResponse(r, userId)) });
     }
 
@@ -100,11 +100,11 @@ public sealed class SavedQueriesController : ControllerBase
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, source_table, config, owner_user_id, is_shared, created_at, updated_at)
-            VALUES (@Name, @Source, {ConfigParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            INSERT INTO {Table} (workspace_id, name, source_table, config, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Ws, @Name, @Source, {ConfigParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Source = query.Source!.Trim(), Config = Serialize(query), OwnerId = userId, IsShared = request.IsShared ?? false, Now = now });
+            new { Name = name, Source = query.Source!.Trim(), Config = Serialize(query), OwnerId = userId, IsShared = request.IsShared ?? false, Now = now, Ws });
 
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
@@ -187,7 +187,7 @@ public sealed class SavedQueriesController : ControllerBase
     private async Task<SavedQueryRow> GetVisibleAsync(System.Data.IDbConnection conn, long id, long? userId)
     {
         var row = await conn.QuerySingleOrDefaultAsync<SavedQueryRow>(
-            $"SELECT {Columns} FROM {Table} WHERE id = @Id", new { Id = id });
+            $"SELECT {Columns} FROM {Table} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
         if (row is null || (row.OwnerUserId != userId && !row.IsShared))
             throw new ApiNotFoundException($"Saved query {id} not found.");
         return row;
@@ -228,6 +228,7 @@ public sealed class SavedQueriesController : ControllerBase
 
     private long? UserId() => HttpContext.User.GetUserId();
 
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.saved_queries" : "saved_queries";
     private string SharedTrue => _systemPool.Provider == DatabaseProvider.Postgres ? "" : "= 1";
     private string ConfigParam => SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config");

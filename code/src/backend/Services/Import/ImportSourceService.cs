@@ -64,6 +64,7 @@ public sealed class ImportSourceService
     }
 
     private bool Pg => _systemPool.Provider == DatabaseProvider.Postgres;
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string Sources => Pg ? "_system.import_sources" : "import_sources";
     private string Runs => Pg ? "_system.import_runs" : "import_runs";
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
@@ -87,7 +88,7 @@ public sealed class ImportSourceService
     private async Task<List<Source>> LoadAsync(string? tableName = null, long? id = null)
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        var where = new List<string>();
+        var where = new List<string> { "workspace_id = @Ws" };
         if (tableName is not null)
             where.Add("table_name = @TableName");
         if (id is not null)
@@ -96,9 +97,9 @@ public sealed class ImportSourceService
             $"""
             SELECT id, name, table_name AS TableName, CAST(config AS TEXT) AS Config, enabled,
                    {Ts("created_at")} AS CreatedAt, {Ts("updated_at")} AS UpdatedAt
-            FROM {Sources}{(where.Count > 0 ? " WHERE " + string.Join(" AND ", where) : "")} ORDER BY name
+            FROM {Sources} WHERE {string.Join(" AND ", where)} ORDER BY name
             """,
-            new { TableName = tableName, Id = id });
+            new { TableName = tableName, Id = id, Ws });
         return rows.Select(r => new Source(r.Id, r.Name, r.TableName,
             JsonSerializer.Deserialize<ImportSourceConfig>(r.Config, Json) ?? new ImportSourceConfig(), r.Enabled, r.CreatedAt, r.UpdatedAt)).ToList();
     }
@@ -128,11 +129,11 @@ public sealed class ImportSourceService
         await EnsureNameFreeAsync(conn, tableName, name, null);
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Sources} (name, table_name, config, enabled, created_by, created_at, updated_at)
-            VALUES (@Name, @TableName, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, @CreatedBy, {NowParam}, {NowParam})
+            INSERT INTO {Sources} (workspace_id, name, table_name, config, enabled, created_by, created_at, updated_at)
+            VALUES (@Ws, @Name, @TableName, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, @CreatedBy, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, TableName = tableName, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, CreatedBy = userId, Now = UtcNowIso() });
+            new { Name = name, TableName = tableName, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, CreatedBy = userId, Now = UtcNowIso(), Ws });
         return await GetAsync(tableName, id);
     }
 
@@ -292,8 +293,8 @@ public sealed class ImportSourceService
         using (var conn = await _systemPool.GetConnectionAsync())
         {
             runId = await conn.ExecuteScalarAsync<long>(
-                $"INSERT INTO {Runs} (source_id, run_trigger, started_at, status) VALUES (@Source, @Trigger, {NowParam}, 'running') RETURNING id",
-                new { Source = source.Id, Trigger = trigger, Now = UtcNowIso() });
+                $"INSERT INTO {Runs} (workspace_id, source_id, run_trigger, started_at, status) VALUES (@Ws, @Source, @Trigger, {NowParam}, 'running') RETURNING id",
+                new { Source = source.Id, Trigger = trigger, Now = UtcNowIso(), Ws });
         }
 
         var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -475,8 +476,8 @@ public sealed class ImportSourceService
     private async Task EnsureNameFreeAsync(System.Data.IDbConnection conn, string tableName, string name, long? exceptId)
     {
         var taken = await conn.ExecuteScalarAsync<long>(
-            $"SELECT COUNT(*) FROM {Sources} WHERE table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
-            new { TableName = tableName, Name = name, ExceptId = exceptId });
+            $"SELECT COUNT(*) FROM {Sources} WHERE workspace_id = @Ws AND table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
+            new { TableName = tableName, Name = name, ExceptId = exceptId, Ws });
         if (taken > 0)
             throw new ApiConflictException($"A saved import named '{name}' already exists for this table.", new Dictionary<string, object?> { ["field"] = "name" });
     }

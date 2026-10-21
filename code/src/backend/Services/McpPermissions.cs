@@ -86,7 +86,7 @@ public static class McpPermissions
         {
             return Under("/data") || Under("/query") || Under("/queries") || Under("/dashboards") || Under("/forms") ||
                    p == api + "/admin/schema" || p == api + "/admin/schema/model" || Under("/formulas") ||
-                   Under("/functions") || Under("/price-sources") || p == api + "/openapi.json" || Under("/views") ||
+                   Under("/functions") || Under("/price-sources") || p == api + "/openapi.json" || Under("/views") || p == api + "/workspaces" ||
                    (Under("/import") && p.EndsWith("/profiles", StringComparison.Ordinal))
                 ? Read
                 : null;

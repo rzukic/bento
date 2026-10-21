@@ -11,31 +11,37 @@ using Dapper;
 
 namespace Bento.Api.Services;
 
-/// <summary>The saved custom functions in memory, for the formula compiler (reloaded on every change).</summary>
+/// <summary>
+/// The saved custom functions in memory, for the formula compiler (reloaded on
+/// every change) — one set per workspace, read for the current one.
+/// </summary>
 public sealed class CustomFunctionCatalog : ICustomFunctionCatalog
 {
-    private volatile IReadOnlyDictionary<string, CustomFunctionDef> _functions =
+    private static readonly IReadOnlyDictionary<string, CustomFunctionDef> None =
         new Dictionary<string, CustomFunctionDef>(StringComparer.OrdinalIgnoreCase);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<long, (IReadOnlyDictionary<string, CustomFunctionDef> Functions, long Version)> _byWorkspace = new();
     private long _version;
 
-    public long Version => Interlocked.Read(ref _version);
+    // One counter for all workspaces: a version names one set of one workspace.
+    public long Version => _byWorkspace.TryGetValue(Workspaces.WorkspaceContext.Id, out var set) ? set.Version : 0;
 
-    public IReadOnlyDictionary<string, CustomFunctionDef> Functions => _functions;
+    public IReadOnlyDictionary<string, CustomFunctionDef> Functions =>
+        _byWorkspace.TryGetValue(Workspaces.WorkspaceContext.Id, out var set) ? set.Functions : None;
 
-    public void Replace(IEnumerable<CustomFunctionDef> functions)
-    {
-        _functions = functions.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase);
-        Interlocked.Increment(ref _version);
-    }
+    /// <summary>Replaces the current workspace's functions.</summary>
+    public void Replace(IEnumerable<CustomFunctionDef> functions) =>
+        _byWorkspace[Workspaces.WorkspaceContext.Id] =
+            (functions.ToDictionary(f => f.Name, StringComparer.OrdinalIgnoreCase), Interlocked.Increment(ref _version));
 
     /// <summary>The catalog with one function changed (or removed), to check a change before saving it.</summary>
     public ICustomFunctionCatalog With(CustomFunctionDef? changed, string? removed = null)
     {
-        var functions = _functions.Values.Where(f =>
+        var functions = Functions.Values.Where(f =>
             !string.Equals(f.Name, changed?.Name ?? removed, StringComparison.OrdinalIgnoreCase)).ToList();
         if (changed is not null)
             functions.Add(changed);
-        return new StaticFunctionCatalog(functions, Version + 1);
+        return new StaticFunctionCatalog(functions, Interlocked.Read(ref _version) + 1);
     }
 }
 
@@ -90,6 +96,7 @@ public sealed class CustomFunctionService
         _logger = logger;
     }
 
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private bool Pg => _systemPool.Provider == DatabaseProvider.Postgres;
     private string Table => Pg ? "_system.functions" : "functions";
     private string Versions => Pg ? "_system.function_versions" : "function_versions";
@@ -100,7 +107,7 @@ public sealed class CustomFunctionService
     public async Task ReloadAsync()
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        var rows = await conn.QueryAsync<FunctionRow>($"SELECT {Columns} FROM {Table}");
+        var rows = await conn.QueryAsync<FunctionRow>($"SELECT {Columns} FROM {Table} WHERE workspace_id = @Ws", new { Ws });
         _catalog.Replace(rows.Select(ToDefinition));
         _logger?.LogInformation("Custom functions loaded: {Count}.", _catalog.Functions.Count);
     }
@@ -108,7 +115,7 @@ public sealed class CustomFunctionService
     public async Task<IReadOnlyList<CustomFunctionResponse>> ListAsync()
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        var rows = (await conn.QueryAsync<FunctionRow>($"SELECT {Columns} FROM {Table} ORDER BY name")).ToList();
+        var rows = (await conn.QueryAsync<FunctionRow>($"SELECT {Columns} FROM {Table} WHERE workspace_id = @Ws ORDER BY name", new { Ws })).ToList();
         var others = await OtherUsagesAsync(conn);
         return rows.Select(r => ToResponse(r, others)).ToList();
     }
@@ -129,8 +136,8 @@ public sealed class CustomFunctionService
                    CAST(allowed_hosts AS TEXT) AS AllowedHosts, CAST(credentials AS TEXT) AS Credentials, mode,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS UpdatedAt
-            FROM {Versions} WHERE function_name = @Name ORDER BY version DESC
-            """, new { current.Name });
+            FROM {Versions} WHERE workspace_id = @Ws AND function_name = @Name ORDER BY version DESC
+            """, new { current.Name, Ws });
         return rows.Select(r => new CustomFunctionVersionResponse(r.Version, ParseArguments(r.Arguments), r.ResultType, r.Code, r.CreatedAt,
             ParseList(r.AllowedHosts), ParseList(r.Credentials))).ToList();
     }
@@ -152,8 +159,8 @@ public sealed class CustomFunctionService
         var now = UtcNowIso();
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (name, description, arguments, result_type, code, allowed_hosts, credentials, mode, version, created_at, updated_at)
-            VALUES (@Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, 1, {NowParam}, {NowParam})
+            INSERT INTO {Table} (workspace_id, name, description, arguments, result_type, code, allowed_hosts, credentials, mode, version, created_at, updated_at)
+            VALUES (@Ws, @Name, @Description, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, 1, {NowParam}, {NowParam})
             """,
             Parameters(definition, now));
         await SaveVersionAsync(conn, definition, now);
@@ -204,7 +211,7 @@ public sealed class CustomFunctionService
             SET description = @Description, arguments = {JsonParam("@Arguments")}, result_type = @ResultType, code = @Code,
                 allowed_hosts = {JsonParam("@AllowedHosts")}, credentials = {JsonParam("@Credentials")}, mode = @Mode,
                 version = @Version, updated_at = {NowParam}
-            WHERE name = @Name
+            WHERE workspace_id = @Ws AND name = @Name
             """,
             Parameters(definition, now));
         if (codeChanged)
@@ -230,8 +237,8 @@ public sealed class CustomFunctionService
                 $"'{existing.Name}' runs in the price source {string.Join(", ", sources.Select(s => s.Usage.Name))}; change or delete that source first.",
                 new Dictionary<string, object?> { ["priceSources"] = sources.Select(s => s.Usage.Name).ToList() });
 
-        await conn.ExecuteAsync($"DELETE FROM {Table} WHERE name = @Name", new { existing.Name });
-        await conn.ExecuteAsync($"DELETE FROM {Versions} WHERE function_name = @Name", new { existing.Name });
+        await conn.ExecuteAsync($"DELETE FROM {Table} WHERE workspace_id = @Ws AND name = @Name", new { existing.Name, Ws });
+        await conn.ExecuteAsync($"DELETE FROM {Versions} WHERE workspace_id = @Ws AND function_name = @Name", new { existing.Name, Ws });
         await ReloadAsync();
     }
 
@@ -347,12 +354,12 @@ public sealed class CustomFunctionService
     private async Task<List<(string Function, CustomFunctionUsage Usage)>> OtherUsagesAsync(System.Data.IDbConnection conn)
     {
         var usages = new List<(string, CustomFunctionUsage)>();
-        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(dashboard_json AS TEXT) AS Json FROM {Dashboards}"))
+        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(dashboard_json AS TEXT) AS Json FROM {Dashboards} WHERE workspace_id = @Ws", new { Ws }))
         {
             foreach (var function in DashboardCall.Matches(row.Json ?? "").Select(m => m.Groups[1].Value.ToLowerInvariant()).Distinct())
                 usages.Add((function, new CustomFunctionUsage("dashboard", row.Name, DashboardId: row.Id)));
         }
-        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(config AS TEXT) AS Json FROM {PriceSources}"))
+        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(config AS TEXT) AS Json FROM {PriceSources} WHERE workspace_id = @Ws", new { Ws }))
         {
             var config = JsonSerializer.Deserialize<PriceSourceConfig>(row.Json ?? "{}", Json);
             foreach (var function in new[] { config?.Function, config?.LookupFunction }.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct())
@@ -477,7 +484,7 @@ public sealed class CustomFunctionService
 
     private async Task<FunctionRow?> FindAsync(System.Data.IDbConnection conn, string name) =>
         await conn.QuerySingleOrDefaultAsync<FunctionRow>(
-            $"SELECT {Columns} FROM {Table} WHERE LOWER(name) = LOWER(@Name)", new { Name = name.Trim() });
+            $"SELECT {Columns} FROM {Table} WHERE workspace_id = @Ws AND LOWER(name) = LOWER(@Name)", new { Name = name.Trim(), Ws });
 
     private async Task<FunctionRow> RequireAsync(System.Data.IDbConnection conn, string name) =>
         await FindAsync(conn, name) ?? throw new ApiNotFoundException($"Function '{name}' not found.");
@@ -485,8 +492,8 @@ public sealed class CustomFunctionService
     private async Task SaveVersionAsync(System.Data.IDbConnection conn, CustomFunctionDef definition, string now) =>
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Versions} (function_name, version, arguments, result_type, code, allowed_hosts, credentials, mode, created_at)
-            VALUES (@Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, {NowParam})
+            INSERT INTO {Versions} (workspace_id, function_name, version, arguments, result_type, code, allowed_hosts, credentials, mode, created_at)
+            VALUES (@Ws, @Name, @Version, {JsonParam("@Arguments")}, @ResultType, @Code, {JsonParam("@AllowedHosts")}, {JsonParam("@Credentials")}, @Mode, {NowParam})
             """,
             Parameters(definition, now));
 
@@ -501,6 +508,7 @@ public sealed class CustomFunctionService
         AllowedHosts = JsonSerializer.Serialize(definition.AllowedHosts, Json),
         Credentials = JsonSerializer.Serialize(definition.Credentials, Json),
         definition.Mode,
+        Ws,
         Now = now
     };
 
@@ -540,9 +548,16 @@ public sealed class CustomFunctionService
 }
 
 /// <summary>Loads the custom functions before the schema is checked and migrated on start-up.</summary>
-public sealed class CustomFunctionCatalogInitializer(CustomFunctionService functions) : IHostedService
+public sealed class CustomFunctionCatalogInitializer(CustomFunctionService functions, Workspaces.WorkspaceService? workspaces = null) : IHostedService
 {
-    public Task StartAsync(CancellationToken cancellationToken) => functions.ReloadAsync();
+    public async Task StartAsync(CancellationToken cancellationToken)
+    {
+        foreach (var workspace in workspaces is null ? [Workspaces.Workspace.Default] : await workspaces.ReloadAsync())
+        {
+            using var _ = Workspaces.WorkspaceContext.Use(workspace);
+            await functions.ReloadAsync();
+        }
+    }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
