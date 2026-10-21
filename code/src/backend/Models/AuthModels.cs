@@ -81,10 +81,15 @@ public sealed class LoginRequest
 
 public sealed record RefreshAccessTokenRequest();
 
+/// <param name="Role">The role in the workspace of the request (Step 5.5): what the app may show and do there.</param>
+/// <param name="InstallationRole">The user's own role; <c>admin</c> runs the installation (users, workspaces, vault).</param>
+/// <param name="WorkspaceRole">The role in the workspace of the request; null when they are not a member of it.</param>
 public sealed record AuthenticatedUserResponse(
     [property: JsonPropertyName("id")] int Id,
     [property: JsonPropertyName("username")] string Username,
-    [property: JsonPropertyName("role")] string Role);
+    [property: JsonPropertyName("role")] string Role,
+    [property: JsonPropertyName("installation_role")] string? InstallationRole = null,
+    [property: JsonPropertyName("workspace_role")] string? WorkspaceRole = null);
 
 public sealed record AuthTokenResponse(
     [property: JsonPropertyName("access_token")] string AccessToken,

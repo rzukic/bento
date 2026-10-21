@@ -118,7 +118,7 @@ describe("Connections → AI apps", () => {
     await user.click(within(dialog).getByRole("checkbox", { name: /Tables and columns/ }));
     await user.click(within(dialog).getByRole("checkbox", { name: /Delete rows/ }));
     await user.click(save);
-    expect(api.updateMcpConnection).toHaveBeenCalledWith(4, ["data.read", "data.write", "data.delete"]);
+    expect(api.updateMcpConnection).toHaveBeenCalledWith(4, ["data.read", "data.write", "data.delete"], undefined);
     expect(await within(dialog).findByText(/applies to the app's next call/)).toBeInTheDocument();
 
     // The table behind the dialog shows the new access.
@@ -174,7 +174,7 @@ describe("OAuth consent page", () => {
     render(<RouterProvider router={createTestRouter([consentUrl])} />);
 
     expect(await screen.findByText("claude.ai")).toBeInTheDocument();
-    expect(api.getAuthorizeInfo).toHaveBeenCalledWith("bento_client_x", "https://claude.ai/api/mcp/auth_callback");
+    expect(api.getAuthorizeInfo).toHaveBeenCalledWith("bento_client_x", "https://claude.ai/api/mcp/auth_callback", null);
     // The client asked for write: adding rows is preselected, the rest is up to the user; reading is always in.
     expect(screen.getByRole("checkbox", { name: /read everything/i })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: /read everything/i })).toBeDisabled();

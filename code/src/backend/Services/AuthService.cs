@@ -228,6 +228,72 @@ public sealed class AuthService
         }
     }
 
+    // ── Users (Step 5.5 part B: admins manage them in Settings) ──────────
+
+    public sealed class UserRow
+    {
+        public int Id { get; init; }
+        public string Username { get; init; } = "";
+        public string Role { get; init; } = "";
+        public string CreatedAt { get; init; } = "";
+    }
+
+    public async Task<IReadOnlyList<UserRow>> ListUsersAsync()
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var rows = await conn.QueryAsync<UserRow>(
+            $"SELECT id, username, role, {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt FROM {GetUsersTableName()} ORDER BY LOWER(username)");
+        return rows.ToList();
+    }
+
+    /// <summary>A new user; their workspaces are set apart (members).</summary>
+    public async Task<int> CreateUserAsync(string? username, string? password, string? role)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        var checkedPassword = ValidatePassword(password);
+        var normalizedRole = NormalizeRequestedRole(role) ?? "viewer";
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        if (await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE LOWER(username) = LOWER(@Username)", new { Username = normalizedUsername }, tx) > 0)
+            throw new ApiConflictException($"There is a user '{normalizedUsername}' already.", new Dictionary<string, object?> { ["field"] = "username" });
+        var id = await InsertUserAsync(conn, tx, normalizedUsername, BCrypt.Net.BCrypt.HashPassword(checkedPassword), normalizedRole);
+        tx.Commit();
+        return id;
+    }
+
+    /// <summary>
+    /// Changes a user's installation role or password. The last admin stays one;
+    /// a new password signs the user out everywhere.
+    /// </summary>
+    public async Task UpdateUserAsync(int id, string? role, string? password)
+    {
+        var normalizedRole = NormalizeRequestedRole(role);
+        var checkedPassword = password is null ? null : ValidatePassword(password);
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        var current = await conn.ExecuteScalarAsync<string?>($"SELECT role FROM {GetUsersTableName()} WHERE id = @Id", new { Id = id }, tx)
+            ?? throw new ApiNotFoundException($"User {id} not found.");
+        if (normalizedRole is not null && normalizedRole != current)
+        {
+            if (current == "admin" &&
+                await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE role = 'admin'", transaction: tx) <= 1)
+                throw Validation("role", "This is the last installation admin; make someone else admin first.");
+            await conn.ExecuteAsync(
+                $"UPDATE {GetUsersTableName()} SET role = @Role, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id",
+                new { Id = id, Role = normalizedRole, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, tx);
+        }
+        if (checkedPassword is not null)
+        {
+            await conn.ExecuteAsync(
+                $"UPDATE {GetUsersTableName()} SET password_hash = @Hash, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id",
+                new { Id = id, Hash = BCrypt.Net.BCrypt.HashPassword(checkedPassword), Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, tx);
+            await conn.ExecuteAsync(
+                $"UPDATE {GetAuthSessionsTableName()} SET revoked_at = @Now WHERE user_id = @Id AND revoked_at IS NULL",
+                new { Id = id, Now = ToDbValue(DateTimeOffset.UtcNow) }, tx);
+        }
+        tx.Commit();
+    }
+
     private static string NormalizeUsername(string? username)
     {
         var normalized = username?.Trim();

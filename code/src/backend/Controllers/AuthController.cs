@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Configuration;
 using Bento.Api.Models;
 using Bento.Api.Services;
+using Bento.Api.Services.Workspaces;
 
 namespace Bento.Api.Controllers;
 
@@ -26,11 +27,25 @@ public sealed class AuthController : ControllerBase
 
     private readonly BackendRuntimeOptions _runtimeOptions;
     private readonly AuthService _authService;
+    private readonly WorkspaceAccess _access;
 
-    public AuthController(BackendRuntimeOptions runtimeOptions, AuthService authService)
+    public AuthController(BackendRuntimeOptions runtimeOptions, AuthService authService, WorkspaceAccess access)
     {
         _runtimeOptions = runtimeOptions;
         _authService = authService;
+        _access = access;
+    }
+
+    /// <summary>
+    /// The signed-in user with their role in the workspace the app is open in
+    /// (Step 5.5): the app shows what that role may do; not a member, it moves
+    /// to a workspace they are in.
+    /// </summary>
+    private async Task<AuthTokenResponse> InWorkspaceAsync(AuthTokenResponse response)
+    {
+        var user = response.User;
+        var role = await _access.RoleInAsync(user.Id, user.Role, WorkspaceContext.Id);
+        return response with { User = user with { Role = role ?? "viewer", InstallationRole = user.Role, WorkspaceRole = role } };
     }
 
     [HttpGet]
@@ -68,6 +83,9 @@ public sealed class AuthController : ControllerBase
         CancellationToken cancellationToken)
     {
         var response = await _authService.RegisterAsync(request, User, cancellationToken);
+        // Someone an admin adds this way joins the workspace the admin works in.
+        if (response.Role != "admin")
+            await _access.SetMemberAsync(WorkspaceContext.Id, response.Id, response.Role);
         return StatusCode(StatusCodes.Status201Created, response);
     }
 
@@ -79,7 +97,7 @@ public sealed class AuthController : ControllerBase
     {
         var session = await _authService.LoginAsync(request, cancellationToken);
         WriteRefreshCookie(session);
-        return Ok(session.Response);
+        return Ok(await InWorkspaceAsync(session.Response));
     }
 
     [HttpPost("refresh")]
@@ -89,7 +107,7 @@ public sealed class AuthController : ControllerBase
         var refreshToken = ReadRefreshCookie();
         var session = await _authService.RefreshAsync(refreshToken, cancellationToken);
         WriteRefreshCookie(session);
-        return Ok(session.Response);
+        return Ok(await InWorkspaceAsync(session.Response));
     }
 
     /// <summary>

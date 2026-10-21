@@ -190,7 +190,7 @@ describe("Connections page", () => {
     await user.click(screen.getByRole("checkbox", { name: /Tables and columns/ }));
     await user.click(screen.getByRole("button", { name: "Create key" }));
 
-    expect(api.createApiKey).toHaveBeenCalledWith("Schema script", "read-write", undefined, ["data.read", "schema.write"]);
+    expect(api.createApiKey).toHaveBeenCalledWith("Schema script", "read-write", undefined, ["data.read", "schema.write"], undefined);
     expect(await screen.findByLabelText("New API key")).toHaveTextContent("bento_permissionkey");
   });
 
@@ -206,7 +206,7 @@ describe("Connections page", () => {
     await user.selectOptions(screen.getByLabelText("Expires"), "90");
     await user.click(screen.getByRole("button", { name: "Create key" }));
 
-    expect(api.createApiKey).toHaveBeenCalledWith("Bank sync", "read-write", 90);
+    expect(api.createApiKey).toHaveBeenCalledWith("Bank sync", "read-write", 90, undefined, undefined);
     expect(await screen.findByLabelText("New API key")).toHaveTextContent("bento_newsecretkeyvalue");
     expect(screen.getByText(/shown only once/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));

@@ -15,7 +15,8 @@ namespace Bento.Api.Controllers;
 [RequireRole("editor", "api")]
 public sealed class ImportSourcesController(ImportSourceService sources) : ControllerBase
 {
-    private bool Admin => User.GetRole() == "admin";
+    // The vault belongs to the installation: a workspace admin cannot put its secrets in a request.
+    private bool Admin => User.IsInstallationAdmin();
 
     [HttpGet]
     public async Task<IActionResult> List(string table) => Ok(new { data = await sources.ListAsync(table) });

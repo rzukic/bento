@@ -1,3 +1,4 @@
+import { isInstallationAdmin } from "../../types/auth";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
@@ -129,6 +130,8 @@ function testValue(raw: string, type: ArgumentType): unknown {
  */
 export function FunctionsPage() {
   const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  // The vault is the installation's (Step 5.5): only its admins see and fill it.
+  const vaultAdmin = useAuthStore((state) => isInstallationAdmin(state.user));
   const [searchParams, setSearchParams] = useSearchParams();
   const [functions, setFunctions] = useState<CustomFunction[] | null>(null);
   const [status, setStatus] = useState<FunctionStatus | null>(null);
@@ -195,7 +198,7 @@ export function FunctionsPage() {
         {[
           ["functions", "Functions"],
           ["prices", "Price sources"],
-          ...(isAdmin ? [["credentials", "Credentials"]] : []),
+          ...(vaultAdmin ? [["credentials", "Credentials"]] : []),
         ].map(([id, label]) => (
           <button key={id} type="button" role="tab" aria-selected={tab === id} className="functions-tabs__tab" onClick={() => selectTab(id)}>
             {label}
@@ -205,7 +208,7 @@ export function FunctionsPage() {
 
       {tab === "prices" ? (
         <PriceSourcesPanel functions={functions ?? []} isAdmin={isAdmin} />
-      ) : tab === "credentials" && isAdmin ? (
+      ) : tab === "credentials" && vaultAdmin ? (
         <CredentialsPanel />
       ) : (
       <>

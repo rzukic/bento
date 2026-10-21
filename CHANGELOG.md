@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Workspaces: Members, Roles, Users
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.5 — Workspaces](working-steps/5.5-workspaces.md) (part B)
+
+Who sees which workspace, and what they may do there.
+
+**Highlights:**
+- **Members with a role per workspace**: someone can edit in "Finances", only look in "Health" and not see "Calendar" at all. Installation admins run everything.
+- **Users in Settings**: add people with a password and their workspaces, make someone admin, reset a password.
+- **Keys and Claude per workspace**: an API key or an MCP connection works only in the workspaces it was made for; Bento's sign-in page asks which.
+- **Nothing to redo**: everyone, every key and every connection from before stays in "Default", as it was.
+
 ### 2026-10-21 — Workspaces: Separate Areas In One Installation
 
 > **Phase**: Phase 5 — Integration

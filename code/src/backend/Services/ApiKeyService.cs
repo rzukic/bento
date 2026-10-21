@@ -34,9 +34,19 @@ public sealed class ApiKeyService
     /// sources): what the key may do, like a connected app, capped by its user's role.
     /// Null for read and read-write keys.
     /// </param>
-    public sealed record ApiKeyIdentity(long KeyId, long UserId, string Username, string Scope, IReadOnlyList<string>? Permissions = null, string? UserRole = null);
+    /// <param name="Workspaces">The workspaces the key may use (Step 5.5); null: all.</param>
+    public sealed record ApiKeyIdentity(long KeyId, long UserId, string Username, string Scope, IReadOnlyList<string>? Permissions = null, string? UserRole = null,
+        IReadOnlyList<long>? Workspaces = null)
+    {
+        /// <summary>
+        /// A key never does more than its user in the workspace it is used in: a
+        /// read-write key of a viewer only reads; the role caps chosen permissions.
+        /// </summary>
+        public ApiKeyIdentity As(string? role) => Permissions is null
+            ? this with { Scope = Effective(Scope, role), UserRole = role }
+            : this with { Permissions = Permissions.Intersect(McpPermissions.ForRole(role)).ToList(), UserRole = role };
+    }
 
-    /// <summary>A key never does more than its user: a read-write key of a viewer only reads.</summary>
     private static string Effective(string scope, string? userRole) =>
         scope == ReadWriteScope && userRole is "admin" or "editor" ? ReadWriteScope : ReadScope;
 
@@ -52,8 +62,12 @@ public sealed class ApiKeyService
         public string? ExpiresAt { get; init; }
         public string? LastUsedAt { get; init; }
         public string? RevokedAt { get; init; }
+        public string? WorkspacesJson { get; init; }
 
         public string Scope => ReadScopes(Scopes);
+
+        /// <summary>The workspaces the key may use; null: all.</summary>
+        public IReadOnlyList<long>? Workspaces => Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(WorkspacesJson);
 
         /// <summary>The chosen permissions of a key made with them; null for read and read-write keys.</summary>
         public IReadOnlyList<string>? Permissions => ReadPermissions(Scopes);
@@ -63,7 +77,8 @@ public sealed class ApiKeyService
         value is not null && value.StartsWith(KeyPrefix, StringComparison.Ordinal) && value.Length > KeyPrefix.Length + 8;
 
     /// <summary>Creates a key; the plain key is returned once and never stored.</summary>
-    public async Task<(ApiKeyRow Row, string Key)> CreateAsync(string name, string scope, int? expiresInDays, long userId, IReadOnlyList<string>? permissions = null)
+    public async Task<(ApiKeyRow Row, string Key)> CreateAsync(string name, string scope, int? expiresInDays, long userId, IReadOnlyList<string>? permissions = null,
+        IReadOnlyCollection<long>? workspaces = null)
     {
         var key = KeyPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
         var now = DateTime.UtcNow;
@@ -72,8 +87,8 @@ public sealed class ApiKeyService
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, key_hash, prefix, scopes, user_id, created_at, expires_at)
-            VALUES (@Name, @Hash, @Prefix, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Scopes")}, @UserId,
+            INSERT INTO {Table} (name, key_hash, prefix, scopes, user_id, workspaces, created_at, expires_at)
+            VALUES (@Name, @Hash, @Prefix, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Scopes")}, @UserId, @Workspaces,
                     {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")}, {ExpiresParam})
             RETURNING id
             """,
@@ -84,6 +99,7 @@ public sealed class ApiKeyService
                 Prefix = key[..(KeyPrefix.Length + 6)],
                 Scopes = JsonSerializer.Serialize(permissions is null ? ScopesFor(scope) : McpPermissions.Normalize(permissions).ToArray()),
                 UserId = userId,
+                Workspaces = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces),
                 Now = Iso(now),
                 Expires = expires is null ? null : Iso(expires.Value)
             });
@@ -98,7 +114,7 @@ public sealed class ApiKeyService
             $"""
             SELECT k.id, k.name, k.prefix, k.scopes, k.user_id AS UserId, u.username,
                    {Text("k.created_at")} AS CreatedAt, {Text("k.expires_at")} AS ExpiresAt,
-                   {Text("k.last_used_at")} AS LastUsedAt, {Text("k.revoked_at")} AS RevokedAt
+                   {Text("k.last_used_at")} AS LastUsedAt, {Text("k.revoked_at")} AS RevokedAt, k.workspaces AS WorkspacesJson
             FROM {Table} k
             LEFT JOIN {UsersTable} u ON u.id = k.user_id
             ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC, k.id DESC
@@ -125,7 +141,7 @@ public sealed class ApiKeyService
         using var conn = await _systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<KeyLookupRow>(
             $"""
-            SELECT k.id, k.scopes, k.user_id AS UserId, u.username, u.role AS UserRole,
+            SELECT k.id, k.scopes, k.user_id AS UserId, u.username, u.role AS UserRole, k.workspaces AS WorkspacesJson,
                    {Text("k.expires_at")} AS ExpiresAt, {Text("k.revoked_at")} AS RevokedAt, {Text("k.last_used_at")} AS LastUsedAt
             FROM {Table} k
             INNER JOIN {UsersTable} u ON u.id = k.user_id
@@ -146,12 +162,10 @@ public sealed class ApiKeyService
                 new { row.Id, Now = Iso(now) });
         }
 
-        var permissions = ReadPermissions(row.Scopes);
-        return permissions is null
-            ? new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", Effective(ReadScopes(row.Scopes), row.UserRole))
-            // A key never does more than its user: the role caps the chosen permissions.
-            : new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", ReadScopes(row.Scopes),
-                permissions.Intersect(McpPermissions.ForRole(row.UserRole)).ToList(), row.UserRole);
+        // As stored, with the user's installation role; the role in the workspace it is
+        // used in caps it (As), since a member may have another role there.
+        return new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", ReadScopes(row.Scopes), ReadPermissions(row.Scopes), row.UserRole,
+            Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(row.WorkspacesJson));
     }
 
     private sealed class KeyLookupRow
@@ -161,6 +175,7 @@ public sealed class ApiKeyService
         public long UserId { get; init; }
         public string? Username { get; init; }
         public string? UserRole { get; init; }
+        public string? WorkspacesJson { get; init; }
         public string? ExpiresAt { get; init; }
         public string? RevokedAt { get; init; }
         public string? LastUsedAt { get; init; }

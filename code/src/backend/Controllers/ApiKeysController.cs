@@ -22,11 +22,13 @@ public sealed class ApiKeysController : ControllerBase
 
     private readonly ApiKeyService _apiKeys;
     private readonly BackendRuntimeOptions _runtimeOptions;
+    private readonly Services.Workspaces.WorkspaceService _workspaces;
 
-    public ApiKeysController(ApiKeyService apiKeys, BackendRuntimeOptions runtimeOptions)
+    public ApiKeysController(ApiKeyService apiKeys, BackendRuntimeOptions runtimeOptions, Services.Workspaces.WorkspaceService workspaces)
     {
         _apiKeys = apiKeys;
         _runtimeOptions = runtimeOptions;
+        _workspaces = workspaces;
     }
 
     public sealed record CreateApiKeyRequest
@@ -38,6 +40,10 @@ public sealed class ApiKeysController : ControllerBase
         public int? ExpiresInDays { get; init; }
         /// <summary>Instead of a scope: what the key may do, like a connected app (data.read, schema.write, …).</summary>
         public IReadOnlyList<string>? Permissions { get; init; }
+        /// <summary>The workspaces the key may use (Step 5.5); none given: the current one.</summary>
+        public IReadOnlyList<long>? Workspaces { get; init; }
+        /// <summary>The key may use every workspace, also ones made later.</summary>
+        public bool AllWorkspaces { get; init; }
     }
 
     public sealed record ApiKeyResponse(
@@ -51,7 +57,8 @@ public sealed class ApiKeysController : ControllerBase
         string? LastUsedAt,
         string? RevokedAt,
         string Status,
-        IReadOnlyList<string>? Permissions = null);
+        IReadOnlyList<string>? Permissions = null,
+        IReadOnlyList<long>? Workspaces = null);
 
     [HttpGet]
     public async Task<IActionResult> List() =>
@@ -82,7 +89,16 @@ public sealed class ApiKeysController : ControllerBase
             permissions = McpPermissions.Normalize(chosen);
         }
         var scope = permissions is null ? ApiKeyService.NormalizeScope(request.Scope) : ApiKeyService.ReadWriteScope;
-        var (row, key) = await _apiKeys.CreateAsync(name, scope, request.ExpiresInDays, userId, permissions);
+        IReadOnlyList<long>? workspaces = null;
+        if (!request.AllWorkspaces)
+        {
+            workspaces = request.Workspaces is { Count: > 0 } listed ? listed.Distinct().ToList() : [Services.Workspaces.WorkspaceContext.Id];
+            var known = await _workspaces.ReloadAsync();
+            var missing = workspaces.FirstOrDefault(id => known.All(w => w.Id != id));
+            if (missing != 0)
+                throw Invalid("workspaces", $"Workspace {missing} not found.");
+        }
+        var (row, key) = await _apiKeys.CreateAsync(name, scope, request.ExpiresInDays, userId, permissions, workspaces);
         // The only time the key is ever sent.
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(row), key });
     }
@@ -101,7 +117,7 @@ public sealed class ApiKeysController : ControllerBase
             : row.ExpiresAt is not null && DateTimeOffset.Parse(row.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture) <= DateTimeOffset.UtcNow
                 ? "expired"
                 : "active";
-        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Permissions is null ? row.Scope : "permissions", row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status, row.Permissions);
+        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Permissions is null ? row.Scope : "permissions", row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status, row.Permissions, row.Workspaces);
     }
 
     private static ApiValidationException Invalid(string field, string message) =>

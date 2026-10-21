@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { createApiKey, listApiKeys, revokeApiKey, type ApiKey, type ApiKeyScope } from "../../api/connections";
 import { MCP_PERMISSIONS, type McpPermission } from "../../api/mcp";
 import { workspaceApiPath } from "../../lib/workspace";
+import { currentWorkspace, useWorkspacesStore } from "../../stores/workspacesStore";
+import { WorkspaceChecklist } from "./WorkspaceChecklist";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
@@ -42,6 +44,18 @@ export function ApiKeysPanel() {
   const [created, setCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
+  // Where the key works (Step 5.5): this workspace, all of them, or chosen ones.
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const loadWorkspaces = useWorkspacesStore((state) => state.load);
+  const here = currentWorkspace(workspaces);
+  const [where, setWhere] = useState<"here" | "all" | "chosen">("here");
+  const [chosenWorkspaces, setChosenWorkspaces] = useState<number[]>([]);
+  useEffect(() => {
+    loadWorkspaces().catch(() => undefined);
+  }, [loadWorkspaces]);
+  const several = (workspaces?.length ?? 0) > 1;
+  const workspaceNames = (ids: number[] | null | undefined) =>
+    ids == null ? "All" : ids.map((id) => workspaces?.find((w) => w.id === id)?.name ?? `#${id}`).join(", ");
 
   const reload = () =>
     listApiKeys()
@@ -61,7 +75,12 @@ export function ApiKeysPanel() {
     setCopied(false);
     try {
       const days = expiry ? Number(expiry) : undefined;
-      const result = scope === "permissions" ? await createApiKey(name.trim(), "read-write", days, permissions) : await createApiKey(name.trim(), scope, days);
+      const target =
+        where === "all" ? { allWorkspaces: true as const } : where === "chosen" && chosenWorkspaces.length > 0 ? { workspaces: chosenWorkspaces } : here ? { workspaces: [here.id] } : undefined;
+      const result =
+        scope === "permissions"
+          ? await createApiKey(name.trim(), "read-write", days, permissions, target)
+          : await createApiKey(name.trim(), scope, days, undefined, target);
       setCreated({ key: result.key, name: result.apiKey.name });
       setName("");
       await reload();
@@ -146,6 +165,23 @@ export function ApiKeysPanel() {
             <option value="permissions">Choose…</option>
           </select>
         </label>
+        {several ? (
+          <label className="api-keys__field">
+            <span>Workspaces</span>
+            <select
+              className="field__control field__control--compact"
+              value={where}
+              onChange={(event) => {
+                setWhere(event.target.value as "here" | "all" | "chosen");
+                if (event.target.value === "chosen" && chosenWorkspaces.length === 0 && here) setChosenWorkspaces([here.id]);
+              }}
+            >
+              <option value="here">{here ? `This one (${here.name})` : "This one"}</option>
+              <option value="all">All, also new ones</option>
+              <option value="chosen">Choose…</option>
+            </select>
+          </label>
+        ) : null}
         <label className="api-keys__field">
           <span>Expires</span>
           <select className="field__control field__control--compact" value={expiry} onChange={(event) => setExpiry(event.target.value)}>
@@ -167,6 +203,12 @@ export function ApiKeysPanel() {
         </div>
       ) : null}
 
+      {several && where === "chosen" ? (
+        <div className="api-keys__permissions">
+          <WorkspaceChecklist workspaces={workspaces ?? []} chosen={chosenWorkspaces} onChange={setChosenWorkspaces} disabled={creating} />
+        </div>
+      ) : null}
+
       {keys === null ? (
         <Spinner label="Loading keys" />
       ) : keys.length === 0 ? (
@@ -179,6 +221,7 @@ export function ApiKeysPanel() {
                 <th>Name</th>
                 <th>Key</th>
                 <th>Access</th>
+                {several ? <th>Workspaces</th> : null}
                 <th>Created</th>
                 <th>Last used</th>
                 <th>Expires</th>
@@ -203,6 +246,7 @@ export function ApiKeysPanel() {
                         ? "Read"
                         : "Read and write"}
                   </td>
+                  {several ? <td>{workspaceNames(key.workspaces)}</td> : null}
                   <td>{formatWhen(key.createdAt)}</td>
                   <td>{key.lastUsedAt ? formatWhen(key.lastUsedAt) : "Never"}</td>
                   <td>{key.expiresAt ? formatWhen(key.expiresAt) : "Never"}</td>

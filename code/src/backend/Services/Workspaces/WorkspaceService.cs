@@ -112,6 +112,7 @@ public sealed partial class WorkspaceService
                 await conn.ExecuteAsync($"DELETE FROM {Prefix}app_passwords WHERE app_id IN @Apps", new { Apps = apps });
             foreach (var table in ScopedTables)
                 await conn.ExecuteAsync($"DELETE FROM {Prefix}{table} WHERE workspace_id = @Id", new { Id = id });
+            await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_members WHERE workspace_id = @Id", new { Id = id });
             await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_settings WHERE key LIKE @Suffix", new { Suffix = "%@" + id.ToString(CultureInfo.InvariantCulture) });
             if (Pg)
                 await conn.ExecuteAsync($"DROP SCHEMA IF EXISTS {Q(workspace.DataSchema)} CASCADE");

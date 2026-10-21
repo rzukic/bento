@@ -18,18 +18,28 @@ With more than one workspace, the sidebar's heading names the one you are in; cl
 
 Settings → Workspace (locale, currency, time zone …) applies to the workspace you are in; a new workspace starts with Default's.
 
+## Users, Members And Roles
+
+- **Installation admins** run the whole Bento: every workspace (as admin), users, workspaces, the credential vault, notification channels, AI settings, API keys and problems. The first account is one.
+- **Everyone else** opens only the workspaces they are a **member** of, with a role in each: **Admin** (schema, settings, apps, functions, rules, members of that workspace), **Editor** (add and change rows, import, forms), **Viewer** (look). Someone who is an editor in "Finances" can be a viewer in "Health" and absent from "Calendar" — they do not see it at all, not even in the switcher.
+- **Settings → Users** (installation admins): add a person with a password, their role and the workspaces they join (none ticked: the one you are in); make someone installation admin or a member again; reset a password (signs them out everywhere). The last installation admin stays one.
+- **Settings → Members of …** (the workspace's admins): who is in the open workspace and with which role; add people the installation already has, change a role, take someone out — at once, they lose access with their next click.
+- A workspace's admin cannot put credentials from the vault into a function or an import: the vault belongs to the installation.
+- Opening an address of a workspace you are not in takes you to the first one you are in.
+
 ## Templates
 
 A template installs into the workspace you are in: open the workspace first, then set up the template.
 
 ## API, Scripts And Claude
 
+- **API keys** (Connections → API keys, installation admins) work in the workspace they were made in, in chosen ones, or in all (also new ones). A key used elsewhere is refused. Keys from before workspaces work in Default.
 - **API**: `/api/v1/w/<short name>/…` — e.g. `/api/v1/w/finances/data/accounts` — or the header `X-Bento-Workspace: finances` on the usual address. Without either, the request goes to Default, so existing scripts keep working. `GET /api/v1/workspaces` lists them. The API page (Connections) shows the addresses of the workspace you are in.
-- **MCP (Claude)**: each workspace has its own MCP address, `https://<your Bento>/mcp/<short name>`; Claude connected there sees only that workspace's tables. The existing `/mcp` is Default's. Connections → MCP shows the address (and the `.mcpb` file) of the workspace you are in.
+- **MCP (Claude)**: each workspace has its own MCP address, `https://<your Bento>/mcp/<short name>`; Claude connected there sees only that workspace's tables. The existing `/mcp` is Default's. Connections → MCP shows the address (and the `.mcpb` file) of the workspace you are in. When you connect, Bento's sign-in page asks **in which workspaces** the app may work — the one of its address is ticked; tick more to let it use the same connection there. Change it later under Connections → AI apps. What it may do is capped by your role in each workspace.
 - **Calendar apps** belong to the workspace they were made in; a device's password leads it there, so the CalDAV address stays `/dav/`.
 
 ## Not Yet
 
-- Members per workspace: for now every user sees every workspace, with their role in all of them.
-- API keys and MCP connections limited to some workspaces.
 - Links or formulas across workspaces.
+- API keys limited to some tables, to IP addresses, or with their own rate limit.
+- Deleting a user (take them out of every workspace instead).

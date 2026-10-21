@@ -49,8 +49,8 @@ public sealed class ImportController : ControllerBase
     [HttpPost("fetch")]
     public async Task<IActionResult> Fetch([FromBody] ImportFetchRequest request)
     {
-        if (ImportFetcher.CredentialNames(request.Url, request.Headers).Count > 0 && User.GetRole() != "admin")
-            throw new ApiForbiddenException("Only admins can use credentials from the vault in an import.");
+        if (ImportFetcher.CredentialNames(request.Url, request.Headers).Count > 0 && !User.IsInstallationAdmin())
+            throw new ApiForbiddenException("Only installation admins can use credentials from the vault in an import.");
         var file = await _fetcher.FetchAsync(request.Url, request.Headers, HttpContext.RequestAborted);
         if (file.Bytes.Length > MaxPageFetchBytes)
             throw new ApiUnprocessableEntityException(

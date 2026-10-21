@@ -527,11 +527,11 @@ public sealed class McpTests
     }
 
     /// <summary>Register a client, approve it as the given user and return an access token.</summary>
-    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope, string[]? permissions = null)
+    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope, string[]? permissions = null, long[]? workspaces = null)
     {
         var clientId = await RegisterAsync(host, "Claude");
         var (verifier, challenge) = Pkce();
-        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope, permissions: permissions))["code"];
+        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope, permissions: permissions, workspaces: workspaces))["code"];
         var tokens = await TokenAsync(host, new()
         {
             ["grant_type"] = "authorization_code", ["client_id"] = clientId, ["code"] = code,
@@ -554,10 +554,10 @@ public sealed class McpTests
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("client_id").GetString()!;
     }
 
-    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect, string[]? permissions = null)
+    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect, string[]? permissions = null, long[]? workspaces = null)
     {
         using var response = await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/oauth/authorize", userToken,
-            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, permissions, state, approve = true });
+            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, permissions, state, approve = true, workspaces });
         return (await ReadDataAsync(response)).GetProperty("redirectTo").GetString()!;
     }
 
