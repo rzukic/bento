@@ -227,7 +227,7 @@ const shellRoutes: RouteObject[] = [
     handle: {
       title: "Apps",
       navLabel: "Apps",
-      navGroup: "Admin"
+      navGroup: "Workspace"
     } satisfies AppRouteHandle
   },
   {

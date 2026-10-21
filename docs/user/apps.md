@@ -1,6 +1,6 @@
 # Apps: Your Tables On Your Devices
 
-**Apps** (in the sidebar, admins) open Bento to other programs. The first is the **calendar**: tables become calendars on your iPhone, Mac, Android (DAVx⁵) or in Thunderbird, over CalDAV. The events stay rows in Bento — what you add or change in Bento, over the API or by asking Claude shows up on your devices.
+**Apps** (in the sidebar; admins set them up) open Bento to other programs. The first is the **calendar**: tables become calendars on your iPhone, Mac, Android (DAVx⁵) or in Thunderbird, over CalDAV. The events stay rows in Bento — what you add or change in Bento, over the API or by asking Claude shows up on your devices.
 
 ## A Calendar App
 
