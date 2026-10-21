@@ -39,7 +39,7 @@ export type BentoApp = {
   updatedAt: string;
 };
 
-export type AppLink = { calendar: string; kind: "ical" | "caldav"; url: string };
+export type AppLink = { calendar: string; kind: "caldav"; url: string };
 
 export type CreatedAppPassword = { password: AppPassword; secret: string; links: AppLink[] };
 

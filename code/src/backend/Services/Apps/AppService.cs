@@ -14,7 +14,7 @@ namespace Bento.Api.Services.Apps;
 /// <summary>
 /// Apps (Step 5.4): doors from other programs to Bento's tables. The data stays
 /// in the tables — a calendar app shows a table's rows as events to calendar
-/// programs, which subscribe to them (iCal) or read and write them (CalDAV),
+/// programs, which read and write them over CalDAV,
 /// while the app, the API and MCP keep working on the same rows. Each device
 /// signs in with its own app password, revocable on its own.
 /// </summary>
@@ -313,10 +313,7 @@ public sealed partial class AppService
 
     /// <summary>The addresses a device uses for each calendar of the app.</summary>
     public static IReadOnlyList<AppLink> Links(App app, string secret, string baseUrl) =>
-        [
-            new AppLink(app.Name, "caldav", $"{baseUrl}/dav/"),
-            .. app.Calendars.Select(c => new AppLink(c.Name!, "ical", $"{baseUrl}/feeds/{secret}/{c.Slug}.ics"))
-        ];
+        [new AppLink(app.Name, "caldav", $"{baseUrl}/dav/")];
 
     private static string Hash(string secret) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))).ToLowerInvariant();
 

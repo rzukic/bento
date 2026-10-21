@@ -11,7 +11,7 @@ public static class IcsWriter
 {
     public const string ContentType = "text/calendar; charset=utf-8";
 
-    /// <summary>A whole calendar: what an iCal subscription downloads.</summary>
+    /// <summary>A whole calendar in one file: GET of a CalDAV calendar.</summary>
     public static string Calendar(string name, string? color, string timeZone, IEnumerable<CalendarEvents.Event> events, DateTimeOffset now)
     {
         var text = new StringBuilder();

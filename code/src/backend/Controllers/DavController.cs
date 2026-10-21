@@ -34,6 +34,8 @@ public sealed class DavController(AppService apps, CalDavService calDav, AuthRat
     private const string Principal = "/dav/principal/";
     private const string Home = "/dav/calendars/";
     private const string Methods = "OPTIONS, GET, HEAD, PUT, DELETE, PROPFIND, PROPPATCH, REPORT";
+    /// <summary>Requests per minute and address; a sync takes a few dozen.</summary>
+    public const int RequestsPerMinute = 600;
 
     [AcceptVerbs("OPTIONS", "GET", "HEAD", "PUT", "DELETE", "PROPFIND", "PROPPATCH", "REPORT", "MKCALENDAR", "MKCOL", "MOVE", "COPY", "LOCK", "UNLOCK", "POST")]
     [Route("")]
@@ -49,7 +51,7 @@ public sealed class DavController(AppService apps, CalDavService calDav, AuthRat
         }
 
         var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var limit = limiter.CheckRequest($"apps:{ip}", FeedsController.RequestsPerMinute * 5, DateTimeOffset.UtcNow);
+        var limit = limiter.CheckRequest($"apps:{ip}", RequestsPerMinute, DateTimeOffset.UtcNow);
         if (!limit.Allowed)
         {
             Response.Headers.RetryAfter = limit.RetryAfterSeconds.ToString(CultureInfo.InvariantCulture);
@@ -201,7 +203,7 @@ public sealed class DavController(AppService apps, CalDavService calDav, AuthRat
                 return await ReportAsync(app, calendar);
             case "GET" or "HEAD":
             {
-                // The whole calendar as one file, like the subscription.
+                // The whole calendar as one file (some programs read it so).
                 var resources = await calDav.ResourcesAsync(app, calendar);
                 return Content(IcsWriter.Calendar(calendar.Name!, calendar.Color, "UTC", resources.Select(r => r.Event), DateTimeOffset.UtcNow), IcsWriter.ContentType, Encoding.UTF8);
             }

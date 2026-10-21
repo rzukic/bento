@@ -61,7 +61,7 @@ public sealed record AppResponse(
     string CreatedAt,
     string UpdatedAt);
 
-/// <summary>An address a device uses: <c>ical</c> (subscribe, read-only) or <c>caldav</c> (read and write).</summary>
+/// <summary>The address a device uses: <c>caldav</c> (the server of a CalDAV account).</summary>
 public sealed record AppLink(string Calendar, string Kind, string Url);
 
 public sealed record AppPasswordRequest

@@ -37,11 +37,8 @@
 		reverse_proxy backend:5000
 	}
 
-	# Apps (Step 5.4): calendar subscriptions and CalDAV for calendar programs,
-	# which use WebDAV methods (PROPFIND, REPORT) and discover CalDAV here.
-	handle /feeds/* {
-		reverse_proxy backend:5000
-	}
+	# Apps (Step 5.4): CalDAV for calendar programs, which use WebDAV methods
+	# (PROPFIND, REPORT) and discover the server here.
 	handle /dav* {
 		reverse_proxy backend:5000
 	}

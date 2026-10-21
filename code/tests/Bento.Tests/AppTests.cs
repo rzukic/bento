@@ -8,8 +8,8 @@ using Bento.Api.Services.Apps;
 namespace Bento.Tests;
 
 /// <summary>
-/// Step 5.4 part A: apps — a calendar made of a table's rows, each device with
-/// its own password, and the iCal subscription calendar programs read.
+/// Step 5.4: apps — a calendar made of a table's rows and each device with its
+/// own password; the calendars as CalDAV hands them out.
 /// </summary>
 public sealed class AppTests
 {
@@ -89,10 +89,10 @@ public sealed class AppTests
         Assert.Null(CalendarEvents.Time("soon", berlin, null));
     }
 
-    // ── Apps and subscriptions ───────────────────────────────────────────
+    // ── Apps and device passwords ───────────────────────────────────────────
 
     [Fact]
-    public async Task Calendar_FromTables_SubscribedWithADevicePassword() =>
+    public async Task Calendar_FromTables_ReadWithADevicePassword() =>
         await SubscriptionAsync(await ApiIntegrationTestHost.StartAsync(Settings("sqlite-test-secret")));
 
     internal static async Task SubscriptionAsync(ApiIntegrationTestHost host)
@@ -129,33 +129,27 @@ public sealed class AppTests
         var secret = created.GetProperty("secret").GetString()!;
         Assert.StartsWith(AppService.PasswordPrefix, secret);
         var links = created.GetProperty("links");
-        Assert.Equal($"https://bento.example/feeds/{secret}/termine.ics", links.EnumerateArray().First(l => l.GetProperty("kind").GetString() == "ical").GetProperty("url").GetString());
+        Assert.Equal("https://bento.example/dav/", Assert.Single(links.EnumerateArray()).GetProperty("url").GetString());
         // Listed without the secret.
         var listed = (await GetJsonAsync(host, Path)).GetProperty("data")[0].GetProperty("passwords")[0];
         Assert.Equal("iPhone", listed.GetProperty("name").GetString());
         Assert.DoesNotContain(secret, (await host.Client.GetStringAsync(Path)));
 
-        using (var feed = await host.Client.GetAsync($"/feeds/{secret}/termine.ics"))
+        using (var feed = await host.Client.SendAsync(Get("/dav/calendars/termine/", secret)))
         {
             Assert.Equal(HttpStatusCode.OK, feed.StatusCode);
             Assert.Equal("text/calendar", feed.Content.Headers.ContentType!.MediaType);
             var text = await feed.Content.ReadAsStringAsync();
             Assert.Contains("X-WR-CALNAME:Termine", text);
-            Assert.Contains("X-WR-TIMEZONE:Europe/Berlin", text);
             Assert.Contains("SUMMARY:Dentist\r\nDESCRIPTION:Bring the card\r\nLOCATION:Main St 1", text);
             // 10:00 in Berlin is 08:00 UTC; without an end, an hour.
             Assert.Contains("DTSTART:20261023T080000Z\r\nDTEND:20261023T090000Z", text);
             Assert.Contains("DTSTART:20261024T073000Z\r\nDTEND:20261024T083000Z", text);
             Assert.Contains("UID:appointments-1@bento", text);
             Assert.DoesNotContain("Therapy", text);
-
-            // Unchanged: 304 for the same tag.
-            using var again = new HttpRequestMessage(HttpMethod.Get, $"/feeds/{secret}/termine.ics");
-            again.Headers.IfNoneMatch.Add(feed.Headers.ETag!);
-            Assert.Equal(HttpStatusCode.NotModified, (await host.Client.SendAsync(again)).StatusCode);
         }
 
-        var deadlines = await host.Client.GetStringAsync($"/feeds/{secret}/fristen-abgaben.ics");
+        var deadlines = await (await host.Client.SendAsync(Get("/dav/calendars/fristen-abgaben/", secret))).Content.ReadAsStringAsync();
         Assert.Contains("SUMMARY:Tax return\r\nEND:VEVENT", deadlines.Replace("\r\nLOCATION", ""));
         Assert.Contains("DTSTART;VALUE=DATE:20261031\r\nDTEND;VALUE=DATE:20261101", deadlines);
         Assert.DoesNotContain("Old one", deadlines);
@@ -168,24 +162,24 @@ public sealed class AppTests
             Assert.Contains("only rows with done eq false", instructions);
         }
 
-        // A wrong password, an unknown calendar, a revoked password, an app turned off: nothing.
-        Assert.Equal(HttpStatusCode.NotFound, (await host.Client.GetAsync($"/feeds/{AppService.PasswordPrefix}nope/termine.ics")).StatusCode);
-        Assert.Equal(HttpStatusCode.NotFound, (await host.Client.GetAsync($"/feeds/{secret}/other.ics")).StatusCode);
+        // A wrong password or a revoked one, an app turned off: not signed in; an unknown calendar: not found.
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.Client.SendAsync(Get("/dav/calendars/termine/", $"{AppService.PasswordPrefix}nope"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await host.Client.SendAsync(Get("/dav/calendars/other/", secret))).StatusCode);
         var second = (await PostAsync(host, $"{Path}/{id}/passwords", new { name = "Mac" })).GetProperty("secret").GetString()!;
         (await host.Client.PutAsJsonAsync($"{Path}/{id}", new { enabled = false })).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.NotFound, (await host.Client.GetAsync($"/feeds/{second}/termine.ics")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.Client.SendAsync(Get("/dav/calendars/termine/", second))).StatusCode);
         (await host.Client.PutAsJsonAsync($"{Path}/{id}", new { enabled = true })).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync($"/feeds/{second}/termine.ics")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await host.Client.SendAsync(Get("/dav/calendars/termine/", second))).StatusCode);
         var passwordId = created.GetProperty("password").GetProperty("id").GetInt64();
         (await host.Client.DeleteAsync($"{Path}/{id}/passwords/{passwordId}")).EnsureSuccessStatusCode();
-        Assert.Equal(HttpStatusCode.NotFound, (await host.Client.GetAsync($"/feeds/{secret}/termine.ics")).StatusCode);
-        Assert.Equal(HttpStatusCode.OK, (await host.Client.GetAsync($"/feeds/{second}/termine.ics")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await host.Client.SendAsync(Get("/dav/calendars/termine/", secret))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await host.Client.SendAsync(Get("/dav/calendars/termine/", second))).StatusCode);
 
         // Renamed, the calendar keeps its address.
         var config = JsonSerializer.Deserialize<JsonElement>((await GetJsonAsync(host, $"{Path}/{id}")).GetProperty("data").GetProperty("config").GetRawText());
         var renamed = JsonDocument.Parse(config.GetRawText().Replace("\"name\":\"Termine\"", "\"name\":\"Appointments\"")).RootElement;
         (await host.Client.PutAsJsonAsync($"{Path}/{id}", new { config = renamed })).EnsureSuccessStatusCode();
-        Assert.Contains("X-WR-CALNAME:Appointments", await host.Client.GetStringAsync($"/feeds/{second}/termine.ics"));
+        Assert.Contains("X-WR-CALNAME:Appointments", await (await host.Client.SendAsync(Get("/dav/calendars/termine/", second))).Content.ReadAsStringAsync());
     }
 
     [Fact]
@@ -212,6 +206,13 @@ public sealed class AppTests
         Assert.Contains("Add a calendar", await none.Content.ReadAsStringAsync());
         using var nameless = await host.Client.PostAsJsonAsync($"{Path}/1/passwords", new { name = "" });
         Assert.Equal(HttpStatusCode.NotFound, nameless.StatusCode);
+    }
+
+    private static HttpRequestMessage Get(string url, string secret)
+    {
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", Convert.ToBase64String(Encoding.UTF8.GetBytes("me:" + secret)));
+        return request;
     }
 
     private static async Task<JsonElement> GetJsonAsync(ApiIntegrationTestHost host, string url) =>

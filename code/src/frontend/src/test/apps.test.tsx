@@ -106,15 +106,12 @@ describe("apps", () => {
     ]);
   });
 
-  it("adds a device: its password and addresses are shown once; a device can be taken back", async () => {
+  it("adds a device: its CalDAV account is shown once; a device can be taken back", async () => {
     api.listApps.mockResolvedValue([app]);
     api.createAppPassword.mockResolvedValue({
       password: { id: 10, name: "iPhone", prefix: "bento_app_XyZw", createdAt: "2026-10-21T10:00:00Z", lastUsedAt: null },
       secret: "bento_app_XyZwSecret",
-      links: [
-        { calendar: "My calendar", kind: "caldav", url: "https://bento.example/dav/" },
-        { calendar: "Termine", kind: "ical", url: "https://bento.example/feeds/bento_app_XyZwSecret/termine.ics" },
-      ],
+      links: [{ calendar: "My calendar", kind: "caldav", url: "https://bento.example/dav/" }],
     });
     api.revokeAppPassword.mockResolvedValue(undefined);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -127,7 +124,6 @@ describe("apps", () => {
     await user.click(screen.getByRole("button", { name: "Add device" }));
 
     const secret = await screen.findByRole("region", { name: "New device password" });
-    expect(within(secret).getByText("https://bento.example/feeds/bento_app_XyZwSecret/termine.ics")).toBeInTheDocument();
     // The CalDAV account: server and password to enter on the device.
     expect(within(secret).getByText("https://bento.example/dav/")).toBeInTheDocument();
     expect(within(secret).getByText("bento_app_XyZwSecret")).toBeInTheDocument();

@@ -84,7 +84,7 @@ export function AppsPage() {
   return (
     <div className="apps">
       <p className="apps__intro">
-        Show tables as calendars in Apple Calendar, Google Calendar, Outlook or Thunderbird. The events stay rows in Bento: what you, the API or Claude add
+        Show tables as calendars on your iPhone, Mac, Android (DAVx⁵) or in Thunderbird, over CalDAV. The events stay rows in Bento: what you, the API or Claude add
         or change shows up on your devices.
       </p>
       {error ? <Alert tone="error" message={error} /> : null}
@@ -253,13 +253,13 @@ function NewPassword({ created, onClose }: { created: CreatedAppPassword; onClos
   return (
     <div className="apps__secret" role="region" aria-label="New device password">
       <p className="apps__secret-lead">
-        <strong>{created.password.name}</strong>: copy the password and the addresses now — the password is shown only this once.
+        <strong>{created.password.name}</strong>: copy the password now — it is shown only this once.
       </p>
       {created.links
         .filter((link) => link.kind === "caldav")
         .map((link) => (
           <div key={link.url} className="apps__caldav">
-            <span className="field__label">Read and write (CalDAV account)</span>
+            <span className="field__label">CalDAV account</span>
             <dl className="apps__account">
               <dt>Server</dt>
               <dd>
@@ -285,22 +285,6 @@ function NewPassword({ created, onClose }: { created: CreatedAppPassword; onClos
             </p>
           </div>
         ))}
-      {created.links
-        .filter((link) => link.kind === "ical")
-        .map((link) => (
-          <div key={link.url} className="apps__link">
-            <span className="field__label">{link.calendar} — subscribe</span>
-            <code className="apps__url">{link.url}</code>
-            <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="copy" size={12} />} onClick={() => copy(link.url)}>
-              {copied === link.url ? "Copied" : "Copy"}
-            </Button>
-          </div>
-        ))}
-      <p className="channel-form__hint">
-        Or only subscribe (read-only) — Apple Calendar: File → New Calendar Subscription. iPhone: Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar. Google
-        Calendar: Other calendars → From URL. Thunderbird: New Calendar → On the Network. Subscriptions are read-only and refresh every hour or so
-        (Google: every few hours).
-      </p>
       <Button type="button" variant="ghost" size="sm" onClick={onClose}>
         Done
       </Button>
