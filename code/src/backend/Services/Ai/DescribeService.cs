@@ -24,11 +24,13 @@ public sealed class DescribeService
 
     private readonly AiAgent _agent;
     private readonly BentoSelfClient _self;
+    private readonly TemplateRegistry? _templates;
 
-    public DescribeService(AiAgent agent, BentoSelfClient self)
+    public DescribeService(AiAgent agent, BentoSelfClient self, TemplateRegistry? templates = null)
     {
         _agent = agent;
         _self = self;
+        _templates = templates;
     }
 
     public sealed record DescribeResponse(JsonElement? Widget, string? Formula, string? Note, string Model, decimal CostUsd, int ToolCalls, int DurationMs);
@@ -52,14 +54,14 @@ public sealed class DescribeService
 
     public sealed record DateRange(string? From, string? To);
 
-    private static readonly string WidgetPrompt = string.Join("\n\n",
+    private static readonly string BaseWidgetPrompt = string.Join("\n\n",
         """
         You build one widget of a Bento dashboard from the user's sentence, in the Lens editor. The user sees your widget live and saves it themselves.
 
         You get the widget as it is now (keep its id and position; change everything else as the sentence asks — it may be a new, empty widget or a change to an existing one), the dashboard's date range and variables, and the sentence.
 
         Work like this:
-        1. Look at the schema (describe_schema, one table in full when you need its columns) — never guess table or column names. Look up the values you filter on (e.g. the category "Rent" and its id) with list_rows or aggregate.
+        1. Look at the schema (describe_schema, one table in full when you need its columns) — never guess table or column names. Look up the values you filter on (e.g. a category or a project by its name, and its id) with list_rows or aggregate.
         2. Write the widget in Dashboard JSON (reference below). Prefer what the editor makes: a "query" with groupBy/measures; "dateColumn" for the date the dashboard's range filters; a date groupBy with "bucket" for time series; "top" on a groupBy for "the biggest five"; filters for "without …".
         3. Try the query with aggregate when unsure.
         4. Call submit_widget with the complete widget. Bento runs its query for the dashboard's range; if that fails or returns nothing you get the reason — fix it and submit again.
@@ -68,8 +70,7 @@ public sealed class DescribeService
         """,
         McpTools.Instructions,
         "Reference — Dashboard JSON:\n" + McpTools.Guide("dashboards").Text,
-        "Reference — queries:\n" + McpTools.Guide("queries").Text,
-        "Reference — the finance template's conventions (when the tables look like it):\n" + McpTools.Guide("finance").Text);
+        "Reference — queries:\n" + McpTools.Guide("queries").Text);
 
     public async Task<DescribeResponse> DescribeWidgetAsync(McpCaller caller, WidgetRequest request, CancellationToken ct)
     {
@@ -124,7 +125,7 @@ public sealed class DescribeService
                 return new AiAgent.AiLocalResult("Accepted: the widget is in the user's editor.", false, JsonDocument.Parse(final.ToJsonString()).RootElement.Clone());
             });
 
-        var result = await _agent.RunAsync("describe_widget", caller, WidgetPrompt, Cap(context.ToJsonString()), ToolNames, ct, [submit]);
+        var result = await _agent.RunAsync("describe_widget", caller, await TemplatePrompts.WithTemplatesAsync(BaseWidgetPrompt, _templates), Cap(context.ToJsonString()), ToolNames, ct, [submit]);
         if (result.Final is { } final)
             return new DescribeResponse(final.GetProperty("widget").Clone(), null, Text(final, "note") ?? NullIfEmpty(result.Text), result.Model, result.CostUsd, result.ToolCalls, result.DurationMs);
         // No widget: the model explains why (e.g. there is no such data).
@@ -254,7 +255,7 @@ public sealed class DescribeService
         """
         You write one Bento formula from the user's sentence. It goes into a formula field the user is editing; they see it checked and previewed and save it themselves.
 
-        A "column" formula is a computed column: one value per row of the table, from that row's columns and its links (category_id.name, SUM(transactions.amount) over linked rows, LOOKUP…). A "measure" formula is a widget measure: one value over the rows of each group, with aggregations such as SUM(amount WHERE amount < 0) or AVG(price).
+        A "column" formula is a computed column: one value per row of the table, from that row's columns and its links (project_id.name, SUM(time_entries.hours) over linked rows, LOOKUP…). A "measure" formula is a widget measure: one value over the rows of each group, with aggregations such as SUM(amount WHERE amount < 0) or AVG(duration).
 
         Look at the table's columns (describe_schema with the table) and the functions you need (list_formula_functions) — never guess names. Try it with check_formula (columns) or aggregate with a formula measure (measures). Then call submit_formula; Bento checks it and you get the problem back to fix, or it goes to the user's field. Keep it as simple as the sentence allows. If it cannot be done with the data, do not submit; answer in one or two sentences why, in the user's language.
         """,
@@ -306,7 +307,7 @@ public sealed class DescribeService
                 return new AiAgent.AiLocalResult("Accepted: the formula is in the user's field.", false, JsonDocument.Parse(final.ToJsonString()).RootElement.Clone());
             });
 
-        var result = await _agent.RunAsync("describe_formula", caller, FormulaPrompt, context.ToJsonString(), ToolNames, ct, [submit]);
+        var result = await _agent.RunAsync("describe_formula", caller, await TemplatePrompts.WithTemplatesAsync(FormulaPrompt, _templates, includeGuide: false), context.ToJsonString(), ToolNames, ct, [submit]);
         if (result.Final is { } final)
             return new DescribeResponse(null, Text(final, "formula"), Text(final, "note") ?? NullIfEmpty(result.Text), result.Model, result.CostUsd, result.ToolCalls, result.DurationMs);
         return new DescribeResponse(null, null, result.Text, result.Model, result.CostUsd, result.ToolCalls, result.DurationMs);

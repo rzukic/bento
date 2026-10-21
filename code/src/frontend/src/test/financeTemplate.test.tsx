@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,11 +23,13 @@ const dashboardsApi = vi.hoisted(() => ({ createDashboard: vi.fn() }));
 const dataApi = vi.hoisted(() => ({ createRow: vi.fn() }));
 const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn(), listFunctionTemplates: vi.fn(), createFunction: vi.fn() }));
 const formsApi = vi.hoisted(() => ({ createForm: vi.fn(), listForms: vi.fn() }));
+const templatesApi = vi.hoisted(() => ({ listInstalledTemplates: vi.fn(async () => []), recordTemplate: vi.fn(async () => ({})) }));
 vi.mock("../api/schema", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/schema")>()), ...schemaApi }));
 vi.mock("../api/dashboards", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/dashboards")>()), ...dashboardsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
 vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
 vi.mock("../api/forms", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/forms")>()), ...formsApi }));
+vi.mock("../api/templates", () => templatesApi);
 
 const avgCostTemplate = {
   id: "avg-cost",
@@ -140,7 +142,7 @@ describe("finance template", () => {
   });
 
   it("sets everything up from the dashboards page and opens the wealth dashboard", async () => {
-    const { FinanceSetup } = await import("../features/dashboards/FinanceSetup");
+    const { TemplateGallery } = await import("../features/templates/TemplateGallery");
     const { useSchemaStore } = await import("../stores/schemaStore");
     schemaApi.getCanonicalSchemaSnapshot.mockResolvedValue(existing);
     schemaApi.previewSchemaDraft.mockResolvedValue({ isValid: true, errors: [] });
@@ -158,13 +160,14 @@ describe("finance template", () => {
     render(
       <MemoryRouter initialEntries={["/dashboards"]}>
         <Routes>
-          <Route path="/dashboards" element={<FinanceSetup tables={existing.tables as unknown as ModelTable[]} onError={() => {}} />} />
+          <Route path="/dashboards" element={<TemplateGallery tables={existing.tables as unknown as ModelTable[]} onError={() => {}} />} />
           <Route path="/dashboards/:id" element={<p>opened</p>} />
         </Routes>
       </MemoryRouter>,
     );
-    expect(screen.getByLabelText("Table name prefix")).toHaveValue("finance_");
-    await user.click(screen.getByRole("button", { name: "Set up" }));
+    const card = within(screen.getByRole("region", { name: "Wealth & cash flow" }));
+    expect(card.getByLabelText("Table name prefix")).toHaveValue("finance_");
+    await user.click(card.getByRole("button", { name: "Set up" }));
     expect(await screen.findByText("opened")).toBeInTheDocument();
     expect(schemaApi.applySchemaDraft).toHaveBeenCalledWith(applied);
     await waitFor(() => expect(dashboardsApi.createDashboard.mock.calls.map(([name]) => name)).toEqual(["Cash flow", "Wealth"]));
@@ -174,6 +177,8 @@ describe("finance template", () => {
     expect(functionsApi.createFunction.mock.invocationCallOrder[0]).toBeLessThan(schemaApi.previewSchemaDraft.mock.invocationCallOrder[0]);
     // Quick entry: a shared, pinned form for the new transactions.
     expect(formsApi.createForm).toHaveBeenCalledWith("Add transaction", expect.objectContaining({ table: "finance_transactions", pinned: true }), true);
+    // Noted for the workspace, so the AI learns the tables and the conventions.
+    expect(templatesApi.recordTemplate).toHaveBeenCalledWith("finance", "Finance", expect.objectContaining({ transactions: "finance_transactions", prices: "finance_prices" }));
   });
 
   it("uses an existing avg_cost over rows and refuses one that is not", async () => {

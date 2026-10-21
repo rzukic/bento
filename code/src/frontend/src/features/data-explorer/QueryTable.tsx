@@ -104,7 +104,7 @@ export function QueryTableDialog({ onClose }: { onClose: () => void }) {
           </label>
           <label className="field">
             <span className="field__label">Table name</span>
-            <input className="field__control" value={name} onChange={(event) => setName(event.target.value)} placeholder="monthly_spending" />
+            <input className="field__control" value={name} onChange={(event) => setName(event.target.value)} placeholder="monthly_totals" />
           </label>
         </div>
       )}

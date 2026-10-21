@@ -4,18 +4,18 @@ The `aggregate` tool, widget queries (`data.query`) and saved queries share one 
 
 ```json
 {
-  "source": "transactions",
-  "filter": { "date": { "gte": "2026-01-01" }, "amount": { "lt": 0 } },
+  "source": "time_entries",
+  "filter": { "date": { "gte": "2026-01-01" }, "hours": { "gt": 0 } },
   "groupBy": [
-    { "column": "category_id", "top": 5, "other": true, "rank": "asc" },
+    { "column": "project_id", "top": 5, "other": true },
     { "column": "date", "bucket": "month", "as": "month" }
   ],
   "measures": [
-    { "name": "spent", "fn": "sum", "column": "amount" },
-    { "name": "bookings", "fn": "count" },
-    { "name": "share_income", "formula": "SUM(amount WHERE amount > 0) / SUM(amount)" }
+    { "name": "hours", "fn": "sum", "column": "hours" },
+    { "name": "entries", "fn": "count" },
+    { "name": "billable_share", "formula": "SUM(hours WHERE status = \"billable\") / SUM(hours)" }
   ],
-  "sort": ["month", "-spent"],
+  "sort": ["month", "-hours"],
   "limit": 500
 }
 ```

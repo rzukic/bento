@@ -85,7 +85,9 @@ export function targetPeriod(
   period: TargetConfig["period"] = "current",
   today = new Date(),
 ): { from: string; to: string; count: number; start: string | null } {
-  const lastDay = range.to ? isoBefore(range.to) : todayIso(today);
+  // Ranges stop at today unless they reach ahead on purpose: in a range of whole months, "current" is this week, not the month's last.
+  const end = range.to ? isoBefore(range.to) : todayIso(today);
+  const lastDay = !range.future && end > todayIso(today) ? todayIso(today) : end;
   if (period !== "range" || !range.from || !range.to) {
     const start = periodStart(lastDay, per);
     return { from: start, to: nextPeriodStart(start, per), count: 1, start };

@@ -17,7 +17,7 @@ public sealed partial class McpTools
     private List<McpTool> BuildManagement() =>
     [
         new("bento_guide", "Read the Bento guide",
-            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the Wealth & cash-flow template), functions (JavaScript, price sources), api (endpoints for call_api). Read the topic before building or changing something.",
+            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the conventions of the finance template, for workspaces that have it installed), functions (JavaScript, price sources), api (endpoints for call_api). Read the topic before building or changing something.",
             Schema(new JsonObject
             {
                 ["topic"] = new JsonObject

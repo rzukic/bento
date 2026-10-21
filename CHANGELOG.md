@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-22 — Templates
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.10 — Templates, And An AI That Knows No Use Case](working-steps/5.10-templates.md)
+
+Ready-made setups for more than money, and an AI that only hears about finance where finance is.
+
+**Highlights:**
+- **Four templates**: Projects & hours, Habits & health, Appointments and Wealth & cash flow — tables, a dashboard, forms and example rows in one click, on the home page of an empty workspace and under Dashboards.
+- **The AI knows your templates**: MCP clients, *Explain this* and *Describe* learn a workspace's template tables, and the finance conventions only where finance is installed. Existing finance setups are recognised.
+- **Neutral examples** in the guide, the AI instructions and the app's hints.
+- **Fixes**: row tables show linked records by name; a target's "current" week or month is today's.
+
 ### 2026-10-21 — Saved Queries As Tables
 
 > **Phase**: Phase 5 — Integration

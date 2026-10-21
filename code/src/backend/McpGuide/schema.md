@@ -60,7 +60,7 @@ Use lower-case names with letters, digits and `_` for tables and columns (`finan
 | `text` | text |
 | `integer` | whole numbers |
 | `float` | decimal numbers |
-| `currency` | amounts (shown in euros); spending is usually negative |
+| `currency` | amounts of money, in the workspace's currency |
 | `boolean` | yes/no |
 | `date` | `YYYY-MM-DD` |
 | `datetime` | local wall time `YYYY-MM-DDTHH:mm` (database-filled values are UTC with `Z`) |

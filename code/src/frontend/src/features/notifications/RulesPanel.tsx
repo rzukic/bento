@@ -352,7 +352,7 @@ function RuleForm({
               <input
                 className="field__control field__control--compact"
                 value={formula}
-                placeholder="-SUM(amount WHERE amount < 0)"
+                placeholder='COUNT(WHERE status = "open")'
                 spellCheck={false}
                 onChange={(e) => setFormula(e.target.value)}
               />
@@ -413,7 +413,7 @@ function RuleForm({
             ) : null}
           </div>
           <p className="channel-form__hint">
-            The value is one number from the table, written like a widget's formula — e.g. <code>-SUM(amount WHERE amount &lt; 0)</code> for what was spent, or{" "}
+            The value is one number from the table, written like a widget's formula — e.g. <code>SUM(hours)</code> for the hours logged, <code>-SUM(amount WHERE amount &lt; 0)</code> for what was spent, or{" "}
             <code>COUNT()</code> for how many rows there are. Periods and times follow the workspace's calendar ({workspaceCalendar().timeZone}, Settings → Workspace).
           </p>
         </>

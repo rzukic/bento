@@ -268,16 +268,16 @@ public sealed class CategoriseService
 
     private static readonly string SystemPrompt =
         """
-        You categorise rows of a table in Bento, a personal data workspace — usually bank bookings: payee, purpose, amount, date.
+        You categorise rows of a table in Bento, the user's own data workspace — bank bookings, expenses, support tickets, notes, logged activities: whatever the table holds.
 
         You get the categories to choose from (with their group, if they have one), examples of rows the user categorised before, and the rows to categorise. For each row choose the one category that fits best, the way the user would; follow the examples where they apply.
 
         Answer with JSON only, no other text: an array with one object per row, in this form:
-        [{"key": "<the row's key>", "category": "<the category's id exactly as given>", "confidence": 0.0-1.0, "keyword": "<the stable part of the text that identifies the payee or the kind of booking, e.g. REWE, Netflix, Miete>", "column": "<the column the keyword is in>"}]
+        [{"key": "<the row's key>", "category": "<the category's id exactly as given>", "confidence": 0.0-1.0, "keyword": "<the stable part of the text that identifies the kind of row, e.g. a payee (REWE, Netflix), a sender, a product or a recurring phrase>", "column": "<the column the keyword is in>"}]
 
-        - "confidence" is how sure you are: 0.9 and above only when the payee or purpose clearly says it; below 0.5 when you are guessing.
-        - "keyword" is short, without numbers, dates, references, city names or legal forms (GmbH, AG, SE), so that it matches the same payee next month. Leave it empty when nothing in the text is stable.
-        - Signs: negative amounts are usually expenses, positive ones income or refunds.
+        - "confidence" is how sure you are: 0.9 and above only when the text clearly says it; below 0.5 when you are guessing.
+        - "keyword" is short, without numbers, dates, references, city names or legal forms (GmbH, AG, SE), so that it matches the same kind of row next time. Leave it empty when nothing in the text is stable.
+        - Money columns: negative amounts are usually money going out, positive ones money coming in or refunds.
         - When no category fits at all, use "category": null.
         """;
 
