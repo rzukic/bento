@@ -210,3 +210,14 @@ Each shows its current value (or what is wrong) as you type. A key figure can sh
 ## Amounts
 
 Amounts (currency columns) are shown in euros in your browser's language, for example `−1.150,00 €`, in tables, key figures and chart axes; negative amounts are red. The Data Explorer shows them the same way.
+
+## Share A Dashboard
+
+**Share** (next to History; the dashboard's owner and the workspace's admins) makes a link anyone can open without an account — your tax advisor, family, a page of your own:
+
+- **Read only**: the visitor sees the dashboard's widgets and may pick another date range or switch a chart's interval (month, quarter …). Nothing else: no editing, no history, no other dashboards or tables of the workspace, no click-through to rows. Bento checks every request a visitor's browser makes against the dashboard's widgets.
+- **Fixed filters**: for a dashboard filter (e.g. category), type the values the visitor may see — *food* or *food, rent*. They always apply; the visitor cannot change them.
+- **Expires** after 7, 30, 90 days, a year, or never; **Revoke** stops a link at once. The list shows how often each link was opened and when last.
+- The address (`https://<your Bento>/s/…`) is shown **once** — copy it then; Bento keeps only a fingerprint of it.
+- **May be embedded in other sites**: also shows code for an `<iframe>`; embedded, the dashboard shows without its title. Links without it refuse to show inside another site. The app itself can only be framed by its own site.
+- A link shows numbers and dates the way its workspace is set up. It stops when its maker is deleted or no longer in the workspace.

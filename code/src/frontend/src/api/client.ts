@@ -9,6 +9,16 @@ const API_BASE = "/api/v1";
  * be out of date (see queryCache.ts).
  */
 let mutations = 0;
+
+/**
+ * A share link's token (Step 5.6): set on /s/<token>, every request then goes
+ * as that link's visitor — no session, no refresh.
+ */
+let shareToken: string | null = null;
+
+export function setShareToken(token: string | null): void {
+  shareToken = token;
+}
 const readOnlyPosts = /^\/(query(\/|$)|queries\/\d+\/run$|formulas\/|auth\/)/;
 
 export function dataVersion(): number {
@@ -97,7 +107,9 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
     headers.set("X-Bento-Workspace", workspace);
   }
 
-  if (!init.anonymous) {
+  if (shareToken) {
+    headers.set("X-Bento-Share", shareToken);
+  } else if (!init.anonymous) {
     const accessToken = useAuthStore.getState().accessToken;
     if (accessToken && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${accessToken}`);
@@ -133,7 +145,7 @@ async function doFetch(path: string, init: ApiRequestInit): Promise<Response> {
 export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   let response = await doFetch(path, init);
 
-  if (response.status === 401 && !init.skipAuthRetry) {
+  if (response.status === 401 && !init.skipAuthRetry && !shareToken) {
     const auth = useAuthStore.getState();
     // Only try to refresh if we ever had a session. For a never-authenticated
     // caller a 401 is simply "please log in".

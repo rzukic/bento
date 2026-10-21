@@ -133,6 +133,8 @@ public static class BackendHost
         services.AddSingleton<WorkspaceSettings>();
         services.AddSingleton<Bento.Api.Services.Workspaces.WorkspaceService>();
         services.AddSingleton<Bento.Api.Services.Workspaces.WorkspaceAccess>();
+        services.AddSingleton<Bento.Api.Services.Sharing.ShareService>();
+        services.AddSingleton<Bento.Api.Services.Sharing.ShareGuard>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();

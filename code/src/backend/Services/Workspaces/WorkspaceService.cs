@@ -21,7 +21,7 @@ public sealed partial class WorkspaceService
     [
         "schema_versions", "migrations", "dashboards", "dashboard_versions", "system_views", "user_table_explorer_preferences",
         "import_profiles", "saved_queries", "functions", "function_versions", "forms", "price_sources", "price_source_runs",
-        "notification_rules", "import_sources", "import_runs", "category_rules", "apps", "app_events", "problem_log", "mcp_calls"
+        "notification_rules", "import_sources", "import_runs", "category_rules", "apps", "app_events", "problem_log", "mcp_calls", "share_links"
     ];
 
     private static readonly HashSet<string> Reserved = new(StringComparer.Ordinal) { "default", "api", "admin", "new", "w", "mcp", "dav", "public", "system" };

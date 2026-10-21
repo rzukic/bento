@@ -12,7 +12,7 @@ If you want to get Bento running and try the current product without reading the
 - [Getting Started](getting-started.md) — start the packaged stack with Docker, finish the setup wizard in the browser (admin account, optional sample data), or run the API-only shape
 - [Schema Designer](schema-designer.md) — create tables and relations visually, switch to JSON, preview, and apply
 - [Connections](connections.md) — the API of your installation with try-it, OpenAPI download, and API keys for scripts
-- [Dashboards](dashboards.md) — key figures and charts for any date range; a ready "Monthly cash flow" from a bank table; targets per group; formula values, values at each period end, variables such as runway
+- [Dashboards](dashboards.md) — key figures and charts for any date range; share one with a link (read only, fixed filters, expiry, embeddable); a ready "Monthly cash flow" from a bank table; targets per group; formula values, values at each period end, variables such as runway
 - [Formulas](formulas.md) — computed columns with spreadsheet-style formulas, links to other tables and sums over related rows, live in the explorer; your own JavaScript functions with `CUSTOM(…)`
 - [Forms](forms.md) — quick entry into a table, e.g. "Add transaction" on the phone: −/+ for amounts, accounts and categories as buttons, today's date, the account used last time; from the sidebar and from dashboards
 - [Live Prices](live-prices.md) — prices from an API of your choice (e.g. Yahoo Finance, no key) kept as history in your table, current when a dashboard opens; API keys in the credential vault

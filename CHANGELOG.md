@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Share Dashboards With A Link
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.6 — Share Links](working-steps/5.6-share-links.md) (part A)
+
+A dashboard for people without an account — the tax advisor, family, a page of your own.
+
+**Highlights:**
+- **Share** on a dashboard: a link that expires when you want, revoked with a click, opens counted.
+- **Read only and nothing more**: visitors pick the period and the interval; Bento answers only what the dashboard's widgets show — no other tables, groupings or dashboards.
+- **Fixed filters**: share only "food", whatever the visitor tries.
+- **Embed** a dashboard in another site, or forbid it.
+
 ### 2026-10-21 — Workspaces: Members, Roles, Users
 
 > **Phase**: Phase 5 — Integration
