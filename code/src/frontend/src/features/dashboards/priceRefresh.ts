@@ -39,6 +39,8 @@ export function usePriceRefresh(dashboard: unknown, refreshToken: number, enable
   onChangedRef.current = onChanged;
 
   useEffect(() => {
+    // A shared view (Step 5.6) never refreshes prices: it only reads.
+    if (!enabled) return;
     let cancelled = false;
     listPriceSources()
       .then((list) => !cancelled && setSources(list))
@@ -46,7 +48,7 @@ export function usePriceRefresh(dashboard: unknown, refreshToken: number, enable
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
 
   const relevant = useMemo(() => (sources ? sourcesForDashboard(sources, dashboard) : []), [sources, dashboard]);
   const tablesKey = [...new Set(relevant.map((s) => s.config.table))].sort().join(",");

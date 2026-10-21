@@ -323,6 +323,8 @@ public sealed class AuthService
         await conn.ExecuteAsync($"DELETE FROM {p}oauth_tokens WHERE grant_id IN (SELECT id FROM {p}oauth_grants WHERE user_id = @Id)", ids, tx);
         await conn.ExecuteAsync($"DELETE FROM {p}oauth_grants WHERE user_id = @Id", ids, tx);
         await conn.ExecuteAsync($"UPDATE {p}api_keys SET revoked_at = COALESCE(revoked_at, @Now), user_id = NULL WHERE user_id = @Id", ids, tx);
+        // Share links act as the one who made them: they stop with them.
+        await conn.ExecuteAsync($"UPDATE {p}share_links SET revoked_at = COALESCE(revoked_at, @Now) WHERE created_by = @Id", ids, tx);
         await conn.ExecuteAsync($"DELETE FROM {GetUsersTableName()} WHERE id = @Id", ids, tx);
         tx.Commit();
     }

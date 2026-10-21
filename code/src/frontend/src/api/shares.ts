@@ -1,0 +1,65 @@
+import { apiClient } from "./client";
+
+type DataEnvelope<T> = { data: T };
+
+// ── Share links (Step 5.6): a dashboard for anyone with the link ─────────
+
+/** Fixed filter values by column: the visitor always sees the dashboard filtered so. */
+export type ShareFilters = Record<string, (string | number | boolean)[]>;
+
+export type ShareLink = {
+  id: number;
+  name: string;
+  prefix: string;
+  status: "active" | "expired" | "revoked";
+  createdBy: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  views: number;
+  filters: ShareFilters | null;
+  embed: boolean;
+};
+
+export type CreatedShare = { link: ShareLink; url: string; embed: string | null };
+
+/** The link's address on this site, and the code to embed it. */
+function addresses(token: string, embeddable: boolean): { url: string; embed: string | null } {
+  const url = `${window.location.origin}/s/${token}`;
+  return {
+    url,
+    embed: embeddable ? `<iframe src="${url}?embed=1" width="100%" height="600" style="border:0" loading="lazy"></iframe>` : null,
+  };
+}
+
+export async function listShares(dashboardId: number): Promise<ShareLink[]> {
+  return (await apiClient.get<DataEnvelope<ShareLink[]>>(`/dashboards/${dashboardId}/shares`)).data;
+}
+
+/** The address comes back once. */
+export async function createShare(
+  dashboardId: number,
+  share: { name: string; expiresInDays?: number; filters?: ShareFilters; embed: boolean },
+): Promise<CreatedShare> {
+  const response = await apiClient.post<{ data: ShareLink; token: string }>(`/dashboards/${dashboardId}/shares`, share);
+  return { link: response.data, ...addresses(response.token, share.embed) };
+}
+
+export async function revokeShare(id: number): Promise<void> {
+  await apiClient.delete(`/shares/${id}`);
+}
+
+/** For a link's visitor: what it shows and how numbers and dates read. */
+export type ShareInfo = {
+  kind: "dashboard";
+  dashboardId: number;
+  name: string;
+  filters: ShareFilters | null;
+  embed: boolean;
+  expiresAt: string | null;
+  settings: { locale: string | null; currency: string; timeZone: string; weekStart: string; yearStart: number };
+};
+
+export async function getShareInfo(): Promise<ShareInfo> {
+  return (await apiClient.get<DataEnvelope<ShareInfo>>("/share")).data;
+}

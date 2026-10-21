@@ -18,6 +18,7 @@ const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({
 const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
 const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
 const AiPage = lazy(() => import("./features/ai/AiPage").then((m) => ({ default: m.AiPage })));
+const SharedPage = lazy(() => import("./features/sharing/SharedPage").then((m) => ({ default: m.SharedPage })));
 const OAuthConsentPage = lazy(() => import("./features/connections/OAuthConsentPage").then((m) => ({ default: m.OAuthConsentPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
@@ -243,6 +244,16 @@ const shellRoutes: RouteObject[] = [
 ];
 
 export const appRoutes: RouteObject[] = [
+  {
+    // A share link (Step 5.6): no account, no app around it.
+    path: "/s/:token",
+    element: (
+      <Lazy>
+        <SharedPage />
+      </Lazy>
+    ),
+    handle: { title: "Shared dashboard" } satisfies AppRouteHandle
+  },
   {
     // The wizard decides on its own whether it should be shown; everything
     // else sits behind the SetupGate so an uninitialised installation lands

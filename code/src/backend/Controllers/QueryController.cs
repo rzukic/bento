@@ -7,6 +7,7 @@ using Bento.Api.Db;
 using Bento.Api.Exceptions;
 using Bento.Api.Models;
 using Bento.Api.Services;
+using Bento.Api.Services.Sharing;
 
 namespace Bento.Api.Controllers;
 
@@ -27,16 +28,23 @@ public sealed class QueryController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Run([FromBody] AggregationQueryRequest request)
+    public async Task<IActionResult> Run([FromBody] AggregationQueryRequest request, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        // A share link's visitor runs only the shared dashboard's widget queries (Step 5.6).
+        if (HttpContext.ShareVisitor() is { } visitor)
+            request = await guard.CheckQueryAsync(visitor, request);
         var result = await _queries.RunAsync(request);
         return Ok(new { data = result.Data, meta = result.Meta });
     }
 
     /// <summary>Dashboard variables (Step 3.6): each one's value, type or error, in the order given.</summary>
     [HttpPost("variables")]
-    public async Task<IActionResult> Variables([FromBody] QueryVariablesRequest request) =>
-        Ok(new { data = await _queries.EvaluateVariablesAsync(request) });
+    public async Task<IActionResult> Variables([FromBody] QueryVariablesRequest request, [FromServices] Services.Sharing.ShareGuard guard)
+    {
+        if (HttpContext.ShareVisitor() is { } visitor)
+            request = await guard.CheckVariablesAsync(visitor, request);
+        return Ok(new { data = await _queries.EvaluateVariablesAsync(request) });
+    }
 }
 
 /// <summary>
@@ -82,8 +90,10 @@ public sealed class SavedQueriesController : ControllerBase
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id)
+    public async Task<IActionResult> Get(long id, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        if (HttpContext.ShareVisitor() is { } visitor)
+            await guard.CheckSavedQueryAsync(visitor, id);
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
@@ -150,7 +160,7 @@ public sealed class SavedQueriesController : ControllerBase
 
     /// <summary>Runs a saved query; extra filters (e.g. a dashboard's date range) are added to its own.</summary>
     [HttpPost("{id:long}/run")]
-    public async Task<IActionResult> Run(long id, [FromBody] SavedQueryRunRequest? request)
+    public async Task<IActionResult> Run(long id, [FromBody] SavedQueryRunRequest? request, [FromServices] Services.Sharing.ShareGuard guard)
     {
         var userId = UserId();
         AggregationQueryRequest query;
@@ -161,7 +171,10 @@ public sealed class SavedQueriesController : ControllerBase
                 ?? throw new ApiUnprocessableEntityException($"Saved query {id} cannot be read.");
         }
 
-        var result = await _queries.RunAsync(query, request?.Filter);
+        var extra = request?.Filter;
+        if (HttpContext.ShareVisitor() is { } visitor)
+            extra = await guard.CheckSavedRunAsync(visitor, id, query.Source ?? "", extra);
+        var result = await _queries.RunAsync(query, extra);
         return Ok(new { data = result.Data, meta = result.Meta });
     }
 

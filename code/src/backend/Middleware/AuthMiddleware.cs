@@ -25,6 +25,14 @@ public sealed class AuthMiddleware
 
     public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, WorkspaceAccess access)
     {
+        // A share link's visitor (Step 5.6): read-only, only what the shared dashboard asks for.
+        if (IsVersionedApiRoute(context.Request.Path) && context.Request.Headers.TryGetValue(Services.Sharing.ShareService.HeaderName, out var share) &&
+            !string.IsNullOrWhiteSpace(share.ToString()))
+        {
+            await AuthenticateShareAsync(context, share.ToString(), access);
+            return;
+        }
+
         if (IsMcpRoute(context.Request.Path))
         {
             await AuthenticateMcpAsync(context, apiKeys, oauth, access);
@@ -67,6 +75,67 @@ public sealed class AuthMiddleware
         context.User = await InWorkspaceAsync(context, access, CreateAuthenticatedPrincipal(context.Request.Headers.Authorization));
 
         await _next(context);
+    }
+
+    // ── Share links (Step 5.6) ───────────────────────────────────────────
+
+    public const string ShareItem = "bento.share";
+    private const int ShareRequestsPerMinute = 600;
+
+    /// <summary>
+    /// The paths a dashboard needs: the link's own info, the dashboard, its
+    /// queries, variables, saved queries, tables of rows and the schema of its
+    /// tables. ShareGuard checks each one against the dashboard.
+    /// </summary>
+    private static bool IsSharePath(HttpRequest request)
+    {
+        var path = (request.Path.Value ?? "").TrimEnd('/').ToLowerInvariant();
+        const string api = "/" + ApiRoutes.Prefix;
+        var get = HttpMethods.IsGet(request.Method);
+        var post = HttpMethods.IsPost(request.Method);
+        return (get && path == api + "/share") ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/dashboards/\d+$")) ||
+               (post && (path == api + "/query" || path == api + "/query/variables")) ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/queries/\d+$")) ||
+               (post && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/queries/\d+/run$")) ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/data/[^/]+$")) ||
+               (get && path == api + "/admin/schema");
+    }
+
+    private async Task AuthenticateShareAsync(HttpContext context, string token, WorkspaceAccess access)
+    {
+        var services = context.RequestServices;
+        var shares = services.GetRequiredService<Services.Sharing.ShareService>();
+        var visitor = await shares.AuthenticateAsync(token.Trim(), countView: context.Request.Path.Value?.TrimEnd('/').EndsWith("/share", StringComparison.OrdinalIgnoreCase) == true)
+            ?? throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+        var limiter = services.GetRequiredService<AuthRateLimiter>();
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var limit = limiter.CheckRequest($"share:{visitor.Link.Id}:{ip}", ShareRequestsPerMinute, DateTimeOffset.UtcNow);
+        if (!limit.Allowed)
+            throw new ApiTooManyRequestsException("Too many requests for this link; try again in a minute.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = limit.RetryAfterSeconds });
+        if (!IsSharePath(context.Request))
+            throw new ApiForbiddenException("A share link shows its dashboard, nothing else.");
+
+        // It works in its workspace, as the one who made it — while they still may open it.
+        var workspace = services.GetRequiredService<WorkspaceService>().Find(visitor.Link.WorkspaceId)
+            ?? throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+        if (await access.RoleInAsync(visitor.Link.CreatedBy, visitor.CreatorRole, workspace.Id) is null)
+            throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, visitor.Link.CreatedBy.ToString(CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Name, "share link " + visitor.Link.Prefix),
+            new Claim(ClaimTypes.Role, "viewer"),
+            new Claim("role", "viewer"),
+            new Claim("installation_role", "viewer"),
+            new Claim("auth_method", "share"),
+            new Claim("share_id", visitor.Link.Id.ToString(CultureInfo.InvariantCulture))
+        ], "Share"));
+        context.Items[ShareItem] = visitor;
+        using (WorkspaceContext.Use(workspace))
+            await _next(context);
     }
 
     // ── Workspaces (Step 5.5 part B) ─────────────────────────────────────

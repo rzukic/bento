@@ -758,6 +758,23 @@ public class DatabaseBootstrap : IHostedService
                 UNIQUE (app_id, calendar, href)
             );
             CREATE INDEX IF NOT EXISTS idx_app_events_row ON _system.app_events(app_id, calendar, row_id);
+            CREATE TABLE IF NOT EXISTS _system.share_links (
+                id              SERIAL PRIMARY KEY,
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                kind            VARCHAR(20) NOT NULL,
+                target_id       INTEGER NOT NULL,
+                name            VARCHAR(120) NOT NULL,
+                token_hash      VARCHAR(64) NOT NULL UNIQUE,
+                prefix          VARCHAR(32) NOT NULL,
+                options         TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at      TIMESTAMPTZ,
+                revoked_at      TIMESTAMPTZ,
+                last_used_at    TIMESTAMPTZ,
+                views           INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_share_links_target ON _system.share_links(kind, target_id);
             """);
     }
 
@@ -1281,6 +1298,23 @@ public class DatabaseBootstrap : IHostedService
                 UNIQUE (app_id, calendar, href)
             );
             CREATE INDEX IF NOT EXISTS idx_app_events_row ON app_events(app_id, calendar, row_id);
+            CREATE TABLE IF NOT EXISTS share_links (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                kind            TEXT NOT NULL,
+                target_id       INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                token_hash      TEXT NOT NULL UNIQUE,
+                prefix          TEXT NOT NULL,
+                options         TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at      TEXT,
+                revoked_at      TEXT,
+                last_used_at    TEXT,
+                views           INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_share_links_target ON share_links(kind, target_id);
             """);
     }
 }
