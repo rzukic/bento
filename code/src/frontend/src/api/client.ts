@@ -16,8 +16,18 @@ let mutations = 0;
  */
 let shareToken: string | null = null;
 
+let shareOpened = 0;
+let formTrap = "";
+
 export function setShareToken(token: string | null): void {
   shareToken = token;
+  shareOpened = Date.now();
+  formTrap = "";
+}
+
+/** A public form's trap field (Step 5.6): people leave it empty, robots fill it. */
+export function setFormTrap(value: string): void {
+  formTrap = value;
 }
 const readOnlyPosts = /^\/(query(\/|$)|queries\/\d+\/run$|formulas\/|auth\/)/;
 
@@ -109,6 +119,11 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
 
   if (shareToken) {
     headers.set("X-Bento-Share", shareToken);
+    // What tells a person filling in a public form from a robot.
+    if ((init.method ?? "GET").toUpperCase() === "POST") {
+      headers.set("X-Bento-Form-Check", `ok:${formTrap}`);
+      headers.set("X-Bento-Form-Elapsed", ((Date.now() - shareOpened) / 1000).toFixed(1));
+    }
   } else if (!init.anonymous) {
     const accessToken = useAuthStore.getState().accessToken;
     if (accessToken && !headers.has("Authorization")) {

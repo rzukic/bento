@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Public Forms
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.6 — Share Links](working-steps/5.6-share-links.md) (part B)
+
+A form anyone can fill in without an account — a booking request on your site, a sign-up, a feedback box.
+
+**Highlights:**
+- **Share** on a form: a link (and iframe code) that adds rows and shows nothing of the table.
+- **Only what the form asks**: its fields, its link fields' choices by name, hidden values set by Bento.
+- **No floods**: a few entries per visitor an hour, a daily cap, a trap for robots.
+- **A thank-you text** after each entry; nothing remembered on a shared computer.
+
 ### 2026-10-21 — Share Dashboards With A Link
 
 > **Phase**: Phase 5 — Integration

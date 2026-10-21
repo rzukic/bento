@@ -9,6 +9,7 @@ import { Spinner } from "../../components/ui/Spinner";
 import { useAuthStore } from "../../stores/authStore";
 import { useFormsStore } from "../../stores/formsStore";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { ShareDialog } from "../dashboards/ShareDialog";
 import { FormFill } from "./FormFill";
 import { isFormWritable } from "./formModel";
 import "./Forms.css";
@@ -123,6 +124,9 @@ export function FormPage() {
   const loadSchema = useSchemaStore((s) => s.load);
   const [form, setForm] = useState<SavedForm | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Step 5.6: a public link to the form, for its owner and the workspace's admins.
+  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  const [shareOpen, setShareOpen] = useState(false);
 
   useEffect(() => {
     void loadSchema();
@@ -148,12 +152,20 @@ export function FormPage() {
               <h1 className="forms-page__title">{form.name}</h1>
               <p className="forms-page__lead">Adds a row to {table?.displayName ?? form.table}.</p>
             </div>
-            {form.isOwner && canWrite ? (
-              <Link className="btn btn--ghost btn--sm" to={`/forms/${form.id}/edit`}>
-                <Icon name="pencil" size={13} /> Edit
-              </Link>
-            ) : null}
+            <span className="form-page__actions">
+              {form.isOwner || isAdmin ? (
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setShareOpen(true)}>
+                  <Icon name="link" size={13} /> Share
+                </button>
+              ) : null}
+              {form.isOwner && canWrite ? (
+                <Link className="btn btn--ghost btn--sm" to={`/forms/${form.id}/edit`}>
+                  <Icon name="pencil" size={13} /> Edit
+                </Link>
+              ) : null}
+            </span>
           </header>
+          {shareOpen ? <ShareDialog kind="form" targetId={form.id} title={form.name} onClose={() => setShareOpen(false)} /> : null}
           {table ? (
             <FormFill formKey={String(form.id)} form={form.form} table={table} readOnly={!canWrite} />
           ) : (

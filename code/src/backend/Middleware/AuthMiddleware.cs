@@ -87,12 +87,18 @@ public sealed class AuthMiddleware
     /// queries, variables, saved queries, tables of rows and the schema of its
     /// tables. ShareGuard checks each one against the dashboard.
     /// </summary>
-    private static bool IsSharePath(HttpRequest request)
+    private static bool IsSharePath(HttpRequest request, string kind)
     {
         var path = (request.Path.Value ?? "").TrimEnd('/').ToLowerInvariant();
         const string api = "/" + ApiRoutes.Prefix;
         var get = HttpMethods.IsGet(request.Method);
         var post = HttpMethods.IsPost(request.Method);
+        // A form (part B): the form, its tables' schema, the choices of its links, and sending a row.
+        if (kind == "form")
+            return (get && path == api + "/share") ||
+                   (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/forms/\d+$")) ||
+                   (get && path == api + "/admin/schema") ||
+                   ((get || post) && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/data/[^/]+$"));
         return (get && path == api + "/share") ||
                (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/dashboards/\d+$")) ||
                (post && (path == api + "/query" || path == api + "/query/variables")) ||
@@ -114,8 +120,10 @@ public sealed class AuthMiddleware
         if (!limit.Allowed)
             throw new ApiTooManyRequestsException("Too many requests for this link; try again in a minute.",
                 new Dictionary<string, object?> { ["retryAfterSeconds"] = limit.RetryAfterSeconds });
-        if (!IsSharePath(context.Request))
-            throw new ApiForbiddenException("A share link shows its dashboard, nothing else.");
+        if (!IsSharePath(context.Request, visitor.Link.Kind))
+            throw new ApiForbiddenException(visitor.Link.Kind == "form" ? "A form link sends its form, nothing else." : "A share link shows its dashboard, nothing else.");
+        // A form's visitor adds rows (checked against the form); a dashboard's only reads.
+        var role = visitor.Link.Kind == "form" ? "editor" : "viewer";
 
         // It works in its workspace, as the one who made it — while they still may open it.
         var workspace = services.GetRequiredService<WorkspaceService>().Find(visitor.Link.WorkspaceId)
@@ -127,8 +135,8 @@ public sealed class AuthMiddleware
         [
             new Claim(ClaimTypes.NameIdentifier, visitor.Link.CreatedBy.ToString(CultureInfo.InvariantCulture)),
             new Claim(ClaimTypes.Name, "share link " + visitor.Link.Prefix),
-            new Claim(ClaimTypes.Role, "viewer"),
-            new Claim("role", "viewer"),
+            new Claim(ClaimTypes.Role, role),
+            new Claim("role", role),
             new Claim("installation_role", "viewer"),
             new Claim("auth_method", "share"),
             new Claim("share_id", visitor.Link.Id.ToString(CultureInfo.InvariantCulture))

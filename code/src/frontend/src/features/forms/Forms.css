@@ -514,3 +514,8 @@ textarea.form-field__input {
         flex: 1;
     }
 }
+
+.form-page__actions {
+    display: inline-flex;
+    gap: 0.25rem;
+}

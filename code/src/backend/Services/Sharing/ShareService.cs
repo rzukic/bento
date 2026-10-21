@@ -21,7 +21,9 @@ public sealed class ShareService
 {
     public const string TokenPrefix = "bento_s_";
     public const string HeaderName = "X-Bento-Share";
-    public static readonly string[] Kinds = ["dashboard"];
+    public static readonly string[] Kinds = ["dashboard", "form"];
+    public const int DefaultPerHour = 10;
+    public const int PerDay = 500;
 
     private static readonly TimeSpan LastUsedResolution = TimeSpan.FromMinutes(1);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -41,7 +43,9 @@ public sealed class ShareService
 
     /// <param name="Filters">Fixed filter values by column: what the viewer sees is always filtered so.</param>
     /// <param name="Embed">May be shown inside another site (an iframe).</param>
-    public sealed record ShareOptions(Dictionary<string, List<JsonElement>>? Filters = null, bool Embed = false);
+    /// <param name="PerHour">A form: how many rows one visitor may send an hour.</param>
+    /// <param name="Thanks">A form: what the visitor reads after sending.</param>
+    public sealed record ShareOptions(Dictionary<string, List<JsonElement>>? Filters = null, bool Embed = false, int? PerHour = null, string? Thanks = null);
 
     public sealed record ShareLink(long Id, long WorkspaceId, string Kind, long TargetId, string Name, string Prefix, ShareOptions Options,
         long CreatedBy, string? CreatedByName, string CreatedAt, string? ExpiresAt, string? RevokedAt, string? LastUsedAt, int Views)
@@ -105,7 +109,11 @@ public sealed class ShareService
     public async Task<(ShareLink Link, string Token)> CreateAsync(string kind, long targetId, string? name, int? expiresInDays, ShareOptions options, long userId)
     {
         if (!Kinds.Contains(kind))
-            throw Invalid("kind", "A link shares a dashboard.");
+            throw Invalid("kind", "A link shares a dashboard or a form.");
+        if (options.PerHour is < 1 or > 1000)
+            throw Invalid("perHour", "A visitor may send 1 to 1000 entries an hour.");
+        if (options.Thanks is { Length: > 500 })
+            throw Invalid("thanks", "The thank-you text is too long.");
         var label = string.IsNullOrWhiteSpace(name) ? "Link" : name.Trim();
         if (label.Length > 120)
             throw Invalid("name", "The name is too long.");
@@ -162,6 +170,33 @@ public sealed class ShareService
                 new { link.Id, Now = Iso(now) });
         }
         return new Visitor(link, row.CreatorRole ?? "viewer");
+    }
+
+    // ── Entries through a form link: per visitor an hour, per link a day ──
+
+    private readonly Dictionary<string, Queue<DateTime>> _entries = new();
+
+    /// <summary>Counts an entry, or false when the visitor (or the link) has sent its share for now; a refused entry counts nowhere.</summary>
+    public bool TakeEntry(ShareLink link, string visitor, DateTime now)
+    {
+        lock (_entries)
+        {
+            Queue<DateTime> Recent(string key, TimeSpan window)
+            {
+                if (!_entries.TryGetValue(key, out var times))
+                    _entries[key] = times = new Queue<DateTime>();
+                while (times.Count > 0 && now - times.Peek() >= window)
+                    times.Dequeue();
+                return times;
+            }
+            var day = Recent($"{link.Id}", TimeSpan.FromDays(1));
+            var hour = Recent($"{link.Id}:{visitor}", TimeSpan.FromHours(1));
+            if (day.Count >= PerDay || hour.Count >= (link.Options.PerHour ?? DefaultPerHour))
+                return false;
+            day.Enqueue(now);
+            hour.Enqueue(now);
+            return true;
+        }
     }
 
     private static ShareOptions ReadOptions(string json)

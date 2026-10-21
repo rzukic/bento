@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ApiClientError } from "../../api/client";
-import type { Dashboard } from "../../api/dashboards";
-import { createShare, listShares, revokeShare, type CreatedShare, type ShareLink } from "../../api/shares";
+import type { DashboardFilter } from "../../api/dashboards";
+import { createShare, listShares, revokeShare, type CreatedShare, type ShareKind, type ShareLink } from "../../api/shares";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
@@ -29,11 +29,23 @@ function errorText(cause: unknown, fallback: string): string {
 }
 
 /**
- * Step 5.6: links to this dashboard for people without an account — read
- * only, with its fixed filters, until they expire or are revoked. The address
- * is shown once.
+ * Step 5.6: links for people without an account — a dashboard read only,
+ * with its fixed filters; a form to send rows, a few an hour. Until they
+ * expire or are revoked; the address is shown once.
  */
-export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onClose: () => void }) {
+export function ShareDialog({
+  kind,
+  targetId,
+  title,
+  filters = [],
+  onClose,
+}: {
+  kind: ShareKind;
+  targetId: number;
+  title: string;
+  filters?: DashboardFilter[];
+  onClose: () => void;
+}) {
   const [links, setLinks] = useState<ShareLink[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -43,16 +55,18 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedShare | null>(null);
   const [copied, setCopied] = useState<"url" | "embed" | null>(null);
-  const filters = dashboard.dashboard.filters ?? [];
+  const [perHour, setPerHour] = useState("10");
+  const [thanks, setThanks] = useState("");
+  const isForm = kind === "form";
 
   const load = useCallback(() => {
-    listShares(dashboard.id)
+    listShares(kind, targetId)
       .then(setLinks)
       .catch((cause) => {
         setLinks([]);
         setError(errorText(cause, "The links could not be loaded."));
       });
-  }, [dashboard.id]);
+  }, [kind, targetId]);
   useEffect(load, [load]);
 
   const create = async () => {
@@ -64,10 +78,12 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
           .map(([column, text]) => [column, text.split(",").map((v) => v.trim()).filter(Boolean)] as const)
           .filter(([, list]) => list.length > 0),
       );
-      const result = await createShare(dashboard.id, {
+      const result = await createShare(kind, targetId, {
         name: name.trim() || "Link",
         expiresInDays: expiry ? Number(expiry) : undefined,
-        filters: Object.keys(fixed).length > 0 ? fixed : undefined,
+        ...(isForm
+          ? { perHour: Number(perHour) || 10, ...(thanks.trim() ? { thanks: thanks.trim() } : {}) }
+          : { filters: Object.keys(fixed).length > 0 ? fixed : undefined }),
         embed,
       });
       setCreated(result);
@@ -82,7 +98,7 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
   };
 
   const revoke = async (link: ShareLink) => {
-    if (!window.confirm(`Revoke “${link.name}”? Whoever has it can no longer open the dashboard.`)) return;
+    if (!window.confirm(`Revoke “${link.name}”? Whoever has it can no longer open the ${isForm ? "form" : "dashboard"}.`)) return;
     try {
       await revokeShare(link.id);
       load();
@@ -98,8 +114,12 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
   return (
     <Dialog
       open
-      title={`Share “${dashboard.name}”`}
-      description="A link shows this dashboard to anyone who has it, without an account — read only, nothing else of the workspace."
+      title={`Share “${title}”`}
+      description={
+        isForm
+          ? "A link lets anyone who has it fill in this form without an account — it adds rows to the form's table and shows nothing of it."
+          : "A link shows this dashboard to anyone who has it, without an account — read only, nothing else of the workspace."
+      }
       onClose={onClose}
       panelClassName="share-dialog"
       footer={
@@ -155,7 +175,19 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
               ))}
             </select>
           </label>
-          {filters.map((filter) => (
+          {isForm ? (
+            <>
+              <label className="share-dialog__field">
+                <span>Entries per visitor an hour</span>
+                <input className="field__control field__control--compact" type="number" min={1} max={1000} value={perHour} onChange={(event) => setPerHour(event.target.value)} />
+              </label>
+              <label className="share-dialog__field share-dialog__field--grow">
+                <span>Thank-you text</span>
+                <input className="field__control field__control--compact" value={thanks} placeholder="Thanks — it arrived." onChange={(event) => setThanks(event.target.value)} />
+              </label>
+            </>
+          ) : null}
+          {(isForm ? [] : filters).map((filter) => (
             <label key={filter.column} className="share-dialog__field">
               <span>Only {filter.label || filter.column}</span>
               <input
@@ -173,7 +205,7 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
           <Button type="submit" variant="primary" disabled={busy} leadingIcon={<Icon name="link" size={13} />}>
             {busy ? "Making…" : "Make link"}
           </Button>
-          {filters.length > 0 ? <p className="share-dialog__hint">Fixed filters: the visitor always sees only these values (several separated by commas).</p> : null}
+          {!isForm && filters.length > 0 ? <p className="share-dialog__hint">Fixed filters: the visitor always sees only these values (several separated by commas).</p> : null}
         </form>
       )}
 
@@ -191,6 +223,7 @@ export function ShareDialog({ dashboard, onClose }: { dashboard: Dashboard; onCl
                   {link.status === "active" ? `until ${link.expiresAt ? formatWhen(link.expiresAt) : "revoked"}` : link.status}
                   {" · "}
                   {link.views === 1 ? "opened once" : `opened ${link.views} times`}
+                  {isForm && link.perHour ? ` · ${link.perHour} entries an hour each` : ""}
                   {link.lastUsedAt ? `, last ${formatWhen(link.lastUsedAt)}` : ""}
                   {link.filters ? ` · only ${Object.entries(link.filters).map(([c, v]) => `${c} ${v.join(", ")}`).join("; ")}` : ""}
                   {link.embed ? " · embeddable" : ""}
