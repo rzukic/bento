@@ -80,13 +80,13 @@ describe("shares", () => {
         ],
       },
     };
-    const model = toSankeyModel(result, undefined, "cashflow", "currency");
+    const model = toSankeyModel(result, undefined, "balance", "currency");
     const option = buildSankeyOption(model, tokens, { shares: true }) as {
       series: { label: { formatter: (p: unknown) => string } }[];
       tooltip: { formatter: (p: unknown) => string };
     };
     expect(option.series[0].label.formatter({ name: "out:Miete", value: 1000 })).toMatch(/^Miete\s+25\s?%$/);
-    expect(option.tooltip.formatter({ dataType: "edge", value: 3000, data: { source: "center", target: "saved" } })).toMatch(/75\s?%/);
+    expect(option.tooltip.formatter({ dataType: "edge", value: 3000, data: { source: "center", target: "rest" } })).toMatch(/75\s?%/);
     const amounts = buildSankeyOption(model, tokens) as { series: { label: { formatter: (p: unknown) => string } }[] };
     expect(amounts.series[0].label.formatter({ name: "out:Miete", value: 1000 })).not.toContain("%");
   });

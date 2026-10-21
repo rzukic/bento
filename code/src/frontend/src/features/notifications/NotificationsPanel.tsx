@@ -126,7 +126,7 @@ export function NotificationsPanel() {
       {channels === null ? (
         <Spinner label="Loading channels" />
       ) : channels.length === 0 && editing === null ? (
-        <p className="channels__empty">No channels yet. Add one to be told when an import fails or a budget runs over.</p>
+        <p className="channels__empty">No channels yet. Add one to be told when an import fails or a target is reached.</p>
       ) : (
         <ul className="channels">
           {channels.map((channel) => {

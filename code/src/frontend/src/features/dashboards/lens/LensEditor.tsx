@@ -428,14 +428,14 @@ function DataSettings({
             {(
               [
                 ["levels", "Between levels"],
-                ["cashflow", "Income → expenses"],
+                ["balance", "In → out (by sign)"],
               ] as const
             ).map(([mode, text]) => (
               <button
                 key={mode}
                 type="button"
                 role="radio"
-                aria-checked={sankeyMode(widget.display?.sankey, (query?.groupBy ?? []).length) === mode}
+                aria-checked={sankeyMode(widget.display?.sankey) === mode}
                 onClick={() => onChange({ ...widget, display: { ...widget.display, sankey: mode } })}
               >
                 {text}
@@ -443,10 +443,36 @@ function DataSettings({
             ))}
           </div>
           <span className="lens-field__hint">
-            {sankeyMode(widget.display?.sankey, (query?.groupBy ?? []).length) === "cashflow"
-              ? "The first level split by sign: income on the left, expenses on the right (a second level details them), what is left as Saved."
-              : "A flow between each pair of levels, e.g. category → subcategory → payee."}
+            {sankeyMode(widget.display?.sankey) === "balance"
+              ? "The first level split by sign: values above 0 flow in on the left, below 0 out on the right (a second level details them), what is left or missing in its own colour."
+              : "A flow between each pair of levels, e.g. region → product → channel; with one level, from the total into its parts."}
           </span>
+          {sankeyMode(widget.display?.sankey) === "balance" ? (
+            <div className="lens-sankey-labels">
+              {(
+                [
+                  ["center", "Centre", "Total"],
+                  ["rest", "What is left", "Left over"],
+                  ["shortfall", "What is missing", "Shortfall"],
+                ] as const
+              ).map(([key, text, placeholder]) => (
+                <label key={key} className="lens-field">
+                  <span className="lens-field__label">{text}</span>
+                  <input
+                    className="field__control field__control--compact"
+                    aria-label={`Sankey ${text.toLowerCase()}`}
+                    value={widget.display?.sankeyLabels?.[key] ?? ""}
+                    placeholder={placeholder}
+                    onChange={(event) => {
+                      const labels = { ...widget.display?.sankeyLabels, [key]: event.target.value || undefined };
+                      const empty = !labels.center && !labels.rest && !labels.shortfall;
+                      onChange({ ...widget, display: { ...widget.display, sankeyLabels: empty ? undefined : labels } });
+                    }}
+                  />
+                </label>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -877,7 +903,7 @@ function StyleSettings({
         </label>
       ) : null}
       {widget.type === "sankey" ? (
-        <label className="lens-check" title="Labels show each node's share of the first column — for a cash flow, of the income">
+        <label className="lens-check" title="Labels show each node's share of the first column — in a balance, of what flows in">
           <input type="checkbox" checked={display.shares ?? false} onChange={(event) => setDisplay({ shares: event.target.checked || undefined })} />
           Show shares (%) instead of amounts
         </label>

@@ -59,23 +59,27 @@ const byCategory: QueryResult = {
 const cashQuery = { source: "girokonto", groupBy: [{ column: "kategorie_id", top: 3, other: true }], measures: [{ name: "amount", fn: "sum" as const, column: "betrag_eur" }] };
 
 describe("Sankey model", () => {
-  it("splits one category by sign: income → the centre → expenses, the rest saved", () => {
-    const model = toSankeyModel(byCategory, cashQuery, "cashflow", "currency");
+  it("balance: splits one category by sign — in → the centre → out, the rest shown — with the widget's names", () => {
+    const model = toSankeyModel(byCategory, cashQuery, "balance", "currency", { center: "Income", rest: "Saved", shortfall: "From savings" });
     expect(model.links.map((l) => [l.source, l.target, Math.round(l.value * 100) / 100])).toEqual([
       ["in:Gehalt", "center", 3250],
       ["center", "out:Miete", 1150],
       ["center", "out:Lebensmittel", 171.85],
       ["center", "out:Other", 120.2],
-      ["center", "saved", 1807.95],
+      ["center", "rest", 1807.95],
     ]);
     expect(model.nodes.find((n) => n.id === "center")?.label).toBe("Income");
-    // "Other" and "Saved" have no rows to list.
+    expect(model.nodes.find((n) => n.id === "rest")?.label).toBe("Saved");
+    // Without names of its own: neutral ones.
+    const plain = toSankeyModel(byCategory, cashQuery, "balance", "currency");
+    expect([plain.nodes.find((n) => n.id === "center")?.label, plain.nodes.find((n) => n.id === "rest")?.label]).toEqual(["Total", "Left over"]);
+    // "Other" and the rest have no rows to list.
     expect(model.nodes.find((n) => n.id === "out:Other")?.picks).toBeNull();
-    expect(model.nodes.find((n) => n.id === "saved")?.picks).toBeNull();
+    expect(model.nodes.find((n) => n.id === "rest")?.picks).toBeNull();
     expect(model.nodes.find((n) => n.id === "out:Miete")).toMatchObject({ sign: "negative", picks: [{ column: "kategorie_id", value: 2, other: false }] });
   });
 
-  it("draws from savings when expenses are larger, and details expenses by a second level", () => {
+  it("shows the shortfall when more flows out, and details what flows out by a second level", () => {
     const result: QueryResult = {
       data: [
         { cat: "Gehalt", sub: "Firma", amount: 1000 },
@@ -91,10 +95,10 @@ describe("Sankey model", () => {
         ],
       },
     };
-    const model = toSankeyModel(result, undefined, "cashflow", "currency");
+    const model = toSankeyModel(result, undefined, "balance", "currency");
     expect(model.links.map((l) => [l.source, l.target, l.value])).toEqual([
       ["in:Gehalt", "center", 1000],
-      ["deficit", "center", 200],
+      ["shortfall", "center", 200],
       ["center", "out:Wohnen", 1200],
       ["out:Wohnen", "sub:Wohnen\u0000Miete", 900],
       ["out:Wohnen", "sub:Wohnen\u0000Strom", 300],
@@ -111,18 +115,23 @@ describe("Sankey model", () => {
       ["0:Wohnen", "1:Miete", 900],
       ["0:Wohnen", "1:Strom", 300],
     ]);
-    expect(sankeyMode(undefined, 2)).toBe("levels");
-    expect(sankeyMode(undefined, 1)).toBe("cashflow");
+    expect(sankeyMode(undefined)).toBe("levels");
+    expect(sankeyMode("balance")).toBe("balance");
+
+    // One level between levels: the total flows into its parts.
+    const parts = toSankeyModel(byCategory, cashQuery, "levels", "currency");
+    expect(parts.links.every((l) => l.source === "center")).toBe(true);
+    expect(parts.links.find((l) => l.target === "0:Gehalt")?.value).toBe(3250);
   });
 
   it("puts the last column's labels inside and names flows in the tooltip", () => {
-    const model = toSankeyModel(byCategory, cashQuery, "cashflow", "currency");
+    const model = toSankeyModel(byCategory, cashQuery, "balance", "currency", { center: "Income", rest: "Saved", shortfall: "From savings" });
     const option = buildSankeyOption(model, tokens) as {
       series: { levels: { depth: number; label: { position: string } }[]; data: { name: string; itemStyle: { color: string } }[] }[];
       tooltip: { formatter: (p: unknown) => string };
     };
     expect(option.series[0].levels).toEqual([{ depth: 2, label: { position: "left" } }]);
-    expect(option.series[0].data.find((d) => d.name === "saved")?.itemStyle.color).toBe(tokens.positive);
+    expect(option.series[0].data.find((d) => d.name === "rest")?.itemStyle.color).toBe(tokens.positive);
     expect(option.tooltip.formatter({ dataType: "edge", value: 1150, data: { source: "center", target: "out:Miete" } })).toContain("Income → Miete");
   });
 });
@@ -214,7 +223,7 @@ describe("drill-down", () => {
     cleanup();
 
     queryApi.runQuery.mockResolvedValue(byCategory);
-    render(<WidgetContent widget={{ ...widget("sankey", cashQuery), display: { sankey: "cashflow" } }} range={range} refreshToken={0} tokens={tokens} onDrill={onDrill} />);
+    render(<WidgetContent widget={{ ...widget("sankey", cashQuery), display: { sankey: "balance" } }} range={range} refreshToken={0} tokens={tokens} onDrill={onDrill} />);
     await waitFor(() => expect(charts.click).toBeDefined());
     charts.click!({ componentType: "series", dataType: "edge", data: { source: "center", target: "out:Miete" } });
     expect(onDrill).toHaveBeenLastCalledWith({
@@ -278,7 +287,7 @@ describe("Sankey in the editor", () => {
       measures: [{ fn: "sum", column: "betrag_eur" }],
     });
     expect(describeWidget(sankey, table)).toBe("Sum of Betrag (EUR) flowing Top 8 Kategorie + other → Top 8 Auftraggeber + other");
-    expect(describeWidget({ ...sankey, display: { sankey: "cashflow" } }, table)).toBe("Sum of Betrag (EUR): income → expenses by Top 8 Kategorie + other → Top 8 Auftraggeber + other");
+    expect(describeWidget({ ...sankey, display: { sankey: "balance" } }, table)).toBe("Sum of Betrag (EUR): in → out by Top 8 Kategorie + other → Top 8 Auftraggeber + other");
     expect(addField(empty, field("buchungstag"), table)).toEqual(empty);
     const dated = normalize({ ...sankey, data: { query: { ...sankey.data!.query!, groupBy: [{ column: "buchungstag", bucket: "month" }, ...sankey.data!.query!.groupBy!] } } });
     expect(dated.data?.query?.groupBy?.map((g) => g.column)).toEqual(["kategorie_id", "auftraggeber"]);

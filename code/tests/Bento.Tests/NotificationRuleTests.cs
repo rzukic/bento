@@ -99,8 +99,9 @@ public sealed class NotificationRuleTests
         Assert.DoesNotContain(id, await service.DueAsync());
     }
 
+    /// <summary>A budget widget and rule as clients sent them before targets: saved as a limit target, told the same way.</summary>
     [Fact]
-    public async Task Budget_TellsEachCategoryOnceAMonth()
+    public async Task LegacyBudget_BecomesALimit_TellsEachCategoryOnceAMonth()
     {
         await using var host = await StartAsync();
         await host.ApplySchemaAsync(Schema);
@@ -137,13 +138,17 @@ public sealed class NotificationRuleTests
             channels = new[] { channel.GetProperty("id").GetInt64() }
         });
         var id = rule.GetProperty("id").GetInt64();
+        Assert.Equal("target", rule.GetProperty("kind").GetString());
+        var stored = dashboard.GetProperty("dashboard").GetProperty("widgets")[0];
+        Assert.Equal("target", stored.GetProperty("type").GetString());
+        Assert.Equal("-SUM(amount WHERE amount < 0)", stored.GetProperty("data").GetProperty("target").GetProperty("value").GetString());
         Assert.False((await PostAsync(host, $"{Path}/{id}/check", new { })).GetProperty("fired").GetBoolean());
 
         await PostAsync(host, "/api/v1/data/transactions", new { date = Today(), amount = -70, category_id = 1 });
         var groceries = await PostAsync(host, $"{Path}/{id}/check", new { });
         Assert.True(groceries.GetProperty("fired").GetBoolean());
         var message = JsonDocument.Parse(Assert.Single(receiver.Requests).Body).RootElement;
-        Assert.StartsWith("Groceries is at 107 % of its budget for ", message.GetProperty("text").GetString());
+        Assert.StartsWith("Groceries is at 107 % of its limit for ", message.GetProperty("text").GetString());
         Assert.Equal("€320.00 of €300.00 · 107 %", message.GetProperty("facts")[0].GetProperty("value").GetString());
         Assert.Equal($"https://bento.example/dashboards/{dashboard.GetProperty("id")}", message.GetProperty("link").GetString());
 
@@ -154,6 +159,66 @@ public sealed class NotificationRuleTests
         Assert.True((await PostAsync(host, $"{Path}/{id}/check", new { })).GetProperty("fired").GetBoolean());
         var rent = JsonDocument.Parse(receiver.Requests.Last().Body).RootElement;
         Assert.Equal(["Rent"], rent.GetProperty("facts").EnumerateArray().Select(f => f.GetProperty("label").GetString()));
+    }
+
+    /// <summary>Not money: hours per project against a weekly goal, told once a project reaches it.</summary>
+    [Fact]
+    public async Task Target_Goal_PerWeek_IsToldWhenReached()
+    {
+        await using var host = await StartAsync();
+        await host.ApplySchemaAsync("""
+            { "tables": [
+                { "name": "projects", "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true },
+                    { "name": "name", "type": "text", "nullable": false },
+                    { "name": "weekly_hours", "type": "float" } ] },
+                { "name": "worklog", "columns": [
+                    { "name": "id", "type": "integer", "primaryKey": true },
+                    { "name": "day", "type": "date", "nullable": false },
+                    { "name": "hours", "type": "float", "nullable": false },
+                    { "name": "project_id", "type": "reference", "references": "projects" } ] }
+              ],
+              "relations": [ { "name": "project_worklog", "type": "1:N", "from": "projects", "to": "worklog", "column": "project_id" } ] }
+            """);
+        using var receiver = new FakeReceiver();
+        var channel = await PostAsync(host, "/api/v1/admin/notifications/channels", new { name = "Hook", kind = "webhook", config = new { url = $"{receiver.Url}/hook" } });
+        await PostAsync(host, "/api/v1/data/projects", new { name = "Alpha", weekly_hours = 10 });
+        await PostAsync(host, "/api/v1/data/projects", new { name = "Beta", weekly_hours = 4 });
+        var dashboard = await PostAsync(host, "/api/v1/dashboards", new
+        {
+            name = "Hours",
+            dashboard = new
+            {
+                widgets = new[]
+                {
+                    new
+                    {
+                        id = "goals",
+                        type = "target",
+                        position = new { x = 0, y = 0, w = 6, h = 4 },
+                        data = new { target = new { source = "worklog", value = "SUM(hours)", date = "day", group = "project_id", target = "weekly_hours", per = "week", period = "current", kind = "goal" } }
+                    }
+                }
+            }
+        });
+        await PostAsync(host, "/api/v1/data/worklog", new { day = Today(), hours = 6, project_id = 1 });
+
+        var rule = await PostAsync(host, Path, new
+        {
+            name = "Weekly hours reached",
+            kind = "target",
+            config = new { dashboardId = dashboard.GetProperty("id").GetInt64(), widgetId = "goals", percent = 100 },
+            channels = new[] { channel.GetProperty("id").GetInt64() }
+        });
+        var id = rule.GetProperty("id").GetInt64();
+        Assert.Equal("A group at 100 % of its target or more", rule.GetProperty("summary").GetString());
+        Assert.False((await PostAsync(host, $"{Path}/{id}/check", new { })).GetProperty("fired").GetBoolean());
+
+        await PostAsync(host, "/api/v1/data/worklog", new { day = Today(), hours = 4.5, project_id = 1 });
+        Assert.True((await PostAsync(host, $"{Path}/{id}/check", new { })).GetProperty("fired").GetBoolean());
+        var message = JsonDocument.Parse(Assert.Single(receiver.Requests).Body).RootElement;
+        Assert.StartsWith("Alpha reached its target for the week of ", message.GetProperty("text").GetString());
+        Assert.Equal("10.5 of 10 · 105 %", message.GetProperty("facts")[0].GetProperty("value").GetString());
     }
 
     [Fact]
@@ -213,7 +278,7 @@ public sealed class NotificationRuleTests
         Assert.Contains("Compare with", await FailAsync(host, Condition(new { source = "transactions", formula = "SUM(amount)", op = "~", threshold = 1 })));
         Assert.Contains("HH:mm", await FailAsync(host, Condition(new { source = "transactions", formula = "SUM(amount)", op = ">", threshold = 1, every = "day", at = "8" })));
         Assert.Contains("at least one channel", await FailAsync(host, new { name = "R", kind = "event", config = new { @event = "import.failed" }, channels = Array.Empty<long>() }));
-        Assert.Contains("no dashboard", await FailAsync(host, new { name = "R", kind = "budget", config = new { dashboardId = 99, widgetId = "x" }, channels }));
+        Assert.Contains("no dashboard", await FailAsync(host, new { name = "R", kind = "target", config = new { dashboardId = 99, widgetId = "x" }, channels }));
     }
 
     [Theory]

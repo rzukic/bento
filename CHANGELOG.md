@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-11 — Targets Instead Of Budgets, Flows For Any Data
+
+> **Phase**: Phase 5 — Integration (making the core use-case agnostic)
+
+Two widgets only fit money: budgets (spending per category against a monthly limit) and the Sankey's income → expenses. Now they fit any data, and money keeps working as before.
+
+**Highlights:**
+- **Targets**: any value per group — hours per project, orders per region, spending per category — against each group's target, per week, month, quarter or year; a goal to reach (green) or a limit to stay under (amber, red).
+- **Target rules**: told once per period when a group reaches its target or limit, with the period it is about.
+- **Sankey**: between levels by default (one level: the total into its parts); **in → out by sign** with your own names for the centre, the rest and the shortfall.
+- **Nothing to redo**: budget widgets, budget rules and money Sankeys become targets, target rules and in → out flows with the money names — dashboards look as they did.
+
 ### 2026-10-11 — Your Calendar: Time Zone, Week Start, Fiscal Year
 
 > **Phase**: Phase 5 — Integration (making the core use-case agnostic)

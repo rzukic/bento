@@ -432,12 +432,24 @@ export function financeCashFlow(transactions: ModelTable): DashboardDocument {
         }
       : widget,
   );
+  // Budgets: spending (negative amounts) per category against its monthly limit.
   widgets.push({
     id: "budgets",
-    type: "budget",
+    type: "target",
     title: "Budgets this month",
     position: at(0, 15, 12, 4),
-    data: { budget: { source: transactions.name, amount: "amount", date: "date", category: "category_id", limit: "budget", expenses: "negative", period: "month" } },
+    data: {
+      target: {
+        source: transactions.name,
+        value: "-SUM(amount WHERE amount < 0)",
+        date: "date",
+        group: "category_id",
+        target: "budget",
+        per: "month",
+        period: "current",
+        kind: "limit",
+      },
+    },
   });
   return { ...base, widgets, filters: [{ column: "account_id", label: "Account" }] };
 }

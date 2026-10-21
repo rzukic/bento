@@ -462,7 +462,7 @@ function nodeDepths(model: SankeyModel): Map<string, number> {
 /** Step 3.7: a Sankey of money flows; the last column's labels sit left of their nodes so they stay inside. */
 export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens, { shares = false }: { shares?: boolean } = {}): EChartsCoreOption {
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
-  // Shares are of the first column's total: the income in a cash flow.
+  // Shares are of the first column's total: what flows in, in a balance.
   const depthsForBase = nodeDepths(model);
   const base = model.links.filter((link) => (depthsForBase.get(link.source) ?? 0) === 0).reduce((sum, link) => sum + link.value, 0);
   const share = (value: unknown) => (typeof value === "number" && base > 0 ? formatNumber(value / base, "percent") : "");
@@ -473,8 +473,8 @@ export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens, { sha
   let next = 0;
   const colorOf = (node: SankeyNode) => {
     if (node.kind === "center") return tokens.text;
-    if (node.kind === "saved") return tokens.positive;
-    if (node.kind === "deficit") return tokens.negative;
+    if (node.kind === "rest") return tokens.positive;
+    if (node.kind === "shortfall") return tokens.negative;
     return tokens.palette[next++ % tokens.palette.length];
   };
   return {

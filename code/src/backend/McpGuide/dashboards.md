@@ -36,10 +36,10 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `kpi` | a key figure | one measure; or `data.variable`; second measure = secondary value |
 | `line`, `area`, `bar` | charts | first group = horizontal axis (often a date bucket), second group = breakdown; measures = series |
 | `donut` | shares | one group, one measure; `display.drill` = a second column to drill into |
-| `sankey` | flows | 1–3 groups, one measure; `display.sankey` `levels` or `cashflow` |
+| `sankey` | flows | 1–3 groups, one measure; `display.sankey` `levels` or `balance` |
 | `table` | rows | grouped query, or `data.rows` `{columns, sort, limit}` for raw rows |
 | `text` | markdown | `display.text` |
-| `budget` | categories vs. monthly limits | `data.budget` `{source, amount, date, category, limit, expenses: "negative"|"positive", period: "month"|"range"}` |
+| `target` | each group's value against its target or limit | `data.target` `{source, value (formula over the rows, e.g. `SUM(hours)`), date, group (a link column), target (the linked table's number column), per: "week"|"month"|"quarter"|"year", period: "current"|"range", kind: "limit"|"goal", format?}` |
 
 ## `data`
 
@@ -47,7 +47,7 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 - `dateColumn`: the column the dashboard's date range filters; without it the widget ignores the range.
 - `asOf: true`: values at the end of each period of the date group (balances, net worth).
 - `timeShift`: `previous` or `year` — the same series for the period before / a year earlier, dashed.
-- `variable` (kpi), `rows` (table), `budget` (budget).
+- `variable` (kpi), `rows` (table), `target` (target).
 - `range`: the widget's own date range instead of the dashboard's, `{preset}` or `{from, to}` — e.g. a forecast `{"preset": "next-20-years"}` with `asOf` and `BUCKET_END()` in the future, on a dashboard of the last 12 months.
 
 ## `display`
@@ -63,7 +63,8 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `compare`, `higherIsBetter`, `trend` | true/false: the change against the period or range before; green when up (false for costs); a small trend line | kpi |
 | `goal` | a number or a variable's name, shown as progress | kpi |
 | `summary` | true: a total row | table (grouped) |
-| `sankey` | `levels` (flows between consecutive groups) or `cashflow` (income categories → income → expense categories and saved) | sankey |
+| `sankey` | `levels` (flows between consecutive groups; one group: the total → its parts) or `balance` (the first group split by sign: positive values flow in, negative out, the rest or the shortfall shown) | sankey |
+| `sankeyLabels` | `{center, rest, shortfall}`: the names in `balance` (default Total, Left over, Shortfall; for money Income, Saved, From savings) | sankey |
 | `shares` | true: node labels as % of the first column | sankey |
 | `drill` | a column of the same table to open a slice into | donut |
 | `text` | markdown (`#` headings, `-` lists) | text |

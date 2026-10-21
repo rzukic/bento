@@ -34,4 +34,4 @@ Most Bento installations for personal finance use this template (Dashboards → 
 
 ## Dashboards
 
-**Cash flow** (balance, net per month, spending by main category with drill, budgets this month, money flow) and **Wealth** (net worth, depot value, gains, allocation, positions, dividends, XIRR, time-weighted return, depot vs. benchmark — the benchmark ISIN is the dashboard variable `benchmark`).
+**Cash flow** (balance, net per month, spending by main category with drill, budgets this month as a target widget, money flow as a balance Sankey) and **Wealth** (net worth, depot value, gains, allocation, positions, dividends, XIRR, time-weighted return, depot vs. benchmark — the benchmark ISIN is the dashboard variable `benchmark`).

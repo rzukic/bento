@@ -68,7 +68,7 @@ public sealed record NotificationSection(string? Title, string? Text = null, IRe
 /// What a rule watches. By <c>kind</c>:
 /// <c>condition</c> — <see cref="Source"/>, <see cref="Formula"/> (one value, e.g. <c>-SUM(amount WHERE amount &lt; 0)</c>),
 /// optionally <see cref="Period"/> on <see cref="DateColumn"/>, then <see cref="Op"/> and <see cref="Threshold"/>;
-/// <c>budget</c> — the budget widget <see cref="WidgetId"/> on dashboard <see cref="DashboardId"/>, at <see cref="Percent"/> of the limit;
+/// <c>target</c> — the target widget <see cref="WidgetId"/> on dashboard <see cref="DashboardId"/>: each group at <see cref="Percent"/> of its target or limit;
 /// <c>event</c> — <see cref="Event"/> (<c>import.failed</c>, <c>price.failed</c>);
 /// <c>report</c> — <see cref="Blocks"/> sent <see cref="Every"/> day, week, month, quarter or year
 /// on <see cref="Day"/> at <see cref="At"/>, for the <see cref="Range"/> period, against <see cref="Compare"/>.

@@ -12,15 +12,15 @@ using Dapper;
 namespace Bento.Api.Services.Notifications;
 
 /// <summary>
-/// When Bento speaks (Step 5.3): conditions written as formulas, budgets that
-/// run over, and events such as a failed import. Each rule says something once
+/// When Bento speaks (Step 5.3): conditions written as formulas, groups that
+/// reach their target or limit, and events such as a failed import. Each rule says something once
 /// when its condition starts to hold and stays quiet until it clears; what it
 /// says goes out over its channels (Step 5.2). Reports (<see cref="ReportBuilder"/>)
 /// speak on a schedule instead.
 /// </summary>
 public sealed class NotificationRuleService
 {
-    public static readonly string[] Kinds = ["condition", "budget", "event", "report"];
+    public static readonly string[] Kinds = ["condition", "target", "event", "report"];
     public static readonly string[] Events = ["import.failed", "price.failed"];
     public static readonly string[] Periods = ["today", "this-week", "this-month", "this-quarter", "this-year"];
     public static readonly string[] Ops = [">", ">=", "<", "<=", "=", "<>"];
@@ -121,8 +121,11 @@ public sealed class NotificationRuleService
     {
         var name = RequireName(request.Name);
         var kind = request.Kind?.Trim().ToLowerInvariant() ?? "";
+        // The kind before targets.
+        if (kind == "budget")
+            kind = "target";
         if (!Kinds.Contains(kind))
-            throw Invalid("kind", "The kind is condition, budget, event or report.");
+            throw Invalid("kind", "The kind is condition, target, event or report.");
         var config = await ValidateAsync(kind, request.Config ?? new NotificationRuleConfig());
         var channels = await ValidateChannelsAsync(request.Channels);
         using var conn = await _systemPool.GetConnectionAsync();
@@ -221,14 +224,14 @@ public sealed class NotificationRuleService
             }
             case "report":
                 return await _reports.ValidateAsync(config);
-            case "budget":
+            case "target":
             {
                 if (config.DashboardId is null || string.IsNullOrWhiteSpace(config.WidgetId))
-                    throw Invalid("config.widgetId", "Choose the budget widget of a dashboard.");
-                await LoadBudgetAsync(config.DashboardId.Value, config.WidgetId.Trim());
+                    throw Invalid("config.widgetId", "Choose the target widget of a dashboard.");
+                await LoadTargetAsync(config.DashboardId.Value, config.WidgetId.Trim());
                 var percent = config.Percent ?? 100;
                 if (percent is <= 0 or > 1000)
-                    throw Invalid("config.percent", "Say at how many percent of the limit to tell you, e.g. 100 or 90.");
+                    throw Invalid("config.percent", "Say at how many percent of the target to tell you, e.g. 100 or 90.");
                 return new NotificationRuleConfig { DashboardId = config.DashboardId, WidgetId = config.WidgetId.Trim(), Percent = percent };
             }
             default:
@@ -301,11 +304,12 @@ public sealed class NotificationRuleService
         _ => value != threshold
     };
 
-    // ── Budgets ──────────────────────────────────────────────────────────
+    // ── Targets ──────────────────────────────────────────────────────────
 
-    private sealed record BudgetConfig(string Source, string Amount, string Date, string Category, string Limit, bool Negative, string DashboardName);
+    /// <param name="Kind">limit (stay under it) or goal (reach it).</param>
+    private sealed record TargetConfig(string Source, string Value, string Date, string Group, string Target, string Per, string Kind, string? Format, string DashboardName);
 
-    private async Task<BudgetConfig> LoadBudgetAsync(long dashboardId, string widgetId)
+    private async Task<TargetConfig> LoadTargetAsync(long dashboardId, string widgetId)
     {
         string? json;
         string? name;
@@ -317,61 +321,72 @@ public sealed class NotificationRuleService
         }
         if (json is null)
             throw Invalid("config.dashboardId", $"There is no dashboard {dashboardId}.");
-        var widget = (JsonNode.Parse(json)?["widgets"] as JsonArray)?
+        var widget = (JsonNode.Parse(DashboardUpgrade.Apply(json))?["widgets"] as JsonArray)?
             .FirstOrDefault(w => string.Equals(w?["id"]?.GetValue<string>(), widgetId, StringComparison.Ordinal));
-        var budget = widget?["data"]?["budget"];
-        string? Text(string field) => budget?[field]?.GetValue<string>();
-        if (widget?["type"]?.GetValue<string>() != "budget" || Text("source") is not { } source || Text("amount") is not { } amount ||
-            Text("date") is not { } date || Text("category") is not { } category || Text("limit") is not { Length: > 0 } limit)
-            throw Invalid("config.widgetId", $"The dashboard “{name}” has no budget widget {widgetId} with a limit column.");
-        return new BudgetConfig(source, amount, date, category, limit, Text("expenses") != "positive", name!);
+        var target = widget?["data"]?["target"];
+        string? Text(string field) => target?[field]?.GetValueKind() == JsonValueKind.String ? target[field]!.GetValue<string>() : null;
+        if (widget?["type"]?.GetValue<string>() != "target" || Text("source") is not { } source || Text("value") is not { } value ||
+            Text("date") is not { } date || Text("group") is not { } group || Text("target") is not { Length: > 0 } column)
+            throw Invalid("config.widgetId", $"The dashboard “{name}” has no target widget {widgetId} with a target column.");
+        return new TargetConfig(source, value, date, group, column, Text("per") ?? "month", Text("kind") ?? "limit", Text("format"), name!);
     }
 
-    private sealed record BudgetLine(string Key, string Label, decimal Spent, decimal Limit);
+    private sealed record TargetLine(string Key, string Label, decimal Value, decimal Target);
 
-    /// <summary>Spent this month per category against its monthly limit (as the budget widget counts it).</summary>
-    private async Task<List<BudgetLine>> BudgetLinesAsync(BudgetConfig budget)
+    /// <summary>The value of each group in the current period (its week, month, quarter or year) against its target, as the widget counts it.</summary>
+    private async Task<(List<TargetLine> Lines, string? Type, DateOnly From)> TargetLinesAsync(TargetConfig config)
     {
-        var source = _schemaCache.GetTable(budget.Source) ?? throw new InvalidOperationException($"The table {budget.Source} no longer exists.");
-        var link = source.Columns.FirstOrDefault(c => string.Equals(c.Name, budget.Category, StringComparison.OrdinalIgnoreCase));
-        var categories = link?.References is { } target ? _schemaCache.GetTable(target) : null;
-        var key = categories?.Columns.FirstOrDefault(c => c.PrimaryKey);
-        if (categories is null || key is null)
-            throw new InvalidOperationException($"{budget.Category} in {budget.Source} links to no table.");
-        var (from, to) = PeriodRange("this-month", Cal.Today(), Cal);
-        var spent = await _aggregation.RunAsync(new AggregationQueryRequest
+        var source = _schemaCache.GetTable(config.Source) ?? throw new InvalidOperationException($"The table {config.Source} no longer exists.");
+        var link = source.Columns.FirstOrDefault(c => string.Equals(c.Name, config.Group, StringComparison.OrdinalIgnoreCase));
+        var groups = link?.References is { } linked ? _schemaCache.GetTable(linked) : null;
+        var key = groups?.Columns.FirstOrDefault(c => c.PrimaryKey);
+        if (groups is null || key is null)
+            throw new InvalidOperationException($"{config.Group} in {config.Source} links to no table.");
+        var from = Cal.Start(config.Per, Cal.Today());
+        var to = Cal.Add(config.Per, from, 1);
+        var result = await _aggregation.RunAsync(new AggregationQueryRequest
         {
             Source = source.Name,
             Filter = JsonSerializer.SerializeToElement(new Dictionary<string, object>
             {
-                [budget.Date] = new Dictionary<string, string> { ["gte"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["lt"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
+                [config.Date] = new Dictionary<string, string> { ["gte"] = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), ["lt"] = to.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) }
             }),
             GroupBy = [new QueryGroupBy { Column = link!.Name }],
-            Measures = [new QueryMeasure { Name = "total", Fn = "sum", Column = budget.Amount }],
+            Measures = [new QueryMeasure { Name = "value", Formula = config.Value }],
             Limit = AggregationQueryService.MaxLimit
         });
-        var totals = new Dictionary<string, decimal>(StringComparer.Ordinal);
-        foreach (var row in spent.Data)
+        var type = config.Format is { } format && format != "auto" ? format : result.Meta.Columns.FirstOrDefault(c => c.Role == "measure")?.Type;
+        var values = new Dictionary<string, decimal>(StringComparer.Ordinal);
+        foreach (var row in result.Data)
         {
             var id = Convert.ToString(row.TryGetValue(link.Name, out var v) ? v : null, CultureInfo.InvariantCulture);
-            if (id is null || !decimal.TryParse(Convert.ToString(row["total"], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var total))
+            if (id is null || !decimal.TryParse(Convert.ToString(row["value"], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
                 continue;
-            totals[id] = budget.Negative ? -total : total;
+            values[id] = number;
         }
 
-        var label = CrudService.GetRecordLabelColumns(categories).FirstOrDefault() ?? key.Name;
-        var lines = new List<BudgetLine>();
+        var label = CrudService.GetRecordLabelColumns(groups).FirstOrDefault() ?? key.Name;
+        var lines = new List<TargetLine>();
         await using var scope = await _queryService.UseDataAsync();
         foreach (IDictionary<string, object?> row in await scope.Db.Connection.QueryAsync(
-                     $"SELECT {Q(key.Name)} AS k, {Q(label)} AS l, {Q(budget.Limit)} AS m FROM {Q(categories.Name)}"))
+                     $"SELECT {Q(key.Name)} AS k, {Q(label)} AS l, {Q(config.Target)} AS m FROM {Q(groups.Name)}"))
         {
             var id = Convert.ToString(row["k"], CultureInfo.InvariantCulture)!;
-            if (row["m"] is null || !decimal.TryParse(Convert.ToString(row["m"], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var limit) || limit <= 0)
+            if (row["m"] is null || !decimal.TryParse(Convert.ToString(row["m"], CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out var goal) || goal <= 0)
                 continue;
-            lines.Add(new BudgetLine(id, Convert.ToString(row["l"], CultureInfo.InvariantCulture) ?? id, totals.GetValueOrDefault(id), limit));
+            lines.Add(new TargetLine(id, Convert.ToString(row["l"], CultureInfo.InvariantCulture) ?? id, values.GetValueOrDefault(id), goal));
         }
-        return lines;
+        return (lines, type, from);
     }
+
+    /// <summary>"October 2026", "the week of 5 Oct 2026", "Q3 2026", "2026/27".</summary>
+    private string PeriodName(string per, DateOnly from) => per switch
+    {
+        "week" => $"the week of {from.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}",
+        "quarter" => Cal.QuarterName(from),
+        "year" => Cal.YearName(from),
+        _ => from.ToString("MMMM yyyy", CultureInfo.InvariantCulture)
+    };
 
     // ── Checking ─────────────────────────────────────────────────────────
 
@@ -425,12 +440,12 @@ public sealed class NotificationRuleService
                 notification = ConditionNotification(rule, value, workspace, test: true);
                 break;
             }
-            case "budget":
+            case "target":
             {
-                var budget = await LoadBudgetAsync(rule.Config.DashboardId!.Value, rule.Config.WidgetId!);
-                var lines = await BudgetLinesAsync(budget);
-                var top = lines.OrderByDescending(l => l.Spent / l.Limit).Take(3).ToList();
-                notification = BudgetNotification(rule, budget, top, workspace, test: true);
+                var target = await LoadTargetAsync(rule.Config.DashboardId!.Value, rule.Config.WidgetId!);
+                var (lines, type, from) = await TargetLinesAsync(target);
+                var top = lines.OrderByDescending(l => l.Value / l.Target).Take(3).ToList();
+                notification = TargetNotification(rule, target, top, type, from, workspace, test: true);
                 break;
             }
             case "report":
@@ -485,27 +500,30 @@ public sealed class NotificationRuleService
                         notification = ConditionNotification(rule, value, workspace, test: false);
                     break;
                 }
-                case "budget":
+                case "target":
                 {
                     try
                     {
-                        var budget = await LoadBudgetAsync(rule.Config.DashboardId!.Value, rule.Config.WidgetId!);
-                        var lines = await BudgetLinesAsync(budget);
-                        var period = Cal.Today().ToString("yyyy-MM", CultureInfo.InvariantCulture);
+                        var target = await LoadTargetAsync(rule.Config.DashboardId!.Value, rule.Config.WidgetId!);
+                        var (lines, type, from) = await TargetLinesAsync(target);
+                        // Each group is told once per period of its target (its week, month …).
+                        var period = from.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                         var told = rule.State.Period == period ? (rule.State.Keys ?? []).ToHashSet() : [];
-                        var over = lines.Where(l => l.Spent >= l.Limit * rule.Config.Percent!.Value / 100).ToList();
+                        var over = lines.Where(l => l.Value >= l.Target * rule.Config.Percent!.Value / 100).ToList();
                         var fresh = over.Where(l => !told.Contains(l.Key)).ToList();
                         state = rule.State with
                         {
                             Active = over.Count > 0,
-                            Value = over.Count == 0 ? "All categories within budget" : string.Join(", ", over.Select(l => $"{l.Label} {Percent(l)}")),
+                            Value = over.Count == 0
+                                ? $"None at {rule.Config.Percent:0.#} %"
+                                : string.Join(", ", over.Select(l => $"{l.Label} {Percent(l)}")),
                             CheckedAt = now,
                             Error = null,
                             Period = period,
                             Keys = told.Concat(fresh.Select(l => l.Key)).ToList()
                         };
                         if (fresh.Count > 0)
-                            notification = BudgetNotification(rule, budget, fresh, workspace, test: false);
+                            notification = TargetNotification(rule, target, fresh, type, from, workspace, test: false);
                     }
                     catch (Exception e) when (e is ApiException or InvalidOperationException)
                     {
@@ -553,13 +571,13 @@ public sealed class NotificationRuleService
         }
     }
 
-    /// <summary>Conditions and budgets whose check is due: hourly ones after an hour, daily ones at their time.</summary>
+    /// <summary>Conditions and targets whose check is due: hourly ones after an hour, daily ones at their time.</summary>
     public async Task<IReadOnlyList<long>> DueAsync()
     {
         var now = DateTimeOffset.UtcNow;
         var zone = Cal.Zone;
         var due = new List<long>();
-        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "budget" or "report"))
+        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "target" or "report"))
         {
             if (rule.Kind == "report")
             {
@@ -599,10 +617,10 @@ public sealed class NotificationRuleService
     public async Task<NotificationRuleCheck> CheckScheduledAsync(long id, CancellationToken cancellationToken) =>
         await CheckLockedAsync(await RequireAsync(id), send: true, cancellationToken);
 
-    /// <summary>After rows arrived (a scheduled import): hourly conditions and budgets look at once.</summary>
+    /// <summary>After rows arrived (a scheduled import): hourly conditions and targets look at once.</summary>
     public async Task OnDataChangedAsync(CancellationToken cancellationToken = default)
     {
-        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "budget" && r.Config.Every != "day"))
+        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "target" && r.Config.Every != "day"))
         {
             try
             {
@@ -681,24 +699,28 @@ public sealed class NotificationRuleService
             facts);
     }
 
-    private Notification BudgetNotification(Rule rule, BudgetConfig budget, IReadOnlyList<BudgetLine> lines, WorkspaceSettings.Values workspace, bool test)
+    private Notification TargetNotification(Rule rule, TargetConfig target, IReadOnlyList<TargetLine> lines, string? type, DateOnly from, WorkspaceSettings.Values workspace, bool test)
     {
-        var month = Cal.Today().ToDateTime(TimeOnly.MinValue).ToString("MMMM yyyy", CultureInfo.InvariantCulture);
+        var period = PeriodName(target.Per, from);
+        var goal = target.Kind == "goal";
+        var noun = goal ? "target" : "limit";
         var text = lines.Count == 0
-            ? $"Nothing has spent {rule.Config.Percent:0.#} % of its budget in {month} yet."
+            ? $"Nothing is at {rule.Config.Percent:0.#} % of its {noun} for {period} yet."
             : lines.Count == 1
-                ? $"{lines[0].Label} is at {Percent(lines[0])} of its budget for {month}."
-                : $"{lines.Count} categories are at {rule.Config.Percent:0.#} % of their budget or more for {month}.";
+                ? goal && lines[0].Value >= lines[0].Target
+                    ? $"{lines[0].Label} reached its target for {period} ({Percent(lines[0])})."
+                    : $"{lines[0].Label} is at {Percent(lines[0])} of its {noun} for {period}."
+                : $"{lines.Count} are at {rule.Config.Percent:0.#} % of their {noun} or more for {period}.";
         return new Notification(
-            "rule.budget",
+            "rule.target",
             test ? $"Test: {rule.Name}" : rule.Name,
-            test ? $"The fullest budgets now. {text}" : text,
+            test ? $"The closest to their {noun} now. {text}" : text,
             Link($"/dashboards/{rule.Config.DashboardId}"),
-            lines.Select(l => new NotificationFact(l.Label, $"{MessageFormat.Amount(l.Spent, workspace)} of {MessageFormat.Amount(l.Limit, workspace)} · {Percent(l)}")).ToList());
+            lines.Select(l => new NotificationFact(l.Label, $"{MessageFormat.Format(l.Value, type, workspace)} of {MessageFormat.Format(l.Target, type, workspace)} · {Percent(l)}")).ToList());
     }
 
-    private static string Percent(BudgetLine line) =>
-        (line.Limit == 0 ? 0 : line.Spent / line.Limit * 100).ToString("0", CultureInfo.InvariantCulture) + " %";
+    private static string Percent(TargetLine line) =>
+        (line.Target == 0 ? 0 : line.Value / line.Target * 100).ToString("0", CultureInfo.InvariantCulture) + " %";
 
     private static string OpText(string op) => op switch
     {
@@ -726,7 +748,7 @@ public sealed class NotificationRuleService
             "condition" => $"{rule.Config.Formula} {rule.Config.Op} {rule.Config.Threshold?.ToString(CultureInfo.InvariantCulture)}" +
                            (rule.Config.Period is { } p ? $" · {PeriodText(p).ToLowerInvariant()}" : "") +
                            (rule.Config.Every == "day" ? $" · daily at {rule.Config.At}" : " · hourly"),
-            "budget" => $"A budget at {rule.Config.Percent:0.#} % or more",
+            "target" => $"A group at {rule.Config.Percent:0.#} % of its target or more",
             "report" => ReportBuilder.Summary(rule.Config, Cal),
             _ => rule.Config.Event == "import.failed" ? "A scheduled import fails" : "A price update fails"
         };
@@ -751,7 +773,7 @@ public sealed class NotificationRuleService
     {
         var trimmed = name?.Trim();
         if (string.IsNullOrEmpty(trimmed))
-            throw Invalid("name", "Give the rule a name, e.g. Groceries over budget.");
+            throw Invalid("name", "Give the rule a name, e.g. Orders this week above 100.");
         if (trimmed.Length > 255)
             throw Invalid("name", "The name is too long.");
         return trimmed;

@@ -189,10 +189,12 @@ export function describeWidget(widget: DashboardWidget, table: ModelTable | unde
   if (widget.type === "sankey") {
     const levels = groups.map((g) => describeGroup(g, table));
     if (levels.length === 0) return text;
-    const cashflow = (widget.display?.sankey ?? (levels.length >= 2 ? "levels" : "cashflow")) === "cashflow";
-    return cashflow
-      ? `${text}: income → expenses by ${levels[0]}${levels[1] ? ` → ${levels[1]}` : ""}`
-      : `${text} flowing ${levels.join(" → ")}`;
+    const balance = widget.display?.sankey === "balance";
+    return balance
+      ? `${text}: in → out by ${levels[0]}${levels[1] ? ` → ${levels[1]}` : ""}`
+      : levels.length === 1
+        ? `${text}: the total into ${levels[0]}`
+        : `${text} flowing ${levels.join(" → ")}`;
   }
   if (groups[0]) text += ` by ${describeGroup(groups[0], table)}`;
   if (groups[1]) text += `, split by ${describeGroup(groups[1], table)}`;

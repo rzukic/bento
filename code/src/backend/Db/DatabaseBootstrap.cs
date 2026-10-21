@@ -30,9 +30,38 @@ public class DatabaseBootstrap : IHostedService
         else
             await BootstrapSqlite(conn);
         await KeepCalendarAsync(conn);
+        await UpgradeWidgetsAsync(conn);
         _workspace?.Invalidate();
 
         _logger.LogInformation("Database bootstrap complete.");
+    }
+
+    /// <summary>
+    /// Once: dashboards and their history from before targets (budget widgets,
+    /// the money Sankey) are rewritten (<see cref="Services.DashboardUpgrade"/>),
+    /// and budget rules become target rules. Marked by widgets_version.
+    /// </summary>
+    private async Task UpgradeWidgetsAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'widgets_version'") > 0)
+            return;
+        var json = SystemSqlDialect.JsonParam(_systemPool.Provider, "@Json");
+        foreach (var table in new[] { "dashboards", "dashboard_versions" })
+        {
+            var rows = await conn.QueryAsync<(long Id, string Json)>($"SELECT id, CAST(dashboard_json AS TEXT) FROM {prefix}{table}");
+            foreach (var (id, text) in rows)
+            {
+                var upgraded = Services.DashboardUpgrade.Apply(text);
+                if (!ReferenceEquals(upgraded, text))
+                    await conn.ExecuteAsync($"UPDATE {prefix}{table} SET dashboard_json = {json} WHERE id = @Id", new { Id = id, Json = upgraded });
+            }
+        }
+        await conn.ExecuteAsync($"UPDATE {prefix}notification_rules SET kind = 'target' WHERE kind = 'budget'");
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('widgets_version', '2')");
+        _logger.LogInformation("Dashboards and rules moved from budgets to targets.");
     }
 
     /// <summary>

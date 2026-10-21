@@ -22,7 +22,7 @@ namespace Bento.Api.Controllers;
 public sealed class DashboardsController : ControllerBase
 {
     public static readonly IReadOnlySet<string> WidgetTypes =
-        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "sankey", "table", "text", "budget" };
+        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "sankey", "table", "text", "target" };
 
     private const int GridColumns = 12;
     private const int MaxWidgets = 60;
@@ -176,7 +176,7 @@ public sealed class DashboardsController : ControllerBase
         var version = await GetVersionAsync(conn, versionId);
         if (version.DashboardId != id)
             throw new ApiNotFoundException($"Version {versionId} not found.");
-        using var json = JsonDocument.Parse(version.DashboardJson);
+        using var json = JsonDocument.Parse(DashboardUpgrade.Apply(version.DashboardJson));
         return Ok(new { data = new { version.Id, version.Name, dashboard = json.RootElement.Clone() } });
     }
 
@@ -196,7 +196,7 @@ public sealed class DashboardsController : ControllerBase
         await RecordVersionAsync(conn, existing, "restore", $"Restored the state of {version.CreatedAt}");
         await conn.ExecuteAsync(
             $"UPDATE {Table} SET name = @Name, dashboard_json = {JsonParam}, is_shared = @IsShared, updated_at = {NowParam} WHERE id = @Id",
-            new { Id = id, version.Name, Json = version.DashboardJson, version.IsShared, Now = UtcNowIso() });
+            new { Id = id, version.Name, Json = DashboardUpgrade.Apply(version.DashboardJson), version.IsShared, Now = UtcNowIso() });
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
@@ -228,7 +228,7 @@ public sealed class DashboardsController : ControllerBase
             INSERT INTO {Table} (id, name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
             VALUES (@Id, @Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             """,
-            new { Id = version.DashboardId, version.Name, Json = version.DashboardJson, OwnerId = userId, version.IsShared, Now = UtcNowIso() });
+            new { Id = version.DashboardId, version.Name, Json = DashboardUpgrade.Apply(version.DashboardJson), OwnerId = userId, version.IsShared, Now = UtcNowIso() });
         if (_systemPool.Provider == DatabaseProvider.Postgres)
             await conn.ExecuteAsync($"SELECT setval(pg_get_serial_sequence('{Table}', 'id'), GREATEST((SELECT MAX(id) FROM {Table}), 1))");
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, version.DashboardId, userId), userId) });
@@ -329,6 +329,8 @@ public sealed class DashboardsController : ControllerBase
     /// </summary>
     private static string SerializeDashboard(JsonElement dashboard)
     {
+        // Old widgets (budget, the money Sankey) from older clients or states become today's.
+        dashboard = DashboardUpgrade.Apply(dashboard);
         if (dashboard.ValueKind != JsonValueKind.Object)
             throw Invalid("dashboard", "dashboard must be an object.");
         if (!dashboard.TryGetProperty("widgets", out var widgets) || widgets.ValueKind != JsonValueKind.Array)
