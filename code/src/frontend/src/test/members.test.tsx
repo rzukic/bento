@@ -14,7 +14,7 @@ import { isInstallationAdmin } from "../types/auth";
 
 const workspacesApi = vi.hoisted(() => ({ listWorkspaces: vi.fn(), listMembers: vi.fn(), setMember: vi.fn(), removeMember: vi.fn() }));
 vi.mock("../api/workspaces", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/workspaces")>()), ...workspacesApi }));
-const usersApi = vi.hoisted(() => ({ listUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn() }));
+const usersApi = vi.hoisted(() => ({ listUsers: vi.fn(), createUser: vi.fn(), updateUser: vi.fn(), deleteUser: vi.fn() }));
 vi.mock("../api/users", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/users")>()), ...usersApi }));
 
 const all: Workspace[] = [
@@ -96,6 +96,26 @@ describe("members and users", () => {
     await waitFor(() =>
       expect(usersApi.createUser).toHaveBeenCalledWith({ username: "anna", password: "anna-password", role: "editor", workspaces: [{ id: 2, role: "viewer" }] }),
     );
+  });
+
+  it("deletes a user after confirmation, never oneself", async () => {
+    signIn({ role: "admin", installation_role: "admin", workspace_role: "admin" });
+    usersApi.listUsers.mockResolvedValue([
+      { id: 1, username: "ruben", role: "admin", createdAt: "", workspaces: [] },
+      { id: 5, username: "anna", role: "editor", createdAt: "", workspaces: [{ id: 2, slug: "gesundheit", name: "Gesundheit", role: "editor" }] },
+    ]);
+    usersApi.deleteUser.mockResolvedValue(undefined);
+    render(
+      <MemoryRouter>
+        <UsersPanel />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("Gesundheit (Editor)")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Delete ruben" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Delete anna" }));
+    await userEvent.click(screen.getByRole("button", { name: "Delete user" }));
+    await waitFor(() => expect(usersApi.deleteUser).toHaveBeenCalledWith(5));
+    expect(await screen.findByText(/anna was deleted/)).toBeInTheDocument();
   });
 
   it("sends someone outside the workspace to the first one they are in", async () => {

@@ -26,6 +26,8 @@ Who sees which workspace, and what they may do there.
 - **Users in Settings**: add people with a password and their workspaces, make someone admin, reset a password.
 - **Keys and Claude per workspace**: an API key or an MCP connection works only in the workspaces it was made for; Bento's sign-in page asks which.
 - **Nothing to redo**: everyone, every key and every connection from before stays in "Default", as it was.
+- **Deleting users**: their dashboards, forms and views become yours; their keys and connections stop.
+- **Keys for some tables**: a sync script's key that may only touch `transactions`.
 
 ### 2026-10-21 — Workspaces: Separate Areas In One Installation
 

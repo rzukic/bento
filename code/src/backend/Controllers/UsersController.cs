@@ -58,6 +58,23 @@ public sealed class UsersController(AuthService auth, WorkspaceService workspace
         return Ok(new { data = await ToResponseAsync(user, await workspaces.ReloadAsync()) });
     }
 
+    /// <summary>Deletes a user; their dashboards, forms, saved queries and views go to <paramref name="transferTo"/> (default: you).</summary>
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, [FromQuery] int? transferTo = null)
+    {
+        var me = User.GetUserId();
+        if (me == id)
+            throw new Exceptions.ApiValidationException("You cannot delete yourself.", new Dictionary<string, object?> { ["field"] = "id" });
+        var target = transferTo ?? me ?? throw new Exceptions.ApiValidationException("Say who gets their dashboards and forms (transferTo).");
+        var targetUser = (await auth.ListUsersAsync()).FirstOrDefault(u => u.Id == target)
+            ?? throw new Exceptions.ApiValidationException($"User {target} not found.", new Dictionary<string, object?> { ["field"] = "transferTo" });
+        if (targetUser.Role != "admin")
+            throw new Exceptions.ApiValidationException("Hand their things to an installation admin: only they open every workspace.", new Dictionary<string, object?> { ["field"] = "transferTo" });
+        await auth.DeleteUserAsync(id, targetUser.Id);
+        access.Invalidate();
+        return NoContent();
+    }
+
     private async Task<UserResponse> ToResponseAsync(AuthService.UserRow user, IReadOnlyList<Workspace> all)
     {
         var roles = user.Role == "admin"

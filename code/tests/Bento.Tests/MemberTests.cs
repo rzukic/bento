@@ -122,6 +122,75 @@ public sealed class MemberTests
     }
 
     [Fact]
+    public async Task DeletingAUser_HandsOverTheirThingsAndEndsTheirAccess() => await DeleteUserAsync(await McpTests.CreateHostAsync());
+
+    internal static async Task DeleteUserAsync(ApiIntegrationTestHost host)
+    {
+        await using var _ = host;
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        var anna = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/users", admin,
+            new { username = "anna", password = "anna-password", role = "editor" }));
+        var annaId = anna.GetProperty("id").GetInt64();
+        var token = (await LoginAsync(host, "anna", "anna-password", null)).GetProperty("access_token").GetString()!;
+        var dashboard = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/dashboards", token, new { name = "Anna's", dashboard = new { widgets = Array.Empty<object>() } }));
+        await Ok(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/views", token, new { name = "Mine", table_name = "customers", type = "table", config = new { }, is_shared = false }));
+        await Ok(await ApiKeyTests.SendAsync(host, HttpMethod.Put, "/api/v1/explorer/preferences/customers", token, new { auto_save = true }));
+
+        // A second installation admin with a key.
+        var carl = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/users", admin, new { username = "carl", password = "carl-password", role = "admin" }));
+        var carlToken = (await LoginAsync(host, "carl", "carl-password", null)).GetProperty("access_token").GetString()!;
+        var carlKey = await ApiKeyTests.CreateKeyAsync(host, carlToken, "read");
+
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Delete, "/api/v1/admin/users/1", admin), HttpStatusCode.BadRequest, "yourself");
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Delete, $"/api/v1/admin/users/{carl.GetProperty("id").GetInt64()}?transferTo={annaId}", admin),
+            HttpStatusCode.BadRequest, "installation admin");
+
+        using (var deleted = await ApiKeyTests.SendAsync(host, HttpMethod.Delete, $"/api/v1/admin/users/{annaId}", admin))
+            Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        // Signed out at once, and cannot sign in again.
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/dashboards", token), HttpStatusCode.NotFound);
+        using (var login = await host.Client.PostAsJsonAsync("/api/v1/auth/login", new { username = "anna", password = "anna-password" }))
+            Assert.Equal(HttpStatusCode.Unauthorized, login.StatusCode);
+        // Her dashboard is the admin's now.
+        var dashboards = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/dashboards", admin));
+        var handed = Assert.Single(dashboards.EnumerateArray());
+        Assert.Equal(dashboard.GetProperty("id").GetInt64(), handed.GetProperty("id").GetInt64());
+        Assert.True(handed.GetProperty("isOwner").GetBoolean());
+
+        // An admin deleted: their key stops and stays listed without an owner.
+        using (var deleted = await ApiKeyTests.SendAsync(host, HttpMethod.Delete, $"/api/v1/admin/users/{carl.GetProperty("id").GetInt64()}", admin))
+            Assert.Equal(HttpStatusCode.NoContent, deleted.StatusCode);
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/data/customers", carlKey), HttpStatusCode.Unauthorized);
+        var keys = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/admin/api-keys", admin));
+        Assert.Equal("revoked", Assert.Single(keys.EnumerateArray()).GetProperty("status").GetString());
+        Assert.Single((await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/admin/users", admin))).EnumerateArray());
+    }
+
+    [Fact]
+    public async Task KeysLimitedToTables_UseOnlyTheirRows()
+    {
+        await using var host = await McpTests.CreateHostAsync();
+        var admin = await ApiKeyTests.AdminTokenAsync(host);
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/api-keys", admin, new { name = "Bad", scope = "read-write", tables = new[] { "nope" } }),
+            HttpStatusCode.BadRequest, "no table 'nope'");
+        string key;
+        using (var created = await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/api-keys", admin, new { name = "Sync", scope = "read-write", tables = new[] { "Customers" } }))
+        {
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var body = await created.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal("customers", Assert.Single(body.GetProperty("data").GetProperty("tables").EnumerateArray()).GetString());
+            key = body.GetProperty("key").GetString()!;
+        }
+        var row = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/data/customers", key, new { name = "Ada" }));
+        await Ok(await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/data/customers/{row.GetProperty("id").GetInt64()}", key));
+        await Ok(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/data/customers", key));
+        await Ok(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/admin/schema", key));
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/data/customers?include=orders", key), HttpStatusCode.Forbidden, "only use the rows of customers");
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/dashboards", key), HttpStatusCode.Forbidden);
+        await Status(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/query", key, new { source = "customers", measures = new[] { new { name = "n", fn = "count" } } }), HttpStatusCode.Forbidden);
+    }
+
+    [Fact]
     public async Task ConsentPage_OffersTheWorkspacesAndPicksTheNamedOne()
     {
         await using var host = await McpTests.CreateHostAsync();
@@ -216,5 +285,19 @@ public sealed class PostgresMemberTests
         });
         await host.ApplySchemaAsync(ApiKeyTests.Schema);
         await MemberTests.MembersAsync(host);
+    }
+
+    [PostgresFact]
+    public async Task DeletingAUser_OnPostgres()
+    {
+        var host = await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "standard",
+            ["Backend:Jwt:Secret"] = "super-secret",
+            ["Backend:AuthRateLimitPerMinute"] = "100",
+            ["Schema:AutoMigrateOnStartup"] = "false"
+        });
+        await host.ApplySchemaAsync(ApiKeyTests.Schema);
+        await MemberTests.DeleteUserAsync(host);
     }
 }
