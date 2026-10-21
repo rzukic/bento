@@ -6,6 +6,7 @@ import { ShellLayout } from "./components/layout/ShellLayout";
 import { CategorisePage, DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
 import { Spinner } from "./components/ui/Spinner";
+import { routerBasename } from "./lib/workspace";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
 const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
@@ -291,7 +292,7 @@ export const appRoutes: RouteObject[] = [
   }
 ];
 
-export const router = createBrowserRouter(appRoutes);
+export const router = createBrowserRouter(appRoutes, { basename: routerBasename() });
 
 export function createTestRouter(initialEntries: string[]) {
   return createMemoryRouter(appRoutes, { initialEntries });

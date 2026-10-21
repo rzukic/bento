@@ -124,6 +124,44 @@ public sealed class ExplorerPreferencesApiTests
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
+    [Fact]
+    public async Task ViewsAndPreferences_ArePerWorkspace()
+    {
+        await using var host = await CreateHostAsync();
+        var token = await RegisterAndLoginAsync(host.Client, "alice", "password");
+        using (var created = await SendAsync(host.Client, HttpMethod.Post, "/api/v1/workspaces", token, new { name = "Other" }))
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+        using (var schema = new HttpRequestMessage(HttpMethod.Put, "/api/v1/w/other/admin/schema") { Content = new StringContent(MinimalSchema, System.Text.Encoding.UTF8, "application/json") })
+        {
+            schema.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            using var applied = await host.Client.SendAsync(schema);
+            Assert.Equal(HttpStatusCode.OK, applied.StatusCode);
+        }
+
+        // The same user and table name in both workspaces: each its own view and preferences.
+        var viewId = await CreateViewAsync(host.Client, token, "Default view");
+        using (var put = await SendAsync(host.Client, HttpMethod.Put, "/api/v1/explorer/preferences/items", token, new { default_view_id = viewId, auto_save = true }))
+            Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        using (var put = await SendAsync(host.Client, HttpMethod.Put, "/api/v1/w/other/explorer/preferences/items", token, new { auto_save = false }))
+            Assert.Equal(HttpStatusCode.OK, put.StatusCode);
+        // A view of the other workspace cannot be its default.
+        using (var foreign = await SendAsync(host.Client, HttpMethod.Put, "/api/v1/w/other/explorer/preferences/items", token, new { default_view_id = viewId }))
+            Assert.Equal(HttpStatusCode.BadRequest, foreign.StatusCode);
+
+        using (var other = await SendAsync(host.Client, HttpMethod.Get, "/api/v1/w/other/views/items", token))
+        {
+            var body = await other.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(0, body.GetProperty("data").GetArrayLength());
+            Assert.False(body.GetProperty("preferences").GetProperty("auto_save").GetBoolean());
+        }
+        using (var own = await SendAsync(host.Client, HttpMethod.Get, "/api/v1/explorer/preferences/items", token))
+        {
+            var body = await own.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(viewId, body.GetProperty("default_view_id").GetInt32());
+            Assert.True(body.GetProperty("auto_save").GetBoolean());
+        }
+    }
+
     private static async Task<ApiIntegrationTestHost> CreateHostAsync()
     {
         var host = await ApiIntegrationTestHost.StartAsync();

@@ -162,7 +162,7 @@ public class MigrationRunner
     public async Task<IReadOnlyList<MigrationHistoryEntry>> GetHistoryAsync()
     {
         using var conn = await OpenSystemConnectionAsync();
-        var rows = await conn.QueryAsync<MigrationHistoryEntry>($"SELECT id, version_from AS VersionFrom, version_to AS VersionTo, sql_up AS SqlUp, sql_down AS SqlDown, applied_at AS AppliedAt FROM {GetMigrationsTableName()} ORDER BY id DESC;");
+        var rows = await conn.QueryAsync<MigrationHistoryEntry>($"SELECT id, version_from AS VersionFrom, version_to AS VersionTo, sql_up AS SqlUp, sql_down AS SqlDown, applied_at AS AppliedAt FROM {GetMigrationsTableName()} WHERE workspace_id = @Ws ORDER BY id DESC;", new { Ws });
         return rows.ToList();
     }
 
@@ -170,8 +170,8 @@ public class MigrationRunner
     {
         using var conn = await OpenSystemConnectionAsync();
         return await conn.QuerySingleOrDefaultAsync<MigrationHistoryEntry>(
-            $"SELECT id, version_from AS VersionFrom, version_to AS VersionTo, sql_up AS SqlUp, sql_down AS SqlDown, applied_at AS AppliedAt FROM {GetMigrationsTableName()} WHERE version_to = @Version AND version_to > version_from ORDER BY id DESC LIMIT 1;",
-            new { Version = version });
+            $"SELECT id, version_from AS VersionFrom, version_to AS VersionTo, sql_up AS SqlUp, sql_down AS SqlDown, applied_at AS AppliedAt FROM {GetMigrationsTableName()} WHERE version_to = @Version AND version_to > version_from AND workspace_id = @Ws ORDER BY id DESC LIMIT 1;",
+            new { Version = version, Ws });
     }
 
     private async Task ExecuteDataStatementsAsync(IReadOnlyList<string> statements)
@@ -277,9 +277,10 @@ public class MigrationRunner
         IReadOnlyList<string> sqlDown)
     {
         await conn.ExecuteAsync(
-            $"INSERT INTO {GetMigrationsTableName()} (version_from, version_to, sql_up, sql_down) VALUES (@VersionFrom, @VersionTo, @SqlUp, @SqlDown);",
+            $"INSERT INTO {GetMigrationsTableName()} (version_from, version_to, sql_up, sql_down, workspace_id) VALUES (@VersionFrom, @VersionTo, @SqlUp, @SqlDown, @Ws);",
             new
             {
+                Ws,
                 VersionFrom = versionFrom,
                 VersionTo = versionTo,
                 SqlUp = JsonSerializer.Serialize(sqlUp),
@@ -314,9 +315,10 @@ public class MigrationRunner
             foreach (var tableName in new[] { GetPreferencesTableName(), GetImportProfilesTableName() })
             {
                 await conn.ExecuteAsync(
-                    $"UPDATE {tableName} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName;",
+                    $"UPDATE {tableName} SET table_name = @NewTableName, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE table_name = @OldTableName AND workspace_id = @Ws;",
                     new
                     {
+                        Ws,
                         OldTableName = rename.Key,
                         NewTableName = rename.Value,
                         Now = UtcNowIso()
@@ -328,8 +330,8 @@ public class MigrationRunner
         await MigrateSavedQueryReferencesAsync(conn, transaction, tableRenames, columnRenames);
 
         var views = await conn.QueryAsync<SystemViewReferenceRow>(
-            $"SELECT id AS Id, table_name AS TableName, config AS Config FROM {GetViewsTableName()};",
-            transaction: transaction);
+            $"SELECT id AS Id, table_name AS TableName, config AS Config FROM {GetViewsTableName()} WHERE workspace_id = @Ws;",
+            new { Ws }, transaction: transaction);
 
         foreach (var view in views)
         {
@@ -496,6 +498,9 @@ public class MigrationRunner
         }
     }
 
+    /// <summary>The current workspace (Step 5.5): its history and its objects' references.</summary>
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
+
     private string GetMigrationsTableName() =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.migrations" : "migrations";
 
@@ -570,8 +575,8 @@ public class MigrationRunner
 
         var savedSources = new Dictionary<long, string>();
         var rows = await conn.QueryAsync<SavedQueryReferenceRow>(
-            $"SELECT id AS Id, source_table AS SourceTable, config AS Config FROM {queriesTable};",
-            transaction: transaction);
+            $"SELECT id AS Id, source_table AS SourceTable, config AS Config FROM {queriesTable} WHERE workspace_id = @Ws;",
+            new { Ws }, transaction: transaction);
         foreach (var row in rows)
         {
             savedSources[row.Id] = Renamed(row.SourceTable);
@@ -584,8 +589,8 @@ public class MigrationRunner
         }
 
         var dashboards = await conn.QueryAsync<SavedQueryReferenceRow>(
-            $"SELECT id AS Id, name AS SourceTable, dashboard_json AS Config FROM {dashboardsTable};",
-            transaction: transaction);
+            $"SELECT id AS Id, name AS SourceTable, dashboard_json AS Config FROM {dashboardsTable} WHERE workspace_id = @Ws;",
+            new { Ws }, transaction: transaction);
         foreach (var dashboard in dashboards)
         {
             if (JsonNode.Parse(dashboard.Config) is not JsonObject json || json["widgets"] is not JsonArray widgets)
@@ -624,8 +629,8 @@ public class MigrationRunner
         // Step 4.4: forms name their table and its columns.
         var formsTable = postgres ? "_system.forms" : "forms";
         var forms = await conn.QueryAsync<SavedQueryReferenceRow>(
-            $"SELECT id AS Id, table_name AS SourceTable, form_json AS Config FROM {formsTable};",
-            transaction: transaction);
+            $"SELECT id AS Id, table_name AS SourceTable, form_json AS Config FROM {formsTable} WHERE workspace_id = @Ws;",
+            new { Ws }, transaction: transaction);
         foreach (var form in forms)
         {
             var table = Renamed(form.SourceTable);
@@ -673,8 +678,10 @@ public class MigrationRunner
         if (_systemPool.Provider != DatabaseProvider.Postgres)
             return await OpenDataConnectionAsync();
 
+        // The workspace's schema first: the tables of the migration land there.
         var conn = await OpenSystemConnectionAsync();
-        await conn.ExecuteAsync("SET search_path TO public, _system;");
+        var schema = Services.Workspaces.WorkspaceContext.Current.DataSchema.Replace("\"", "\"\"");
+        await conn.ExecuteAsync($"SET search_path TO \"{schema}\", _system;");
         return conn;
     }
 

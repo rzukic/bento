@@ -15,6 +15,7 @@ import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
 import { SushiMascot } from "../brand";
+import { WorkspaceSwitcher } from "../../features/workspaces/WorkspaceSwitcher";
 
 const sidebarShortcutLabel =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
@@ -286,7 +287,7 @@ export function AppFrame({ children }: AppFrameProps) {
           {sections.map((section) => (
             <div key={section.title} className={section.quick ? "shell__nav-section shell__nav-section--quick" : "shell__nav-section"}>
               <div className="shell__nav-section-title section-label">
-                {section.title}
+                {section.title === "Workspace" ? <WorkspaceSwitcher /> : section.title}
               </div>
               <ul className="shell__nav-list">
                 {section.items.map((item) => (

@@ -56,6 +56,7 @@ public sealed class ReportBuilder
     }
 
     private bool Pg => _systemPool.Provider == DatabaseProvider.Postgres;
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string Dashboards => Pg ? "_system.dashboards" : "dashboards";
     private string SavedQueries => Pg ? "_system.saved_queries" : "saved_queries";
 
@@ -542,7 +543,7 @@ public sealed class ReportBuilder
     {
         using var conn = await _systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<(string Name, string Json)?>(
-            $"SELECT name, CAST(dashboard_json AS TEXT) FROM {Dashboards} WHERE id = @Id", new { Id = id });
+            $"SELECT name, CAST(dashboard_json AS TEXT) FROM {Dashboards} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
         return row is { } found && JsonNode.Parse(found.Json) is JsonObject document ? new DashboardDocument(found.Name, document) : null;
     }
 
@@ -643,7 +644,7 @@ public sealed class ReportBuilder
             {
                 var id = data["savedQueryId"]!.GetValue<long>();
                 using var conn = await _systemPool.GetConnectionAsync();
-                var config = await conn.ExecuteScalarAsync<string?>($"SELECT CAST(config AS TEXT) FROM {SavedQueries} WHERE id = @Id", new { Id = id });
+                var config = await conn.ExecuteScalarAsync<string?>($"SELECT CAST(config AS TEXT) FROM {SavedQueries} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
                 if (config is null)
                     return new KpiValue(null, null, $"The saved query {id} no longer exists.");
                 query = JsonSerializer.Deserialize<AggregationQueryRequest>(config, Json);

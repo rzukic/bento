@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createApiKey, listApiKeys, revokeApiKey, type ApiKey, type ApiKeyScope } from "../../api/connections";
 import { MCP_PERMISSIONS, type McpPermission } from "../../api/mcp";
+import { workspaceApiPath } from "../../lib/workspace";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
@@ -111,7 +112,7 @@ export function ApiKeysPanel() {
               {copied ? "Copied" : "Copy"}
             </Button>
           </div>
-          <pre className="api-keys__usage">{`curl "${window.location.origin}/api/v1/data/<table>" \\\n  -H "X-API-Key: ${created.key.slice(0, 12)}…"`}</pre>
+          <pre className="api-keys__usage">{`curl "${window.location.origin}${workspaceApiPath("/data/<table>")}" \\\n  -H "X-API-Key: ${created.key.slice(0, 12)}…"`}</pre>
           <Button
             type="button"
             variant="ghost"

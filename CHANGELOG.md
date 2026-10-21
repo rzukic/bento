@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Workspaces: Separate Areas In One Installation
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.5 — Workspaces](working-steps/5.5-workspaces.md)
+
+One Bento, several separate areas — finances, calendar & operations, health — each with its own tables, dashboards and settings.
+
+**Highlights:**
+- **Own tables per workspace**: a Postgres schema or SQLite file each, so the same table name can live in two workspaces; dashboards, forms, queries, views, functions, imports, rules, reports, apps and settings belong to one.
+- **Switch in the sidebar**; every workspace has its own address (`/w/finances/…`). Admins create, rename and delete them in Settings.
+- **API and Claude per workspace**: `/api/v1/w/<name>/…` or a header; Claude at `/mcp/<name>` sees only that workspace's tables.
+- **Nothing to redo**: everything so far is the workspace "Default", with the same addresses, keys, MCP connections and calendar devices.
+
 ### 2026-10-21 — Apps: Your Tables As Calendars On Your Devices
 
 > **Phase**: Phase 5 — Integration

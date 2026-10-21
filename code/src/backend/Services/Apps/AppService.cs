@@ -58,25 +58,32 @@ public sealed partial class AppService
         public long? CreatedBy { get; init; }
         public string CreatedAt { get; init; } = "";
         public string UpdatedAt { get; init; } = "";
+        public long WorkspaceId { get; init; }
     }
 
     /// <summary>An app as the doors use it: its calendars and the user it acts for.</summary>
-    public sealed record App(long Id, string Name, string Kind, AppConfig Config, bool Enabled, long? CreatedBy, string CreatedAt, string UpdatedAt)
+    public sealed record App(long Id, string Name, string Kind, AppConfig Config, bool Enabled, long? CreatedBy, string CreatedAt, string UpdatedAt, long WorkspaceId = Workspaces.Workspace.DefaultId)
     {
         public IReadOnlyList<AppCalendar> Calendars => Config.Calendars ?? [];
     }
 
-    private async Task<List<App>> LoadAsync(long? id = null)
+    /// <summary>The current workspace's apps; with <paramref name="anyWorkspace"/> the one with that id wherever it is (a device signing in).</summary>
+    private async Task<List<App>> LoadAsync(long? id = null, bool anyWorkspace = false)
     {
         using var conn = await _systemPool.GetConnectionAsync();
+        var where = new List<string>();
+        if (!anyWorkspace)
+            where.Add("workspace_id = @Ws");
+        if (id is not null)
+            where.Add("id = @Id");
         var rows = await conn.QueryAsync<AppRow>(
             $"""
             SELECT id, name, kind, CAST(config AS TEXT) AS Config, enabled, created_by AS CreatedBy,
-                   {Ts("created_at")} AS CreatedAt, {Ts("updated_at")} AS UpdatedAt
-            FROM {Apps}{(id is null ? "" : " WHERE id = @Id")} ORDER BY name
-            """, new { Id = id });
+                   {Ts("created_at")} AS CreatedAt, {Ts("updated_at")} AS UpdatedAt, workspace_id AS WorkspaceId
+            FROM {Apps}{(where.Count == 0 ? "" : " WHERE " + string.Join(" AND ", where))} ORDER BY name
+            """, new { Id = id, Ws = Workspaces.WorkspaceContext.Id });
         return rows.Select(r => new App(r.Id, r.Name, r.Kind,
-            JsonSerializer.Deserialize<AppConfig>(r.Config, Json) ?? new AppConfig(), r.Enabled, r.CreatedBy, r.CreatedAt, r.UpdatedAt)).ToList();
+            JsonSerializer.Deserialize<AppConfig>(r.Config, Json) ?? new AppConfig(), r.Enabled, r.CreatedBy, r.CreatedAt, r.UpdatedAt, r.WorkspaceId)).ToList();
     }
 
     public async Task<App> RequireAsync(long id) =>
@@ -103,11 +110,11 @@ public sealed partial class AppService
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Apps} (name, kind, config, enabled, created_by, created_at, updated_at)
-            VALUES (@Name, @Kind, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, @CreatedBy, {NowParam}, {NowParam})
+            INSERT INTO {Apps} (workspace_id, name, kind, config, enabled, created_by, created_at, updated_at)
+            VALUES (@Ws, @Name, @Kind, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, @CreatedBy, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Kind = kind, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, CreatedBy = userId, Now = UtcNowIso() });
+            new { Name = name, Kind = kind, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, CreatedBy = userId, Now = UtcNowIso(), Ws = Workspaces.WorkspaceContext.Id });
         return await GetAsync(id);
     }
 
@@ -302,7 +309,7 @@ public sealed partial class AppService
             new { Hash = Hash(secret) });
         if (row is not { } found)
             return null;
-        var app = (await LoadAsync(found.AppId)).SingleOrDefault();
+        var app = (await LoadAsync(found.AppId, anyWorkspace: true)).SingleOrDefault();
         if (app is null || !app.Enabled)
             return null;
         var now = DateTime.UtcNow;

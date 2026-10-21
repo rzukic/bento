@@ -1,3 +1,4 @@
+import { currentWorkspaceSlug } from "../lib/workspace";
 import { useAuthStore } from "../stores/authStore";
 
 const API_BASE = "/api/v1";
@@ -88,6 +89,12 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
   // server's problem log when a query is slow or fails.
   if (typeof window !== "undefined" && !headers.has("X-Bento-Source")) {
     headers.set("X-Bento-Source", encodeURIComponent(window.location.pathname + window.location.search));
+  }
+
+  // The workspace the page works in (/w/<slug>); without the header the server uses the default one.
+  const workspace = currentWorkspaceSlug();
+  if (workspace && !headers.has("X-Bento-Workspace")) {
+    headers.set("X-Bento-Workspace", workspace);
   }
 
   if (!init.anonymous) {

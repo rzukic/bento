@@ -19,6 +19,7 @@ If you want to get Bento running and try the current product without reading the
 - [Importing Data](importing-data.md) — create a table from a CSV file or import into one, such as bank exports; skip rows that are already there, save the mapping as a profile; categories filled in by your rules, earlier rows and the AI
 - [Notifications](notifications.md) — email, Slack or a signed webhook (n8n, Home Assistant); a test send and a log per channel
 - [Apps](apps.md) — tables as calendars on your devices over CalDAV (iPhone, Mac, DAVx⁵, Thunderbird): events made there become rows; one password per device
+- [Workspaces](workspaces.md) — separate areas in one installation (finances, calendar, health …), each with its own tables, dashboards and settings; switch in the sidebar, `/w/<name>` addresses, an MCP address per workspace
 - [AI](ai.md) — explain any number on a dashboard (✨ on a widget), categorise bank bookings on import; your own Anthropic key with a monthly limit
 - [Using The API](using-the-api.md) — upload a schema, create data, query data, and understand the main API patterns
 

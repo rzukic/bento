@@ -75,8 +75,8 @@ public sealed class ProblemLog
             using var conn = await _systemPool.GetConnectionAsync();
             await conn.ExecuteAsync(
                 $"""
-                INSERT INTO {Table} (logged_at, kind, method, path, status, duration_ms, user_id, via, source, message, detail)
-                VALUES ({Ts("@Now")}, @Kind, @Method, @Path, @Status, @DurationMs, @UserId, @Via, @Source, @Message, @Detail)
+                INSERT INTO {Table} (workspace_id, logged_at, kind, method, path, status, duration_ms, user_id, via, source, message, detail)
+                VALUES (@Ws, {Ts("@Now")}, @Kind, @Method, @Path, @Status, @DurationMs, @UserId, @Via, @Source, @Message, @Detail)
                 """,
                 new
                 {
@@ -90,7 +90,8 @@ public sealed class ProblemLog
                     Via = user is null ? null : Via(user),
                     Source = Cut(Source(context), 500),
                     Message = Cut(message, MaxText) ?? "",
-                    Detail = Cut(detail, MaxText)
+                    Detail = Cut(detail, MaxText),
+                    Ws = Workspaces.WorkspaceContext.Id
                 });
             if (context is not null)
                 context.Items[LoggedItem] = true;

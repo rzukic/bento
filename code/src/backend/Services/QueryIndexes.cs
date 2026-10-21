@@ -45,22 +45,25 @@ public sealed class QueryIndexes
     public Task EnsureAsync(IEnumerable<IndexTarget> targets)
     {
         var version = _schemaCache.Current.Version;
+        var workspace = Workspaces.WorkspaceContext.Current;
         var pending = targets.Distinct()
             .Where(target => Postgres || !target.Lower)
-            .Select(target => _ensured.GetOrAdd($"{version}|{IndexName(target)}", _ => new Lazy<Task>(() => CreateAsync(target))).Value)
+            .Select(target => _ensured.GetOrAdd($"{workspace.Id}|{version}|{IndexName(target)}", _ => new Lazy<Task>(() => CreateAsync(target, workspace))).Value)
             .ToList();
         return pending.Count == 0 ? Task.CompletedTask : Task.WhenAll(pending);
     }
 
-    private async Task CreateAsync(IndexTarget target)
+    private async Task CreateAsync(IndexTarget target, Workspaces.Workspace workspace)
     {
+        // Lazily run: possibly on another request's flow, so in the workspace it was asked for.
+        using var _ = Workspaces.WorkspaceContext.Use(workspace);
         var name = IndexName(target);
         var columns = (target.Lower ? $"lower({Q(target.Column)})" : Q(target.Column)) + (target.Then is null ? "" : $", {Q(target.Then)}");
         try
         {
             // On Postgres the system role owns the tables (migrations run as it).
             using var connection = Postgres ? await _systemPool.GetConnectionAsync() : await _dataPool.GetConnectionAsync();
-            var table = Postgres ? $"public.{Q(target.Table)}" : Q(target.Table);
+            var table = Postgres ? $"{Q(workspace.DataSchema)}.{Q(target.Table)}" : Q(target.Table);
             await connection.ExecuteAsync($"CREATE INDEX IF NOT EXISTS {Q(name)} ON {table} ({columns})", commandTimeout: 300);
             _logger.LogInformation("Index {Index} on {Table} ready.", name, target.Table);
         }

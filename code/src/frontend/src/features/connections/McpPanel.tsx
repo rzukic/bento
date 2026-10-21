@@ -8,6 +8,7 @@ import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Spinner } from "../../components/ui/Spinner";
 import { ConnectionDialog } from "./ConnectionDialog";
 import { useAuthStore } from "../../stores/authStore";
+import { workspaceApiPath } from "../../lib/workspace";
 import { getCurrentLocale } from "../data-explorer/components/editors/temporalEditing";
 
 function formatWhen(value: string | null): string {
@@ -155,7 +156,7 @@ export function McpPanel() {
               On first use your browser opens Bento's sign-in: sign in and pick the access.
             </li>
           </ol>
-          <a className="btn btn--primary btn--sm mcp__download" href="/api/v1/mcp/bento.mcpb" download="bento.mcpb">
+          <a className="btn btn--primary btn--sm mcp__download" href={workspaceApiPath("/mcp/bento.mcpb")} download="bento.mcpb">
             <Icon name="download" size={13} /> Download bento.mcpb
           </a>
           <p className="mcp__hint">

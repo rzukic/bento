@@ -131,6 +131,7 @@ public static class BackendHost
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
         services.AddSingleton<WorkspaceSettings>();
+        services.AddSingleton<Bento.Api.Services.Workspaces.WorkspaceService>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();
@@ -190,6 +191,10 @@ public static class BackendHost
         // -----------------------------------------------------------------------------
 
         app.UseMiddleware<RequestIdMiddleware>();
+        // The workspace first (it rewrites /api/v1/w/<slug>/… and /mcp/<slug>),
+        // then routing — explicit, so endpoints match the rewritten path.
+        app.UseMiddleware<WorkspaceMiddleware>();
+        app.UseRouting();
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<ErrorHandlingMiddleware>();
         app.UseMiddleware<CorsPolicyMiddleware>();

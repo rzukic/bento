@@ -851,7 +851,8 @@ afterEach(() => {
 describe("Model workbench route (/model)", () => {
   it("loads the current schema into a local draft workbench shell for admins", async () => {
     seedAuthenticated("admin");
-    const fetchMock = vi.fn().mockResolvedValue(jsonResponse(populatedSchema));
+    // A fresh answer per request: the sidebar asks for the workspaces too.
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(populatedSchema)));
     vi.stubGlobal("fetch", fetchMock);
 
     const router = createTestRouter(["/model"]);

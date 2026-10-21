@@ -41,6 +41,8 @@ public sealed class BentoSelfClient : IDisposable
         if (!string.IsNullOrEmpty(credentials.HeaderName))
             request.Headers.TryAddWithoutValidation(credentials.HeaderName, credentials.HeaderValue);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        // The tools work in the workspace the MCP call came in for (/mcp/<slug>).
+        request.Headers.TryAddWithoutValidation(Middleware.WorkspaceMiddleware.HeaderName, Workspaces.WorkspaceContext.Current.Slug);
         if (body is not null)
         {
             var json = body is JsonElement element ? element.GetRawText() : JsonSerializer.Serialize(body);

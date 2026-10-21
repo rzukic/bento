@@ -25,9 +25,11 @@
 		reverse_proxy backend:5000
 	}
 
-	# MCP for AI clients and the OAuth discovery documents they read first.
+	# MCP for AI clients and the OAuth discovery documents they read first;
+	# /mcp/<workspace> is one workspace's MCP (Step 5.5).
 	# The consent page itself (/oauth/authorize) is part of the SPA.
-	handle /mcp {
+	@mcp path /mcp /mcp/*
+	handle @mcp {
 		reverse_proxy backend:5000
 	}
 	handle /.well-known/oauth-* {
