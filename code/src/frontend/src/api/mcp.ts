@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { Workspace } from "./workspaces";
 import type { ApiKeyScope } from "./connections";
 
 type DataEnvelope<T> = { data: T };
@@ -45,6 +46,10 @@ export type McpConnection = {
   permissions: McpPermission[];
   /** What the user behind the app could grant it (their role). */
   allowed: McpPermission[];
+  /** The workspaces it may use; null: every one. */
+  workspaces?: number[] | null;
+  /** The workspaces its user can open. */
+  openable?: Workspace[];
   createdAt: string;
   lastUsedAt: string | null;
 };
@@ -76,8 +81,8 @@ export async function revokeMcpConnection(id: number): Promise<void> {
 }
 
 /** PUT /api/v1/mcp/connections/{id} — change what a connected app may do; applies to its next call. */
-export async function updateMcpConnection(id: number, permissions: McpPermission[]): Promise<McpConnection> {
-  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, { permissions })).data;
+export async function updateMcpConnection(id: number, permissions: McpPermission[], workspaces?: number[]): Promise<McpConnection> {
+  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, { permissions, workspaces })).data;
 }
 
 /** The calls made through one connected app, newest first. */
@@ -90,10 +95,20 @@ export async function listMcpCalls(limit = 50): Promise<McpCall[]> {
 }
 
 /** What the consent page shows before the user decides. */
-export type AuthorizeInfo = { clientName: string; redirectHost: string; canWrite: boolean; allowed: McpPermission[] };
+export type AuthorizeInfo = {
+  clientName: string;
+  redirectHost: string;
+  canWrite: boolean;
+  allowed: McpPermission[];
+  /** The workspaces the user can open (Step 5.5), and the one the app's MCP address names. */
+  workspaces?: Workspace[];
+  selectedWorkspaces?: number[];
+};
 
-export async function getAuthorizeInfo(clientId: string, redirectUri: string): Promise<AuthorizeInfo> {
+/** `resource`: the MCP address the app connects to (…/mcp/<workspace>), as it sends it (RFC 8707). */
+export async function getAuthorizeInfo(clientId: string, redirectUri: string, resource?: string | null): Promise<AuthorizeInfo> {
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
+  if (resource) params.set("resource", resource);
   return (await apiClient.get<DataEnvelope<AuthorizeInfo>>(`/oauth/authorize?${params.toString()}`)).data;
 }
 
@@ -105,6 +120,7 @@ export type AuthorizeDecision = {
   permissions: McpPermission[];
   state: string | null;
   approve: boolean;
+  workspaces?: number[];
 };
 
 /** The address to send the browser to: back to the client with a code, or with access_denied. */

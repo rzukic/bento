@@ -11,6 +11,7 @@ import { useAuthStore } from "../../stores/authStore";
 import "../../routes/LoginPage.css";
 import "./OAuthConsent.css";
 import { PermissionChecklist } from "./PermissionChecklist";
+import { WorkspaceChecklist } from "./WorkspaceChecklist";
 
 /**
  * /oauth/authorize (Step 4.6): an MCP client such as Claude asks to use Bento
@@ -30,10 +31,12 @@ export function OAuthConsentPage() {
   const state = params.get("state");
   const scopeParam = params.get("scope");
   const responseType = params.get("response_type");
+  const resource = params.get("resource");
 
   const [info, setInfo] = useState<AuthorizeInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [granted, setGranted] = useState<McpPermission[]>(["data.read"]);
+  const [workspaces, setWorkspaces] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -42,10 +45,12 @@ export function OAuthConsentPage() {
       return;
     }
     let cancelled = false;
-    getAuthorizeInfo(clientId, redirectUri)
+    getAuthorizeInfo(clientId, redirectUri, resource)
       .then((next) => {
         if (cancelled) return;
         setInfo(next);
+        // The workspace of the MCP address the app connects to; more can be ticked.
+        setWorkspaces(next.selectedWorkspaces ?? []);
         // What the app asked for, as far as the user's role allows it — but never
         // deleting rows or changing the schema: the user ticks those themselves.
         setGranted(permissionsFromScope(scopeParam).filter((id) => next.allowed.includes(id) && !MCP_PERMISSIONS.find((p) => p.id === id)?.danger));
@@ -56,13 +61,13 @@ export function OAuthConsentPage() {
     return () => {
       cancelled = true;
     };
-  }, [clientId, redirectUri, codeChallenge, responseType, scopeParam]);
+  }, [clientId, redirectUri, codeChallenge, responseType, scopeParam, resource]);
 
   const decide = async (approve: boolean) => {
     setBusy(true);
     setError(null);
     try {
-      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, permissions: granted, state, approve });
+      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, permissions: granted, state, approve, workspaces: workspaces.length > 0 ? workspaces : undefined });
       window.location.assign(redirectTo);
     } catch (cause) {
       setError(cause instanceof ApiClientError ? cause.message : "That did not work. Try again.");
@@ -122,6 +127,7 @@ export function OAuthConsentPage() {
             {info ? (
               <>
                 <PermissionChecklist allowed={info.allowed} granted={granted} onChange={setGranted} disabled={busy} />
+                <WorkspaceChecklist workspaces={info.workspaces ?? []} chosen={workspaces} onChange={setWorkspaces} disabled={busy} />
                 <p className="oauth-consent__note">
                   It acts as you and never manages users or keys. Change what it may do or disconnect it any time under Connections → AI apps.
                 </p>

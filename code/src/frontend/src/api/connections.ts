@@ -19,7 +19,12 @@ export type ApiKey = {
   lastUsedAt: string | null;
   revokedAt: string | null;
   status: "active" | "expired" | "revoked";
+  /** The workspaces it may use (Step 5.5); null: every workspace. */
+  workspaces?: number[] | null;
 };
+
+/** Where a key may be used: the given workspaces, or all of them. */
+export type KeyWorkspaces = { workspaces: number[] } | { allWorkspaces: true };
 
 type DataEnvelope<T> = { data: T };
 
@@ -28,8 +33,15 @@ export async function listApiKeys(): Promise<ApiKey[]> {
 }
 
 /** The plain key comes back once, here. */
-export async function createApiKey(name: string, scope: ApiKeyScope, expiresInDays?: number, permissions?: string[]): Promise<{ key: string; apiKey: ApiKey }> {
-  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", permissions ? { name, permissions, expiresInDays } : { name, scope, expiresInDays });
+export async function createApiKey(
+  name: string,
+  scope: ApiKeyScope,
+  expiresInDays?: number,
+  permissions?: string[],
+  where?: KeyWorkspaces,
+): Promise<{ key: string; apiKey: ApiKey }> {
+  const access = permissions ? { permissions } : { scope };
+  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", { name, expiresInDays, ...access, ...where });
   return { key: response.key, apiKey: response.data };
 }
 

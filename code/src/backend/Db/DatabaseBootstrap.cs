@@ -30,6 +30,7 @@ public class DatabaseBootstrap : IHostedService
         else
             await BootstrapSqlite(conn);
         await AddWorkspacesAsync(conn);
+        await AddMembersAsync(conn);
         await KeepCalendarAsync(conn);
         await UpgradeWidgetsAsync(conn);
         _workspace?.Invalidate();
@@ -110,6 +111,62 @@ public class DatabaseBootstrap : IHostedService
                 "CREATE UNIQUE INDEX IF NOT EXISTS ux_price_sources_workspace_name ON price_sources(workspace_id, name)");
             await RebuildSqliteAsync(conn, "user_table_explorer_preferences", sql => sql.Replace("PRIMARY KEY (user_id, table_name)", "PRIMARY KEY (workspace_id, user_id, table_name)"), null);
         }
+    }
+
+    /// <summary>
+    /// Members per workspace (Step 5.5 part B): who may open a workspace and with
+    /// which role. Installation admins (<c>users.role = admin</c>) are admins in every
+    /// workspace and need no row. API keys and MCP connections name the workspaces
+    /// they may use (null: all). Done once, marked by members_version: every other
+    /// user becomes a member of the default workspace with their role, and existing
+    /// keys and connections keep to it — nothing changes for anyone.
+    /// </summary>
+    private async Task AddMembersAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        await conn.ExecuteAsync(pg
+            ? """
+              CREATE TABLE IF NOT EXISTS _system.workspace_members (
+                  workspace_id    INTEGER NOT NULL,
+                  user_id         INTEGER NOT NULL REFERENCES _system.users(id) ON DELETE CASCADE,
+                  role            VARCHAR(20) NOT NULL,
+                  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  PRIMARY KEY (workspace_id, user_id)
+              );
+              ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS workspaces TEXT;
+              ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS workspaces TEXT;
+              """
+            : """
+              CREATE TABLE IF NOT EXISTS workspace_members (
+                  workspace_id    INTEGER NOT NULL,
+                  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  role            TEXT NOT NULL,
+                  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                  PRIMARY KEY (workspace_id, user_id)
+              );
+              """);
+        if (!pg)
+        {
+            foreach (var table in new[] { "api_keys", "oauth_grants" })
+            {
+                if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'workspaces'") == 0)
+                    await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN workspaces TEXT");
+            }
+        }
+        await conn.ExecuteAsync($"CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON {prefix}workspace_members(user_id)");
+
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'members_version'") > 0)
+            return;
+        using var tx = conn.BeginTransaction();
+        await conn.ExecuteAsync(
+            $"INSERT INTO {prefix}workspace_members (workspace_id, user_id, role) SELECT 1, id, role FROM {prefix}users WHERE role <> 'admin'",
+            transaction: tx);
+        await conn.ExecuteAsync($"UPDATE {prefix}api_keys SET workspaces = '[1]' WHERE workspaces IS NULL", transaction: tx);
+        await conn.ExecuteAsync($"UPDATE {prefix}oauth_grants SET workspaces = '[1]' WHERE workspaces IS NULL", transaction: tx);
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('members_version', '1')", transaction: tx);
+        tx.Commit();
     }
 
     /// <summary>

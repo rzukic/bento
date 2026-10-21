@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { workspaceHref } from "../../lib/workspace";
 import { useAuthStore } from "../../stores/authStore";
+import { isInstallationAdmin } from "../../types/auth";
 import { currentWorkspace, useWorkspacesStore } from "../../stores/workspacesStore";
 import "./Workspaces.css";
 
@@ -14,7 +15,7 @@ import "./Workspaces.css";
 export function WorkspaceSwitcher() {
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const load = useWorkspacesStore((state) => state.load);
-  const admin = useAuthStore((state) => state.user?.role === "admin");
+  const admin = useAuthStore((state) => isInstallationAdmin(state.user));
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
 
