@@ -253,8 +253,38 @@ function NewPassword({ created, onClose }: { created: CreatedAppPassword; onClos
   return (
     <div className="apps__secret" role="region" aria-label="New device password">
       <p className="apps__secret-lead">
-        <strong>{created.password.name}</strong>: copy the addresses now — the password is shown only this once.
+        <strong>{created.password.name}</strong>: copy the password and the addresses now — the password is shown only this once.
       </p>
+      {created.links
+        .filter((link) => link.kind === "caldav")
+        .map((link) => (
+          <div key={link.url} className="apps__caldav">
+            <span className="field__label">Read and write (CalDAV account)</span>
+            <dl className="apps__account">
+              <dt>Server</dt>
+              <dd>
+                <code className="apps__url">{link.url}</code>
+                <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="copy" size={12} />} onClick={() => copy(link.url)}>
+                  {copied === link.url ? "Copied" : "Copy"}
+                </Button>
+              </dd>
+              <dt>User name</dt>
+              <dd>anything, e.g. your name</dd>
+              <dt>Password</dt>
+              <dd>
+                <code className="apps__url">{created.secret}</code>
+                <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="copy" size={12} />} onClick={() => copy(created.secret)}>
+                  {copied === created.secret ? "Copied" : "Copy"}
+                </Button>
+              </dd>
+            </dl>
+            <p className="channel-form__hint">
+              iPhone / iPad: Settings → Apps → Calendar → Calendar Accounts → Add Account → Other → Add CalDAV Account. Mac: Calendar → Settings → Accounts → + →
+              Other CalDAV Account (Manual). Android: DAVx⁵ with “Login with URL and user name”. Thunderbird: New Calendar → On the Network → the server address.
+              Events made, moved or deleted there become rows here.
+            </p>
+          </div>
+        ))}
       {created.links
         .filter((link) => link.kind === "ical")
         .map((link) => (
@@ -267,7 +297,7 @@ function NewPassword({ created, onClose }: { created: CreatedAppPassword; onClos
           </div>
         ))}
       <p className="channel-form__hint">
-        Apple Calendar: File → New Calendar Subscription. iPhone: Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar. Google
+        Or only subscribe (read-only) — Apple Calendar: File → New Calendar Subscription. iPhone: Settings → Calendar → Accounts → Add Account → Other → Add Subscribed Calendar. Google
         Calendar: Other calendars → From URL. Thunderbird: New Calendar → On the Network. Subscriptions are read-only and refresh every hour or so
         (Google: every few hours).
       </p>
@@ -304,6 +334,7 @@ function AppForm({ app, onCancel, onSaved }: { app: BentoApp | null; onCancel: (
       allDay: calendar.allDay || null,
       description: calendar.description || null,
       location: calendar.location || null,
+      recurrence: calendar.recurrence || null,
       color: calendar.color || null,
       filters: (calendar.filters ?? []).filter((f) => f.column),
     }));
@@ -416,7 +447,7 @@ function CalendarFields({
               const nextColumns = (next?.columns ?? []).filter((c) => !c.primaryKey);
               const start = nextColumns.find((c) => ["datetime", "date"].includes(valueType(c)));
               const title = nextColumns.find((c) => valueType(c) === "text");
-              onChange({ table: e.target.value, start: start?.name ?? "", title: title?.name ?? "", end: null, allDay: null, description: null, location: null, filters: [] });
+              onChange({ table: e.target.value, start: start?.name ?? "", title: title?.name ?? "", end: null, allDay: null, description: null, location: null, recurrence: null, filters: [] });
             }}
           >
             <option value="">Choose…</option>
@@ -443,6 +474,7 @@ function CalendarFields({
           <div className="channel-form__grid">
             {select("Location", calendar.location, columns, (location) => onChange({ location: location || null }))}
             {select("Notes", calendar.description, columns, (description) => onChange({ description: description || null }))}
+            {select("Repeats", calendar.recurrence, columns.filter((c) => valueType(c) === "text"), (recurrence) => onChange({ recurrence: recurrence || null }))}
             <label className="field field--compact">
               <span className="field__label">Without an end, minutes</span>
               <input
@@ -511,7 +543,7 @@ function CalendarFields({
           </div>
           <p className="channel-form__hint">
             A date column makes all-day events; a date-time column timed ones, in the workspace's time zone. For a title made of several columns, add a computed
-            column to the table.
+            column to the table. What the table has no column for (alarms, attendees) is kept for events made on a device.
           </p>
         </>
       ) : null}

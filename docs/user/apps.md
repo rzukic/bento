@@ -12,6 +12,7 @@ Choose **Add calendar app**, give it a name, and add one or more calendars:
 - **Ends** (optional): without it, a timed event lasts an hour (or the minutes you set), an all-day one a day.
 - **All day when** (optional): a yes/no column that makes an event all-day.
 - **Location** and **Notes** (optional).
+- **Repeats** (optional): a text column with the repetition as calendar apps write it (`FREQ=WEEKLY;BYDAY=TU`); a weekly event made on the phone keeps repeating.
 - **Only rows where** (optional): e.g. *done is false*, *private is not true* (rows where it is empty count as "not").
 - **Colour**: shown by calendar programs that support it.
 
@@ -20,6 +21,19 @@ Times are in the workspace's time zone (Settings → Workspace), the way Bento s
 ## Devices
 
 Each device gets its own password: type its name (*iPhone*, *Mac*) and choose **Add device**. Bento shows the password and the addresses **once** — copy them then. The list shows when each device last fetched; the ✕ takes a device's password back, and only that device stops.
+
+### Read And Write (CalDAV)
+
+Add a **CalDAV account** on the device with the server address `https://<your Bento>/dav/`, any user name and the device's password:
+
+- **iPhone / iPad**: Settings → Apps → Calendar → Calendar Accounts → Add Account → Other → Add CalDAV Account.
+- **Mac**: Calendar → Settings → Accounts → + → Other CalDAV Account → Manual.
+- **Android**: DAVx⁵ → Login with URL and user name.
+- **Thunderbird**: New Calendar → On the Network → the server address.
+
+The device then shows the app's calendars. Events made, moved or deleted there become rows in the table — with the calendar's *is* filters filled in, so a new deadline lands with *done = false*. What the table has no column for (alarms, attendees, a changed single date of a repeating event) is kept with the event and comes back as the device sent it. Rows changed in Bento show up on the device at its next sync. A change the device has not seen is not overwritten: the device is told and fetches the newer one.
+
+Calendars themselves are set up in Bento; renaming one or changing its colour on the device is not kept.
 
 ### Subscribe (read-only)
 
@@ -31,7 +45,7 @@ Each calendar has a subscription address `…/feeds/<password>/<calendar>.ics`:
 - **Outlook**: Add calendar → Subscribe from web.
 - **Thunderbird**: New Calendar → On the Network → iCalendar (ICS).
 
-A subscription shows the events; changes made on the device do not come back. Editing on the device comes with CalDAV.
+A subscription shows the events; changes made on the device do not come back — for that, use the CalDAV account above.
 
 ## Claude
 

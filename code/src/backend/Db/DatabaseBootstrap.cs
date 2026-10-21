@@ -578,6 +578,18 @@ public class DatabaseBootstrap : IHostedService
                 revoked_at      TIMESTAMPTZ
             );
             CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON _system.app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS _system.app_events (
+                id              SERIAL PRIMARY KEY,
+                app_id          INTEGER NOT NULL,
+                calendar        VARCHAR(80) NOT NULL,
+                row_id          VARCHAR(100) NOT NULL,
+                href            VARCHAR(255) NOT NULL,
+                uid             VARCHAR(500) NOT NULL,
+                raw             TEXT,
+                updated_at      TIMESTAMPTZ NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON _system.app_events(app_id, calendar, row_id);
             """);
     }
 
@@ -1087,6 +1099,18 @@ public class DatabaseBootstrap : IHostedService
                 revoked_at      TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS app_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER NOT NULL,
+                calendar        TEXT NOT NULL,
+                row_id          TEXT NOT NULL,
+                href            TEXT NOT NULL,
+                uid             TEXT NOT NULL,
+                raw             TEXT,
+                updated_at      TEXT NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON app_events(app_id, calendar, row_id);
             """);
     }
 }

@@ -132,3 +132,29 @@
     grid-row: 2;
   }
 }
+
+.apps__caldav {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.apps__account {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.apps__account dt {
+  color: var(--text-3);
+}
+
+.apps__account dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+  margin: 0;
+  min-width: 0;
+}

@@ -99,6 +99,7 @@ describe("apps", () => {
         allDay: null,
         description: null,
         location: "place",
+        recurrence: null,
         color: "#3B82F6",
         filters: [{ column: "private", op: "neq", value: "true" }],
       },
@@ -110,7 +111,10 @@ describe("apps", () => {
     api.createAppPassword.mockResolvedValue({
       password: { id: 10, name: "iPhone", prefix: "bento_app_XyZw", createdAt: "2026-10-21T10:00:00Z", lastUsedAt: null },
       secret: "bento_app_XyZwSecret",
-      links: [{ calendar: "Termine", kind: "ical", url: "https://bento.example/feeds/bento_app_XyZwSecret/termine.ics" }],
+      links: [
+        { calendar: "My calendar", kind: "caldav", url: "https://bento.example/dav/" },
+        { calendar: "Termine", kind: "ical", url: "https://bento.example/feeds/bento_app_XyZwSecret/termine.ics" },
+      ],
     });
     api.revokeAppPassword.mockResolvedValue(undefined);
     vi.spyOn(window, "confirm").mockReturnValue(true);
@@ -124,6 +128,9 @@ describe("apps", () => {
 
     const secret = await screen.findByRole("region", { name: "New device password" });
     expect(within(secret).getByText("https://bento.example/feeds/bento_app_XyZwSecret/termine.ics")).toBeInTheDocument();
+    // The CalDAV account: server and password to enter on the device.
+    expect(within(secret).getByText("https://bento.example/dav/")).toBeInTheDocument();
+    expect(within(secret).getByText("bento_app_XyZwSecret")).toBeInTheDocument();
     expect(api.createAppPassword).toHaveBeenCalledWith(4, "iPhone");
     await user.click(within(secret).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("region", { name: "New device password" })).toBeNull();

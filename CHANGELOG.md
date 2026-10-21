@@ -24,7 +24,8 @@ Bento opens to other programs. The first app is the calendar: any table becomes 
 **Highlights:**
 - **Calendars from tables**: title, start (date for all-day, date-time for timed), end, location, notes, filters, colour — in the workspace's time zone.
 - **One password per device**, shown once, with its last use; take one back and only that device stops.
-- **Subscribe** with one address per calendar; editing on the device follows with CalDAV.
+- **Read and write with CalDAV** on iPhone, Mac, Android (DAVx⁵) and Thunderbird: events made, moved or deleted there become rows; alarms and attendees are kept with them.
+- **Or subscribe** with one address per calendar (read-only, also Google and Outlook).
 - **Claude knows** which tables are calendars, so what it adds shows up on your phone.
 
 ### 2026-10-11 — Targets Instead Of Budgets, Flows For Any Data

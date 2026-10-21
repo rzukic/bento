@@ -30,7 +30,8 @@ public sealed class CalendarEvents
     /// <param name="Start">A day (all-day) or a moment.</param>
     /// <param name="End">Exclusive: the day after an all-day event, the moment a timed one ends.</param>
     /// <param name="Tag">Changes whenever the event does (an ETag).</param>
-    public sealed record Event(string RowId, string Uid, string Title, EventTime Start, EventTime End, string? Description, string? Location, string Tag);
+    /// <param name="Recurrence">An RRULE value, when the calendar maps a column to it.</param>
+    public sealed record Event(string RowId, string Uid, string Title, EventTime Start, EventTime End, string? Description, string? Location, string Tag, string? Recurrence = null);
 
     /// <summary>A day of an all-day event, or a moment (UTC).</summary>
     public readonly record struct EventTime(DateOnly? Day, DateTimeOffset? Moment)
@@ -94,9 +95,12 @@ public sealed class CalendarEvents
         }
         var description = Text(Get(row, calendar.Description));
         var location = Text(Get(row, calendar.Location));
+        var recurrence = Text(Get(row, calendar.Recurrence))?.Trim();
+        if (recurrence is not null && recurrence.StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
+            recurrence = recurrence[6..];
         var uid = $"{table}-{id}@bento";
-        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001f', title, Stamp(start), Stamp(end.Value), description, location)))).ToLowerInvariant()[..16];
-        return new Event(id, uid, title.Trim(), start, end.Value, description, location, tag);
+        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001f', title, Stamp(start), Stamp(end.Value), description, location, recurrence)))).ToLowerInvariant()[..16];
+        return new Event(id, uid, title.Trim(), start, end.Value, description, location, tag, string.IsNullOrEmpty(recurrence) ? null : recurrence);
     }
 
     /// <summary>A cell equals a filter's text: yes/no as true/false (or 1/0), numbers and text as written, case aside.</summary>

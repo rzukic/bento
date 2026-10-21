@@ -191,6 +191,7 @@ public sealed partial class AppService
             var allDay = Column(calendar.AllDay, "allDay", t => t == ColumnType.Boolean, "a yes/no column");
             var description = Column(calendar.Description, "description");
             var location = Column(calendar.Location, "location");
+            var recurrence = Column(calendar.Recurrence, "recurrence", t => t == ColumnType.Text, "a text column");
             if (calendar.Duration is < 1 or > 60 * 24 * 31)
                 throw Invalid($"{field}.duration", "The duration is 1 minute to 31 days, in minutes.");
             var color = calendar.Color?.Trim();
@@ -216,6 +217,7 @@ public sealed partial class AppService
                 AllDay = allDay?.Name,
                 Description = description?.Name,
                 Location = location?.Name,
+                Recurrence = recurrence?.Name,
                 Duration = calendar.Duration,
                 Color = string.IsNullOrEmpty(color) ? null : color.ToUpperInvariant(),
                 Filters = filters.Count > 0 ? filters : null
@@ -311,7 +313,10 @@ public sealed partial class AppService
 
     /// <summary>The addresses a device uses for each calendar of the app.</summary>
     public static IReadOnlyList<AppLink> Links(App app, string secret, string baseUrl) =>
-        app.Calendars.Select(c => new AppLink(c.Name!, "ical", $"{baseUrl}/feeds/{secret}/{c.Slug}.ics")).ToList();
+        [
+            new AppLink(app.Name, "caldav", $"{baseUrl}/dav/"),
+            .. app.Calendars.Select(c => new AppLink(c.Name!, "ical", $"{baseUrl}/feeds/{secret}/{c.Slug}.ics"))
+        ];
 
     private static string Hash(string secret) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(secret))).ToLowerInvariant();
 
@@ -339,6 +344,8 @@ public sealed partial class AppService
                 text.Append($", location `{location}`");
             if (calendar.Description is { } description)
                 text.Append($", notes `{description}`");
+            if (calendar.Recurrence is { } recurrence)
+                text.Append($", repeats `{recurrence}` (an iCal RRULE like FREQ=WEEKLY;BYDAY=TU)");
             if (calendar.Filters is { Count: > 0 } filters)
                 text.Append($"; only rows with {string.Join(" and ", filters.Select(f => $"{f.Column} {f.Op} {f.Value}"))}");
         }

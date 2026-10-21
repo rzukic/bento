@@ -22,6 +22,8 @@ public sealed record AppCalendar
     public string? AllDay { get; init; }
     public string? Description { get; init; }
     public string? Location { get; init; }
+    /// <summary>A text column with the event's repetition (an iCal RRULE such as FREQ=WEEKLY;BYDAY=MO).</summary>
+    public string? Recurrence { get; init; }
     /// <summary>Events without an end, in minutes (timed events; default 60).</summary>
     public int? Duration { get; init; }
     /// <summary>#RRGGBB, shown by calendar apps that support it.</summary>

@@ -129,7 +129,7 @@ public sealed class AppTests
         var secret = created.GetProperty("secret").GetString()!;
         Assert.StartsWith(AppService.PasswordPrefix, secret);
         var links = created.GetProperty("links");
-        Assert.Equal($"https://bento.example/feeds/{secret}/termine.ics", links[0].GetProperty("url").GetString());
+        Assert.Equal($"https://bento.example/feeds/{secret}/termine.ics", links.EnumerateArray().First(l => l.GetProperty("kind").GetString() == "ical").GetProperty("url").GetString());
         // Listed without the secret.
         var listed = (await GetJsonAsync(host, Path)).GetProperty("data")[0].GetProperty("passwords")[0];
         Assert.Equal("iPhone", listed.GetProperty("name").GetString());

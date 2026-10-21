@@ -18,6 +18,8 @@ export type AppCalendar = {
   allDay?: string | null;
   description?: string | null;
   location?: string | null;
+  /** A text column with the repetition (an iCal RRULE such as FREQ=WEEKLY;BYDAY=MO). */
+  recurrence?: string | null;
   /** Minutes, for timed events without an end. */
   duration?: number | null;
   color?: string | null;
