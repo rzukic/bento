@@ -28,6 +28,8 @@ public sealed class NotificationSender : IDisposable
     public static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
     // Umlauts and quotes as they are, not \u escapes: easier to read in n8n or a log.
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+    // Facts and sections without their empty fields; the message's own fields are always there.
+    private static readonly JsonSerializerOptions PartJson = new(Json) { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull };
 
     private readonly HttpClient _http = new(new SocketsHttpHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = Timeout };
 
@@ -48,7 +50,8 @@ public sealed class NotificationSender : IDisposable
                     title = notification.Title,
                     text = notification.Text,
                     link = notification.Link,
-                    facts = notification.Facts ?? [],
+                    facts = JsonSerializer.SerializeToElement(notification.Facts ?? [], PartJson),
+                    sections = notification.Sections is null ? (JsonElement?)null : JsonSerializer.SerializeToElement(notification.Sections, PartJson),
                     channel = channel.Name,
                     sentAt = DateTime.UtcNow.ToString("o", System.Globalization.CultureInfo.InvariantCulture)
                 }, Json);
@@ -161,10 +164,32 @@ public sealed class NotificationSender : IDisposable
         {
             text.AppendLine();
             foreach (var fact in facts)
-                text.Append(fact.Label).Append(": ").AppendLine(fact.Value);
+                text.Append(fact.Label).Append(": ").AppendLine(FactText(fact));
         }
+        if (notification.Sections is { Count: > 0 } sections)
+            text.AppendLine().Append(SectionsText(sections));
         if (notification.Link is not null)
             text.AppendLine().AppendLine(notification.Link);
+        return text.ToString();
+    }
+
+    private static string FactText(NotificationFact fact) => fact.Detail is null ? fact.Value : $"{fact.Value} ({fact.Detail})";
+
+    /// <summary>A report's sections as plain text: a title line, its text, a line per value.</summary>
+    public static string SectionsText(IReadOnlyList<NotificationSection> sections)
+    {
+        var text = new StringBuilder();
+        foreach (var section in sections)
+        {
+            if (text.Length > 0)
+                text.AppendLine();
+            if (section.Title is not null)
+                text.AppendLine(section.Title);
+            if (section.Text is not null)
+                text.AppendLine(section.Text);
+            foreach (var fact in section.Facts ?? [])
+                text.Append(fact.Label).Append(": ").AppendLine(FactText(fact));
+        }
         return text.ToString();
     }
 
@@ -177,13 +202,38 @@ public sealed class NotificationSender : IDisposable
         {
             html.Append("<table style=\"border-collapse:collapse;margin:0 0 12px\">");
             foreach (var fact in facts)
-                html.Append("<tr><td style=\"padding:2px 12px 2px 0;color:#666\">").Append(WebUtility.HtmlEncode(fact.Label))
-                    .Append("</td><td style=\"padding:2px 0\">").Append(WebUtility.HtmlEncode(fact.Value)).Append("</td></tr>");
+                HtmlFact(html, fact);
             html.Append("</table>");
+        }
+        foreach (var section in notification.Sections ?? [])
+        {
+            if (section.Title is not null)
+                html.Append("<p style=\"margin:16px 0 4px\"><strong>").Append(WebUtility.HtmlEncode(section.Title)).Append("</strong></p>");
+            if (section.Text is not null)
+                html.Append("<p style=\"margin:0 0 8px;white-space:pre-line\">").Append(WebUtility.HtmlEncode(section.Text)).Append("</p>");
+            if (section.Facts is { Count: > 0 } values)
+            {
+                html.Append("<table style=\"border-collapse:collapse;margin:0 0 12px\">");
+                foreach (var fact in values)
+                    HtmlFact(html, fact);
+                html.Append("</table>");
+            }
         }
         if (notification.Link is not null)
             html.Append("<p style=\"margin:0\"><a href=\"").Append(WebUtility.HtmlEncode(notification.Link)).Append("\">Open in Bento</a></p>");
         return html.Append("</div>").ToString();
+    }
+
+    private static void HtmlFact(StringBuilder html, NotificationFact fact)
+    {
+        html.Append("<tr><td style=\"padding:2px 12px 2px 0;color:#666;vertical-align:top\">").Append(WebUtility.HtmlEncode(fact.Label))
+            .Append("</td><td style=\"padding:2px 12px 2px 0;vertical-align:top\">").Append(WebUtility.HtmlEncode(fact.Value)).Append("</td>");
+        if (fact.Detail is not null)
+        {
+            var color = fact.Tone switch { "good" => "#15803d", "bad" => "#b91c1c", _ => "#666" };
+            html.Append("<td style=\"padding:2px 0;color:").Append(color).Append(";vertical-align:top\">").Append(WebUtility.HtmlEncode(fact.Detail)).Append("</td>");
+        }
+        html.Append("</tr>");
     }
 
     /// <summary>Slack's mrkdwn: the title in bold, the text, the facts, a link. &amp;, &lt; and &gt; escaped as Slack asks.</summary>
@@ -192,7 +242,17 @@ public sealed class NotificationSender : IDisposable
         static string Escape(string text) => text.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
         var text = new StringBuilder("*").Append(Escape(notification.Title)).Append("*\n").Append(Escape(notification.Text));
         foreach (var fact in notification.Facts ?? [])
-            text.Append('\n').Append(Escape(fact.Label)).Append(": ").Append(Escape(fact.Value));
+            text.Append('\n').Append(Escape(fact.Label)).Append(": ").Append(Escape(FactText(fact)));
+        foreach (var section in notification.Sections ?? [])
+        {
+            text.Append('\n');
+            if (section.Title is not null)
+                text.Append("\n*").Append(Escape(section.Title)).Append('*');
+            if (section.Text is not null)
+                text.Append('\n').Append(Escape(section.Text));
+            foreach (var fact in section.Facts ?? [])
+                text.Append('\n').Append(Escape(fact.Label)).Append(": ").Append(Escape(fact.Value)).Append(fact.Detail is null ? "" : $"  _{Escape(fact.Detail)}_");
+        }
         if (notification.Link is not null)
             text.Append("\n<").Append(notification.Link).Append("|Open in Bento>");
         return text.ToString();

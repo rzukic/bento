@@ -15,11 +15,12 @@ namespace Bento.Api.Services.Notifications;
 /// When Bento speaks (Step 5.3): conditions written as formulas, budgets that
 /// run over, and events such as a failed import. Each rule says something once
 /// when its condition starts to hold and stays quiet until it clears; what it
-/// says goes out over its channels (Step 5.2).
+/// says goes out over its channels (Step 5.2). Reports (<see cref="ReportBuilder"/>)
+/// speak on a schedule instead.
 /// </summary>
 public sealed class NotificationRuleService
 {
-    public static readonly string[] Kinds = ["condition", "budget", "event"];
+    public static readonly string[] Kinds = ["condition", "budget", "event", "report"];
     public static readonly string[] Events = ["import.failed", "price.failed"];
     public static readonly string[] Periods = ["today", "this-week", "this-month", "this-year"];
     public static readonly string[] Ops = [">", ">=", "<", "<=", "=", "<>"];
@@ -37,6 +38,7 @@ public sealed class NotificationRuleService
     private readonly NotificationService _notifications;
     private readonly WorkspaceSettings _workspace;
     private readonly BackendRuntimeOptions _runtime;
+    private readonly ReportBuilder _reports;
     private readonly ILogger<NotificationRuleService>? _logger;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
@@ -48,6 +50,7 @@ public sealed class NotificationRuleService
         NotificationService notifications,
         WorkspaceSettings workspace,
         BackendRuntimeOptions runtime,
+        ReportBuilder reports,
         ILogger<NotificationRuleService>? logger = null)
     {
         _systemPool = systemPool;
@@ -57,6 +60,7 @@ public sealed class NotificationRuleService
         _notifications = notifications;
         _workspace = workspace;
         _runtime = runtime;
+        _reports = reports;
         _logger = logger;
     }
 
@@ -116,7 +120,7 @@ public sealed class NotificationRuleService
         var name = RequireName(request.Name);
         var kind = request.Kind?.Trim().ToLowerInvariant() ?? "";
         if (!Kinds.Contains(kind))
-            throw Invalid("kind", "The kind is condition, budget or event.");
+            throw Invalid("kind", "The kind is condition, budget, event or report.");
         var config = await ValidateAsync(kind, request.Config ?? new NotificationRuleConfig());
         var channels = await ValidateChannelsAsync(request.Channels);
         using var conn = await _systemPool.GetConnectionAsync();
@@ -213,6 +217,8 @@ public sealed class NotificationRuleService
                     At = every == "day" ? config.At!.Trim() : null
                 };
             }
+            case "report":
+                return await _reports.ValidateAsync(config);
             case "budget":
             {
                 if (config.DashboardId is null || string.IsNullOrWhiteSpace(config.WidgetId))
@@ -367,9 +373,35 @@ public sealed class NotificationRuleService
 
     // ── Checking ─────────────────────────────────────────────────────────
 
-    /// <summary>Checks a rule now (by hand): the state is kept, and it speaks if it newly holds.</summary>
-    public async Task<NotificationRuleCheck> CheckAsync(long id, CancellationToken cancellationToken = default) =>
-        await CheckLockedAsync(await RequireAsync(id), send: true, cancellationToken);
+    /// <summary>
+    /// Checks a rule now (by hand): the state is kept, and it speaks if it newly
+    /// holds. A report is only put together, as it would go out today, not sent.
+    /// </summary>
+    public async Task<NotificationRuleCheck> CheckAsync(long id, CancellationToken cancellationToken = default)
+    {
+        var rule = await RequireAsync(id);
+        if (rule.Kind != "report")
+            return await CheckLockedAsync(rule, send: true, cancellationToken);
+        var report = await BuildReportAsync(rule.Name, rule.Config, Today(), useAi: false, cancellationToken);
+        return new NotificationRuleCheck(rule.State, false, report.Notification, []);
+    }
+
+    /// <summary>A report as it would look today, from a configuration not saved yet; without the AI's text.</summary>
+    public async Task<Notification> PreviewAsync(ReportPreviewRequest request, CancellationToken cancellationToken = default)
+    {
+        var config = await _reports.ValidateAsync(request.Config ?? new NotificationRuleConfig());
+        var name = string.IsNullOrWhiteSpace(request.Name) ? "Report" : request.Name.Trim();
+        return (await BuildReportAsync(name, config, Today(), useAi: false, cancellationToken)).Notification;
+    }
+
+    private async Task<ReportBuilder.ReportResult> BuildReportAsync(string name, NotificationRuleConfig config, DateOnly day, bool useAi, CancellationToken cancellationToken)
+    {
+        var active = (await LoadAsync())
+            .Where(r => r.Enabled && r.Kind != "report" && r.State.Active)
+            .Select(r => new NotificationFact(r.Name, r.State.Value ?? "Holds"))
+            .ToList();
+        return await _reports.BuildAsync(name, config, day, Today(), active, useAi, Link, cancellationToken);
+    }
 
     /// <summary>
     /// Sends what the rule would say now, whether or not it holds, to try the
@@ -396,6 +428,12 @@ public sealed class NotificationRuleService
                 var lines = await BudgetLinesAsync(budget);
                 var top = lines.OrderByDescending(l => l.Spent / l.Limit).Take(3).ToList();
                 notification = BudgetNotification(rule, budget, top, workspace, test: true);
+                break;
+            }
+            case "report":
+            {
+                var report = await BuildReportAsync(rule.Name, rule.Config, Today(), useAi: true, cancellationToken);
+                notification = report.Notification with { Title = $"Test: {report.Notification.Title}" };
                 break;
             }
             default:
@@ -472,6 +510,25 @@ public sealed class NotificationRuleService
                     }
                     break;
                 }
+                case "report":
+                {
+                    // Sent once per time it is due; a second scheduler tick finds it sent.
+                    var occurrence = ReportBuilder.LastOccurrence(rule.Config, DateTimeOffset.UtcNow, Zone());
+                    if (!ReportDue(rule, occurrence))
+                        return new NotificationRuleCheck(rule.State, false, null, []);
+                    try
+                    {
+                        var day = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(occurrence, Zone()).DateTime);
+                        var report = await BuildReportAsync(rule.Name, rule.Config, day, useAi: true, cancellationToken);
+                        notification = report.Notification;
+                        state = rule.State with { CheckedAt = now, Value = report.Summary, Error = null };
+                    }
+                    catch (Exception e) when (e is ApiException or InvalidOperationException)
+                    {
+                        state = rule.State with { CheckedAt = now, Error = e.Message };
+                    }
+                    break;
+                }
                 default:
                     // Events speak when they happen (OnEventAsync), not when checked.
                     state = rule.State with { CheckedAt = now };
@@ -499,8 +556,14 @@ public sealed class NotificationRuleService
         var now = DateTimeOffset.UtcNow;
         var zone = Zone();
         var due = new List<long>();
-        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "budget"))
+        foreach (var rule in (await LoadAsync()).Where(r => r.Enabled && r.Kind is "condition" or "budget" or "report"))
         {
+            if (rule.Kind == "report")
+            {
+                if (ReportDue(rule, ReportBuilder.LastOccurrence(rule.Config, now, zone)))
+                    due.Add(rule.Id);
+                continue;
+            }
             DateTimeOffset? checkedAt = rule.State.CheckedAt is { } text ? DateTimeOffset.Parse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal) : null;
             if (rule.Kind == "condition" && rule.Config.Every == "day")
             {
@@ -516,6 +579,18 @@ public sealed class NotificationRuleService
             }
         }
         return due;
+    }
+
+    /// <summary>
+    /// A report is due when its time has come since it last went out — and since
+    /// it was created or changed: a report set up at 09:00 does not send the 08:00 one.
+    /// </summary>
+    private static bool ReportDue(Rule rule, DateTimeOffset occurrence)
+    {
+        static DateTimeOffset? Parse(string? text) =>
+            DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var value) ? value : null;
+        var since = new[] { Parse(rule.State.CheckedAt), Parse(rule.UpdatedAt) }.Max();
+        return occurrence <= DateTimeOffset.UtcNow && (since is null || occurrence > since);
     }
 
     public async Task<NotificationRuleCheck> CheckScheduledAsync(long id, CancellationToken cancellationToken) =>
@@ -648,6 +723,7 @@ public sealed class NotificationRuleService
                            (rule.Config.Period is { } p ? $" · {PeriodText(p).ToLowerInvariant()}" : "") +
                            (rule.Config.Every == "day" ? $" · daily at {rule.Config.At}" : " · hourly"),
             "budget" => $"A budget at {rule.Config.Percent:0.#} % or more",
+            "report" => ReportBuilder.Summary(rule.Config),
             _ => rule.Config.Event == "import.failed" ? "A scheduled import fails" : "A price update fails"
         };
         return new NotificationRuleResponse(rule.Id, rule.Name, rule.Kind, rule.Config, rule.Channels, rule.Enabled, rule.State, summary, rule.CreatedAt, rule.UpdatedAt);

@@ -5,6 +5,7 @@ import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
 import { NotificationsPanel } from "../features/notifications/NotificationsPanel";
+import { ReportsPanel } from "../features/notifications/ReportsPanel";
 import { RulesPanel } from "../features/notifications/RulesPanel";
 import { ProblemsPanel } from "../features/problems/ProblemsPanel";
 import { BrowserFormatRow, WorkspaceFormatPanel } from "../features/settings/FormatSettings";
@@ -50,6 +51,8 @@ export function SettingsPage() {
       {user?.role === "admin" ? <NotificationsPanel /> : null}
 
       {user?.role === "admin" ? <RulesPanel /> : null}
+
+      {user?.role === "admin" ? <ReportsPanel /> : null}
 
       {user?.role === "admin" ? <ProblemsPanel /> : null}
 
