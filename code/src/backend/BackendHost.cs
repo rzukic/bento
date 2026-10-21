@@ -122,6 +122,9 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Services.Import.ImportSourceService>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationSender>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationService>();
+        services.AddSingleton<Bento.Api.Services.Apps.AppService>();
+        services.AddSingleton<Bento.Api.Services.Apps.CalendarEvents>();
+        services.AddSingleton<Bento.Api.Services.Apps.CalDavService>();
         services.AddSingleton<Bento.Api.Services.Notifications.ReportBuilder>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationRuleService>();
         services.AddHttpContextAccessor();

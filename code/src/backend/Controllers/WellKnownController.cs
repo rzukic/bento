@@ -57,6 +57,11 @@ public sealed class WellKnownController : ControllerBase
         });
     }
 
+    /// <summary>CalDAV discovery (RFC 6764): calendar apps given only the server's address find the calendars here.</summary>
+    [AcceptVerbs("GET", "HEAD", "PROPFIND", "OPTIONS")]
+    [Route("caldav")]
+    public IActionResult CalDav() => RedirectPermanent("/dav/");
+
     /// <summary>Discovery documents are public facts; browser-based clients may read them from anywhere.</summary>
     private void AllowAnyOrigin() => Response.Headers.AccessControlAllowOrigin = "*";
 }

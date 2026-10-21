@@ -49,6 +49,7 @@ const navSections: NavSection[] = [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
       { to: "/connections", label: "Connections", icon: "link" },
+      { to: "/apps", label: "Apps", icon: "calendar" },
       { to: "/ai", label: "AI", icon: "sparkles" },
     ],
   },

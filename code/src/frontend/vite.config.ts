@@ -21,6 +21,10 @@ export default defineConfig({
       },
       "/.well-known": {
         target: "http://127.0.0.1:5000"
+      },
+      // Apps (Step 5.4): CalDAV.
+      "^/dav(/|$)": {
+        target: "http://127.0.0.1:5000"
       }
     }
   },

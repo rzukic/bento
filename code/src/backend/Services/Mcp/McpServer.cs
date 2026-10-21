@@ -32,8 +32,11 @@ public sealed class McpServer
     private readonly McpCallLog _log;
     private readonly ILogger<McpServer> _logger;
 
-    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger)
+    private readonly Apps.AppService? _apps;
+
+    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger, Apps.AppService? apps = null)
     {
+        _apps = apps;
         _tools = tools;
         _log = log;
         _logger = logger;
@@ -64,7 +67,7 @@ public sealed class McpServer
         {
             return method switch
             {
-                "initialize" => Result(id, Initialize(parameters)),
+                "initialize" => Result(id, Initialize(parameters, await WorkspaceContextAsync())),
                 "ping" => Result(id, new JsonObject()),
                 "tools/list" => Result(id, new JsonObject { ["tools"] = new JsonArray(VisibleTools(caller).Select(Describe).ToArray()) }),
                 "tools/call" => await CallToolAsync(id, parameters, caller, ct),
@@ -80,7 +83,21 @@ public sealed class McpServer
         }
     }
 
-    private static JsonObject Initialize(JsonElement parameters)
+    /// <summary>What this workspace adds to the instructions: which tables are calendars on the user's devices.</summary>
+    private async Task<string?> WorkspaceContextAsync()
+    {
+        try
+        {
+            return _apps is null ? null : await _apps.McpContextAsync();
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _logger.LogWarning(e, "The apps could not be read for the MCP instructions.");
+            return null;
+        }
+    }
+
+    private static JsonObject Initialize(JsonElement parameters, string? context)
     {
         var requested = parameters.ValueKind == JsonValueKind.Object && parameters.TryGetProperty("protocolVersion", out var v) && v.ValueKind == JsonValueKind.String
             ? v.GetString()
@@ -91,7 +108,7 @@ public sealed class McpServer
             ["protocolVersion"] = version,
             ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = false } },
             ["serverInfo"] = new JsonObject { ["name"] = "bento", ["title"] = "Bento", ["version"] = Version },
-            ["instructions"] = McpTools.Instructions
+            ["instructions"] = context is null ? McpTools.Instructions : McpTools.Instructions + "\n\n" + context
         };
     }
 

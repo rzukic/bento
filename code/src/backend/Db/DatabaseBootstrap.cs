@@ -554,6 +554,45 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON _system.dashboard_versions(dashboard_id, created_at);
             """);
+
+        // Apps (Step 5.4): calendars made of tables, and one password per device.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.apps (
+                id              SERIAL PRIMARY KEY,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(30) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS _system.app_passwords (
+                id              SERIAL PRIMARY KEY,
+                app_id          INTEGER NOT NULL,
+                name            VARCHAR(100) NOT NULL,
+                secret_hash     VARCHAR(64) NOT NULL UNIQUE,
+                prefix          VARCHAR(20) NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL,
+                last_used_at    TIMESTAMPTZ,
+                revoked_at      TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON _system.app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS _system.app_events (
+                id              SERIAL PRIMARY KEY,
+                app_id          INTEGER NOT NULL,
+                calendar        VARCHAR(80) NOT NULL,
+                row_id          VARCHAR(100) NOT NULL,
+                href            VARCHAR(255) NOT NULL,
+                uid             VARCHAR(500) NOT NULL,
+                raw             TEXT,
+                updated_at      TIMESTAMPTZ NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON _system.app_events(app_id, calendar, row_id);
+            """);
     }
 
     private async Task BootstrapSqlite(System.Data.IDbConnection conn)
@@ -1037,6 +1076,45 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON dashboard_versions(dashboard_id, created_at);
+            """);
+
+        // Apps (Step 5.4): calendars made of tables, and one password per device.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS apps (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS app_passwords (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                secret_hash     TEXT NOT NULL UNIQUE,
+                prefix          TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                last_used_at    TEXT,
+                revoked_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS app_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER NOT NULL,
+                calendar        TEXT NOT NULL,
+                row_id          TEXT NOT NULL,
+                href            TEXT NOT NULL,
+                uid             TEXT NOT NULL,
+                raw             TEXT,
+                updated_at      TEXT NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON app_events(app_id, calendar, row_id);
             """);
     }
 }
