@@ -120,7 +120,7 @@ public sealed class SavedQueriesController : ControllerBase
     }
 
     [HttpPut("{id:long}")]
-    public async Task<IActionResult> Update(long id, [FromBody] SavedQueryRequest request)
+    public async Task<IActionResult> Update(long id, [FromBody] SavedQueryRequest request, [FromServices] QueryTables tables)
     {
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
@@ -145,17 +145,42 @@ public sealed class SavedQueriesController : ControllerBase
                 Now = UtcNowIso()
             });
 
+        tables.Forget(id);
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
     [HttpDelete("{id:long}")]
-    public async Task<IActionResult> Delete(long id)
+    public async Task<IActionResult> Delete(long id, [FromServices] QueryTables tables)
     {
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         RequireOwner(await GetVisibleAsync(conn, id, userId), userId);
+        if (tables.TablesOf(id) is { Count: > 0 } used)
+            throw new ApiConflictException($"The table {string.Join(", ", used)} is made from this query; delete the table first (Schema).",
+                new Dictionary<string, object?> { ["tables"] = used });
         await conn.ExecuteAsync($"DELETE FROM {Table} WHERE id = @Id", new { Id = id });
         return NoContent();
+    }
+
+    public sealed record QueryTableRequest
+    {
+        /// <summary>The table's name; from the query's name when left out.</summary>
+        public string? Name { get; init; }
+    }
+
+    /// <summary>
+    /// The saved query's result as a read-only table of the model (Step 5.8),
+    /// filled again whenever the data changes. A change of the model: admins.
+    /// </summary>
+    [HttpPost("{id:long}/table")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> AsTable(long id, [FromBody] QueryTableRequest? request, [FromServices] QueryTables tables)
+    {
+        var userId = UserId();
+        using (var conn = await _systemPool.GetConnectionAsync())
+            await GetVisibleAsync(conn, id, userId);
+        var table = await tables.CreateAsync(id, request?.Name);
+        return StatusCode(StatusCodes.Status201Created, new { data = tables.StatusOf(table) });
     }
 
     /// <summary>Runs a saved query; extra filters (e.g. a dashboard's date range) are added to its own.</summary>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -8,6 +8,7 @@ import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
 import { useRowCounts } from "../../hooks/useRowCounts";
 import { useAuthStore } from "../../stores/authStore";
+import { QueryTableDialog } from "./QueryTable";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { TableRow } from "./components/TableCard";
 import "./DataExplorer.css";
@@ -18,6 +19,7 @@ export function DataExplorerPage() {
   const error = useSchemaStore((state) => state.error);
   const load = useSchemaStore((state) => state.load);
   const user = useAuthStore((state) => state.user);
+  const [queryTableOpen, setQueryTableOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -144,8 +146,12 @@ export function DataExplorerPage() {
           >
             New table from CSV
           </Button>
+          <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="layers" size={13} />} onClick={() => setQueryTableOpen(true)}>
+            New table from a query
+          </Button>
         </div>
       ) : null}
+      {queryTableOpen ? <QueryTableDialog onClose={() => setQueryTableOpen(false)} /> : null}
       <section className="table-list-section" aria-label="Tables">
         <ul className="table-list" role="list">
           {dataTables.map((table) => (

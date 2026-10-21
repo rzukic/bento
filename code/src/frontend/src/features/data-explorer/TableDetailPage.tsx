@@ -27,6 +27,7 @@ import {
   DataQueryControls,
 } from "./components/DataQueryControls";
 import { KanbanConfigPanel } from "./components/KanbanConfigPanel";
+import { QueryTableBanner } from "./QueryTable";
 import { ViewRenderer } from "./components/ViewRenderer";
 import { RecordEditor } from "./RecordEditor";
 import {
@@ -918,6 +919,7 @@ export function TableDetailPage() {
       </div>
       <div className="table-detail__views" ref={setViewSlot} />
       </header>
+      {resolvedTable.fromQuery ? <QueryTableBanner table={resolvedTable} /> : null}
 
       {/* Data panel */}
       {view && dataStatus !== "idle" ? (
@@ -966,6 +968,8 @@ export function TableDetailPage() {
             }}
             toolbarActions={
               <>
+                {/* A table made from a saved query fills itself (Step 5.8): no import, no new rows. */}
+                {resolvedTable.fromQuery ? null : (
                 <Button
                   type="button"
                   variant="ghost"
@@ -978,6 +982,7 @@ export function TableDetailPage() {
                     <span className="data-controls__menu-button-label">Import</span>
                   </span>
                 </Button>
+                )}
                 {categorisableColumns(resolvedTable).length > 0 ? (
                   <Button
                     type="button"
@@ -1264,7 +1269,7 @@ export function TableDetailPage() {
                 rowErrors={rowErrors}
                 selectedRowIds={selectedRowIds}
                 onAddRow={
-                  view.config.type === "table" && context === null
+                  view.config.type === "table" && context === null && !resolvedTable.fromQuery
                     ? handleAddRow
                     : undefined
                 }
@@ -1293,7 +1298,7 @@ export function TableDetailPage() {
                 editingCell={editingCell}
                 cellErrors={cellErrors}
                 onStartEdit={(row, column) => {
-                  if (!resolvedTable) return;
+                  if (!resolvedTable || resolvedTable.fromQuery) return;
                   const rowId = String(row.id ?? "");
                   if (!rowId) return;
                   startCellEdit(resolvedTable.name, rowId, column.name);

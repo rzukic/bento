@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Saved Queries As Tables
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.8 — Saved Queries As Tables](working-steps/5.8-saved-queries-as-tables.md)
+
+A saved query's result — monthly spending, hours per project — as a table you can use everywhere.
+
+**Highlights:**
+- **Data → New table from a query**: `monthly_spending` from the "Monthly spending" query.
+- **Like any table**: the source of other queries and widgets, in formulas and variables, over the API, MCP and share links.
+- **Always current**: filled again when the data changed, before anyone reads it; *Refresh now* fills it at once.
+- **Read-only**: change the query, and the table follows.
+
 ### 2026-10-21 — Public Forms
 
 > **Phase**: Phase 5 — Integration

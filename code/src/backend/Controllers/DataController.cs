@@ -34,9 +34,10 @@ public sealed class DataController : ControllerBase
     /// List rows in a table (paginated, filterable, sortable).
     /// </summary>
     [HttpGet("{table}")]
-    public async Task<IActionResult> List(string table, [FromServices] Services.Sharing.ShareGuard guard)
+    public async Task<IActionResult> List(string table, [FromServices] Services.Sharing.ShareGuard guard, [FromServices] QueryTables queryTables)
     {
         var tableDef = ResolveTable(table);
+        await queryTables.EnsureCurrentAsync(tableDef.Name);
         var parameters = QueryParameterParser.Parse(Request.Query, tableDef);
         // A share link's visitor reads only the dashboard's tables of rows and targets (Step 5.6).
         if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)

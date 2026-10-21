@@ -213,6 +213,15 @@ CUSTOM_ROWS("running_total", PARTITION(account_id), ORDER(date, id), amount)
 
 Example: buy 10 at 100 (+1 fee), buy 10 at 120 (+1), sell 5 at 130 (−2). By average cost the 20 shares cost 2202, 110.10 each, so the sale gains 650 − 2 − 550.50 = **97.50**. By FIFO the 5 shares come from the first buy at 100.10, so it gains **147.50**. `SUM(cost)` over a position is what the shares still held cost, and `SUM(value - cost)` its unrealised gain.
 
+## A Saved Query As A Table
+
+A saved query's result — *monthly spending*, *hours per project and week* — can become a table of its own: **Data → New table from a query** (admins), choose the query and a name such as `monthly_spending`. The table has a column per group and measure of the query (`month`, `spent`, `bookings`) and a row per result row.
+
+- Use it like any table: as the source of another query or dashboard widget (`AVG(spent)` over the months), in a dashboard variable (`MIN(spent)` on `monthly_spending`), over the API and MCP, in share links.
+- **Always current**: when the workspace's data or model changed since it was filled, it is filled again before anyone reads it. *Refresh now* on the table fills it at once; the note above the table says when it was filled and how many rows it has (at most 10 000).
+- **Read-only**: it has no import and no new rows; change the query instead. When the query changes (another measure, a renamed group), the table follows with its columns.
+- A saved query with a table cannot be deleted; delete the table first (Schema).
+
 ## Not Yet
 
 - formulas in saved queries are not updated when a column they use is renamed (stored columns in saved queries are)
