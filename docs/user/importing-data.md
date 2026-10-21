@@ -88,7 +88,7 @@ If your bank, broker or app offers the export at an address, choose **From a URL
 
 After fetching from a URL and choosing the columns, **Fetch and import on its own** saves the address, how the file is read, the columns and keys, **Update rows that changed** and the column filled in by your rules (e.g. Category). Choose when it runs:
 
-- **Every day** at a time (in Europe/Berlin), for example 06:00. A time that has already passed today starts tomorrow.
+- **Every day** at a time (in the workspace's time zone, Settings → Workspace), for example 06:00. A time that has already passed today starts tomorrow.
 - **Every few hours** (1 to 168); the first run is right away.
 - **Only when I run it**.
 

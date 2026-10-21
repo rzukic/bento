@@ -122,7 +122,7 @@ public static class FormulaFunctions
         new("SEARCH", "Text", "SEARCH(search, text)", "The position of search in text, ignoring case; 0 when it is not found.", "SEARCH(\"rewe\", counterparty)", "integer"),
         new("CONTAINS", "Text", "CONTAINS(text, search)", "True when text contains search, ignoring case.", "CONTAINS(purpose, \"miete\")", "boolean"),
 
-        new("TODAY", "Date", "TODAY()", "Today's date (UTC).", "DATEDIFF(booked_on, TODAY(), \"days\")", "date"),
+        new("TODAY", "Date", "TODAY()", "Today's date in the workspace's time zone (Settings → Workspace).", "DATEDIFF(booked_on, TODAY(), \"days\")", "date"),
         new("NOW", "Date", "NOW()", "The current date and time (UTC, whole seconds).", "DATEDIFF(created_at, NOW(), \"days\")", "datetime"),
         new("YEAR", "Date", "YEAR(date)", "The year of a date.", "YEAR(booked_on)", "integer"),
         new("MONTH", "Date", "MONTH(date)", "The month of a date, 1–12.", "MONTH(booked_on)", "integer"),

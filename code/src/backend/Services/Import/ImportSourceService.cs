@@ -17,7 +17,6 @@ namespace Bento.Api.Services.Import;
 /// </summary>
 public sealed class ImportSourceService
 {
-    public const string DefaultTimeZone = "Europe/Berlin";
     private const int KeptRuns = 100;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -35,6 +34,7 @@ public sealed class ImportSourceService
     private readonly ICustomValueRecalculation? _recalculation;
     private readonly ILogger<ImportSourceService>? _logger;
     private readonly Notifications.NotificationRuleService? _rules;
+    private readonly WorkspaceSettings? _workspace;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
     public ImportSourceService(
@@ -47,9 +47,11 @@ public sealed class ImportSourceService
         ProblemLog problems,
         ICustomValueRecalculation? recalculation = null,
         ILogger<ImportSourceService>? logger = null,
-        Notifications.NotificationRuleService? rules = null)
+        Notifications.NotificationRuleService? rules = null,
+        WorkspaceSettings? workspace = null)
     {
         _rules = rules;
+        _workspace = workspace;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
         _import = import;
@@ -237,8 +239,9 @@ public sealed class ImportSourceService
             case "daily":
                 if (!TimeOnly.TryParseExact(schedule.At?.Trim(), "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
                     throw Invalid("config.schedule.at", "Give the time of day as HH:mm, e.g. 06:30.");
-                var zone = string.IsNullOrWhiteSpace(schedule.TimeZone) ? DefaultTimeZone : schedule.TimeZone.Trim();
-                if (!TimeZoneInfo.TryFindSystemTimeZoneById(zone, out _))
+                // No zone of its own: the workspace's (Settings → Workspace), also after it changes.
+                var zone = string.IsNullOrWhiteSpace(schedule.TimeZone) ? null : schedule.TimeZone.Trim();
+                if (zone is not null && !TimeZoneInfo.TryFindSystemTimeZoneById(zone, out _))
                     throw Invalid("config.schedule.timeZone", $"Unknown time zone '{zone}'.");
                 schedule = new ImportSchedule { Kind = "daily", At = schedule.At!.Trim(), TimeZone = zone };
                 break;
@@ -444,7 +447,9 @@ public sealed class ImportSourceService
         if (schedule.Kind == "hours")
             return last is null ? created : last.Value.AddHours(schedule.Every ?? 24);
 
-        var zone = TimeZoneInfo.TryFindSystemTimeZoneById(schedule.TimeZone ?? DefaultTimeZone, out var found) ? found : TimeZoneInfo.Utc;
+        var zone = schedule.TimeZone is { } own && TimeZoneInfo.TryFindSystemTimeZoneById(own, out var found)
+            ? found
+            : (_workspace is null ? WorkspaceCalendar.Default : await _workspace.CalendarAsync()).Zone;
         var at = TimeOnly.ParseExact(schedule.At ?? "06:00", "HH:mm", CultureInfo.InvariantCulture);
         var localNow = TimeZoneInfo.ConvertTime(now, zone);
         DateTimeOffset At(DateTime day)

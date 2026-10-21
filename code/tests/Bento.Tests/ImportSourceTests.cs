@@ -179,13 +179,15 @@ public sealed class ImportSourceTests
         Assert.Contains("1 to 168", await SendAsync(host, editor, HttpMethod.Post, path, Body(new { kind = "hours", every = 0 }, "Bearer plain"), HttpStatusCode.BadRequest));
         Assert.Contains("Only admins", await SendAsync(host, editor, HttpMethod.Post, path, Body(new { kind = "daily", at = "06:30" }, "Bearer {{bank_token}}"), HttpStatusCode.Forbidden));
 
+        // Without a zone of its own the import runs in the workspace's.
+        await SendAsync(host, admin, HttpMethod.Put, "/api/v1/admin/settings", new { locale = (string?)null, currency = "EUR", timeZone = "America/New_York" }, HttpStatusCode.OK);
         var saved = await SendAsync(host, admin, HttpMethod.Post, path, Body(new { kind = "daily", at = "06:30" }, "Bearer {{bank_token}}"), HttpStatusCode.Created);
         var source = JsonDocument.Parse(saved).RootElement.GetProperty("data");
-        Assert.Equal("Europe/Berlin", source.GetProperty("config").GetProperty("schedule").GetProperty("timeZone").GetString());
-        // The next 06:30 in Berlin.
+        Assert.False(source.GetProperty("config").GetProperty("schedule").TryGetProperty("timeZone", out var own) && own.ValueKind == JsonValueKind.String);
+        // The next 06:30 in New York.
         var next = DateTimeOffset.Parse(source.GetProperty("nextRunAt").GetString()!);
-        var berlin = TimeZoneInfo.ConvertTime(next, TimeZoneInfo.FindSystemTimeZoneById("Europe/Berlin"));
-        Assert.Equal(new TimeSpan(6, 30, 0), berlin.TimeOfDay);
+        var local = TimeZoneInfo.ConvertTime(next, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+        Assert.Equal(new TimeSpan(6, 30, 0), local.TimeOfDay);
         Assert.True(next <= DateTimeOffset.UtcNow.AddDays(1));
 
         Assert.Contains("only admins can change it", await SendAsync(host, editor, HttpMethod.Put, $"{path}/{source.GetProperty("id")}", new { name = "Mine" }, HttpStatusCode.Forbidden));

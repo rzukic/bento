@@ -19,6 +19,11 @@ export type SetupStatus = {
   /** How the workspace writes numbers and dates (null: each browser's language) and the currency of amounts. */
   locale?: string | null;
   currency?: string;
+  /** The workspace's calendar: the time zone of "today" and schedules (the server's when not chosen), week and year start. */
+  time_zone?: string;
+  time_zone_set?: boolean;
+  week_start?: "monday" | "sunday" | "saturday";
+  year_start?: number;
 };
 
 /** Mirrors `SampleDataResponse`: summary returned after the demo workspace was loaded. */

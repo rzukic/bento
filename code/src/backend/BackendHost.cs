@@ -95,7 +95,8 @@ public static class BackendHost
         services.AddSingleton<IDataPool>(serviceProvider =>
             new DataPool(
                 dbConfig,
-                serviceProvider.GetRequiredService<ILogger<DataPool>>()));
+                serviceProvider.GetRequiredService<ILogger<DataPool>>(),
+                serviceProvider.GetRequiredService<WorkspaceSettings>().CalendarAsync));
 
         services.AddSingleton<QueryService>();
         DapperTypeHandlers.Register();

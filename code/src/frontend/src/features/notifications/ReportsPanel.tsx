@@ -25,6 +25,7 @@ import { Panel } from "../../components/ui/Panel";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { errorText, formatWhen } from "./RulesPanel";
+import { workspaceCalendar } from "../../lib/calendar";
 import "./Notifications.css";
 
 const UNITS: { value: ReportUnit; label: string; noun: string }[] = [
@@ -34,6 +35,7 @@ const UNITS: { value: ReportUnit; label: string; noun: string }[] = [
   { value: "quarter", label: "Every quarter", noun: "quarter" },
   { value: "year", label: "Every year", noun: "year" },
 ];
+const YEAR_MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const WEEKDAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const FORMATS: { value: ReportFormat; label: string }[] = [
   { value: "auto", label: "As the formula gives it" },
@@ -425,7 +427,7 @@ function ReportForm({
           </label>
         ) : every !== "day" ? (
           <label className="field field--compact">
-            <span className="field__label">{every === "month" ? "On day" : every === "quarter" ? "On day of the quarter's first month" : "On day of January"}</span>
+            <span className="field__label">{every === "month" ? "On day" : every === "quarter" ? "On day of the quarter's first month" : `On day of ${YEAR_MONTHS[workspaceCalendar().yearStart - 1]}`}</span>
             <select className="field__control field__control--compact" value={day} onChange={(e) => setDay(Number(e.target.value))}>
               {Array.from({ length: 28 }, (_, index) => index + 1).map((value) => (
                 <option key={value} value={value}>
@@ -546,7 +548,7 @@ function ReportForm({
           Cancel
         </Button>
       </div>
-      <p className="channel-form__hint">Periods and times are in Europe/Berlin. The preview shows the report as it would go out today, without the AI's sentences.</p>
+      <p className="channel-form__hint">Periods and times follow the workspace's calendar ({workspaceCalendar().timeZone}, Settings → Workspace). The preview shows the report as it would go out today, without the AI's sentences.</p>
     </div>
   );
 }

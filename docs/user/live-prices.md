@@ -47,7 +47,7 @@ Functions that call APIs run only as price sources (and in the editor's test run
 | Setting | Meaning |
 |---|---|
 | Fresh for (minutes) | A dashboard fetches again when the last fetch is older (default 15) |
-| Daily run at, Time zone | When closing prices and new securities' history are fetched (default 22:30 Europe/Berlin) |
+| Daily run at, Time zone | When closing prices and new securities' history are fetched (default 22:30; the time zone is the workspace's unless the source names its own) |
 | History from | How far back to fetch for a new security (default: five years) |
 | Securities from | The column listing your securities, e.g. `finance_trades.isin`; you can also just enter symbols |
 | Max requests a day | Stops fetching for the day after this many requests |

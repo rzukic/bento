@@ -1234,7 +1234,8 @@ public sealed class FormulaCompiler
             }
             case "TODAY":
                 return Arity(call, 0, 0)
-                    ? new Expr(_pg ? "CAST((now() AT TIME ZONE 'UTC') AS DATE)" : "date('now')", FormulaType.Date, call)
+                    // The workspace's day: its time zone is set on each data connection.
+                    ? new Expr(_pg ? "CAST((now() AT TIME ZONE COALESCE(NULLIF(current_setting('bento.time_zone', true), ''), 'UTC')) AS DATE)" : "bento_today()", FormulaType.Date, call)
                     : null;
             case "NOW":
                 return Arity(call, 0, 0)

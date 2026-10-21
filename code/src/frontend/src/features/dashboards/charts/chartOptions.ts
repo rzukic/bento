@@ -1,4 +1,5 @@
 import type { EChartsCoreOption } from "echarts/core";
+import { quarterName, yearName } from "../../../lib/calendar";
 import type { QueryBucket, SeriesColor } from "../../../api/query";
 import type { AnnotationColor, WidgetType } from "../../../api/dashboards";
 import { annotationsAt, type PlacedAnnotations } from "../chartTransforms";
@@ -44,9 +45,9 @@ export function formatBucketLabel(value: string, bucket: QueryBucket | undefined
   const date = new Date(Date.UTC(y, m - 1, d));
   switch (bucket) {
     case "year":
-      return String(y);
+      return yearName(value);
     case "quarter":
-      return `Q${Math.floor((m - 1) / 3) + 1} ${String(y).slice(2)}`;
+      return quarterName(value, true);
     case "month":
       return new Intl.DateTimeFormat(locale, { month: "short", year: "2-digit", timeZone: "UTC" }).format(date);
     default:
@@ -61,9 +62,9 @@ export function formatBucketTitle(value: string, bucket: QueryBucket | undefined
   const date = new Date(Date.UTC(y, m - 1, d));
   switch (bucket) {
     case "year":
-      return String(y);
+      return yearName(value);
     case "quarter":
-      return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
+      return quarterName(value);
     case "month":
       return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
     default:

@@ -81,7 +81,7 @@ A few details:
 - `SEARCH` and `CONTAINS` ignore upper/lower case; `REPLACE` matches exactly
 - `DATEDIFF` counts whole units from start to end (negative when end is earlier) and ignores the time of day; Jan 31 to Feb 28 is 0 months
 - `DATEADD` keeps month ends in their month: Jan 31 + 1 month is Feb 28, Feb 29 + 1 year is Feb 28
-- `TODAY()` and `NOW()` are UTC
+- `TODAY()` is today in the workspace's time zone (Settings → Workspace); `NOW()` is the current moment in UTC
 
 The full list with descriptions and examples is at `GET /api/v1/formulas/functions` and in the editor's suggestions.
 

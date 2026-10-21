@@ -183,6 +183,7 @@ public sealed record ImportSchedule
     public string? At { get; init; }
     /// <summary>hours: 1–168.</summary>
     public int? Every { get; init; }
+    /// <summary>An IANA time zone; none: the workspace's (Settings → Workspace).</summary>
     public string? TimeZone { get; init; }
 }
 

@@ -3,6 +3,7 @@ import { ApiClientError } from "../../api/client";
 import type { SetupStatus } from "../../types/setup";
 import { getSetupStatus } from "./api";
 import { setWorkspaceFormat } from "../../lib/preferences";
+import { setWorkspaceCalendar } from "../../lib/calendar";
 
 /**
  * Installation state lifecycle:
@@ -48,6 +49,7 @@ export const useSetupStore = create<SetupStoreState>((set, get) => ({
     try {
       const info = await getSetupStatus();
       setWorkspaceFormat(info.locale, info.currency);
+      setWorkspaceCalendar({ timeZone: info.time_zone, weekStart: info.week_start, yearStart: info.year_start });
       set({ status: "ready", info, error: null });
       return info;
     } catch (cause) {

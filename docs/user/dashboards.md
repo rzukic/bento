@@ -55,7 +55,7 @@ A deleted dashboard appears under **Recently deleted** in the list of dashboards
 
 ## Date Range And Refresh
 
-The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
+The range at the top (last 7 days, this or last week, this or last month, this or last quarter, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Weeks, quarters and years start where the workspace says (Settings → Workspace), so "this year" can be a fiscal year from April; "today" is in the workspace's time zone. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
 
 A widget can have its own range under **Data → Date range**, e.g. a forecast over the next 20 years on a dashboard of the last 12 months.
 

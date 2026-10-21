@@ -1,8 +1,14 @@
 import type { DashboardDateRange, DateRangePreset } from "../../api/dashboards";
+import { nextPeriodStart, periodStart, todayIso, type CalendarUnit } from "../../lib/calendar";
 
 export const DATE_RANGE_PRESETS: { value: DateRangePreset; label: string }[] = [
   { value: "last-7-days", label: "Last 7 days" },
+  { value: "this-week", label: "This week" },
+  { value: "last-week", label: "Last week" },
   { value: "this-month", label: "This month" },
+  { value: "last-month", label: "Last month" },
+  { value: "this-quarter", label: "This quarter" },
+  { value: "last-quarter", label: "Last quarter" },
   { value: "last-3-months", label: "Last 3 months" },
   { value: "last-6-months", label: "Last 6 months" },
   { value: "last-12-months", label: "Last 12 months" },
@@ -43,23 +49,49 @@ function iso(year: number, month: number, day = 1): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** Whole months and years, so a chart's first and last bucket are complete. */
+/** The period holding today, or the one before it: weeks, quarters and years as the workspace starts them. */
+function period(unit: CalendarUnit, current: string, back: number): ResolvedRange {
+  let from = periodStart(current, unit);
+  for (let i = 0; i < back; i++) from = periodStart(isoDayBefore(from), unit);
+  return { from, to: nextPeriodStart(from, unit) };
+}
+
+function isoDayBefore(value: string): string {
+  const [y, m, d] = value.split("-").map(Number);
+  return iso(y, m, d - 1);
+}
+
+/**
+ * Whole months and years, so a chart's first and last bucket are complete.
+ * "Today" is the workspace's day (its time zone); weeks, quarters and years
+ * start where the workspace says (Settings → Workspace).
+ */
 export function resolveRange(range: DashboardDateRange | undefined, today = new Date()): ResolvedRange {
   if (!range) return { from: null, to: null };
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
+  const current = todayIso(today);
+  const [year, month, day] = current.split("-").map(Number);
   if ("from" in range) {
     // A custom "to" is the last day shown; the filter needs the day after.
     const [y, m, d] = range.to.split("-").map(Number);
-    const future = !!range.to && range.to > iso(year, month, today.getDate());
+    const future = !!range.to && range.to > current;
     return { from: range.from || null, to: range.to ? iso(y, m, d + 1) : null, ...(future ? { future } : {}) };
   }
   switch (range.preset) {
     case "last-7-days":
       // Today and the six days before it.
-      return { from: iso(year, month, today.getDate() - 6), to: iso(year, month, today.getDate() + 1) };
+      return { from: iso(year, month, day - 6), to: iso(year, month, day + 1) };
+    case "this-week":
+      return period("week", current, 0);
+    case "last-week":
+      return period("week", current, 1);
     case "this-month":
       return { from: iso(year, month), to: iso(year, month + 1) };
+    case "last-month":
+      return { from: iso(year, month - 1), to: iso(year, month) };
+    case "this-quarter":
+      return period("quarter", current, 0);
+    case "last-quarter":
+      return period("quarter", current, 1);
     case "last-3-months":
       return { from: iso(year, month - 2), to: iso(year, month + 1) };
     case "last-6-months":
@@ -67,9 +99,9 @@ export function resolveRange(range: DashboardDateRange | undefined, today = new 
     case "last-12-months":
       return { from: iso(year, month - 11), to: iso(year, month + 1) };
     case "this-year":
-      return { from: iso(year, 1), to: iso(year + 1, 1) };
+      return period("year", current, 0);
     case "last-year":
-      return { from: iso(year - 1, 1), to: iso(year, 1) };
+      return period("year", current, 1);
     // Whole months, like the 12-month range: the current one and the 35 or 59 before.
     case "last-3-years":
       return { from: iso(year, month - 35), to: iso(year, month + 1) };

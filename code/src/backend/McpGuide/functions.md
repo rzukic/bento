@@ -30,7 +30,7 @@ A function `(symbols, from, to) → [{ symbol, date, price, time? }]` plus where
 
 ```json
 { "function": "yahoo_prices", "table": "prices", "keyColumn": "isin", "dateColumn": "date", "priceColumn": "price",
-  "keysFrom": "trades.isin", "symbols": { "IE00BK5BQT80": "VWCE.DE" }, "freshMinutes": 15, "dailyAt": "22:30", "timeZone": "Europe/Berlin" }
+  "keysFrom": "trades.isin", "symbols": { "IE00BK5BQT80": "VWCE.DE" }, "freshMinutes": 15, "dailyAt": "22:30" }
 ```
 
 Templates ("Prices from Yahoo Finance", "Xetra symbols for ISINs (OpenFIGI)", average cost, FIFO): `call_api` `GET /api/v1/functions/templates`.
