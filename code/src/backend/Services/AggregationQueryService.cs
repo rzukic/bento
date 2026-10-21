@@ -43,8 +43,9 @@ public sealed class AggregationQueryService
     private readonly WorkspaceSettings? _workspace;
 
     public AggregationQueryService(SchemaCache schemaCache, QueryService queryService, DatabaseConfig dbConfig, ComputedColumns computed, QueryIndexes indexes,
-        ProblemLog problems, IHttpContextAccessor http, WorkspaceSettings? workspace = null)
+        ProblemLog problems, IHttpContextAccessor http, WorkspaceSettings? workspace = null, QueryTables? queryTables = null)
     {
+        _queryTables = queryTables;
         _workspace = workspace;
         _indexes = indexes;
         _problems = problems;
@@ -54,6 +55,8 @@ public sealed class AggregationQueryService
         _dbConfig = dbConfig;
         _computed = computed;
     }
+
+    private readonly QueryTables? _queryTables;
 
     private bool IsPostgres => _dbConfig.Provider == DatabaseProvider.Postgres;
 
@@ -112,6 +115,9 @@ public sealed class AggregationQueryService
     {
         if (_workspace is not null)
             await _workspace.EnsureLoadedAsync();
+        // A table made from a saved query is filled again first when the data changed (Step 5.8).
+        if (_queryTables is not null)
+            await _queryTables.EnsureCurrentAsync(request.Source);
         var plan = Resolve(request, extraFilter, variables);
         // For the problem log: the query this request ran, if it fails or times out.
         var json = ProblemQueryJson(request, extraFilter, variables);
@@ -535,6 +541,11 @@ public sealed class AggregationQueryService
         var definitions = request.Variables ?? [];
         if (definitions.Count > MaxVariables)
             throw Invalid("variables", $"A dashboard has at most {MaxVariables} variables.");
+        if (_queryTables is not null)
+        {
+            foreach (var source in definitions.Select(d => d.Source).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct(StringComparer.OrdinalIgnoreCase))
+                await _queryTables.EnsureCurrentAsync(source);
+        }
         var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (definition, index) in definitions.Select((d, i) => (d, i)))
         {

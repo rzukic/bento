@@ -6159,3 +6159,32 @@
         min-width: 0;
     }
 }
+
+/* Tables made from saved queries (Step 5.8) */
+.query-table__form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.query-table__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.query-table__banner {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.query-table__banner span {
+  flex: 1;
+}

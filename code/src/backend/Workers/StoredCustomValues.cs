@@ -50,14 +50,18 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
         set => _status[Ws] = value;
     }
 
+    private readonly Services.DataVersion? _versions;
+
     public StoredCustomValues(
         IDataPool dataPool,
         ISystemPool systemPool,
         SchemaCache schemaCache,
         ComputedColumns computed,
         ILogger<StoredCustomValues>? logger = null,
-        Services.Workspaces.WorkspaceService? workspaces = null)
+        Services.Workspaces.WorkspaceService? workspaces = null,
+        Services.DataVersion? versions = null)
     {
+        _versions = versions;
         _workspaces = workspaces;
         _dataPool = dataPool;
         _systemPool = systemPool;
@@ -98,6 +102,8 @@ public sealed class StoredCustomValues : BackgroundService, ICustomValueRecalcul
     /// <summary>Asks for a run in the current workspace.</summary>
     public void Request()
     {
+        // Every write and model change asks for this: tables made from saved queries see it too (Step 5.8).
+        _versions?.Bump();
         _pending[Ws] = true;
         _requests.Writer.TryWrite(true);
     }

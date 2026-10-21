@@ -32,19 +32,37 @@ public sealed class CrudService
     private readonly RequestBodyValidator _validator;
     private readonly SchemaCache _schemaCache;
     private readonly ComputedColumns _computed;
+    private readonly DataVersion? _versions;
 
     public CrudService(
         QueryService queryService,
         DatabaseConfig dbConfig,
         RequestBodyValidator validator,
         SchemaCache schemaCache,
-        ComputedColumns computed)
+        ComputedColumns computed,
+        DataVersion? versions = null)
     {
         _queryService = queryService;
         _dbConfig = dbConfig;
         _validator = validator;
         _schemaCache = schemaCache;
         _computed = computed;
+        _versions = versions;
+    }
+
+    /// <summary>A table made from a saved query (Step 5.8): its rows come from the query.</summary>
+    public static long? SourceQueryOf(TableDef table) =>
+        table.AdditionalData is not null && table.AdditionalData.TryGetValue("fromQuery", out var id) && id.ValueKind == JsonValueKind.Number && id.TryGetInt64(out var value)
+            ? value
+            : null;
+
+    /// <summary>Rows of a table made from a saved query change with the query, not by hand; every other write counts as a change.</summary>
+    private void BeforeWrite(TableDef table)
+    {
+        if (SourceQueryOf(table) is not null)
+            throw new ApiForbiddenException($"'{table.Name}' is made from a saved query; change the query, not its rows.",
+                new Dictionary<string, object?> { ["table"] = table.Name });
+        _versions?.Bump();
     }
 
     /// <summary>A query for whole rows: the stored columns and the computed ones.</summary>
@@ -140,6 +158,7 @@ public sealed class CrudService
 
     public async Task<IDictionary<string, object?>> CreateAsync(TableDef table, JsonElement body)
     {
+        BeforeWrite(table);
         await _validator.ValidateCreateAsync(table, body);
 
         var columns = GetWritableColumns(table);
@@ -206,6 +225,7 @@ public sealed class CrudService
 
     public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, string id, JsonElement body)
     {
+        BeforeWrite(table);
         var keyValues = GetKeyValues(table, id);
         var validationId = GetSingleKeyValueOrCompositeToken(keyValues, id);
         await EnsureRowExistsAsync(table, keyValues);
@@ -235,6 +255,7 @@ public sealed class CrudService
 
     public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, string id, JsonElement body)
     {
+        BeforeWrite(table);
         var keyValues = GetKeyValues(table, id);
         var validationId = GetSingleKeyValueOrCompositeToken(keyValues, id);
         await EnsureRowExistsAsync(table, keyValues);
@@ -304,6 +325,7 @@ public sealed class CrudService
 
     public async Task DeleteAsync(TableDef table, string id)
     {
+        BeforeWrite(table);
         var keyValues = GetKeyValues(table, id);
         await using var scope = await _queryService.UseDataAsync();
         var affected = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).DeleteAsync();
@@ -611,6 +633,7 @@ public sealed class CrudService
     /// </summary>
     public async Task<IReadOnlyList<BulkRowResult>> BulkAsync(TableDef table, IReadOnlyList<JsonElement> rows, IReadOnlyList<string> upsertOn)
     {
+        BeforeWrite(table);
         if (rows.Count == 0)
             throw new ApiValidationException("Send at least one row.", new Dictionary<string, object?> { ["field"] = "rows" });
         if (rows.Count > MaxBulkRows)
@@ -776,6 +799,7 @@ public sealed class CrudService
     {
         if (bodies.Count == 0 && updates.Count == 0)
             return (0, 0);
+        BeforeWrite(table);
 
         var columns = GetWritableColumns(table);
         var primaryKeyColumns = GetPrimaryKeyColumns(table);
@@ -810,6 +834,24 @@ public sealed class CrudService
         }
         transaction.Commit();
         return (bodies.Count, updates.Count);
+    }
+
+    /// <summary>
+    /// The rows of a table made from a saved query, all replaced at once (Step
+    /// 5.8): readers see the old rows or the new ones, never half of them.
+    /// </summary>
+    internal async Task ReplaceAllAsync(TableDef table, IReadOnlyList<JsonElement> bodies)
+    {
+        var columns = GetWritableColumns(table);
+        await using var scope = await _queryService.UseDataAsync();
+        var connection = scope.Db.Connection;
+        if (connection.State != ConnectionState.Open)
+            connection.Open();
+        using var transaction = connection.BeginTransaction();
+        await scope.Db.Query(table.Name).DeleteAsync(transaction);
+        foreach (var body in bodies)
+            await InsertAsync(scope, table.Name, ExtractColumnValues(body, columns), transaction);
+        transaction.Commit();
     }
 
     private static List<ColumnDef> GetPrimaryKeyColumns(TableDef table)

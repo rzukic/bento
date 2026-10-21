@@ -103,6 +103,9 @@ public static class McpPermissions
             return HttpMethods.IsDelete(method) ? DeleteRows : WriteRows;
         if (Under("/import"))
             return WriteRows;
+        // A saved query as a table changes the model.
+        if (Under("/queries") && p.EndsWith("/table", StringComparison.Ordinal))
+            return Schema;
         if (Under("/dashboards") || Under("/queries"))
             return Dashboards;
         if (Under("/forms"))
