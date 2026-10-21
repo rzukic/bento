@@ -35,8 +35,9 @@ public sealed class ApiKeyService
     /// Null for read and read-write keys.
     /// </param>
     /// <param name="Workspaces">The workspaces the key may use (Step 5.5); null: all.</param>
+    /// <param name="Tables">The only tables the key may read and write rows of; null: all.</param>
     public sealed record ApiKeyIdentity(long KeyId, long UserId, string Username, string Scope, IReadOnlyList<string>? Permissions = null, string? UserRole = null,
-        IReadOnlyList<long>? Workspaces = null)
+        IReadOnlyList<long>? Workspaces = null, IReadOnlyList<string>? Tables = null)
     {
         /// <summary>
         /// A key never does more than its user in the workspace it is used in: a
@@ -63,8 +64,12 @@ public sealed class ApiKeyService
         public string? LastUsedAt { get; init; }
         public string? RevokedAt { get; init; }
         public string? WorkspacesJson { get; init; }
+        public string? TablesJson { get; init; }
 
         public string Scope => ReadScopes(Scopes);
+
+        /// <summary>The only tables the key may use; null: all.</summary>
+        public IReadOnlyList<string>? Tables => ReadTables(TablesJson);
 
         /// <summary>The workspaces the key may use; null: all.</summary>
         public IReadOnlyList<long>? Workspaces => Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(WorkspacesJson);
@@ -78,7 +83,7 @@ public sealed class ApiKeyService
 
     /// <summary>Creates a key; the plain key is returned once and never stored.</summary>
     public async Task<(ApiKeyRow Row, string Key)> CreateAsync(string name, string scope, int? expiresInDays, long userId, IReadOnlyList<string>? permissions = null,
-        IReadOnlyCollection<long>? workspaces = null)
+        IReadOnlyCollection<long>? workspaces = null, IReadOnlyCollection<string>? tables = null)
     {
         var key = KeyPrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
         var now = DateTime.UtcNow;
@@ -87,8 +92,8 @@ public sealed class ApiKeyService
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, key_hash, prefix, scopes, user_id, workspaces, created_at, expires_at)
-            VALUES (@Name, @Hash, @Prefix, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Scopes")}, @UserId, @Workspaces,
+            INSERT INTO {Table} (name, key_hash, prefix, scopes, user_id, workspaces, tables, created_at, expires_at)
+            VALUES (@Name, @Hash, @Prefix, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Scopes")}, @UserId, @Workspaces, @Tables,
                     {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")}, {ExpiresParam})
             RETURNING id
             """,
@@ -100,6 +105,7 @@ public sealed class ApiKeyService
                 Scopes = JsonSerializer.Serialize(permissions is null ? ScopesFor(scope) : McpPermissions.Normalize(permissions).ToArray()),
                 UserId = userId,
                 Workspaces = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces),
+                Tables = tables is null ? null : JsonSerializer.Serialize(tables.Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToArray()),
                 Now = Iso(now),
                 Expires = expires is null ? null : Iso(expires.Value)
             });
@@ -114,7 +120,7 @@ public sealed class ApiKeyService
             $"""
             SELECT k.id, k.name, k.prefix, k.scopes, k.user_id AS UserId, u.username,
                    {Text("k.created_at")} AS CreatedAt, {Text("k.expires_at")} AS ExpiresAt,
-                   {Text("k.last_used_at")} AS LastUsedAt, {Text("k.revoked_at")} AS RevokedAt, k.workspaces AS WorkspacesJson
+                   {Text("k.last_used_at")} AS LastUsedAt, {Text("k.revoked_at")} AS RevokedAt, k.workspaces AS WorkspacesJson, k.tables AS TablesJson
             FROM {Table} k
             LEFT JOIN {UsersTable} u ON u.id = k.user_id
             ORDER BY k.revoked_at IS NOT NULL, k.created_at DESC, k.id DESC
@@ -141,7 +147,7 @@ public sealed class ApiKeyService
         using var conn = await _systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<KeyLookupRow>(
             $"""
-            SELECT k.id, k.scopes, k.user_id AS UserId, u.username, u.role AS UserRole, k.workspaces AS WorkspacesJson,
+            SELECT k.id, k.scopes, k.user_id AS UserId, u.username, u.role AS UserRole, k.workspaces AS WorkspacesJson, k.tables AS TablesJson,
                    {Text("k.expires_at")} AS ExpiresAt, {Text("k.revoked_at")} AS RevokedAt, {Text("k.last_used_at")} AS LastUsedAt
             FROM {Table} k
             INNER JOIN {UsersTable} u ON u.id = k.user_id
@@ -165,7 +171,7 @@ public sealed class ApiKeyService
         // As stored, with the user's installation role; the role in the workspace it is
         // used in caps it (As), since a member may have another role there.
         return new ApiKeyIdentity(row.Id, row.UserId, row.Username ?? "", ReadScopes(row.Scopes), ReadPermissions(row.Scopes), row.UserRole,
-            Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(row.WorkspacesJson));
+            Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(row.WorkspacesJson), ReadTables(row.TablesJson));
     }
 
     private sealed class KeyLookupRow
@@ -176,6 +182,7 @@ public sealed class ApiKeyService
         public string? Username { get; init; }
         public string? UserRole { get; init; }
         public string? WorkspacesJson { get; init; }
+        public string? TablesJson { get; init; }
         public string? ExpiresAt { get; init; }
         public string? RevokedAt { get; init; }
         public string? LastUsedAt { get; init; }
@@ -216,6 +223,20 @@ public sealed class ApiKeyService
         catch (JsonException)
         {
             return null;
+        }
+    }
+
+    private static IReadOnlyList<string>? ReadTables(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return null;
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(json) ?? [];
+        }
+        catch (JsonException)
+        {
+            return [];
         }
     }
 

@@ -8,7 +8,8 @@ import { bodyFields, buildUrl, curlFor, exampleFor, groupOperations } from "../f
 import { createTestRouter } from "../router";
 import { resetAppStoreForTest } from "../stores/appStore";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
-import { resetSchemaStoreForTest } from "../stores/schemaStore";
+import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
+import type { ModelSnapshot } from "../types/api";
 
 const api = vi.hoisted(() => ({
   getOpenApiDocument: vi.fn(),
@@ -190,8 +191,28 @@ describe("Connections page", () => {
     await user.click(screen.getByRole("checkbox", { name: /Tables and columns/ }));
     await user.click(screen.getByRole("button", { name: "Create key" }));
 
-    expect(api.createApiKey).toHaveBeenCalledWith("Schema script", "read-write", undefined, ["data.read", "schema.write"], undefined);
+    expect(api.createApiKey).toHaveBeenCalledWith("Schema script", "read-write", undefined, ["data.read", "schema.write"], undefined, undefined);
     expect(await screen.findByLabelText("New API key")).toHaveTextContent("bento_permissionkey");
+  });
+
+  it("creates a key for the rows of chosen tables only", async () => {
+    useSchemaStore.setState({
+      status: "ready",
+      snapshot: { version: 1, tables: [{ name: "transactions", columns: [] }, { name: "accounts", columns: [] }], relations: [] } as unknown as ModelSnapshot,
+      error: null,
+      lastLoadedAt: Date.now(),
+      inFlight: null,
+    });
+    api.createApiKey.mockResolvedValue({ key: "bento_tablekeyvalue", apiKey: { ...activeKey, id: 3, name: "Bank import", tables: ["transactions"] } });
+    const user = userEvent.setup();
+    render(<RouterProvider router={createTestRouter(["/connections?tab=keys"])} />);
+    expect(await screen.findByText("Nightly sync")).toBeInTheDocument();
+    await user.type(screen.getByPlaceholderText("e.g. Nightly bank sync"), "Bank import");
+    await user.selectOptions(screen.getByLabelText("Access"), "read-write");
+    await user.selectOptions(screen.getByLabelText("Tables"), "chosen");
+    await user.click(screen.getByRole("checkbox", { name: "transactions" }));
+    await user.click(screen.getByRole("button", { name: "Create key" }));
+    expect(api.createApiKey).toHaveBeenCalledWith("Bank import", "read-write", undefined, undefined, undefined, ["transactions"]);
   });
 
   it("creates a key, shows it once and revokes keys after confirmation", async () => {
@@ -206,7 +227,7 @@ describe("Connections page", () => {
     await user.selectOptions(screen.getByLabelText("Expires"), "90");
     await user.click(screen.getByRole("button", { name: "Create key" }));
 
-    expect(api.createApiKey).toHaveBeenCalledWith("Bank sync", "read-write", 90, undefined, undefined);
+    expect(api.createApiKey).toHaveBeenCalledWith("Bank sync", "read-write", 90, undefined, undefined, undefined);
     expect(await screen.findByLabelText("New API key")).toHaveTextContent("bento_newsecretkeyvalue");
     expect(screen.getByText(/shown only once/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Done" }));

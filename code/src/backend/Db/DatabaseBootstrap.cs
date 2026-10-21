@@ -135,6 +135,7 @@ public class DatabaseBootstrap : IHostedService
                   PRIMARY KEY (workspace_id, user_id)
               );
               ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS workspaces TEXT;
+              ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS tables TEXT;
               ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS workspaces TEXT;
               """
             : """
@@ -148,10 +149,10 @@ public class DatabaseBootstrap : IHostedService
               """);
         if (!pg)
         {
-            foreach (var table in new[] { "api_keys", "oauth_grants" })
+            foreach (var (table, column) in new[] { ("api_keys", "workspaces"), ("oauth_grants", "workspaces"), ("api_keys", "tables") })
             {
-                if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'workspaces'") == 0)
-                    await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN workspaces TEXT");
+                if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'") == 0)
+                    await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} TEXT");
             }
         }
         await conn.ExecuteAsync($"CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON {prefix}workspace_members(user_id)");

@@ -17,6 +17,11 @@ export async function createUser(user: { username: string; password: string; rol
   return (await apiClient.post<DataEnvelope<BentoUser>>("/admin/users", user)).data;
 }
 
+/** Deletes a user; their dashboards, forms, saved queries and views go to you. */
+export async function deleteUser(id: number): Promise<void> {
+  await apiClient.delete(`/admin/users/${id}`);
+}
+
 /** A new password signs the user out everywhere. */
 export async function updateUser(id: number, changes: { role?: string; password?: string }): Promise<BentoUser> {
   return (await apiClient.put<DataEnvelope<BentoUser>>(`/admin/users/${id}`, changes)).data;

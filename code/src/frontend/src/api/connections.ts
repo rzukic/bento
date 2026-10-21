@@ -21,6 +21,8 @@ export type ApiKey = {
   status: "active" | "expired" | "revoked";
   /** The workspaces it may use (Step 5.5); null: every workspace. */
   workspaces?: number[] | null;
+  /** The only tables whose rows it may use; null: every table. */
+  tables?: string[] | null;
 };
 
 /** Where a key may be used: the given workspaces, or all of them. */
@@ -39,9 +41,10 @@ export async function createApiKey(
   expiresInDays?: number,
   permissions?: string[],
   where?: KeyWorkspaces,
+  tables?: string[],
 ): Promise<{ key: string; apiKey: ApiKey }> {
   const access = permissions ? { permissions } : { scope };
-  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", { name, expiresInDays, ...access, ...where });
+  const response = await apiClient.post<{ data: ApiKey; key: string }>("/admin/api-keys", { name, expiresInDays, ...access, ...where, ...(tables ? { tables } : {}) });
   return { key: response.key, apiKey: response.data };
 }
 

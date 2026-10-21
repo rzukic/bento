@@ -44,6 +44,8 @@ public sealed class ApiKeysController : ControllerBase
         public IReadOnlyList<long>? Workspaces { get; init; }
         /// <summary>The key may use every workspace, also ones made later.</summary>
         public bool AllWorkspaces { get; init; }
+        /// <summary>Only the rows of these tables (and imports into them); none: every table.</summary>
+        public IReadOnlyList<string>? Tables { get; init; }
     }
 
     public sealed record ApiKeyResponse(
@@ -58,7 +60,8 @@ public sealed class ApiKeysController : ControllerBase
         string? RevokedAt,
         string Status,
         IReadOnlyList<string>? Permissions = null,
-        IReadOnlyList<long>? Workspaces = null);
+        IReadOnlyList<long>? Workspaces = null,
+        IReadOnlyList<string>? Tables = null);
 
     [HttpGet]
     public async Task<IActionResult> List() =>
@@ -98,7 +101,17 @@ public sealed class ApiKeysController : ControllerBase
             if (missing != 0)
                 throw Invalid("workspaces", $"Workspace {missing} not found.");
         }
-        var (row, key) = await _apiKeys.CreateAsync(name, scope, request.ExpiresInDays, userId, permissions, workspaces);
+        IReadOnlyList<string>? tables = null;
+        if (request.Tables is { Count: > 0 } named)
+        {
+            // Checked against the workspace the key is made in; the names count in each of its workspaces.
+            var model = HttpContext.RequestServices.GetRequiredService<SchemaCache>();
+            var unknown = named.FirstOrDefault(t => model.GetTable(t.Trim()) is null);
+            if (unknown is not null)
+                throw Invalid("tables", $"There is no table '{unknown}'.");
+            tables = named.Select(t => model.GetTable(t.Trim())!.Name).ToList();
+        }
+        var (row, key) = await _apiKeys.CreateAsync(name, scope, request.ExpiresInDays, userId, permissions, workspaces, tables);
         // The only time the key is ever sent.
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(row), key });
     }
@@ -117,7 +130,7 @@ public sealed class ApiKeysController : ControllerBase
             : row.ExpiresAt is not null && DateTimeOffset.Parse(row.ExpiresAt, System.Globalization.CultureInfo.InvariantCulture) <= DateTimeOffset.UtcNow
                 ? "expired"
                 : "active";
-        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Permissions is null ? row.Scope : "permissions", row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status, row.Permissions, row.Workspaces);
+        return new ApiKeyResponse(row.Id, row.Name, row.Prefix, row.Permissions is null ? row.Scope : "permissions", row.Username, row.CreatedAt, row.ExpiresAt, row.LastUsedAt, row.RevokedAt, status, row.Permissions, row.Workspaces, row.Tables);
     }
 
     private static ApiValidationException Invalid(string field, string message) =>

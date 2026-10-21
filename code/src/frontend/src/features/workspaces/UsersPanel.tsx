@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { ApiClientError } from "../../api/client";
-import { createUser, listUsers, updateUser, type BentoUser } from "../../api/users";
+import { createUser, deleteUser, listUsers, updateUser, type BentoUser } from "../../api/users";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
 import { Button } from "../../components/ui/Button";
+import { ConfirmDialog } from "../../components/ui/Dialog";
 import { Panel } from "../../components/ui/Panel";
 import { SelectField } from "../../components/ui/SelectField";
 import { Spinner } from "../../components/ui/Spinner";
@@ -42,6 +43,23 @@ export function UsersPanel() {
   const [busy, setBusy] = useState(false);
   const [resetting, setResetting] = useState<{ id: number; password: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<BentoUser | null>(null);
+
+  const remove = async (user: BentoUser) => {
+    setDeleting(null);
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      await deleteUser(user.id);
+      setNotice(`${user.username} was deleted; their dashboards, forms, queries and views are yours now.`);
+      load();
+    } catch (cause) {
+      setError(errorText(cause, "The user could not be deleted."));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const load = useCallback(() => {
     listUsers()
@@ -232,12 +250,26 @@ export function UsersPanel() {
                   <Button type="button" variant="ghost" size="sm" onClick={() => setResetting({ id: user.id, password: "" })}>
                     Reset password
                   </Button>
+                  {user.id === me?.id ? null : (
+                    <Button type="button" variant="ghost" size="sm" aria-label={`Delete ${user.username}`} disabled={busy} onClick={() => setDeleting(user)}>
+                      <Icon name="trash" size={14} />
+                    </Button>
+                  )}
                 </div>
               )}
             </li>
           ))}
         </ul>
       )}
+      <ConfirmDialog
+        open={deleting !== null}
+        title={`Delete ${deleting?.username ?? ""}?`}
+        description="They are signed out and cannot sign in again; their API keys stop and their connected apps are disconnected. Their dashboards, forms, saved queries and views become yours."
+        confirmLabel="Delete user"
+        confirmVariant="danger"
+        onConfirm={() => deleting && void remove(deleting)}
+        onCancel={() => setDeleting(null)}
+      />
     </Panel>
   );
 }

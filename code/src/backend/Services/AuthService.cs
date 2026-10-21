@@ -294,6 +294,39 @@ public sealed class AuthService
         tx.Commit();
     }
 
+    /// <summary>
+    /// Deletes a user. What they made for others to use — dashboards, forms,
+    /// saved queries, views — goes to <paramref name="transferTo"/>; their
+    /// sessions, memberships and connected apps go, their API keys are revoked
+    /// (kept in the list without an owner). The last admin stays.
+    /// </summary>
+    public async Task DeleteUserAsync(int id, int transferTo)
+    {
+        if (id == transferTo)
+            throw Validation("transferTo", "Hand their dashboards and forms to someone else.");
+        var p = _systemPool.Provider == DatabaseProvider.Postgres ? "_system." : "";
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        var role = await conn.ExecuteScalarAsync<string?>($"SELECT role FROM {GetUsersTableName()} WHERE id = @Id", new { Id = id }, tx)
+            ?? throw new ApiNotFoundException($"User {id} not found.");
+        if (await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE id = @Id", new { Id = transferTo }, tx) == 0)
+            throw Validation("transferTo", $"User {transferTo} not found.");
+        if (role == "admin" && await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE role = 'admin'", transaction: tx) <= 1)
+            throw Validation("id", "This is the last installation admin; make someone else admin first.");
+
+        var ids = new { Id = id, To = transferTo, Now = ToDbValue(DateTimeOffset.UtcNow) };
+        foreach (var table in new[] { "dashboards", "dashboard_versions", "forms", "saved_queries", "system_views" })
+            await conn.ExecuteAsync($"UPDATE {p}{table} SET owner_user_id = @To WHERE owner_user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}user_table_explorer_preferences WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}workspace_members WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {GetAuthSessionsTableName()} WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}oauth_tokens WHERE grant_id IN (SELECT id FROM {p}oauth_grants WHERE user_id = @Id)", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}oauth_grants WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"UPDATE {p}api_keys SET revoked_at = COALESCE(revoked_at, @Now), user_id = NULL WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {GetUsersTableName()} WHERE id = @Id", ids, tx);
+        tx.Commit();
+    }
+
     private static string NormalizeUsername(string? username)
     {
         var normalized = username?.Trim();

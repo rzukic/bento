@@ -86,6 +86,38 @@ public sealed class AuthMiddleware
             ?? throw new ApiNotFoundException($"There is no workspace '{workspace.Slug}'.", new Dictionary<string, object?> { ["workspace"] = workspace.Slug });
     }
 
+    /// <summary>
+    /// A key limited to tables reads and writes rows of them and imports into
+    /// them — nothing else: no queries, dashboards, forms or functions, and no
+    /// related rows of other tables. Reading the schema stays (structure, not data).
+    /// </summary>
+    private static void EnsureTablesAllow(IReadOnlyList<string>? tables, HttpRequest request)
+    {
+        if (tables is null)
+            return;
+        var path = (request.Path.Value ?? "").TrimEnd('/');
+        const string api = "/" + ApiRoutes.Prefix;
+        string[] Segments(string area) => path.StartsWith(api + area + "/", StringComparison.OrdinalIgnoreCase)
+            ? path[(api.Length + area.Length + 1)..].Split('/', StringSplitOptions.RemoveEmptyEntries)
+            : [];
+        bool Allowed(string table) => tables.Contains(Uri.UnescapeDataString(table), StringComparer.OrdinalIgnoreCase);
+
+        // /data/<table>, /data/<table>/<id>, /data/<table>/bulk — not /data/<table>/<id>/<relation>.
+        var data = Segments("/data");
+        if (data.Length is 1 or 2 && Allowed(data[0]) && !request.Query.ContainsKey("include"))
+            return;
+        var import = Segments("/import");
+        if (import.Length >= 1 && (import[0] is "analyze" or "fetch" || Allowed(import[0])))
+            return;
+        var readsStructure = HttpMethods.IsGet(request.Method) &&
+            (path.Equals(api + "/admin/schema", StringComparison.OrdinalIgnoreCase) || path.Equals(api + "/admin/schema/model", StringComparison.OrdinalIgnoreCase) ||
+             path.Equals(api + "/openapi.json", StringComparison.OrdinalIgnoreCase) || path.Equals(api + "/workspaces", StringComparison.OrdinalIgnoreCase));
+        if (readsStructure)
+            return;
+        throw new ApiForbiddenException($"This API key may only use the rows of {string.Join(", ", tables)}.",
+            new Dictionary<string, object?> { ["tables"] = tables });
+    }
+
     /// <summary>A key or a connection may use only the workspaces it was made for.</summary>
     private static void EnsureWorkspaceAllowed(HttpContext context, IReadOnlyList<long>? workspaces, string what)
     {
@@ -152,6 +184,7 @@ public sealed class AuthMiddleware
         var identity = key.As(await RoleForRequestAsync(context, access, key.UserId, key.UserRole ?? "viewer"));
         if (enforceScope)
         {
+            EnsureTablesAllow(identity.Tables, context.Request);
             if (identity.Permissions is { } permissions)
                 EnsureKeyPermissionAllows(permissions, context.Request);
             else
