@@ -25,6 +25,7 @@ public static class ApiRoutes
     public const string NotificationRules = Admin + "/notifications/rules";
     public const string Problems = Admin + "/problems";
     public const string WorkspaceSettings = Admin + "/settings";
+    public const string Apps = Admin + "/apps";
     public const string PriceSources = Prefix + "/price-sources";
     public const string OpenApi = Prefix + "/openapi.json";
     public const string OAuth = Prefix + "/oauth";

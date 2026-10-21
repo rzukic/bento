@@ -9,6 +9,7 @@ import { Spinner } from "./components/ui/Spinner";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
 const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
+const AppsPage = lazy(() => import("./features/apps/AppsPage").then((m) => ({ default: m.AppsPage })));
 const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
 const FunctionsPage = lazy(() => import("./features/functions/FunctionsPage").then((m) => ({ default: m.FunctionsPage })));
 const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
@@ -214,6 +215,19 @@ const shellRoutes: RouteObject[] = [
       hidePageHeader: true,
       navLabel: "AI",
       navGroup: "Workspace"
+    } satisfies AppRouteHandle
+  },
+  {
+    path: "apps",
+    element: (
+      <Lazy>
+        <AppsPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Apps",
+      navLabel: "Apps",
+      navGroup: "Admin"
     } satisfies AppRouteHandle
   },
   {

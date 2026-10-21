@@ -37,6 +37,18 @@
 		reverse_proxy backend:5000
 	}
 
+	# Apps (Step 5.4): calendar subscriptions and CalDAV for calendar programs,
+	# which use WebDAV methods (PROPFIND, REPORT) and discover CalDAV here.
+	handle /feeds/* {
+		reverse_proxy backend:5000
+	}
+	handle /dav* {
+		reverse_proxy backend:5000
+	}
+	handle /.well-known/caldav {
+		reverse_proxy backend:5000
+	}
+
 	# Everything else — Vite SPA via nginx (SPA fallback happens there).
 	handle {
 		reverse_proxy frontend:80

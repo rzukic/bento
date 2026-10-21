@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-21 — Apps: Your Tables As Calendars On Your Devices
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.4 — Apps](working-steps/5.4-apps.md)
+
+Bento opens to other programs. The first app is the calendar: any table becomes a calendar in Apple Calendar, Google Calendar, Outlook or Thunderbird — the events stay rows in Bento.
+
+**Highlights:**
+- **Calendars from tables**: title, start (date for all-day, date-time for timed), end, location, notes, filters, colour — in the workspace's time zone.
+- **One password per device**, shown once, with its last use; take one back and only that device stops.
+- **Subscribe** with one address per calendar; editing on the device follows with CalDAV.
+- **Claude knows** which tables are calendars, so what it adds shows up on your phone.
+
 ### 2026-10-11 — Targets Instead Of Budgets, Flows For Any Data
 
 > **Phase**: Phase 5 — Integration (making the core use-case agnostic)

@@ -54,7 +54,10 @@ const navSections: NavSection[] = [
   },
   {
     title: "Admin",
-    items: [{ to: "/settings", label: "Settings", icon: "settings" }],
+    items: [
+      { to: "/apps", label: "Apps", icon: "calendar" },
+      { to: "/settings", label: "Settings", icon: "settings" },
+    ],
   },
 ];
 
