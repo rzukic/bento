@@ -4,14 +4,14 @@ import { apiClient } from "./client";
 export type FunctionType = "float" | "integer" | "currency" | "text" | "boolean" | "date" | "datetime" | "any";
 export type ArgumentType = FunctionType;
 
-/** "any" gives any JSON value: such functions run as price sources, not in formulas. */
+/** "any" gives any JSON value: such functions run as import or price sources, not in formulas. */
 export const RESULT_TYPES: FunctionType[] = ["float", "integer", "currency", "text", "boolean", "date", "datetime", "any"];
 export const ARGUMENT_TYPES: ArgumentType[] = RESULT_TYPES;
 
 export type FunctionArgument = { name: string; type: ArgumentType };
 
 export type FunctionUsage = {
-  kind: "column" | "dashboard" | "priceSource";
+  kind: "column" | "dashboard" | "priceSource" | "importSource";
   name: string;
   table?: string | null;
   column?: string | null;

@@ -22,6 +22,55 @@ public static class FunctionTemplates
 {
     public static readonly IReadOnlyList<FunctionTemplate> All =
     [
+        // Step 5.11: sources for a saved import — any JSON API, on a schedule.
+        new(
+            "json-api-rows",
+            "Rows from a JSON API",
+            "A starting point for a saved import from any JSON API: fetches the items page by page and returns them as rows. Change the host and the address; for a key, store it under Credentials, add it to the function and send it as a header.",
+            "api_rows",
+            [new("since", "text")],
+            "any",
+            ["api.example.com"],
+            [],
+            """
+            // Rows for a saved import (Data → a table → Import → From a function).
+            // since: when the import last worked (ISO date-time), null the first time — ask only for what is new.
+            // Return a list of objects; the import maps their fields to columns (nested fields as a.b).
+            const rows = [];
+            let url = `https://api.example.com/v1/items?updated_since=${encodeURIComponent(since ?? "1970-01-01T00:00:00Z")}`;
+            for (let page = 0; url && page < 50; page++) {
+              const r = await fetch(url, { headers: { Accept: "application/json" /*, Authorization: `Bearer ${credentials.api_token}` */ } });
+              if (!r.ok) throw new Error(`The API answered ${r.status}`);
+              const body = await r.json();
+              rows.push(...(body.items ?? body.data ?? body));
+              url = body.next ?? null;
+            }
+            return rows;
+            """),
+        new(
+            "open-meteo-daily",
+            "Daily weather (Open-Meteo)",
+            "The last 30 days of weather for a place — highest and lowest temperature, rain, sunshine — from Open-Meteo, free and without a key. Set the place's latitude and longitude; import it daily with the date as the key.",
+            "daily_weather",
+            [],
+            "any",
+            ["api.open-meteo.com"],
+            [],
+            """
+            // Daily weather for one place from Open-Meteo (free, no key). Set your place:
+            const latitude = 52.52, longitude = 13.41; // Berlin
+            const r = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +
+              "&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration&past_days=30&forecast_days=1&timezone=auto");
+            if (!r.ok) throw new Error(`Open-Meteo answered ${r.status}`);
+            const d = (await r.json()).daily;
+            return d.time.map((date, i) => ({
+              date,
+              temp_max: d.temperature_2m_max[i],
+              temp_min: d.temperature_2m_min[i],
+              rain_mm: d.precipitation_sum[i],
+              sun_hours: Math.round(d.sunshine_duration[i] / 360) / 10,
+            }));
+            """),
         new(
             "yahoo-prices",
             "Prices from Yahoo Finance",

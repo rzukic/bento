@@ -173,6 +173,12 @@ public sealed record ImportFetchRequest
     public IReadOnlyList<Bento.Api.Services.Import.ImportHeader>? Headers { get; init; }
 }
 
+/// <summary>Runs a function for the import page, as if its result were a fetched file.</summary>
+public sealed record ImportFunctionRequest
+{
+    public string? Function { get; init; }
+}
+
 public sealed record ImportFetchResponse(string Content, string FileName, string? ContentType, long Bytes, string FinalUrl);
 
 /// <summary>When a saved import runs on its own: <c>manual</c>, <c>daily</c> at a time, or every few <c>hours</c>.</summary>
@@ -190,7 +196,10 @@ public sealed record ImportSchedule
 /// <summary>A saved import: where the file comes from, how it is read and mapped, and when it runs.</summary>
 public sealed record ImportSourceConfig
 {
+    /// <summary>Where the file comes from: a URL, or <see cref="Function"/>.</summary>
     public string? Url { get; init; }
+    /// <summary>Instead of a URL (Step 5.11): a function whose result is the file — rows as JSON, or CSV text.</summary>
+    public string? Function { get; init; }
     public IReadOnlyList<Bento.Api.Services.Import.ImportHeader>? Headers { get; init; }
     public ImportFileSettings? Settings { get; init; }
     public IReadOnlyList<ImportColumnMapping>? Mapping { get; init; }

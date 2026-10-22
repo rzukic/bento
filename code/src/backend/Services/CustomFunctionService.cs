@@ -102,6 +102,7 @@ public sealed class CustomFunctionService
     private string Versions => Pg ? "_system.function_versions" : "function_versions";
     private string Dashboards => Pg ? "_system.dashboards" : "dashboards";
     private string PriceSources => Pg ? "_system.price_sources" : "price_sources";
+    private string ImportSources => Pg ? "_system.import_sources" : "import_sources";
 
     /// <summary>Loads every function into the catalog (start-up and after each change).</summary>
     public async Task ReloadAsync()
@@ -236,6 +237,11 @@ public sealed class CustomFunctionService
             throw new ApiConflictException(
                 $"'{existing.Name}' runs in the price source {string.Join(", ", sources.Select(s => s.Usage.Name))}; change or delete that source first.",
                 new Dictionary<string, object?> { ["priceSources"] = sources.Select(s => s.Usage.Name).ToList() });
+        var imports = (await OtherUsagesAsync(conn)).Where(o => o.Function == existing.Name.ToLowerInvariant() && o.Usage.Kind == "importSource").ToList();
+        if (imports.Count > 0)
+            throw new ApiConflictException(
+                $"'{existing.Name}' is the source of the saved import {string.Join(", ", imports.Select(s => $"{s.Usage.Name} ({s.Usage.Table})"))}; change or delete that import first.",
+                new Dictionary<string, object?> { ["importSources"] = imports.Select(s => s.Usage.Name).ToList() });
 
         await conn.ExecuteAsync($"DELETE FROM {Table} WHERE workspace_id = @Ws AND name = @Name", new { existing.Name, Ws });
         await conn.ExecuteAsync($"DELETE FROM {Versions} WHERE workspace_id = @Ws AND function_name = @Name", new { existing.Name, Ws });
@@ -365,6 +371,13 @@ public sealed class CustomFunctionService
             foreach (var function in new[] { config?.Function, config?.LookupFunction }.Where(f => !string.IsNullOrWhiteSpace(f)).Distinct())
                 usages.Add((function!.ToLowerInvariant(), new CustomFunctionUsage("priceSource", row.Name, SourceId: row.Id)));
         }
+        // Saved imports that read from a function (Step 5.11).
+        foreach (var row in await conn.QueryAsync<DashboardRow>($"SELECT id, name, CAST(config AS TEXT) AS Json, table_name AS TableName FROM {ImportSources} WHERE workspace_id = @Ws", new { Ws }))
+        {
+            var config = JsonSerializer.Deserialize<ImportSourceConfig>(row.Json ?? "{}", Json);
+            if (!string.IsNullOrWhiteSpace(config?.Function))
+                usages.Add((config.Function.ToLowerInvariant(), new CustomFunctionUsage("importSource", row.Name, Table: row.TableName, SourceId: row.Id)));
+        }
         return usages;
     }
 
@@ -373,6 +386,7 @@ public sealed class CustomFunctionService
         public long Id { get; init; }
         public string Name { get; init; } = "";
         public string? Json { get; init; }
+        public string? TableName { get; init; }
     }
 
     // ── Validation ───────────────────────────────────────────────────────

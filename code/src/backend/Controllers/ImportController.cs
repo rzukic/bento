@@ -28,13 +28,15 @@ public sealed class ImportController : ControllerBase
     private readonly SchemaCache _schemaCache;
     private readonly ICustomValueRecalculation? _recalculation;
     private readonly ImportFetcher _fetcher;
+    private readonly ImportFunctionRunner? _functions;
 
-    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ImportFetcher fetcher, ICustomValueRecalculation? recalculation = null)
+    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ImportFetcher fetcher, ICustomValueRecalculation? recalculation = null, ImportFunctionRunner? functions = null)
     {
         _importService = importService;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
         _fetcher = fetcher;
+        _functions = functions;
         _recalculation = recalculation;
     }
 
@@ -56,6 +58,26 @@ public sealed class ImportController : ControllerBase
             throw new ApiUnprocessableEntityException(
                 $"The file is {file.Bytes.Length / 1024 / 1024} MB; the import page takes up to {MaxPageFetchBytes / 1024 / 1024} MB. Save it as a scheduled import, which reads up to {_fetcher.Options.MaxBytes / 1024 / 1024} MB.");
         return Ok(new { data = new ImportFetchResponse(Convert.ToBase64String(file.Bytes), file.FileName, file.ContentType, file.Bytes.Length, file.FinalUrl) });
+    }
+
+    /// <summary>
+    /// Runs a function for the import page (Step 5.11): its result comes back
+    /// like a fetched file, to be read and mapped. A function that reads
+    /// credentials from the vault needs an installation admin.
+    /// </summary>
+    [HttpPost("function")]
+    public async Task<IActionResult> RunFunction([FromBody] ImportFunctionRequest request)
+    {
+        if (_functions is null)
+            throw new ApiNotFoundException("Functions cannot be used as an import source here.");
+        var function = _functions.Require(request.Function, "function");
+        if (function.Credentials.Count > 0 && !User.IsInstallationAdmin())
+            throw new ApiForbiddenException($"{function.Name} reads credentials from the vault; only installation admins can use it in an import.");
+        var file = await _functions.RunAsync(function.Name, null, HttpContext.RequestAborted);
+        if (file.Bytes.Length > MaxPageFetchBytes)
+            throw new ApiUnprocessableEntityException(
+                $"{function.Name} returned {file.Bytes.Length / 1024 / 1024} MB; the import page takes up to {MaxPageFetchBytes / 1024 / 1024} MB. Save it as a scheduled import.");
+        return Ok(new { data = new ImportFetchResponse(Convert.ToBase64String(file.Bytes), file.FileName, file.ContentType, file.Bytes.Length, $"function:{function.Name}") });
     }
 
     /// <summary>Detects encoding, delimiter, header and locale, and returns columns with samples.</summary>

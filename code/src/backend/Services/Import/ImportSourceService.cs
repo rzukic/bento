@@ -28,6 +28,7 @@ public sealed class ImportSourceService
     private readonly SchemaCache _schemaCache;
     private readonly ImportService _import;
     private readonly ImportFetcher _fetcher;
+    private readonly ImportFunctionRunner? _functions;
     private readonly CredentialService _credentials;
     private readonly CategoriseService _categorise;
     private readonly ProblemLog _problems;
@@ -48,8 +49,10 @@ public sealed class ImportSourceService
         ICustomValueRecalculation? recalculation = null,
         ILogger<ImportSourceService>? logger = null,
         Notifications.NotificationRuleService? rules = null,
-        WorkspaceSettings? workspace = null)
+        WorkspaceSettings? workspace = null,
+        ImportFunctionRunner? functions = null)
     {
+        _functions = functions;
         _rules = rules;
         _workspace = workspace;
         _systemPool = systemPool;
@@ -143,7 +146,7 @@ public sealed class ImportSourceService
         var existing = await RequireAsync(tableName, id);
         var name = request.Name is null ? existing.Name : RequireName(request.Name);
         // Only admins may touch a saved import that reads credentials, or make one do so.
-        if (!admin && ImportFetcher.CredentialNames(existing.Config.Url, existing.Config.Headers).Count > 0)
+        if (!admin && UsesCredentials(existing.Config))
             throw new ApiForbiddenException("This import uses credentials from the vault; only admins can change it.");
         var config = request.Config is null ? existing.Config : await ValidateAsync(request.Config, admin);
         using var conn = await _systemPool.GetConnectionAsync();
@@ -160,7 +163,7 @@ public sealed class ImportSourceService
     public async Task DeleteAsync(string table, long id, bool admin)
     {
         var source = await RequireAsync(TableName(table), id);
-        if (!admin && ImportFetcher.CredentialNames(source.Config.Url, source.Config.Headers).Count > 0)
+        if (!admin && UsesCredentials(source.Config))
             throw new ApiForbiddenException("This import uses credentials from the vault; only admins can delete it.");
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync($"DELETE FROM {Runs} WHERE source_id = @Id", new { Id = id });
@@ -217,8 +220,22 @@ public sealed class ImportSourceService
     {
         if (config is null)
             throw Invalid("config", "Send the import's config: url, mapping and schedule.");
-        _fetcher.Validate(config.Url, config.Headers);
-        var credentials = ImportFetcher.CredentialNames(config.Url, config.Headers);
+        var hasUrl = !string.IsNullOrWhiteSpace(config.Url);
+        var hasFunction = !string.IsNullOrWhiteSpace(config.Function);
+        if (hasUrl == hasFunction)
+            throw Invalid("config.url", "An import reads from a URL or from a function; give one of them.");
+        if (hasFunction)
+        {
+            if (_functions is null)
+                throw Invalid("config.function", "Functions cannot be used as an import source here.");
+            var function = _functions.Require(config.Function);
+            if (function.Credentials.Count > 0 && !admin)
+                throw new ApiForbiddenException($"{function.Name} reads credentials from the vault; only admins can use it in an import.");
+            config = config with { Function = function.Name, Url = null, Headers = null };
+        }
+        else
+            _fetcher.Validate(config.Url, config.Headers);
+        var credentials = hasFunction ? [] : ImportFetcher.CredentialNames(config.Url, config.Headers);
         if (credentials.Count > 0)
         {
             if (!admin)
@@ -254,7 +271,7 @@ public sealed class ImportSourceService
             default:
                 throw Invalid("config.schedule.kind", "The schedule is manual, daily or hours.");
         }
-        return config with { Url = config.Url!.Trim(), Schedule = schedule, CategoryColumn = string.IsNullOrWhiteSpace(config.CategoryColumn) ? null : config.CategoryColumn.Trim() };
+        return config with { Url = config.Url?.Trim(), Schedule = schedule, CategoryColumn = string.IsNullOrWhiteSpace(config.CategoryColumn) ? null : config.CategoryColumn.Trim() };
     }
 
     // ── Running ──────────────────────────────────────────────────────────
@@ -307,12 +324,12 @@ public sealed class ImportSourceService
             var config = source.Config;
             if (_schemaCache.GetTable(source.TableName) is null)
                 throw new ApiNotFoundException($"The table '{source.TableName}' no longer exists.");
-            var file = await _fetcher.FetchAsync(config.Url, config.Headers, cancellationToken);
-            bytes = file.Bytes.Length;
+            var (content, fileName) = await ReadAsync(source, cancellationToken);
+            bytes = content.Length;
             var request = new ImportRunRequest
             {
-                Content = Convert.ToBase64String(file.Bytes),
-                FileName = file.FileName,
+                Content = Convert.ToBase64String(content),
+                FileName = fileName,
                 Settings = config.Settings,
                 Mapping = config.Mapping,
                 KeyColumns = config.KeyColumns,
@@ -369,7 +386,7 @@ public sealed class ImportSourceService
         // Admins also find failed imports under Settings → Problems.
         if (error is not null)
             await _problems.RecordAsync("import", $"The saved import '{source.Name}' into {source.TableName} failed ({trigger}): {error}",
-                $"URL: {source.Config.Url}", watch.ElapsedMilliseconds);
+                source.Config.Function is { } function ? $"Function: {function}" : $"URL: {source.Config.Url}", watch.ElapsedMilliseconds);
         if (_rules is not null)
         {
             // Rules (Step 5.3): a failed scheduled run speaks, a run that works clears it; new rows are looked at.
@@ -384,6 +401,27 @@ public sealed class ImportSourceService
         }
         return (await LoadRunsAsync(source.Id, 1)).Single();
     }
+
+    /// <summary>The file of a run: fetched from the URL, or what the function returns (it gets when the import last worked).</summary>
+    private async Task<(byte[] Content, string FileName)> ReadAsync(Source source, CancellationToken cancellationToken)
+    {
+        if (source.Config.Function is { } name)
+        {
+            if (_functions is null)
+                throw new InvalidOperationException("Functions cannot be used as an import source here.");
+            string? lastOk;
+            using (var conn = await _systemPool.GetConnectionAsync())
+                lastOk = await conn.ExecuteScalarAsync<string?>(
+                    $"SELECT {Ts("started_at")} FROM {Runs} WHERE source_id = @Id AND status = 'ok' ORDER BY started_at DESC LIMIT 1", new { source.Id });
+            var file = await _functions.RunAsync(name, lastOk, cancellationToken);
+            return (file.Bytes, file.FileName);
+        }
+        var fetched = await _fetcher.FetchAsync(source.Config.Url, source.Config.Headers, cancellationToken);
+        return (fetched.Bytes, fetched.FileName);
+    }
+
+    private bool UsesCredentials(ImportSourceConfig config) =>
+        ImportFetcher.CredentialNames(config.Url, config.Headers).Count > 0 || _functions?.UsesCredentials(config.Function) == true;
 
     /// <summary>
     /// New rows without a value in <paramref name="column"/>: what the rules and
