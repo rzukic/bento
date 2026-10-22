@@ -82,7 +82,7 @@ export function DescribeWidget({
           value={sentence}
           disabled={busy}
           aria-label="Describe the widget"
-          placeholder="Describe it, e.g. expenses by main category per quarter, without rent"
+          placeholder="Describe it, e.g. hours per project and week, without internal ones"
           onChange={(event) => setSentence(event.target.value)}
         />
         <Button type="submit" variant="primary" size="sm" disabled={busy || !sentence.trim()}>

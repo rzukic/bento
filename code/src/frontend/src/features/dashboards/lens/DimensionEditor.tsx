@@ -190,7 +190,7 @@ function MeasureSettings({
             variables={variables}
             ariaLabel={`Formula of ${measure.name}`}
           />
-          <span className="lens-field__hint">Over the rows of each group, e.g. SUM(amount WHERE amount &lt; 0) / COUNT().</span>
+          <span className="lens-field__hint">Over the rows of each group, e.g. SUM(hours WHERE status = "billable") / COUNT().</span>
         </div>
       ) : (
         <>
@@ -428,7 +428,7 @@ function GroupSettings({ group, table, onChange }: { group: QueryGroupBy; table:
                   onChange={(event) => onChange({ ...group, rank: event.target.value as "asc" | "desc" | "abs" })}
                 >
                   <option value="desc">Largest first</option>
-                  <option value="asc">Smallest first (e.g. spending)</option>
+                  <option value="asc">Smallest first (e.g. negative values)</option>
                   <option value="abs">Largest amount first (income and expenses)</option>
                 </select>
               </label>

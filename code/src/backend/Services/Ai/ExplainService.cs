@@ -20,10 +20,12 @@ public sealed class ExplainService
     private const int MaxResultRows = 60;
 
     private readonly AiAgent _agent;
+    private readonly TemplateRegistry? _templates;
 
-    public ExplainService(AiAgent agent)
+    public ExplainService(AiAgent agent, TemplateRegistry? templates = null)
     {
         _agent = agent;
+        _templates = templates;
     }
 
     public sealed class ExplainRequest
@@ -51,23 +53,22 @@ public sealed class ExplainService
 
     public sealed record ExplainResponse(string Answer, string Model, decimal CostUsd, int ToolCalls, int DurationMs);
 
-    private static readonly string SystemPrompt = string.Join("\n\n",
+    private static readonly string BasePrompt = string.Join("\n\n",
         """
-        You explain a number or a chart on a Bento dashboard to its owner. Bento is their personal data workspace (often personal finance).
+        You explain a number or a chart on a Bento dashboard to its owner. Bento is their own data workspace; what its tables hold is up to them.
 
-        You get the widget as JSON: its title and type, the query behind it with the dashboard's date range and filters already applied, what it shows now, and maybe what the user clicked or asked. Use the tools to find out what drives it — usually a few aggregate calls are enough: the same measure for the period before (and a year earlier when that helps), the biggest groups along the widget's natural breakdowns (category, payee, account), and the largest single rows. Do not repeat what the widget already shows unless it is the answer.
+        You get the widget as JSON: its title and type, the query behind it with the dashboard's date range and filters already applied, what it shows now, and maybe what the user clicked or asked. Use the tools to find out what drives it — usually a few aggregate calls are enough: the same measure for the period before (and a year earlier when that helps), the biggest groups along the widget's natural breakdowns (a category, a project, a person, an account — whatever its table links to), and the largest single rows. Do not repeat what the widget already shows unless it is the answer.
 
         Then answer:
         - Start with the answer in one or two sentences: what the number means and the main reason it is what it is.
-        - Then at most four short bullet points with concrete numbers: what it consists of, what changed against the period before and why, unusual rows (a one-off, a duplicate, a new recurring payment).
+        - Then at most four short bullet points with concrete numbers: what it consists of, what changed against the period before and why, unusual rows (a one-off, a duplicate, something new that now recurs).
         - Amounts as the app shows them in the user's language (German: 1.234,56 €); percentages rounded.
         - No preamble, no headings, no description of your method, no advice unless asked. At most about 120 words.
         - Write in the language given as "language".
         - You only read; never say you changed anything. If the data cannot explain it (too few rows, no earlier period), say so briefly.
         """,
         McpTools.Instructions,
-        "Reference — how queries work:\n" + McpTools.Guide("queries").Text,
-        "Reference — the finance template's conventions (when the tables look like it):\n" + McpTools.Guide("finance").Text);
+        "Reference — how queries work:\n" + McpTools.Guide("queries").Text);
 
     public async Task<ExplainResponse> ExplainAsync(McpCaller caller, ExplainRequest request, CancellationToken ct)
     {
@@ -97,7 +98,7 @@ public sealed class ExplainService
         if (text.Length > MaxContextLength)
             throw new ApiValidationException("This widget is too large to explain in one go; narrow the date range or the filters.");
 
-        var result = await _agent.RunAsync("explain", caller, SystemPrompt, "Explain this widget:\n" + text, ToolNames.ToList(), ct);
+        var result = await _agent.RunAsync("explain", caller, await TemplatePrompts.WithTemplatesAsync(BasePrompt, _templates), "Explain this widget:\n" + text, ToolNames.ToList(), ct);
         return new ExplainResponse(result.Text, result.Model, result.CostUsd, result.ToolCalls, result.DurationMs);
     }
 

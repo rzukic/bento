@@ -512,7 +512,7 @@ function DataSettings({
       ))}
 
       {dateGroup && widget.type !== "kpi" && widget.type !== "table" ? (
-        <label className="lens-check" title="Each period shows the value at its last day, e.g. a balance or net worth">
+        <label className="lens-check" title="Each period shows the value at its last day, e.g. a balance, a stock level or the open items">
           <input
             type="checkbox"
             checked={Boolean(widget.data?.asOf)}
@@ -941,7 +941,7 @@ function StyleSettings({
         </label>
       ) : null}
       {isChart && (widget.data?.query?.groupBy ?? []).some((g) => g.bucket) ? (
-        <label className="lens-field" title="Periods without a value — also those before the first one, e.g. a depot before the first purchase">
+        <label className="lens-field" title="Periods without a value — also those before the first one, e.g. the time before the first entry">
           <span className="lens-field__label">Periods without a value</span>
           <select
             className="field__control field__control--compact"
@@ -1201,7 +1201,7 @@ function ReferenceLines({ lines, variables, onChange }: { lines: ReferenceLine[]
           <input
             className="field__control field__control--compact"
             aria-label="Line label"
-            placeholder="Label, e.g. Budget"
+            placeholder="Label, e.g. Goal"
             value={line.label ?? ""}
             onChange={(event) => update(index, { label: event.target.value || undefined })}
           />

@@ -8,7 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { Spinner } from "../../components/ui/Spinner";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useAuthStore } from "../../stores/authStore";
-import { FinanceSetup } from "./FinanceSetup";
+import { TemplateGallery } from "../templates/TemplateGallery";
 import { describeVersion, formatVersionTime } from "./HistoryDialog";
 import { cashFlowDashboard, dataTables, describeCashFlow, isFinanceTable } from "./starter";
 import "./Dashboards.css";
@@ -153,7 +153,7 @@ export function DashboardsListPage() {
             </div>
           </div>
         ) : null}
-        {isAdmin && snapshot ? <FinanceSetup tables={snapshot.tables} onError={setError} /> : null}
+        {isAdmin && snapshot ? <TemplateGallery tables={snapshot.tables} onError={setError} /> : null}
         <form
           className="dashboards-new__form"
           onSubmit={(event) => {
@@ -164,7 +164,7 @@ export function DashboardsListPage() {
           <input
             className="field__control"
             aria-label="Dashboard name"
-            placeholder="Empty dashboard, e.g. Net worth"
+            placeholder="Empty dashboard, e.g. Weekly overview"
             value={name}
             onChange={(event) => setName(event.target.value)}
           />

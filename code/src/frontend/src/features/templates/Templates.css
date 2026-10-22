@@ -1,0 +1,68 @@
+/* Templates: ready-made setups, on the home page of an empty workspace and under Dashboards → New. */
+.templates {
+    display: grid;
+    gap: 0.75rem;
+}
+
+.templates__card {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    padding: 0.875rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+}
+
+.templates__text {
+    display: flex;
+    flex: 1 1 20rem;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.templates__title {
+    font-weight: 600;
+}
+
+.templates__description {
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+}
+
+.templates__installed {
+    margin-left: 0.5rem;
+    padding: 0.05rem 0.45rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+    font-weight: 500;
+    vertical-align: 0.1em;
+}
+
+.templates__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+}
+
+.templates__prefix,
+.templates__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: var(--fs-sm);
+    color: var(--text-2);
+}
+
+.templates__prefix .field__control {
+    width: 8rem;
+}
+
+.templates__check input {
+    margin: 0;
+    accent-color: var(--accent);
+}

@@ -33,10 +33,12 @@ public sealed class McpServer
     private readonly ILogger<McpServer> _logger;
 
     private readonly Apps.AppService? _apps;
+    private readonly TemplateRegistry? _templates;
 
-    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger, Apps.AppService? apps = null)
+    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger, Apps.AppService? apps = null, TemplateRegistry? templates = null)
     {
         _apps = apps;
+        _templates = templates;
         _tools = tools;
         _log = log;
         _logger = logger;
@@ -83,18 +85,29 @@ public sealed class McpServer
         }
     }
 
-    /// <summary>What this workspace adds to the instructions: which tables are calendars on the user's devices.</summary>
+    /// <summary>What this workspace adds to the instructions: its templates (their tables and conventions) and which tables are calendars on the user's devices.</summary>
     private async Task<string?> WorkspaceContextAsync()
     {
+        var parts = new List<string>();
         try
         {
-            return _apps is null ? null : await _apps.McpContextAsync();
+            if (_templates is not null && await _templates.ContextAsync() is { } templates)
+                parts.Add(templates);
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            _logger.LogWarning(e, "The templates could not be read for the MCP instructions.");
+        }
+        try
+        {
+            if (_apps is not null && await _apps.McpContextAsync() is { } apps)
+                parts.Add(apps);
         }
         catch (Exception e) when (e is not OperationCanceledException)
         {
             _logger.LogWarning(e, "The apps could not be read for the MCP instructions.");
-            return null;
         }
+        return parts.Count == 0 ? null : string.Join("\n", parts);
     }
 
     private static JsonObject Initialize(JsonElement parameters, string? context)

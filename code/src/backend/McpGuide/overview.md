@@ -1,6 +1,6 @@
 # Bento — overview
 
-Bento is a self-hosted data workspace. The user designs **tables** (the schema), fills them in the Data Explorer, by CSV import, with **forms** or through the API, and looks at them on **dashboards**. **Formulas** compute columns and dashboard values; **functions** are the user's own JavaScript; **price sources** fetch market prices into a table.
+Bento is a self-hosted data workspace. The user designs **tables** (the schema), fills them in the Data Explorer, by CSV import, with **forms** or through the API, and looks at them on **dashboards**. **Formulas** compute columns and dashboard values; **functions** are the user's own JavaScript; **import sources** fetch data from the web into a table on a schedule. What the tables hold is up to the user — projects and hours, a habit log, customers and orders, money. **Templates** set up a ready-made model; the instructions say which ones a workspace has installed.
 
 ## Topics (bento_guide topic=…)
 
@@ -10,15 +10,15 @@ Bento is a self-hosted data workspace. The user designs **tables** (the schema),
 | `formulas` | The formula language: row formulas (computed columns) and measures (dashboards, aggregate) |
 | `queries` | The aggregation query (the `aggregate` tool, widgets, saved queries) |
 | `dashboards` | Dashboard JSON: widgets, layout, variables, filters, annotations |
-| `forms` | Form JSON: entry forms such as "Add transaction" |
-| `finance` | The Wealth & cash-flow template: its tables, conventions and formulas |
+| `forms` | Form JSON: entry forms such as "Log hours" |
+| `finance` | The finance template's tables, conventions and formulas (only for workspaces that have it) |
 | `functions` | JavaScript functions, `CUSTOM`/`CUSTOM_ROWS`, price sources |
 | `api` | The REST endpoints behind the tools, for `call_api` |
 
 ## How to work
 
 1. `describe_schema` first; `get_model` when you will change the schema.
-2. Answer questions with `aggregate` (totals per month, category, …) rather than paging through rows.
+2. Answer questions with `aggregate` (totals per month, per project, per category …) rather than paging through rows.
 3. Before building: read the topic, look at an existing example (`get_dashboard`, `list_forms`), then create.
 4. Writes run with the user's rights and this connection's permissions; a refused call says which permission is missing.
 5. Schema changes: `preview_schema_change`, explain the result (especially anything destructive), apply only after the user agrees.

@@ -4,22 +4,21 @@
 
 ```json
 {
-  "description": "Where the money goes",
+  "description": "Where the time goes",
   "dateRange": { "preset": "last-12-months" },
   "variables": [ { "name": "months", "formula": "12" } ],
-  "filters": [ { "column": "account_id", "label": "Account" } ],
+  "filters": [ { "column": "project_id", "label": "Project" } ],
   "widgets": [
     {
-      "id": "spent", "type": "kpi", "title": "Spent in the range",
+      "id": "hours", "type": "kpi", "title": "Hours in the range",
       "position": { "x": 0, "y": 0, "w": 3, "h": 2 },
-      "data": { "query": { "source": "transactions", "measures": [ { "name": "spent", "formula": "-SUM(amount WHERE amount < 0)" } ] }, "dateColumn": "date" },
-      "display": { "format": "currency", "compare": true, "higherIsBetter": false }
+      "data": { "query": { "source": "time_entries", "measures": [ { "name": "hours", "fn": "sum", "column": "hours" } ] }, "dateColumn": "date" },
+      "display": { "format": "number", "compare": true, "higherIsBetter": true }
     },
     {
-      "id": "net-per-month", "type": "bar", "title": "Net per month",
+      "id": "hours-per-month", "type": "bar", "title": "Hours per month",
       "position": { "x": 0, "y": 2, "w": 8, "h": 5 },
-      "data": { "query": { "source": "transactions", "groupBy": [ { "column": "date", "bucket": "month", "as": "month" } ], "measures": [ { "name": "net", "fn": "sum", "column": "amount" } ] }, "dateColumn": "date" },
-      "display": { "colorBySign": true }
+      "data": { "query": { "source": "time_entries", "groupBy": [ { "column": "date", "bucket": "month", "as": "month" } ], "measures": [ { "name": "hours", "fn": "sum", "column": "hours" } ] }, "dateColumn": "date" }
     }
   ]
 }

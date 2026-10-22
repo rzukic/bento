@@ -80,7 +80,7 @@ export function DescribeFormula({
           disabled={busy}
           autoFocus
           aria-label="Describe the formula"
-          placeholder={kind === "measure" ? "e.g. average price per share bought" : "e.g. the amount without sign, only for expenses"}
+          placeholder={kind === "measure" ? "e.g. the share of billable hours" : "e.g. the days until the due date, only for open tasks"}
           onChange={(event) => setSentence(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") void submit(event);

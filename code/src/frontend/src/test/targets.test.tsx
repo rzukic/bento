@@ -106,6 +106,10 @@ describe("targets", () => {
     expect(targetPeriod({ from: null, to: null }, "month", "current", new Date(2026, 9, 8, 12))).toMatchObject({ from: "2026-10-01", to: "2026-11-01" });
     // Weeks and quarters as the workspace starts them.
     expect(targetPeriod({ from: "2026-10-01", to: "2026-10-11" }, "week")).toMatchObject({ from: "2026-10-05", to: "2026-10-12" });
+    // A range of whole months stops at today: this week, not the month's last; one reaching ahead keeps its end.
+    const thursday = new Date(2026, 9, 22, 12);
+    expect(targetPeriod({ from: "2026-08-01", to: "2026-11-01" }, "week", "current", thursday)).toMatchObject({ from: "2026-10-19", to: "2026-10-26" });
+    expect(targetPeriod({ from: "2026-10-01", to: "2026-11-01", future: true }, "week", "current", thursday)).toMatchObject({ from: "2026-10-26" });
     setWorkspaceCalendar({ weekStart: "sunday", yearStart: 4 });
     expect(targetPeriod({ from: "2026-10-01", to: "2026-10-11" }, "week")).toMatchObject({ from: "2026-10-04", to: "2026-10-11" });
     expect(targetPeriod({ from: "2026-01-01", to: "2026-03-01" }, "quarter")).toMatchObject({ from: "2026-01-01", to: "2026-04-01" });

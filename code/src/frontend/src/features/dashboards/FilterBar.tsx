@@ -187,7 +187,7 @@ export function FiltersEditor({
       </header>
       <div className="widget-editor__body">
         <p className="widget-editor__hint">
-          Menus above the widgets, e.g. an account or a category. A filter narrows every widget, variable and drill-down whose table has the column.
+          Menus above the widgets, e.g. a project, a person or a category. A filter narrows every widget, variable and drill-down whose table has the column.
         </p>
         {filters.map((filter, index) => (
           <section key={filter.column} className="widget-editor__section">

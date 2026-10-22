@@ -51,13 +51,13 @@ public sealed partial class McpTools
     public McpTool? Find(string name) => All.FirstOrDefault(tool => tool.Name == name);
 
     public const string Instructions = """
-        Bento is the user's own data workspace: tables they designed (for example accounts, transactions, categories, trades, prices), dashboards, forms, formulas and JavaScript functions.
-        - bento_guide explains how Bento works and the exact JSON formats (schema, formulas, queries, dashboards, forms, functions, the finance template). Read the matching topic before building or changing something, and when the user asks how Bento works.
+        Bento is the user's own data workspace: tables they designed (for example projects and hours, a habit log, customers and orders, accounts and transactions), dashboards, forms, formulas and JavaScript functions.
+        - bento_guide explains how Bento works and the exact JSON formats (schema, formulas, queries, dashboards, forms, functions). Read the matching topic before building or changing something, and when the user asks how Bento works.
         - Start with describe_schema to learn the tables, their columns and links; call it with a table name for the details of one table.
         - For totals, averages and counts over time use aggregate: it filters, groups by columns, linked records or date buckets (month, quarter, year) and computes measures in one call. Use list_rows to look at individual rows.
         - A link column (type reference) stores the id of a row in another table. aggregate returns <column>_label with the linked record's name; list_rows can include the linked record. To filter by a linked record, find its id first (list_rows with search on the linked table).
-        - In finance setups money going out is negative (expenses < 0) unless the schema says otherwise. Dates are ISO (YYYY-MM-DD).
-        - Before adding a row, look up the ids for its link columns (account, category, …) and use today's date unless the user says otherwise. Confirm amounts and the target table with the user when anything is ambiguous.
+        - Dates are ISO (YYYY-MM-DD). Column and table descriptions in the schema say what a value means (a sign, a unit); follow them.
+        - Before adding a row, look up the ids for its link columns (a project, a category, a customer …) and use today's date unless the user says otherwise. Confirm values and the target table with the user when anything is ambiguous.
         - Changing the schema can delete data: always preview_schema_change first, tell the user what it does, and only apply after they agree. Deleting rows, dashboards or forms also needs the user's go-ahead.
         - You see only the tools this connection may use; if the user wants more, they reconnect and tick it on Bento's sign-in page.
         """;

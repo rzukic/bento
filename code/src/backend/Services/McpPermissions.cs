@@ -87,6 +87,7 @@ public static class McpPermissions
             return Under("/data") || Under("/query") || Under("/queries") || Under("/dashboards") || Under("/forms") ||
                    p == api + "/admin/schema" || p == api + "/admin/schema/model" || Under("/formulas") ||
                    Under("/functions") || Under("/price-sources") || p == api + "/openapi.json" || Under("/views") || p == api + "/workspaces" ||
+                   Under("/templates") || Under("/query-tables") ||
                    (Under("/import") && p.EndsWith("/profiles", StringComparison.Ordinal))
                 ? Read
                 : null;
@@ -96,7 +97,7 @@ public static class McpPermissions
         if (HttpMethods.IsPost(method) &&
             (p == api + "/query" || p == api + "/query/variables" || (Under("/queries") && p.EndsWith("/run", StringComparison.Ordinal)) ||
              p == api + "/formulas/validate" || p == api + "/formulas/preview" || p == api + "/admin/schema/preview" || p == api + "/admin/schema/patch/preview" ||
-             p == api + "/price-sources/refresh"))
+             p == api + "/price-sources/refresh" || (Under("/query-tables") && p.EndsWith("/refresh", StringComparison.Ordinal))))
             return Read;
 
         if (Under("/data"))
@@ -110,7 +111,8 @@ public static class McpPermissions
             return Dashboards;
         if (Under("/forms"))
             return Forms;
-        if (p == api + "/admin/schema" || p == api + "/admin/migrations/rollback")
+        // Which templates the workspace has is part of its model.
+        if (p == api + "/admin/schema" || p == api + "/admin/migrations/rollback" || Under("/templates"))
             return Schema;
         if (Under("/functions") || Under("/price-sources"))
             return Functions;

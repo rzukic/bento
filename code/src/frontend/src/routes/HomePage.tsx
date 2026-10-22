@@ -6,6 +6,7 @@ import { Alert } from "../components/ui/Alert";
 import { Button } from "../components/ui/Button";
 import { Panel } from "../components/ui/Panel";
 import { postSampleData } from "../features/setup/api";
+import { TemplateGallery } from "../features/templates/TemplateGallery";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useRowCounts } from "../hooks/useRowCounts";
 import { useAuthStore } from "../stores/authStore";
@@ -231,6 +232,7 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
   const reloadSetup = useSetupStore((state) => state.load);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [templateError, setTemplateError] = useState<string | null>(null);
 
   async function loadSample() {
     setLoading(true);
@@ -246,52 +248,67 @@ function EmptyWorkspace({ isAdmin, sampleAvailable }: { isAdmin: boolean; sample
   }
 
   return (
-    <section className="home-empty" aria-label="Get started">
-      <div className="home-empty__panel">
-        <span className="section-label">Start from scratch</span>
-        <h2 className="home-empty__title display">Draw your first table.</h2>
-        <p className="home-empty__text">
-          {isAdmin
-            ? "Open the schema designer, add a table and its columns, review the changes and apply them. The table shows up in the Data Explorer right away."
-            : "An administrator sets up tables in the schema designer. Once they exist, you will find them in the Data Explorer."}
-        </p>
-        {isAdmin ? (
-          <div>
-            <Link to="/model" className="btn btn--primary">
-              Open schema designer <Icon name="arrow-right" size={14} />
-            </Link>
-          </div>
-        ) : null}
-      </div>
-      <div className="home-empty__panel">
-        <span className="section-label">Or look around first</span>
-        <h2 className="home-empty__title display">Load the demo workspace.</h2>
-        <p className="home-empty__text">
-          A small example with customers, orders and products, already linked together, so you can try things out
-          before adding your own data.
-        </p>
-        {error ? (
-          <p className="home-empty__error" role="alert">
-            {error}
+    <>
+      <section className="home-empty" aria-label="Get started">
+        <div className="home-empty__panel">
+          <span className="section-label">Start from scratch</span>
+          <h2 className="home-empty__title display">Draw your first table.</h2>
+          <p className="home-empty__text">
+            {isAdmin
+              ? "Open the schema designer, add a table and its columns, review the changes and apply them. The table shows up in the Data Explorer right away."
+              : "An administrator sets up tables in the schema designer. Once they exist, you will find them in the Data Explorer."}
           </p>
-        ) : null}
-        <div className="home-empty__actions">
-          {isAdmin && sampleAvailable ? (
-            <Button onClick={() => void loadSample()} disabled={loading} leadingIcon={<Icon name="database" size={14} />}>
-              {loading ? "Loading the demo…" : "Load the demo"}
-            </Button>
-          ) : (
-            <span className="home-empty__note mono">
-              {isAdmin ? "The demo can only be loaded into an empty workspace." : "Ask an administrator to load it."}
-            </span>
-          )}
           {isAdmin ? (
-            <Link to="/model" className="section-label home-empty__link">
-              Import a schema file
-            </Link>
+            <div>
+              <Link to="/model" className="btn btn--primary">
+                Open schema designer <Icon name="arrow-right" size={14} />
+              </Link>
+            </div>
           ) : null}
         </div>
-      </div>
-    </section>
+        <div className="home-empty__panel">
+          <span className="section-label">Or look around first</span>
+          <h2 className="home-empty__title display">Load the demo workspace.</h2>
+          <p className="home-empty__text">
+            A small example with customers, orders and products, already linked together, so you can try things out
+            before adding your own data.
+          </p>
+          {error ? (
+            <p className="home-empty__error" role="alert">
+              {error}
+            </p>
+          ) : null}
+          <div className="home-empty__actions">
+            {isAdmin && sampleAvailable ? (
+              <Button onClick={() => void loadSample()} disabled={loading} leadingIcon={<Icon name="database" size={14} />}>
+                {loading ? "Loading the demo…" : "Load the demo"}
+              </Button>
+            ) : (
+              <span className="home-empty__note mono">
+                {isAdmin ? "The demo can only be loaded into an empty workspace." : "Ask an administrator to load it."}
+              </span>
+            )}
+            {isAdmin ? (
+              <Link to="/model" className="section-label home-empty__link">
+                Import a schema file
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </section>
+      {isAdmin ? (
+        <section className="home-templates" aria-labelledby="home-templates-heading">
+          <span className="section-label" id="home-templates-heading">
+            Or start from a template
+          </span>
+          {templateError ? (
+            <p className="home-empty__error" role="alert">
+              {templateError}
+            </p>
+          ) : null}
+          <TemplateGallery tables={[]} onError={setTemplateError} />
+        </section>
+      ) : null}
+    </>
   );
 }

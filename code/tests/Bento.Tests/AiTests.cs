@@ -99,7 +99,8 @@ public sealed class AiTests
         Assert.Contains(first.Tools, t => t.Name == "aggregate");
         Assert.DoesNotContain(first.Tools, t => t.Name is "create_row" or "update_row" or "delete_row" or "call_api" or "apply_schema_change");
         Assert.Contains("You explain a number or a chart", first.System);
-        Assert.Contains("Wealth & cash-flow template", first.System);
+        // No use case it does not have: the finance conventions come only with the finance template.
+        Assert.DoesNotContain("finance template", first.System);
         Assert.Contains("\"language\":\"de-DE\"", ((AiText)first.Messages[0].Blocks[0]).Text);
 
         // Turn 2: the thinking was sent back unchanged, the aggregate ran with the viewer's rights, the write tool did not exist.
@@ -119,6 +120,15 @@ public sealed class AiTests
         Assert.True(own.GetProperty("ok").GetBoolean());
         var spent = (await DataAsync(await ApiKeyTests.SendAsync(host, HttpMethod.Get, "/api/v1/ai/settings", admin))).GetProperty("spentThisMonthUsd").GetDecimal();
         Assert.Equal(AiSettingsService.Cost("claude-opus-5-5", new AiUsage(8500, 420, 3000, 3000)), spent);
+
+        // With the finance template noted, its tables and conventions come along.
+        using (var recorded = await ApiKeyTests.SendAsync(host, HttpMethod.Put, "/api/v1/templates/finance", admin, new { title = "Finance", tables = new Dictionary<string, string> { ["accounts"] = "customers" } }))
+            Assert.True(recorded.IsSuccessStatusCode, await recorded.Content.ReadAsStringAsync());
+        model.Script.Enqueue(request => new AiResponse([new AiText("Two of three.")], "end_turn", new AiUsage(100, 10, 0, 0), "claude-opus-5-5"));
+        using (var again = await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/ai/explain", viewer, new { title = "Customers by tier", type = "donut", result = new[] { new { tier = "gold", n = 2 } } }))
+            Assert.True(again.IsSuccessStatusCode, await again.Content.ReadAsStringAsync());
+        Assert.Contains("The Finance template is installed: `customers` (its accounts)", model.Requests[^1].System);
+        Assert.Contains("Reference — the finance template's conventions", model.Requests[^1].System);
     }
 
     [Fact]

@@ -501,6 +501,10 @@ public sealed class McpTests
     [InlineData("PUT", "/api/v1/admin/schema", "schema.write")]
     [InlineData("POST", "/api/v1/functions", "functions.write")]
     [InlineData("POST", "/api/v1/price-sources/1/run", "functions.write")]
+    [InlineData("GET", "/api/v1/templates", "data.read")]
+    [InlineData("PUT", "/api/v1/templates/finance", "schema.write")]
+    [InlineData("GET", "/api/v1/query-tables/monthly", "data.read")]
+    [InlineData("POST", "/api/v1/query-tables/monthly/refresh", "data.read")]
     [InlineData("GET", "/api/v1/admin/api-keys", null)]
     [InlineData("GET", "/api/v1/admin/credentials", null)]
     [InlineData("POST", "/api/v1/auth/register", null)]
@@ -585,7 +589,7 @@ public sealed class McpTests
         return await host.Client.SendAsync(request);
     }
 
-    private static async Task<JsonElement> McpAsync(ApiIntegrationTestHost host, string token, string method, object? parameters = null)
+    internal static async Task<JsonElement> McpAsync(ApiIntegrationTestHost host, string token, string method, object? parameters = null)
     {
         using var response = await PostMcpAsync(host, token, Rpc(method, parameters));
         var body = await response.Content.ReadAsStringAsync();
