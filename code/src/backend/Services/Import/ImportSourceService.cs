@@ -342,7 +342,9 @@ public sealed class ImportSourceService
                 if (assign.Count > 0)
                     request = request with { Assign = new ImportAssign { Column = column, Values = assign } };
             }
-            result = await _import.RunAsync(source.TableName, request, dryRun: false);
+            // Row events (Step 5.12): these rows come from this import.
+            using (RowOrigin.Use("import", source.Name))
+                result = await _import.RunAsync(source.TableName, request, dryRun: false);
             if (result.Inserted + result.Updated > 0)
                 _recalculation?.Request();
         }

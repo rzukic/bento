@@ -18,10 +18,10 @@ namespace Bento.Api.Services.Notifications;
 /// says goes out over its channels (Step 5.2). Reports (<see cref="ReportBuilder"/>)
 /// speak on a schedule instead.
 /// </summary>
-public sealed class NotificationRuleService
+public sealed partial class NotificationRuleService
 {
     public static readonly string[] Kinds = ["condition", "target", "event", "report"];
-    public static readonly string[] Events = ["import.failed", "price.failed"];
+    public static readonly string[] Events = ["import.failed", "price.failed", "row.created", "row.updated", "row.deleted"];
     public static readonly string[] Periods = ["today", "this-week", "this-month", "this-quarter", "this-year"];
     public static readonly string[] Ops = [">", ">=", "<", "<=", "=", "<>"];
 
@@ -39,6 +39,7 @@ public sealed class NotificationRuleService
     private readonly BackendRuntimeOptions _runtime;
     private readonly ReportBuilder _reports;
     private readonly ILogger<NotificationRuleService>? _logger;
+    private readonly IServiceProvider _services;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
     public NotificationRuleService(
@@ -50,8 +51,10 @@ public sealed class NotificationRuleService
         WorkspaceSettings workspace,
         BackendRuntimeOptions runtime,
         ReportBuilder reports,
+        IServiceProvider services,
         ILogger<NotificationRuleService>? logger = null)
     {
+        _services = services;
         _systemPool = systemPool;
         _queryService = queryService;
         _schemaCache = schemaCache;
@@ -137,6 +140,7 @@ public sealed class NotificationRuleService
             RETURNING id
             """,
             new { Name = name, Kind = kind, Config = JsonSerializer.Serialize(config, Json), Channels = JsonSerializer.Serialize(channels), Enabled = request.Enabled ?? true, State = "{}", CreatedBy = userId, Now = UtcNowIso(), Ws });
+        RulesChanged();
         return await GetAsync(id);
     }
 
@@ -158,6 +162,7 @@ public sealed class NotificationRuleService
             WHERE id = @Id
             """,
             new { Id = id, Name = name, Config = JsonSerializer.Serialize(config, Json), Channels = JsonSerializer.Serialize(channels), Enabled = request.Enabled ?? existing.Enabled, State = JsonSerializer.Serialize(state, Json), Now = UtcNowIso() });
+        RulesChanged();
         return await GetAsync(id);
     }
 
@@ -166,7 +171,11 @@ public sealed class NotificationRuleService
         await RequireAsync(id);
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync($"DELETE FROM {Rules} WHERE id = @Id", new { Id = id });
+        RulesChanged();
     }
+
+    /// <summary>Which tables rules listen to may have changed (Step 5.12).</summary>
+    private void RulesChanged() => _services.GetService<RowEvents>()?.Invalidate();
 
     private async Task SaveStateAsync(long id, NotificationRuleState state)
     {
@@ -239,7 +248,13 @@ public sealed class NotificationRuleService
             {
                 var name = config.Event?.Trim().ToLowerInvariant();
                 if (name is null || !Events.Contains(name))
-                    throw Invalid("config.event", "The event is import.failed or price.failed.");
+                    throw Invalid("config.event", $"The event is {string.Join(", ", Events)}.");
+                if (IsRowEvent(name))
+                {
+                    var rowConfig = ValidateRowEvent(name, config);
+                    await ValidateRowConditionAsync(rowConfig);
+                    return rowConfig;
+                }
                 return new NotificationRuleConfig { Event = name };
             }
         }
@@ -455,6 +470,9 @@ public sealed class NotificationRuleService
                 notification = report.Notification with { Title = $"Test: {report.Notification.Title}" };
                 break;
             }
+            case "event" when IsRowEvent(rule.Config.Event):
+                notification = await RowTestNotificationAsync(rule, workspace);
+                break;
             default:
                 notification = new Notification(rule.Config.Event!, $"Test: {rule.Name}",
                     rule.Config.Event == "import.failed"
@@ -751,6 +769,7 @@ public sealed class NotificationRuleService
                            (rule.Config.Every == "day" ? $" · daily at {rule.Config.At}" : " · hourly"),
             "target" => $"A group at {rule.Config.Percent:0.#} % of its target or more",
             "report" => ReportBuilder.Summary(rule.Config, Cal),
+            _ when IsRowEvent(rule.Config.Event) => RowSummary(rule.Config, _schemaCache),
             _ => rule.Config.Event == "import.failed" ? "A scheduled import fails" : "A price update fails"
         };
         return new NotificationRuleResponse(rule.Id, rule.Name, rule.Kind, rule.Config, rule.Channels, rule.Enabled, rule.State, summary, rule.CreatedAt, rule.UpdatedAt);

@@ -217,6 +217,18 @@ public sealed class ShareTests
             token = JsonDocument.Parse(text).RootElement.GetProperty("token").GetString()!;
         }
 
+        // Step 5.12: a rule hears about entries through the form — and only those.
+        using var receiver = new FakeReceiver();
+        var hook = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/notifications/channels", admin, new { name = "Hook", kind = "webhook", config = new { url = $"{receiver.Url}/hook" } }));
+        await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/admin/notifications/rules", admin, new
+        {
+            name = "New entry", kind = "event", config = new { @event = "row.created", source = "entries", origins = new[] { "form" } }, channels = new[] { hook.GetProperty("id").GetInt64() }
+        }));
+        await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/data/entries", admin, new { amount = 1, note = "By hand" }));
+        await host.GetService<Bento.Api.Services.RowEvents>().FlushAsync();
+        Assert.Empty(receiver.Requests);
+        using (var _ = await ApiKeyTests.SendAsync(host, HttpMethod.Delete, "/api/v1/data/entries/1", admin)) { }
+
         var info = await Data(await Share(host, HttpMethod.Get, "/api/v1/share", token));
         Assert.Equal("form", info.GetProperty("kind").GetString());
         Assert.Equal(formId, info.GetProperty("formId").GetInt64());
@@ -241,6 +253,9 @@ public sealed class ShareTests
         var stored = await Data(await ApiKeyTests.SendAsync(host, HttpMethod.Get, $"/api/v1/data/entries/{sent.GetProperty("id").GetInt64()}", admin));
         Assert.Equal("web", stored.GetProperty("source").GetString());
         Assert.Equal("Bakery", stored.GetProperty("note").GetString());
+        await host.GetService<Bento.Api.Services.RowEvents>().FlushAsync();
+        var told = JsonDocument.Parse(Assert.Single(receiver.Requests).Body).RootElement;
+        Assert.EndsWith("— through the public form “Public”.", told.GetProperty("text").GetString());
         await Status(await Entry(host, token, new { amount = 1, secret = "x" }), HttpStatusCode.Forbidden, "not a field of this form");
         await Status(await Entry(host, token, new { amount = 1 }, trap: "ok:http://spam.example"), HttpStatusCode.BadRequest, "automatic");
         await Status(await Entry(host, token, new { amount = 1 }, elapsed: "0.4"), HttpStatusCode.BadRequest, "automatic");

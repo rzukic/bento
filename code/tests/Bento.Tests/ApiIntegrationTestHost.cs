@@ -258,6 +258,8 @@ public sealed class ApiIntegrationTestHost : IAsyncDisposable
             ["Backend:AuthRateLimitPerMinute"] = "5",
             ["Backend:DataDir"] = dataRootPath,
             ["Schema:AutoMigrateOnStartup"] = "false",
+            // Row events (Step 5.12) wait until a test flushes them: nothing fires behind its back.
+            ["Notifications:RowEventDelaySeconds"] = "300",
             ["urls"] = "http://127.0.0.1:0"
         };
 
