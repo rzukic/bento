@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-22 — Any API Into A Table
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.11 — Any API Into A Table: Functions As Import Sources](working-steps/5.11-functions-as-import-sources.md)
+
+A saved import can now read from a function: your JavaScript calls any API and returns the rows.
+
+**Highlights:**
+- **Import → From a function**: run it, map its rows, save it to run daily or every few hours — with keys, updates and the run log as for a URL.
+- **Only what is new**: the function gets the time of the last import that worked.
+- **Templates**: "Rows from a JSON API" and "Daily weather (Open-Meteo)".
+- **Safe**: functions that read credentials stay with admins; a function in use cannot be deleted.
+
 ### 2026-10-22 — Templates
 
 > **Phase**: Phase 5 — Integration

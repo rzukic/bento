@@ -10,6 +10,8 @@ import {
   type ImportSourceRun,
 } from "../../../api/import";
 import { listCredentials } from "../../../api/credentials";
+import { listFunctions, type CustomFunction } from "../../../api/functions";
+import { Link } from "react-router-dom";
 import { ApiClientError } from "../../../api/client";
 import { Icon } from "../../../components/common/Icon";
 import { Button } from "../../../components/ui/Button";
@@ -21,6 +23,14 @@ import { getCurrentLocale } from "../components/editors/temporalEditing";
  */
 
 export type UrlSource = { url: string; headers: ImportHeader[] };
+
+/** Where the page's file came from: a URL with its headers, or a function (Step 5.11). */
+export type FetchedFrom = ({ kind: "url" } & UrlSource) | { kind: "function"; function: string };
+
+/** Functions an import can read from: no argument or one (when it last ran), a list of rows or CSV text. */
+export function importableFunctions(functions: CustomFunction[]): CustomFunction[] {
+  return functions.filter((f) => (f.resultType === "any" || f.resultType === "text") && f.arguments.length <= 1 && (f.mode ?? "row") === "row");
+}
 
 function formatWhen(value: string | null): string {
   if (!value) return "";
@@ -140,6 +150,72 @@ export function UrlSourceForm({
             : "Keys from the vault can only be used by admins."}
         </span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * A function as the source (Step 5.11): the user's JavaScript calls any API
+ * it may (its hosts and credentials) and returns the rows; run once here to
+ * map them, then saved like an import from a URL.
+ */
+export function FunctionSourceForm({
+  value,
+  onChange,
+  onRun,
+  busy,
+  isAdmin,
+}: {
+  value: string;
+  onChange: (name: string) => void;
+  onRun: () => void;
+  busy: boolean;
+  isAdmin: boolean;
+}) {
+  const [functions, setFunctions] = useState<CustomFunction[] | null>(null);
+  useEffect(() => {
+    listFunctions()
+      .then((list) => setFunctions(importableFunctions(list)))
+      .catch(() => setFunctions([]));
+  }, []);
+  const chosen = functions?.find((f) => f.name === value);
+  const locked = !!chosen && chosen.credentials.length > 0 && !isAdmin;
+
+  if (functions && functions.length === 0)
+    return (
+      <div className="import-url">
+        <p className="import-url__hint">
+          No function gives rows yet. {isAdmin ? <Link to="/functions">Write one under Functions</Link> : "An admin writes one under Functions"} — it calls an API and returns a list of
+          objects (result type <code>any</code>) or CSV text; the templates “Rows from a JSON API” and “Daily weather (Open-Meteo)” are a start.
+        </p>
+      </div>
+    );
+  return (
+    <div className="import-url">
+      <div className="import-url__row">
+        <label className="field import-url__address">
+          <span className="field__label">Function</span>
+          <select className="field__control" value={value} onChange={(event) => onChange(event.target.value)} disabled={!functions}>
+            <option value="">{functions ? "Choose a function" : "Loading…"}</option>
+            {(functions ?? []).map((f) => (
+              <option key={f.name} value={f.name}>
+                {f.name}
+                {f.description ? ` — ${f.description}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <Button type="button" variant="primary" onClick={onRun} disabled={busy || !value || locked}>
+          {busy ? "Running…" : "Run"}
+        </Button>
+      </div>
+      <span className="import-url__hint">
+        {locked
+          ? `${chosen!.name} reads ${chosen!.credentials.join(", ")} from the vault; only admins can import from it.`
+          : chosen
+            ? `${chosen.allowedHosts.length > 0 ? `Calls ${chosen.allowedHosts.join(", ")}. ` : ""}${chosen.arguments.length === 1 ? `Gets when the import last worked as ${chosen.arguments[0].name}, to ask only for what is new. ` : ""}Its result is read like a file.`
+            : "A function that calls an API and returns rows: a list of objects, or CSV text."}
+      </span>
     </div>
   );
 }
@@ -264,12 +340,13 @@ export function SavedImportsList({
     <ul className="saved-imports">
       {sources.map((source) => {
         const last = source.lastRun;
-        let host = source.config.url;
-        try {
-          host = new URL(source.config.url).host;
-        } catch {
-          // A URL with a {{credential}} in it may not parse; show it as it is.
-        }
+        let host = source.config.function ? `${source.config.function}()` : (source.config.url ?? "");
+        if (!source.config.function)
+          try {
+            host = new URL(host).host;
+          } catch {
+            // A URL with a {{credential}} in it may not parse; show it as it is.
+          }
         return (
           <li key={source.id} className={["saved-import", editingId === source.id ? "saved-import--editing" : "", source.enabled ? "" : "saved-import--paused"].filter(Boolean).join(" ")}>
             <div className="saved-import__main">

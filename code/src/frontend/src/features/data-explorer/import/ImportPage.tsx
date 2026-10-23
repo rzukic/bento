@@ -6,6 +6,7 @@ import {
   createImportSource,
   deleteImportProfile,
   fetchImportFile,
+  runImportFunction,
   listImportProfiles,
   listImportSources,
   updateImportSource,
@@ -52,7 +53,7 @@ import {
   type MappingState,
 } from "./importMapping";
 import { FileDrop, ReadSettings } from "./ImportSections";
-import { SavedImportsList, SaveScheduleForm, UrlSourceForm, type UrlSource } from "./SavedImports";
+import { FunctionSourceForm, SavedImportsList, SaveScheduleForm, UrlSourceForm, type FetchedFrom, type UrlSource } from "./SavedImports";
 import { getAiStatus } from "../../../api/ai";
 import type { CategoriseRow } from "../../../api/categorise";
 import { CategoriseBar, CategoryCell } from "../categorise/CategoriseControls";
@@ -149,9 +150,10 @@ export function ImportPage() {
   const [busy, setBusy] = useState<"analyze" | "fetch" | "preview" | "import" | "profile" | "schedule" | null>(null);
   // Step 5.1: the file can come from a URL, and be saved as an import that runs on its own.
   const isAdmin = useAuthStore((state) => state.user?.role === "admin");
-  const [origin, setOrigin] = useState<"file" | "url">("file");
+  const [origin, setOrigin] = useState<"file" | "url" | "function">("file");
   const [urlSource, setUrlSource] = useState<UrlSource>({ url: "", headers: [] });
-  const [fetchedFrom, setFetchedFrom] = useState<UrlSource | null>(null);
+  const [functionSource, setFunctionSource] = useState("");
+  const [fetchedFrom, setFetchedFrom] = useState<FetchedFrom | null>(null);
   const [sources, setSources] = useState<ImportSource[]>([]);
   const [editingSource, setEditingSource] = useState<ImportSource | null>(null);
   const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
@@ -255,16 +257,21 @@ export function ImportPage() {
   );
 
   /** Fetches the file at the URL (on the server) and reads it like an upload; a saved import brings its own settings and mapping. */
-  const fetchFromUrl = async (from: UrlSource, preset: ImportProfileConfig | null) => {
+  const fetchFromUrl = (from: UrlSource, preset: ImportProfileConfig | null) => {
+    const headers = from.headers.filter((h) => h.name.trim());
+    return fetchFrom({ kind: "url", url: from.url.trim(), headers }, preset);
+  };
+
+  /** The file from a URL or a function (on the server), read like an upload; a saved import brings its own settings and mapping. */
+  const fetchFrom = async (from: FetchedFrom, preset: ImportProfileConfig | null) => {
     setBusy("fetch");
     setError(null);
     try {
-      const headers = from.headers.filter((h) => h.name.trim());
-      const fetched = await fetchImportFile(from.url.trim(), headers);
+      const fetched = from.kind === "function" ? await runImportFunction(from.function) : await fetchImportFile(from.url, from.headers);
       const bytes = Uint8Array.from(atob(fetched.content), (c) => c.charCodeAt(0));
       setFile(new File([bytes], fetched.fileName, { type: fetched.contentType ?? "" }));
       setContent(fetched.content);
-      setFetchedFrom({ url: from.url.trim(), headers });
+      setFetchedFrom(from);
       if (!preset) {
         mappingRef.current = {};
         keyColumnsRef.current = [];
@@ -272,18 +279,25 @@ export function ImportPage() {
       await analyze(fetched.content, preset?.settings ?? selectedProfile?.config.settings ?? {}, preset ?? selectedProfile?.config ?? null, fetched.fileName);
     } catch (cause) {
       setBusy(null);
-      setError(errorMessage(cause, "The file could not be fetched."));
+      setError(errorMessage(cause, from.kind === "function" ? "The function could not be run." : "The file could not be fetched."));
     }
   };
 
   const editSource = (source: ImportSource) => {
-    setOrigin("url");
+    setOrigin(source.config.function ? "function" : "url");
     setEditingSource(source);
     setScheduleNotice(null);
-    const from = { url: source.config.url, headers: source.config.headers ?? [] };
-    setUrlSource(from);
+    let from: FetchedFrom;
+    if (source.config.function) {
+      setFunctionSource(source.config.function);
+      from = { kind: "function", function: source.config.function };
+    } else {
+      const url = { url: source.config.url ?? "", headers: source.config.headers ?? [] };
+      setUrlSource(url);
+      from = { kind: "url", ...url };
+    }
     if (source.config.categoryColumn) setCategoryColumn(source.config.categoryColumn);
-    void fetchFromUrl(from, {
+    void fetchFrom(from, {
       settings: source.config.settings,
       mapping: source.config.mapping,
       keyColumns: source.config.keyColumns,
@@ -296,8 +310,7 @@ export function ImportPage() {
     setBusy("schedule");
     setScheduleNotice(null);
     const config = {
-      url: fetchedFrom.url,
-      headers: fetchedFrom.headers,
+      ...(fetchedFrom.kind === "function" ? { function: fetchedFrom.function } : { url: fetchedFrom.url, headers: fetchedFrom.headers }),
       settings: profileSettings(),
       mapping: toMappingPayload(mapping),
       keyColumns: keyColumns.filter((k) => mapping[k]),
@@ -539,7 +552,7 @@ export function ImportPage() {
         </Link>
         <h1 className="import-page__title">Import into {displayName}</h1>
         <p className="import-page__lead">
-          Bank and broker exports work as they come: CSV with semicolons, decimal commas, German dates and account lines above the header, Excel sheets and JSON.
+          Exports work as they come — CSV with semicolons, decimal commas, local dates and extra lines above the header, Excel sheets and JSON — and so does any API through a function.
         </p>
       </header>
 
@@ -550,7 +563,7 @@ export function ImportPage() {
         <section className="import-section" aria-labelledby="import-saved-heading">
           <div className="import-section__head">
             <h2 id="import-saved-heading" className="import-section__title">Saved imports</h2>
-            <span className="import-section__note">Fetched from their address and imported on their own.</span>
+            <span className="import-section__note">Fetched from their address or function and imported on their own.</span>
           </div>
           <SavedImportsList table={tableId} sources={sources} editingId={editingSource?.id ?? null} onEdit={editSource} onChanged={reloadSources} />
         </section>
@@ -567,6 +580,15 @@ export function ImportPage() {
             <button type="button" role="tab" aria-selected={origin === "url"} className={origin === "url" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"} onClick={() => setOrigin("url")}>
               From a URL
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={origin === "function"}
+              className={origin === "function" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"}
+              onClick={() => setOrigin("function")}
+            >
+              From a function
+            </button>
           </div>
           {profiles.length > 0 ? (
             <div className="import-section__aside">
@@ -581,12 +603,22 @@ export function ImportPage() {
           ) : null}
         </div>
 
-        {origin === "url" ? (
+        {origin === "url" || origin === "function" ? (
           <>
-            <UrlSourceForm value={urlSource} onChange={setUrlSource} onFetch={() => void fetchFromUrl(urlSource, null)} busy={busy === "fetch"} isAdmin={isAdmin} />
-            {file && fetchedFrom ? (
+            {origin === "url" ? (
+              <UrlSourceForm value={urlSource} onChange={setUrlSource} onFetch={() => void fetchFromUrl(urlSource, null)} busy={busy === "fetch"} isAdmin={isAdmin} />
+            ) : (
+              <FunctionSourceForm
+                value={functionSource}
+                onChange={setFunctionSource}
+                onRun={() => void fetchFrom({ kind: "function", function: functionSource }, null)}
+                busy={busy === "fetch"}
+                isAdmin={isAdmin}
+              />
+            )}
+            {file && fetchedFrom && (fetchedFrom.kind === "function") === (origin === "function") ? (
               <p className="import-url__fetched">
-                <Icon name="check" size={13} /> Fetched {file.name} · {analysis ? `${analysis.rowCount} ${analysis.rowCount === 1 ? "row" : "rows"}` : ""}
+                <Icon name="check" size={13} /> {fetchedFrom.kind === "function" ? `Ran ${fetchedFrom.function}` : `Fetched ${file.name}`} · {analysis ? `${analysis.rowCount} ${analysis.rowCount === 1 ? "row" : "rows"}` : ""}
                 {editingSource ? ` · editing “${editingSource.name}”` : ""}
               </p>
             ) : null}
@@ -599,7 +631,7 @@ export function ImportPage() {
             onChoose={(chosen) => void chooseFile(chosen)}
           />
         )}
-        {busy === "fetch" ? <Spinner label="Fetching the file" /> : null}
+        {busy === "fetch" ? <Spinner label={origin === "function" ? "Running the function" : "Fetching the file"} /> : null}
         {busy === "analyze" ? <Spinner label="Reading the file" /> : null}
       </section>
 
@@ -666,7 +698,7 @@ export function ImportPage() {
               <span>
                 <strong>Update rows that changed</strong>
                 <span className="import-update__hint">
-                  When a row's key is already in {displayName} but its other values differ — a corrected amount, a booking that went from pending to booked — update it instead of skipping it. Empty cells change nothing.
+                  When a row's key is already in {displayName} but its other values differ — a corrected value, a status that moved on, today’s numbers that grew — update it instead of skipping it. Empty cells change nothing.
                 </span>
               </span>
             </label>
@@ -710,9 +742,9 @@ export function ImportPage() {
             {profileNotice ? <p className="import-profile__notice" role="status">{profileNotice}</p> : null}
             {fetchedFrom ? (
               <div className="import-schedule-box">
-                <h3 className="import-schedule-box__title">Fetch and import on its own</h3>
+                <h3 className="import-schedule-box__title">{fetchedFrom.kind === "function" ? "Run and import on its own" : "Fetch and import on its own"}</h3>
                 <p className="import-section__note">
-                  Saves the address, how the file is read, the columns and keys{activeCategoryColumn ? ` and filling in ${categoryLabel || activeCategoryColumn} by your rules` : ""}. Each run imports what is new{updateChanged ? ", updates what changed" : ""} and keeps a log; a failed run also shows under Settings → Problems.
+                  Saves {fetchedFrom.kind === "function" ? "the function" : "the address"}, how the file is read, the columns and keys{activeCategoryColumn ? ` and filling in ${categoryLabel || activeCategoryColumn} by your rules` : ""}. Each run imports what is new{updateChanged ? ", updates what changed" : ""} and keeps a log; a failed run also shows under Settings → Problems.
                 </p>
                 <SaveScheduleForm
                   key={editingSource?.id ?? "new"}

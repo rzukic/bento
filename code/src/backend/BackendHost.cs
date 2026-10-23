@@ -119,6 +119,7 @@ public static class BackendHost
         {
             AllowPrivateNetwork = sp.GetRequiredService<IConfiguration>().GetValue("Import:AllowPrivateNetwork", false)
         }, sp.GetRequiredService<CredentialService>()));
+        services.AddSingleton<Bento.Api.Services.Import.ImportFunctionRunner>();
         services.AddSingleton<Bento.Api.Services.Import.ImportSourceService>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationSender>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationService>();

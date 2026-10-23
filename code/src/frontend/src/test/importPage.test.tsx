@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   updateImportProfile: vi.fn(),
   deleteImportProfile: vi.fn(),
   fetchImportFile: vi.fn(),
+  runImportFunction: vi.fn(),
   listImportSources: vi.fn(),
   createImportSource: vi.fn(),
   updateImportSource: vi.fn(),
@@ -30,6 +31,8 @@ const api = vi.hoisted(() => ({
 }));
 
 const dataApi = vi.hoisted(() => ({ fetchTableRows: vi.fn() }));
+const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn() }));
+vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
 
 vi.mock("../api/import", async (importOriginal) => ({
@@ -117,6 +120,7 @@ beforeEach(() => {
   api.analyzeImport.mockResolvedValue(analysis);
   api.previewImport.mockResolvedValue(runResult(true));
   api.runImport.mockResolvedValue(runResult(false));
+  functionsApi.listFunctions.mockResolvedValue([]);
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("fetch must be mocked in tests"))));
 });
 
@@ -366,5 +370,69 @@ describe("CSV import page", () => {
     expect(api.runImportSource).toHaveBeenCalledWith("transactions", 3);
     expect(await screen.findByText("broker.example answered 500 Internal Server Error.")).toBeInTheDocument();
     expect(api.listImportSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("imports from a function and saves it to run on its own", async () => {
+    const fn = (name: string, extra: object = {}) => ({
+      name, description: null, arguments: [{ name: "since", type: "text" }], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "",
+      usedBy: [], allowedHosts: ["api.example.com"], credentials: [], usableInFormulas: false, mode: "row", ...extra,
+    });
+    // Only functions that give rows: not a formula function, not one over rows.
+    functionsApi.listFunctions.mockResolvedValue([fn("bank_api"), fn("risk", { resultType: "text", arguments: [{ name: "a", type: "float" }, { name: "b", type: "float" }] }), fn("costs", { mode: "rows" })]);
+    api.runImportFunction.mockResolvedValue({ content: btoa("[]"), fileName: "bank_api.json", contentType: "application/json", bytes: 2, finalUrl: "function:bank_api" });
+    api.createImportSource.mockImplementation(async (_table: string, name: string, config: unknown) => ({ id: 8, name, tableName: "transactions", config, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    await user.click(await screen.findByRole("tab", { name: "From a function" }));
+    const select = await screen.findByLabelText("Function");
+    await waitFor(() => expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose a function", "bank_api"]));
+    await user.selectOptions(select, "bank_api");
+    expect(screen.getByText(/Calls api.example.com. Gets when the import last worked as since/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+    expect(api.runImportFunction).toHaveBeenCalledWith("bank_api");
+    expect(api.analyzeImport.mock.calls[0][2]).toBe("bank_api.json");
+    expect(await screen.findByText(/Ran bank_api/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Run and import on its own" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Name"), "Bank API");
+    await user.click(screen.getByRole("button", { name: "Save import" }));
+    await waitFor(() => expect(api.createImportSource).toHaveBeenCalledTimes(1));
+    const config = api.createImportSource.mock.calls[0][2];
+    expect(config).toMatchObject({ function: "bank_api", schedule: { kind: "daily", at: "06:00" } });
+    expect(config).not.toHaveProperty("url");
+  });
+
+  it("shows a saved import from a function and opens it for editing", async () => {
+    functionsApi.listFunctions.mockResolvedValue([
+      { name: "daily_weather", description: "Open-Meteo", arguments: [], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "", usedBy: [], allowedHosts: ["api.open-meteo.com"], credentials: [], usableInFormulas: false },
+    ]);
+    api.listImportSources.mockResolvedValue([
+      { id: 4, name: "Weather", tableName: "transactions", config: { function: "daily_weather", mapping: [], schedule: { kind: "hours", every: 6 } }, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" },
+    ]);
+    api.runImportFunction.mockResolvedValue({ content: btoa("[]"), fileName: "daily_weather.json", contentType: "application/json", bytes: 2, finalUrl: "function:daily_weather" });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    expect(await screen.findByText(/daily_weather\(\) · Every 6 hours/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await waitFor(() => expect(api.runImportFunction).toHaveBeenCalledWith("daily_weather"));
+    expect(screen.getByRole("tab", { name: "From a function" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText(/editing “Weather”/)).toBeInTheDocument();
+  });
+
+  it("keeps functions that read credentials for admins", async () => {
+    useAuthStore.setState({ user: { id: 2, username: "eddie", role: "editor" } });
+    functionsApi.listFunctions.mockResolvedValue([
+      { name: "bank_api", description: null, arguments: [], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "", usedBy: [], allowedHosts: ["api.example.com"], credentials: ["bank_token"], usableInFormulas: false },
+    ]);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.click(await screen.findByRole("tab", { name: "From a function" }));
+    await user.selectOptions(await screen.findByLabelText("Function"), "bank_api");
+    expect(screen.getByText(/reads bank_token from the vault; only admins can import from it/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   });
 });

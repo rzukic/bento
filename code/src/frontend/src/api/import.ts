@@ -182,11 +182,19 @@ export async function fetchImportFile(url: string, headers: ImportHeader[]): Pro
   return response.data;
 }
 
+/** POST /api/v1/import/function — runs a function (Step 5.11); its rows come back like a fetched file. */
+export async function runImportFunction(name: string): Promise<ImportFetchResult> {
+  const response = await apiClient.post<DataEnvelope<ImportFetchResult>>("/import/function", { function: name });
+  return response.data;
+}
+
 /** When a saved import runs on its own. */
 export type ImportSchedule = { kind: "manual" } | { kind: "daily"; at: string; timeZone?: string } | { kind: "hours"; every: number };
 
 export type ImportSourceConfig = {
-  url: string;
+  /** Where the file comes from: a URL, or (Step 5.11) a function whose result is the file. */
+  url?: string | null;
+  function?: string | null;
   headers?: ImportHeader[];
   settings?: ImportFileSettings;
   mapping: ImportColumnMapping[];

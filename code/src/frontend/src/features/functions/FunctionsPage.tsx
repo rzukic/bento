@@ -302,7 +302,8 @@ function FunctionsIntro({ canCreate, hasFunctions, onCreate }: { canCreate: bool
       </p>
       <p className="functions-intro__note">
         Functions run sandboxed on the server: no files, no access to Bento, at most 1 s per call (5 s for functions over rows, 30 s with network). A function may
-        call the hosts you list with <code>fetch</code> — then it runs as a <strong>price source</strong> rather than in formulas.
+        call the hosts you list with <code>fetch</code> — then it runs as an <strong>import source</strong> (any API into a table, on a schedule) or a{" "}
+        <strong>price source</strong> rather than in formulas.
       </p>
       {canCreate ? (
         <Button type="button" variant="primary" leadingIcon={<Icon name="plus" size={14} />} onClick={onCreate}>
@@ -750,7 +751,8 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
         </div>
         {!inFormulas ? (
           <p className="function-editor__hint">
-            {networked ? "This function calls the internet" : "This function gives any JSON value"}, so it runs as a{" "}
+            {networked ? "This function calls the internet" : "This function gives any JSON value"}, so it runs as an import source — a table's Import →{" "}
+            <em>From a function</em> (no argument or one: when the import last worked → a list of rows) — or a{" "}
             <Link to="/functions?tab=prices">price source</Link> (prices: arguments symbols, from, to → a list of {"{ symbol, date, price }"};
             symbols: keys → {"{ key: symbol }"}), not in formulas.
           </p>
@@ -780,8 +782,12 @@ function FunctionEditor({ fn, status, readOnly, onSaved, onDeleted, onCancelNew 
             <ul className="function-usages">
               {fn.usedBy.map((usage) => (
                 <li key={`${usage.kind}:${usage.name}`}>
-                  <Icon name={usage.kind === "column" ? "table" : usage.kind === "priceSource" ? "refresh" : "dashboard"} size={13} />
-                  {usage.kind === "column" && usage.table ? (
+                  <Icon name={usage.kind === "column" ? "table" : usage.kind === "priceSource" ? "refresh" : usage.kind === "importSource" ? "download" : "dashboard"} size={13} />
+                  {usage.kind === "importSource" && usage.table ? (
+                    <Link to={`/data/${encodeURIComponent(usage.table)}/import`}>
+                      {usage.name} → {usage.table}
+                    </Link>
+                  ) : usage.kind === "column" && usage.table ? (
                     <Link to={`/data/${encodeURIComponent(usage.table)}`}>{usage.name}</Link>
                   ) : usage.kind === "priceSource" ? (
                     <Link to="/functions?tab=prices">{usage.name}</Link>
