@@ -128,6 +128,7 @@ public static class BackendHost
         services.AddSingleton<Bento.Api.Services.Apps.CalDavService>();
         services.AddSingleton<Bento.Api.Services.Notifications.ReportBuilder>();
         services.AddSingleton<Bento.Api.Services.Notifications.NotificationRuleService>();
+        services.AddSingleton<RowEvents>();
         services.AddHttpContextAccessor();
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
@@ -176,6 +177,7 @@ public static class BackendHost
         services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
         services.AddHostedService<Bento.Api.Workers.ImportScheduler>();
         services.AddHostedService<Bento.Api.Workers.NotificationRuleScheduler>();
+        services.AddHostedService(sp => sp.GetRequiredService<RowEvents>());
     }
 
     public static void ConfigureMiddleware(WebApplication app)
@@ -208,6 +210,7 @@ public static class BackendHost
         app.UseMiddleware<BodySizeLimitMiddleware>();
         app.UseMiddleware<AuthRateLimitMiddleware>();
         app.UseMiddleware<AuthMiddleware>();
+        app.UseMiddleware<RowOriginMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)

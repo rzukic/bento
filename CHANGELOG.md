@@ -14,6 +14,19 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-23 — Rules On Rows
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.12 — Row Events](working-steps/5.12-row-events.md)
+
+Hear about rows as they come: a new sign-up through a form, an urgent order, a status that changed, something deleted.
+
+**Highlights:**
+- **Settings → Notifications → Rows are added, changed or deleted** — in a table, only rows where a formula holds, only when certain columns change, only from forms, imports, the API …
+- **One message per batch**: an import of 300 rows is one message; a rule speaks at most 20 times an hour.
+- **What happened**: the row's values, changes as "open → done", who wrote it, a link to the row.
+- **Conditions react to changes** within a minute, not only after imports.
+
 ### 2026-10-22 — Any API Into A Table
 
 > **Phase**: Phase 5 — Integration

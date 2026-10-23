@@ -33,6 +33,7 @@ public sealed class CrudService
     private readonly SchemaCache _schemaCache;
     private readonly ComputedColumns _computed;
     private readonly DataVersion? _versions;
+    private readonly RowEvents? _events;
 
     public CrudService(
         QueryService queryService,
@@ -40,8 +41,10 @@ public sealed class CrudService
         RequestBodyValidator validator,
         SchemaCache schemaCache,
         ComputedColumns computed,
-        DataVersion? versions = null)
+        DataVersion? versions = null,
+        RowEvents? events = null)
     {
+        _events = events;
         _queryService = queryService;
         _dbConfig = dbConfig;
         _validator = validator;
@@ -64,6 +67,36 @@ public sealed class CrudService
                 new Dictionary<string, object?> { ["table"] = table.Name });
         _versions?.Bump();
     }
+
+    // ── Row events (Step 5.12) ───────────────────────────────────────────
+
+    private async Task<bool> WantsAsync(TableDef table, string op) => _events is not null && await _events.WantsAsync(table, op);
+
+    private void Publish(TableDef table, string op, IReadOnlyList<RowChange> rows) => _events?.Publish(table, op, rows);
+
+    /// <summary>The row's key as the API writes it: the id, or <c>a:1|b:2</c> for a composite key.</summary>
+    private static string KeyOf(TableDef table, IDictionary<string, object?> row)
+    {
+        var keys = table.Columns.Where(c => c.PrimaryKey).ToList();
+        string Text(ColumnDef c) => Convert.ToString(row.TryGetValue(c.Name, out var v) ? v : null, CultureInfo.InvariantCulture) ?? "";
+        return keys.Count == 1 ? Text(keys[0]) : string.Join("|", keys.Select(k => $"{k.Name}:{Text(k)}"));
+    }
+
+    /// <summary>A whole row as the API shows it, or null; inside the write's transaction when there is one.</summary>
+    private async Task<IDictionary<string, object?>?> ReadRowAsync(QueryScope scope, TableDef table, IReadOnlyDictionary<string, object> keyValues, IDbTransaction? transaction = null)
+    {
+        var row = await ApplyKeyFilter(ReadQuery(scope, table), keyValues).FirstOrDefaultAsync(transaction);
+        return row is null ? null : ToResponseRow(table, row);
+    }
+
+    /// <summary>The stored columns whose value differs between two readings of a row.</summary>
+    private static List<string> ChangedColumns(TableDef table, IDictionary<string, object?> before, IDictionary<string, object?> after) =>
+        table.Columns.Where(c => ColumnTypes.HasPhysicalColumn(c.Type) && !c.PrimaryKey)
+            .Where(c => JsonSerializer.Serialize(before.TryGetValue(c.Name, out var b) ? b : null) != JsonSerializer.Serialize(after.TryGetValue(c.Name, out var a) ? a : null))
+            .Select(c => c.Name).ToList();
+
+    private static IReadOnlyDictionary<string, object> SingleKey(ColumnDef key, object id) =>
+        new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase) { [key.Name] = id };
 
     /// <summary>A query for whole rows: the stored columns and the computed ones.</summary>
     private Query ReadQuery(QueryScope scope, TableDef table) => _computed.Select(scope.Db.Query(table.Name), table);
@@ -220,7 +253,9 @@ public sealed class CrudService
             row = await query.FirstOrDefaultAsync();
         }
 
-        return ToResponseRow(table, row!);
+        var created = ToResponseRow(table, row!);
+        Publish(table, "created", [new RowChange(KeyOf(table, created), null, created)]);
+        return created;
     }
 
     public async Task<IDictionary<string, object?>> UpdateAsync(TableDef table, string id, JsonElement body)
@@ -245,12 +280,28 @@ public sealed class CrudService
 
         await using var scope = await _queryService.UseDataAsync();
         await EnsureKeyFreeAsync(scope, table, keyValues, data);
+        var before = await WantsAsync(table, "updated") ? await ReadRowAsync(scope, table, keyValues) : null;
         await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
 
         var row = await ApplyKeyFilter(ReadQuery(scope, table), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToResponseRow(table, row!);
+        var updated = ToResponseRow(table, row!);
+        PublishUpdate(table, before, updated);
+        return updated;
+    }
+
+    /// <summary>An updated row; with what it was before (when a rule listens), only when a value really changed.</summary>
+    private void PublishUpdate(TableDef table, IDictionary<string, object?>? before, IDictionary<string, object?> after)
+    {
+        if (before is null)
+        {
+            Publish(table, "updated", [new RowChange(KeyOf(table, after), null, after)]);
+            return;
+        }
+        var changed = ChangedColumns(table, before, after);
+        if (changed.Count > 0)
+            Publish(table, "updated", [new RowChange(KeyOf(table, after), before, after, changed)]);
     }
 
     public async Task<IDictionary<string, object?>> PatchAsync(TableDef table, string id, JsonElement body)
@@ -264,10 +315,13 @@ public sealed class CrudService
         var columns = GetWritableColumns(table);
         var data = ExtractColumnValues(body, columns);
 
+        IDictionary<string, object?>? before = null;
         if (data.Count > 0)
         {
             await using var scope = await _queryService.UseDataAsync();
             await EnsureKeyFreeAsync(scope, table, keyValues, data);
+            if (await WantsAsync(table, "updated"))
+                before = await ReadRowAsync(scope, table, keyValues);
             await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).UpdateAsync(data);
         }
 
@@ -275,7 +329,10 @@ public sealed class CrudService
         var row = await ApplyKeyFilter(ReadQuery(readScope, table), KeyValuesAfterWrite(keyValues, data))
             .FirstOrDefaultAsync();
 
-        return ToResponseRow(table, row!);
+        var patched = ToResponseRow(table, row!);
+        if (data.Count > 0)
+            PublishUpdate(table, before, patched);
+        return patched;
     }
 
     /// <summary>
@@ -328,7 +385,10 @@ public sealed class CrudService
         BeforeWrite(table);
         var keyValues = GetKeyValues(table, id);
         await using var scope = await _queryService.UseDataAsync();
+        var before = await WantsAsync(table, "deleted") ? await ReadRowAsync(scope, table, keyValues) : null;
         var affected = await ApplyKeyFilter(scope.Db.Query(table.Name), keyValues).DeleteAsync();
+        if (affected > 0)
+            Publish(table, "deleted", [new RowChange(before is null ? id : KeyOf(table, before), before, null)]);
 
         if (affected == 0)
         {
@@ -711,6 +771,9 @@ public sealed class CrudService
         }
 
         var results = new List<BulkRowResult>();
+        var wantUpdates = singleKey is not null && keys.Count > 0 && await WantsAsync(table, "updated");
+        var createdRows = new List<RowChange>();
+        var updatedRows = new List<RowChange>();
         await using var scope = await _queryService.UseDataAsync();
         var connection = scope.Db.Connection;
         if (connection.State != ConnectionState.Open)
@@ -726,7 +789,15 @@ public sealed class CrudService
                 var changes = data.Where(pair => !keys.Any(k => string.Equals(k.Name, pair.Key, StringComparison.OrdinalIgnoreCase)))
                     .ToDictionary(pair => pair.Key, pair => pair.Value);
                 if (changes.Count > 0)
+                {
+                    var before = wantUpdates ? await ReadRowAsync(scope, table, SingleKey(singleKey, existing), transaction) : null;
                     await scope.Db.Query(table.Name).Where(singleKey.Name, existing).UpdateAsync(changes, transaction);
+                    var key = Convert.ToString(existing, CultureInfo.InvariantCulture)!;
+                    if (before is null)
+                        updatedRows.Add(new RowChange(key, null, null));
+                    else if (await ReadRowAsync(scope, table, SingleKey(singleKey, existing), transaction) is { } after && ChangedColumns(table, before, after) is { Count: > 0 } changed)
+                        updatedRows.Add(new RowChange(key, before, after, changed));
+                }
                 (id, action) = (existing, "updated");
             }
             else if (existing is not null)
@@ -737,16 +808,20 @@ public sealed class CrudService
             else if (singleKey is not null)
             {
                 (id, action) = (await InsertAndGetIdAsync(scope, table.Name, singleKey, data, transaction), "inserted");
+                createdRows.Add(new RowChange(Convert.ToString(id, CultureInfo.InvariantCulture)!, null, null));
             }
             else
             {
                 await InsertAsync(scope, table.Name, data, transaction);
                 (id, action) = (null, "inserted");
+                createdRows.Add(new RowChange(string.Join("|", primaryKeyColumns.Select(k => $"{k.Name}:{Convert.ToString(data.GetValueOrDefault(k.Name), CultureInfo.InvariantCulture)}")), null, null));
             }
             // A key repeated in the call: the first row is added, the later ones change it.
             results.AddRange(indexes.Select((index, n) => new BulkRowResult(index, id, n == 0 ? action : "updated")));
         }
         transaction.Commit();
+        Publish(table, "created", createdRows);
+        Publish(table, "updated", updatedRows);
         return results.OrderBy(r => r.Index).ToList();
     }
 
@@ -807,6 +882,13 @@ public sealed class CrudService
             ? primaryKeyColumns[0]
             : null;
 
+        // Row events (Step 5.12): the new rows' keys, and what updated rows were, only when a rule listens.
+        var singleKey = primaryKeyColumns.Count == 1 ? primaryKeyColumns[0] : null;
+        var wantCreated = singleKey is not null && bodies.Count > 0 && await WantsAsync(table, "created");
+        var wantUpdated = updates.Count > 0 && await WantsAsync(table, "updated");
+        var createdRows = new List<RowChange>();
+        var updatedRows = new List<RowChange>();
+
         await using var scope = await _queryService.UseDataAsync();
         var connection = scope.Db.Connection;
         if (connection.State != ConnectionState.Open)
@@ -820,7 +902,10 @@ public sealed class CrudService
                 var generated = Guid.NewGuid();
                 data[generatedUuidKey.Name] = _dbConfig.Provider == DatabaseProvider.Postgres ? generated : generated.ToString();
             }
-            await InsertAsync(scope, table.Name, data, transaction);
+            if (wantCreated)
+                createdRows.Add(new RowChange(Convert.ToString(await InsertAndGetIdAsync(scope, table.Name, singleKey!, data, transaction), CultureInfo.InvariantCulture)!, null, null));
+            else
+                await InsertAsync(scope, table.Name, data, transaction);
         }
         if (updates.Count > 0)
         {
@@ -828,11 +913,18 @@ public sealed class CrudService
             foreach (var (id, body) in updates)
             {
                 var data = ExtractColumnValues(body, columns);
-                if (data.Count > 0)
-                    await scope.Db.Query(table.Name).Where(key.Name, id).UpdateAsync(data, transaction);
+                if (data.Count == 0)
+                    continue;
+                var before = wantUpdated ? await ReadRowAsync(scope, table, SingleKey(key, id), transaction) : null;
+                await scope.Db.Query(table.Name).Where(key.Name, id).UpdateAsync(data, transaction);
+                if (before is not null && await ReadRowAsync(scope, table, SingleKey(key, id), transaction) is { } after && ChangedColumns(table, before, after) is { Count: > 0 } changed)
+                    updatedRows.Add(new RowChange(Convert.ToString(id, CultureInfo.InvariantCulture)!, before, after, changed));
             }
         }
         transaction.Commit();
+        // Nobody listens: the change still counts, for the conditions that look again after data changed.
+        Publish(table, "created", wantCreated ? createdRows : bodies.Count > 0 ? [new RowChange("", null, null)] : []);
+        Publish(table, "updated", wantUpdated ? updatedRows : updates.Count > 0 ? [new RowChange("", null, null)] : []);
         return (bodies.Count, updates.Count);
     }
 

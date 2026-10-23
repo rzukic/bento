@@ -92,6 +92,10 @@ public sealed record NotificationRuleConfig
     public string? WidgetId { get; init; }
     public decimal? Percent { get; init; }
     public string? Event { get; init; }
+    /// <summary>Row events (Step 5.12): only changes of these columns.</summary>
+    public IReadOnlyList<string>? Columns { get; init; }
+    /// <summary>Row events: only writes from these origins (app, api, mcp, form, import, calendar).</summary>
+    public IReadOnlyList<string>? Origins { get; init; }
 
     /// <summary>Report: the weekday (1 = Monday … 7) for weekly ones, the day of the month (1–28) otherwise.</summary>
     public int? Day { get; init; }

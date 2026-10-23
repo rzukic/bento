@@ -94,7 +94,10 @@ public sealed class ImportController : ControllerBase
     [HttpPost("{table}")]
     public async Task<IActionResult> Run(string table, [FromBody] ImportRunRequest request)
     {
-        var result = await _importService.RunAsync(table, request, dryRun: false);
+        // Row events (Step 5.12): an upload is an import of its file.
+        ImportRunResponse result;
+        using (RowOrigin.Use("import", string.IsNullOrWhiteSpace(request.FileName) ? null : request.FileName))
+            result = await _importService.RunAsync(table, request, dryRun: false);
         _recalculation?.Request();
         return Ok(new { data = result });
     }

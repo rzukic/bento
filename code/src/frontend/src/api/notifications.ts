@@ -73,6 +73,10 @@ export async function listDeliveries(id: number, limit = 10): Promise<Notificati
 // ── Rules (Step 5.3): when Bento speaks ────────────────────────────────────
 
 export type RuleKind = "condition" | "target" | "event" | "report";
+export type RowEvent = "row.created" | "row.updated" | "row.deleted";
+export type RuleEvent = "import.failed" | "price.failed" | RowEvent;
+/** Where written rows come from (Step 5.12). */
+export type RowOrigin = "app" | "api" | "mcp" | "form" | "import" | "calendar";
 export type RulePeriod = "today" | "this-week" | "this-month" | "this-quarter" | "this-year";
 export type RuleOp = ">" | ">=" | "<" | "<=" | "=" | "<>";
 
@@ -89,7 +93,11 @@ export type RuleConfig = {
   dashboardId?: number | null;
   widgetId?: string | null;
   percent?: number | null;
-  event?: "import.failed" | "price.failed" | null;
+  event?: RuleEvent | null;
+  /** Row events (Step 5.12): only changes of these columns. */
+  columns?: string[] | null;
+  /** Row events: only writes from these origins; none = all. */
+  origins?: RowOrigin[] | null;
   /** Report: weekday 1 (Monday) … 7 for weekly ones, day of the month 1–28 otherwise. */
   day?: number | null;
   range?: "last" | "current" | null;

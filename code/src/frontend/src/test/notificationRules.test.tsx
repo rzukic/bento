@@ -126,4 +126,44 @@ describe("notification rules", () => {
     await user.click(screen.getByRole("button", { name: "Check now" }));
     expect(await screen.findByText("It holds now and was told: “1.205,00 € — above 1.000,00 €.”")).toBeInTheDocument();
   });
+
+  it("adds a rule on changed rows: some columns, from public forms", async () => {
+    api.createRule.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<RulesPanel />);
+
+    await user.click(await screen.findByRole("button", { name: "Add rule" }));
+    await user.selectOptions(screen.getByLabelText("Kind"), "rows");
+    await user.type(screen.getByLabelText("Name"), "Big change");
+    await user.selectOptions(screen.getByLabelText("When"), "row.updated");
+    await user.selectOptions(screen.getByLabelText("In"), "transactions");
+    await user.type(screen.getByLabelText("Only rows where (optional)"), "amount > 1000");
+    await user.click(screen.getByLabelText("amount"));
+    await user.click(screen.getByLabelText("Public forms"));
+    await user.click(screen.getAllByRole("button", { name: "Add rule" }).at(-1)!);
+
+    await waitFor(() => expect(api.createRule).toHaveBeenCalledTimes(1));
+    expect(api.createRule).toHaveBeenCalledWith(
+      "Big change",
+      "event",
+      { event: "row.updated", source: "transactions", formula: "amount > 1000", columns: ["amount"], origins: ["form"] },
+      [3],
+    );
+  });
+
+  it("shows a row rule as Rows and opens it for editing without a condition for deleted rows", async () => {
+    api.listRules.mockResolvedValue([
+      {
+        id: 9, name: "Gone", kind: "event", config: { event: "row.deleted", source: "transactions" }, channels: [3], enabled: true,
+        state: { active: false }, summary: "A row is deleted from Transactions", createdAt: "", updatedAt: "",
+      } as unknown as NotificationRule,
+    ]);
+    const user = userEvent.setup();
+    render(<RulesPanel />);
+    expect(await screen.findByText("Rows")).toBeInTheDocument();
+    expect(screen.getByText(/A row is deleted from Transactions/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(screen.getByLabelText("When")).toHaveValue("row.deleted");
+    expect(screen.queryByLabelText("Only rows where (optional)")).not.toBeInTheDocument();
+  });
 });

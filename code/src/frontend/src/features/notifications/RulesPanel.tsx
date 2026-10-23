@@ -17,6 +17,8 @@ import {
   type RuleKind,
   type RuleOp,
   type RulePeriod,
+  type RowEvent,
+  type RowOrigin,
 } from "../../api/notifications";
 import { Icon } from "../../components/common/Icon";
 import { Alert } from "../../components/ui/Alert";
@@ -48,6 +50,20 @@ const EVENTS = [
   { value: "import.failed", label: "A scheduled import fails" },
   { value: "price.failed", label: "A price update fails" },
 ] as const;
+const ROW_EVENTS: { value: RowEvent; label: string }[] = [
+  { value: "row.created", label: "A row is added" },
+  { value: "row.updated", label: "A row changes" },
+  { value: "row.deleted", label: "A row is deleted" },
+];
+const ORIGINS: { value: RowOrigin; label: string }[] = [
+  { value: "app", label: "The app" },
+  { value: "form", label: "Public forms" },
+  { value: "import", label: "Imports" },
+  { value: "api", label: "API keys" },
+  { value: "mcp", label: "MCP clients" },
+  { value: "calendar", label: "Calendars" },
+];
+const isRowEvent = (event: string | null | undefined): event is RowEvent => !!event && event.startsWith("row.");
 
 export function formatWhen(value: string | null | undefined): string {
   if (!value) return "";
@@ -179,7 +195,7 @@ export function RulesPanel() {
               <div className="channel__main">
                 <div className="channel__title">
                   <strong>{rule.name}</strong>
-                  <span className="channel__kind">{KIND_LABELS[rule.kind]}</span>
+                  <span className="channel__kind">{rule.kind === "event" && isRowEvent(rule.config.event) ? "Rows" : KIND_LABELS[rule.kind]}</span>
                   {rule.state.active ? <span className="channel__kind channel__kind--on">Holds</span> : null}
                   {!rule.enabled ? <span className="channel__off">Off</span> : null}
                 </div>
@@ -244,7 +260,8 @@ function RuleForm({
   }, [loadSchema]);
   const tables = useMemo(() => (snapshot?.tables ?? []).filter((t) => !t.name.startsWith("_")), [snapshot]);
 
-  const [kind, setKind] = useState<RuleKind>(rule?.kind ?? "condition");
+  // "rows" is an event rule on rows (Step 5.12), shown as a kind of its own.
+  const [kind, setKind] = useState<RuleKind | "rows">(rule ? (rule.kind === "event" && isRowEvent(rule.config.event) ? "rows" : rule.kind) : "condition");
   const [name, setName] = useState(rule?.name ?? "");
   const [source, setSource] = useState(rule?.config.source ?? "");
   const [formula, setFormula] = useState(rule?.config.formula ?? "");
@@ -256,7 +273,10 @@ function RuleForm({
   const [at, setAt] = useState(rule?.config.at ?? "08:00");
   const [target, setTarget] = useState(rule?.config.widgetId ? `${rule.config.dashboardId}:${rule.config.widgetId}` : "");
   const [percent, setPercent] = useState(rule?.config.percent != null ? String(rule.config.percent) : "100");
-  const [event, setEvent] = useState<"import.failed" | "price.failed">(rule?.config.event ?? "import.failed");
+  const [event, setEvent] = useState<"import.failed" | "price.failed">(rule?.config.event === "price.failed" ? "price.failed" : "import.failed");
+  const [rowEvent, setRowEvent] = useState<RowEvent>(isRowEvent(rule?.config.event) ? rule!.config.event : "row.created");
+  const [watched, setWatched] = useState<string[]>(rule?.config.columns ?? []);
+  const [origins, setOrigins] = useState<RowOrigin[]>(rule?.config.origins ?? []);
   const [chosen, setChosen] = useState<number[]>(rule?.channels ?? channels.slice(0, 1).map((c) => c.id));
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
   const [saving, setSaving] = useState(false);
@@ -295,6 +315,14 @@ function RuleForm({
     } else if (kind === "target") {
       const [dashboardId, widgetId] = target.split(":");
       config = { dashboardId: dashboardId ? Number(dashboardId) : null, widgetId: widgetId ?? null, percent: Number(percent) };
+    } else if (kind === "rows") {
+      config = {
+        event: rowEvent,
+        source,
+        formula: rowEvent !== "row.deleted" && formula.trim() ? formula.trim() : null,
+        columns: rowEvent === "row.updated" && watched.length > 0 ? watched : null,
+        origins: origins.length > 0 ? origins : null,
+      };
     } else {
       config = { event };
     }
@@ -302,7 +330,7 @@ function RuleForm({
     setError(null);
     try {
       if (rule) await updateRule(rule.id, { name: name.trim(), config, channels: chosen });
-      else await createRule(name.trim(), kind, config, chosen);
+      else await createRule(name.trim(), kind === "rows" ? "event" : kind, config, chosen);
       onSaved();
     } catch (cause) {
       setError(errorText(cause, "The rule could not be saved."));
@@ -316,9 +344,10 @@ function RuleForm({
       <div className="channel-form__grid">
         <label className="field field--compact">
           <span className="field__label">Kind</span>
-          <select className="field__control field__control--compact" value={kind} disabled={!!rule} onChange={(event) => setKind(event.target.value as RuleKind)}>
+          <select className="field__control field__control--compact" value={kind} disabled={!!rule} onChange={(event) => setKind(event.target.value as RuleKind | "rows")}>
             <option value="condition">A value crosses a line</option>
             <option value="target">A group reaches its target or limit</option>
+            <option value="rows">Rows are added, changed or deleted</option>
             <option value="event">Something fails</option>
           </select>
         </label>
@@ -327,7 +356,7 @@ function RuleForm({
           <input
             className="field__control field__control--compact"
             value={name}
-            placeholder={kind === "condition" ? "Orders this month" : kind === "target" ? "Target reached" : "Import failed"}
+            placeholder={kind === "condition" ? "Orders this month" : kind === "target" ? "Target reached" : kind === "rows" ? "New sign-up" : "Import failed"}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
@@ -401,7 +430,7 @@ function RuleForm({
             <label className="field field--compact">
               <span className="field__label">Check</span>
               <select className="field__control field__control--compact" value={every} onChange={(e) => setEvery(e.target.value as "hour" | "day")}>
-                <option value="hour">Every hour and after imports</option>
+                <option value="hour">Every hour and when data changes</option>
                 <option value="day">Once a day</option>
               </select>
             </label>
@@ -445,6 +474,80 @@ function RuleForm({
         </>
       ) : null}
 
+      {kind === "rows" ? (
+        <>
+          <div className="channel-form__grid">
+            <label className="field field--compact">
+              <span className="field__label">When</span>
+              <select className="field__control field__control--compact" value={rowEvent} onChange={(e) => setRowEvent(e.target.value as RowEvent)}>
+                {ROW_EVENTS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field field--compact">
+              <span className="field__label">In</span>
+              <select className="field__control field__control--compact" value={source} onChange={(e) => setSource(e.target.value)}>
+                <option value="">Choose…</option>
+                {tables.map((t) => (
+                  <option key={t.name} value={t.name}>
+                    {t.displayName ?? t.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {rowEvent !== "row.deleted" ? (
+              <label className="field field--compact channel-form__wide">
+                <span className="field__label">Only rows where (optional)</span>
+                <input
+                  className="field__control field__control--compact"
+                  value={formula}
+                  placeholder='status = "urgent"'
+                  spellCheck={false}
+                  onChange={(e) => setFormula(e.target.value)}
+                />
+              </label>
+            ) : null}
+          </div>
+          {rowEvent === "row.updated" && table ? (
+            <fieldset className="rule-form__channels">
+              <legend className="field__label">Only when one of these changes (none: any)</legend>
+              {table.columns
+                .filter((c) => !c.primaryKey && c.type !== "computed")
+                .map((c) => (
+                  <label key={c.name} className="rule-form__channel">
+                    <input
+                      type="checkbox"
+                      checked={watched.includes(c.name)}
+                      onChange={(e) => setWatched((current) => (e.target.checked ? [...current, c.name] : current.filter((n) => n !== c.name)))}
+                    />
+                    {c.displayName ?? c.name}
+                  </label>
+                ))}
+            </fieldset>
+          ) : null}
+          <fieldset className="rule-form__channels">
+            <legend className="field__label">Written by (none: anyone)</legend>
+            {ORIGINS.map((origin) => (
+              <label key={origin.value} className="rule-form__channel">
+                <input
+                  type="checkbox"
+                  checked={origins.includes(origin.value)}
+                  onChange={(e) => setOrigins((current) => (e.target.checked ? [...current, origin.value] : current.filter((o) => o !== origin.value)))}
+                />
+                {origin.label}
+              </label>
+            ))}
+          </fieldset>
+          <p className="channel-form__hint">
+            The condition is a formula on the row, like a computed column — <code>status = "urgent"</code>, <code>total &gt; 1000</code>. Rows written
+            within a few seconds come as one message (an import of 300 rows is one); a rule speaks at most 20 times an hour.
+          </p>
+        </>
+      ) : null}
+
       {kind === "event" ? (
         <div className="channel-form__grid">
           <label className="field field--compact channel-form__wide">
@@ -476,7 +579,7 @@ function RuleForm({
 
       {error ? <Alert tone="error" message={error} /> : null}
       <div className="channel-form__actions">
-        <Button type="button" variant="primary" disabled={saving || !name.trim()} onClick={() => void save()}>
+        <Button type="button" variant="primary" disabled={saving || !name.trim() || (kind === "rows" && !source)} onClick={() => void save()}>
           {saving ? "Saving…" : rule ? "Save rule" : "Add rule"}
         </Button>
         <Button type="button" variant="ghost" onClick={onCancel}>
