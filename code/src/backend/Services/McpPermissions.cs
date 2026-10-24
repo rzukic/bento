@@ -19,8 +19,17 @@ public static class McpPermissions
     public const string Schema = "schema.write";
     /// <summary>JavaScript functions and price sources.</summary>
     public const string Functions = "functions.write";
+    /// <summary>Create and rename workspaces (Step 5.13): installation admins only; never delete.</summary>
+    public const string WorkspacesManage = "workspaces.manage";
 
-    public static readonly string[] All = [Read, WriteRows, DeleteRows, Dashboards, Forms, Schema, Functions];
+    public static readonly string[] All = [Read, WriteRows, DeleteRows, Dashboards, Forms, Schema, Functions, WorkspacesManage];
+
+    /// <summary>What only an installation admin may grant, whatever their role in a workspace.</summary>
+    public static readonly string[] InstallationOnly = [WorkspacesManage];
+
+    /// <summary>The permissions without those only an installation admin may hold.</summary>
+    public static IReadOnlyList<string> ForInstallationRole(IEnumerable<string> permissions, bool installationAdmin) =>
+        installationAdmin ? permissions.ToList() : permissions.Where(p => !InstallationOnly.Contains(p)).ToList();
 
     /// <summary>
     /// The most a role allows, matching the REST API's own rules: everyone reads and
@@ -116,6 +125,10 @@ public static class McpPermissions
             return Schema;
         if (Under("/functions") || Under("/price-sources"))
             return Functions;
+        // Step 5.13: a new workspace, a new name — never deleting one, never its members.
+        if ((HttpMethods.IsPost(method) && p == api + "/workspaces") ||
+            (HttpMethods.IsPut(method) && Under("/workspaces") && p.Count(c => c == '/') == 4))
+            return WorkspacesManage;
         return null;
     }
 

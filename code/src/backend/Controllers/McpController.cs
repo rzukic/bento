@@ -110,6 +110,10 @@ public sealed class McpController : ControllerBase
         };
 
         var grantId = long.TryParse(user.FindFirstValue("oauth_grant_id"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var grant) ? grant : (long?)null;
-        return new McpCaller(userId, via, credential, permissions.ToHashSet(StringComparer.Ordinal), credentials, grantId);
+        // The workspaces a key or connection was made for (absent: all its user can open).
+        IReadOnlyList<long>? workspaces = user.FindFirstValue("workspaces") is { } listed
+            ? listed.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(w => long.Parse(w, CultureInfo.InvariantCulture)).ToList()
+            : null;
+        return new McpCaller(userId, via, credential, permissions.ToHashSet(StringComparer.Ordinal), credentials, grantId, workspaces);
     }
 }

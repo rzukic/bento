@@ -61,6 +61,23 @@ public sealed partial class McpTools
             Schema(new JsonObject()),
             ReadOnly: true, Idempotent: true, (caller, _, ct) => PassAsync(caller, HttpMethod.Get, $"{Api}/price-sources", null, ct)),
 
+        // Step 5.13: one connection, several workspaces.
+        new("list_workspaces", "List the workspaces",
+            "The workspaces this connection can use: name, short name (pass it as workspace to any tool), your role there, and which one this connection opens by default.",
+            Schema(new JsonObject()),
+            ReadOnly: true, Idempotent: true, ListWorkspacesAsync),
+
+        new("create_workspace", "Create a workspace",
+            "Creates an empty workspace (its own tables, dashboards, forms …) and gives this connection access to it. Installation admins only. Ask the user for the name first.",
+            Schema(new JsonObject
+            {
+                ["name"] = Prop("string", "The workspace's name, e.g. Household."),
+                ["slug"] = Prop("string", "Optional short name for addresses (lower-case letters, digits, dashes); made from the name when left out.")
+            }, "name"),
+            ReadOnly: false, Idempotent: false,
+            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/workspaces", Pick(args, "name", "slug"), ct),
+            Permission: McpPermissions.WorkspacesManage),
+
         new("call_api", "Call the Bento API",
             "Any other Bento REST call, with this connection's rights (bento_guide topic api lists the endpoints). Use the dedicated tools where one exists.",
             Schema(new JsonObject
@@ -266,6 +283,32 @@ public sealed partial class McpTools
         if (Str(args, "resultType") is { } resultType) body["resultType"] = resultType;
         if (preview) body["limit"] = Math.Clamp(OptionalInt(args, "limit") ?? 20, 1, 100);
         return PassAsync(caller, HttpMethod.Post, $"{Api}/formulas/{(preview ? "preview" : "validate")}", JsonDocument.Parse(body.ToJsonString()).RootElement, ct);
+    }
+
+    /// <summary>The workspaces the caller can use, each with its role; <c>current</c> marks the one tools use without <c>workspace</c>.</summary>
+    public async Task<IReadOnlyList<(string Slug, string Name, string? Role, bool Current)>> WorkspacesAsync(McpCaller caller, CancellationToken ct)
+    {
+        var response = await _api.SendAsync(HttpMethod.Get, $"{Api}/workspaces", caller.Credentials, null, ct);
+        if (!response.IsSuccess || response.Body is not { } body || !body.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return [];
+        var current = Workspaces.WorkspaceContext.Current.Slug;
+        return data.EnumerateArray()
+            .Select(w => (Slug: w.GetProperty("slug").GetString()!, Name: w.GetProperty("name").GetString()!,
+                Role: w.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null))
+            .Select(w => (w.Slug, w.Name, w.Role, string.Equals(w.Slug, current, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private async Task<McpToolResult> ListWorkspacesAsync(McpCaller caller, JsonElement args, CancellationToken ct)
+    {
+        var list = await WorkspacesAsync(caller, ct);
+        return Success(new JsonArray(list.Select(w => (JsonNode)new JsonObject
+        {
+            ["workspace"] = w.Slug,
+            ["name"] = w.Name,
+            ["role"] = w.Role,
+            ["current"] = w.Current
+        }).ToArray()));
     }
 
     private Task<McpToolResult> CallApiAsync(McpCaller caller, JsonElement args, CancellationToken ct)

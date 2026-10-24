@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
 using Bento.Api.Models;
@@ -104,8 +105,10 @@ public sealed class WorkspacesController(
 
     [HttpPost]
     [RequireRole("admin")]
-    public async Task<IActionResult> Create([FromBody] WorkspaceRequest request)
+    public async Task<IActionResult> Create([FromBody] WorkspaceRequest request, [FromServices] OAuthService oauth)
     {
+        if (!User.IsInstallationAdmin())
+            throw new Exceptions.ApiForbiddenException("Only installation admins create workspaces.");
         var workspace = await workspaces.CreateAsync(request.Name, request.Slug);
         using (WorkspaceContext.Use(workspace))
         {
@@ -113,6 +116,10 @@ public sealed class WorkspacesController(
             await functions.ReloadAsync();
             await storedValues.EnsureTableAsync();
         }
+        // A connection that made it may use it (Step 5.13), even with a fixed list of workspaces.
+        if (User.FindFirstValue("auth_method") == "oauth" &&
+            long.TryParse(User.FindFirstValue("oauth_grant_id"), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var grantId))
+            await oauth.AddWorkspaceAsync(grantId, workspace.Id);
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(workspace) });
     }
 

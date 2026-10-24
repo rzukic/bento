@@ -50,7 +50,10 @@ export function ConnectionDialog({
   // Null on the server: every workspace — shown as all the user can open.
   const initialWorkspaces = connection.workspaces ?? (connection.openable ?? []).map((w) => w.id);
   const [workspaces, setWorkspaces] = useState<number[]>(initialWorkspaces);
-  const workspacesChanged = [...workspaces].sort().join(",") !== [...initialWorkspaces].sort().join(",");
+  // Step 5.13: every workspace, also later ones.
+  const initiallyAll = connection.workspaces === null;
+  const [allWorkspaces, setAllWorkspaces] = useState(initiallyAll);
+  const workspacesChanged = allWorkspaces !== initiallyAll || (!allWorkspaces && [...workspaces].sort().join(",") !== [...initialWorkspaces].sort().join(","));
   const [saving, setSaving] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +77,7 @@ export function ConnectionDialog({
     setError(null);
     setNotice(null);
     try {
-      const updated = await updateMcpConnection(connection.id, granted, workspacesChanged ? workspaces : undefined);
+      const updated = await updateMcpConnection(connection.id, granted, !workspacesChanged ? undefined : allWorkspaces ? "all" : workspaces);
       setGranted(updated.permissions);
       onSaved(updated);
       setNotice("Saved. It applies to the app's next call; new tools show up in Claude once it reconnects (e.g. after restarting Claude Desktop).");
@@ -110,7 +113,14 @@ export function ConnectionDialog({
 
       <section className="mcp-connection__section" aria-label="Permissions">
         <PermissionChecklist allowed={connection.allowed} granted={granted} onChange={setGranted} disabled={saving} />
-        <WorkspaceChecklist workspaces={connection.openable ?? []} chosen={workspaces} onChange={setWorkspaces} disabled={saving} />
+        <WorkspaceChecklist
+          workspaces={connection.openable ?? []}
+          chosen={workspaces}
+          onChange={setWorkspaces}
+          all={allWorkspaces}
+          onAllChange={setAllWorkspaces}
+          disabled={saving}
+        />
         <div className="mcp-connection__save">
           <Button type="button" variant="primary" size="sm" disabled={saving || (same(granted, connection.permissions) && !workspacesChanged)} onClick={() => void save()}>
             {saving ? "Saving…" : "Save permissions"}

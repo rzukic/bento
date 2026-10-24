@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-24 — MCP Across Workspaces
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.13 — One MCP Connection, Several Workspaces](working-steps/5.13-mcp-workspaces.md)
+
+One Claude connection for all your workspaces.
+
+**Highlights:**
+- **All workspaces, also new ones** — on the consent page and in a connection's settings.
+- **Every tool takes a workspace**; `list_workspaces` shows which ones and your role there.
+- **Create workspaces** from Claude (installation admins, new permission); deleting stays in the app.
+
 ### 2026-10-23 — Rules On Rows
 
 > **Phase**: Phase 5 — Integration
