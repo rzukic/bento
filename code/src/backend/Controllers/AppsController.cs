@@ -21,14 +21,29 @@ public sealed class AppsController(AppService apps, BackendRuntimeOptions runtim
     public async Task<IActionResult> List() => Ok(new { data = await apps.ListAsync() });
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id) => Ok(new { data = await apps.GetAsync(id) });
+    public async Task<IActionResult> Get(long id) => Ok(new { data = await apps.GetAsync(id), setupLink = SetupLink(id) });
 
     [HttpPost]
-    public async Task<IActionResult> Create([FromBody] AppRequest request) =>
-        StatusCode(StatusCodes.Status201Created, new { data = await apps.CreateAsync(request, User.GetUserId()) });
+    public async Task<IActionResult> Create([FromBody] AppRequest request)
+    {
+        var app = await apps.CreateAsync(request, User.GetUserId());
+        return StatusCode(StatusCodes.Status201Created, new { data = app, setupLink = SetupLink(app.Id) });
+    }
 
     [HttpPut("{id:long}")]
-    public async Task<IActionResult> Update(long id, [FromBody] AppRequest request) => Ok(new { data = await apps.UpdateAsync(id, request) });
+    public async Task<IActionResult> Update(long id, [FromBody] AppRequest request) =>
+        Ok(new { data = await apps.UpdateAsync(id, request), setupLink = SetupLink(id) });
+
+    /// <summary>
+    /// The app's page in Bento, opened at "Add device" (Step 5.14): a connection sets the
+    /// app up, the user makes the device's password there — it never passes through the chat.
+    /// </summary>
+    private string SetupLink(long id)
+    {
+        var workspace = Services.Workspaces.WorkspaceContext.Current;
+        var prefix = workspace.IsDefault ? "" : $"/w/{workspace.Slug}";
+        return $"{PublicUrl.For(Request, runtime).TrimEnd('/')}{prefix}/apps?app={id}";
+    }
 
     [HttpDelete("{id:long}")]
     public async Task<IActionResult> Delete(long id)

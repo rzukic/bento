@@ -220,7 +220,7 @@ describe("OAuth consent page", () => {
     const user = userEvent.setup();
     render(<RouterProvider router={createTestRouter([consentUrl])} />);
 
-    expect(await screen.findAllByText("Needs the admin role.")).toHaveLength(3);
+    expect(await screen.findAllByText("Needs the admin role.")).toHaveLength(6);
     expect(screen.getAllByText("Needs the editor role.")).toHaveLength(3);
     expect(screen.getByRole("checkbox", { name: /add and change rows/i })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: /add and change rows/i })).not.toBeChecked();

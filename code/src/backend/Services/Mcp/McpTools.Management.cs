@@ -10,14 +10,14 @@ namespace Bento.Api.Services.Mcp;
 public sealed partial class McpTools
 {
     /// <summary>Guide topics, embedded from <c>McpGuide/*.md</c> (the explanation files of Part 12 R12.3).</summary>
-    public static readonly string[] GuideTopics = ["overview", "schema", "formulas", "queries", "dashboards", "forms", "finance", "functions", "api"];
+    public static readonly string[] GuideTopics = ["overview", "schema", "formulas", "queries", "dashboards", "forms", "finance", "functions", "automation", "apps", "api"];
 
     private static readonly HashSet<string> CallApiMethods = new(StringComparer.OrdinalIgnoreCase) { "GET", "POST", "PUT", "PATCH", "DELETE" };
 
     private List<McpTool> BuildManagement() =>
     [
         new("bento_guide", "Read the Bento guide",
-            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the conventions of the finance template, for workspaces that have it installed), functions (JavaScript, price sources), api (endpoints for call_api). Read the topic before building or changing something.",
+            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the conventions of the finance template, for workspaces that have it installed), functions (JavaScript, import and price sources), automation (rules and reports), apps (calendar apps, share links, workspace settings), api (endpoints for call_api). Read the topic before building or changing something.",
             Schema(new JsonObject
             {
                 ["topic"] = new JsonObject
