@@ -9,7 +9,7 @@ namespace Bento.Tests;
 /// Step 3.9: the finance template's tables and the formulas of its
 /// dashboards (net worth at each month end from balances plus trades ×
 /// price, depot value, gains, positions), with its example rows. Mirrors
-/// <c>features/dashboards/financeTemplate.ts</c> (no prefix); the same
+/// <c>src/backend/Templates/finance.json</c> (no prefix); the same
 /// scenario runs on Postgres. Step 4.3b: realised gains by average cost
 /// through the function avg_cost, and the time-weighted return by Modified Dietz.
 /// </summary>
@@ -226,7 +226,7 @@ public sealed class FinanceTemplateTests
         });
         Assert.Equal(["Groceries -200"], AggregationQueryTests.Rows(food, "category_id_label", "spent"));
 
-        // Step 4.4: the setup's "Add transaction" form (financeTemplate.ts transactionForm) fits the template's transactions.
+        // Step 4.4: the setup's "Add transaction" form (Templates/finance.json) fits the template's transactions.
         using (var form = await host.Client.PostAsJsonAsync("/api/v1/forms", new
         {
             name = "Add transaction",
