@@ -23,6 +23,10 @@ Bento is a self-hosted data workspace. The user designs **tables** (the schema),
 4. Writes run with the user's rights and this connection's permissions; a refused call says which permission is missing.
 5. Schema changes: `preview_schema_change`, explain the result (especially anything destructive), apply only after the user agrees.
 
+## Workspaces
+
+An installation can have several workspaces, each with its own tables, dashboards, forms, functions and settings. A connection is made for some or all of them; the instructions name them when there is more than one. `list_workspaces` lists them with your role; every tool takes `workspace` (the short name) to work in another one — without it, the connection's own (its MCP address). Say which workspace you mean when it is not that one. With the permission `workspaces.manage` (installation admins), `create_workspace` makes a new, empty one, which the connection may use at once. Workspaces are never deleted over MCP.
+
 ## Roles
 
 - **viewer**: reads; keeps own dashboards and saved queries.

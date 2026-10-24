@@ -37,6 +37,7 @@ export function OAuthConsentPage() {
   const [error, setError] = useState<string | null>(null);
   const [granted, setGranted] = useState<McpPermission[]>(["data.read"]);
   const [workspaces, setWorkspaces] = useState<number[]>([]);
+  const [allWorkspaces, setAllWorkspaces] = useState(false);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -67,7 +68,7 @@ export function OAuthConsentPage() {
     setBusy(true);
     setError(null);
     try {
-      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, permissions: granted, state, approve, workspaces: workspaces.length > 0 ? workspaces : undefined });
+      const redirectTo = await decideAuthorization({ clientId, redirectUri, codeChallenge, codeChallengeMethod, permissions: granted, state, approve, workspaces: workspaces.length > 0 ? workspaces : undefined, allWorkspaces });
       window.location.assign(redirectTo);
     } catch (cause) {
       setError(cause instanceof ApiClientError ? cause.message : "That did not work. Try again.");
@@ -127,7 +128,14 @@ export function OAuthConsentPage() {
             {info ? (
               <>
                 <PermissionChecklist allowed={info.allowed} granted={granted} onChange={setGranted} disabled={busy} />
-                <WorkspaceChecklist workspaces={info.workspaces ?? []} chosen={workspaces} onChange={setWorkspaces} disabled={busy} />
+                <WorkspaceChecklist
+                  workspaces={info.workspaces ?? []}
+                  chosen={workspaces}
+                  onChange={setWorkspaces}
+                  all={allWorkspaces}
+                  onAllChange={setAllWorkspaces}
+                  disabled={busy}
+                />
                 <p className="oauth-consent__note">
                   It acts as you and never manages users or keys. Change what it may do or disconnect it any time under Connections → AI apps.
                 </p>

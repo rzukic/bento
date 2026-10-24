@@ -12,7 +12,8 @@ export type McpPermission =
   | "dashboards.write"
   | "forms.write"
   | "schema.write"
-  | "functions.write";
+  | "functions.write"
+  | "workspaces.manage";
 
 export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string; needs: "viewer" | "editor" | "admin"; danger?: boolean }[] = [
   { id: "data.read", label: "Read everything", detail: "Tables and rows, the schema, dashboards, forms, saved queries and functions; run analyses.", needs: "viewer" },
@@ -22,6 +23,7 @@ export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string
   { id: "forms.write", label: "Forms", detail: "Create, change and delete entry forms.", needs: "editor" },
   { id: "schema.write", label: "Tables and columns", detail: "Change the schema — this can delete data.", needs: "admin", danger: true },
   { id: "functions.write", label: "Functions and price sources", detail: "Write JavaScript functions and run price sources.", needs: "admin" },
+  { id: "workspaces.manage", label: "Create workspaces", detail: "Create and rename workspaces — never delete them. Installation admins only.", needs: "admin" },
 ];
 
 /** OAuth scope text → permissions: the ids, and "write" for adding and changing rows. Read is always in. */
@@ -81,8 +83,10 @@ export async function revokeMcpConnection(id: number): Promise<void> {
 }
 
 /** PUT /api/v1/mcp/connections/{id} — change what a connected app may do; applies to its next call. */
-export async function updateMcpConnection(id: number, permissions: McpPermission[], workspaces?: number[]): Promise<McpConnection> {
-  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, { permissions, workspaces })).data;
+/** Workspaces: a list, "all" (also later ones, Step 5.13) or undefined to keep them. */
+export async function updateMcpConnection(id: number, permissions: McpPermission[], workspaces?: number[] | "all"): Promise<McpConnection> {
+  const body = workspaces === "all" ? { permissions, allWorkspaces: true } : { permissions, workspaces };
+  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, body)).data;
 }
 
 /** The calls made through one connected app, newest first. */
@@ -121,6 +125,8 @@ export type AuthorizeDecision = {
   state: string | null;
   approve: boolean;
   workspaces?: number[];
+  /** Every workspace the user can open, also those made later (Step 5.13). */
+  allWorkspaces?: boolean;
 };
 
 /** The address to send the browser to: back to the client with a code, or with access_denied. */
