@@ -139,6 +139,8 @@ public static class BackendHost
         services.AddSingleton<DataVersion>();
         services.AddSingleton<QueryTables>();
         services.AddSingleton<TemplateRegistry>();
+        services.AddSingleton<TemplateCatalog>();
+        services.AddSingleton<TemplateInstaller>();
         services.AddSingleton<Bento.Api.Services.Sharing.ShareGuard>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();

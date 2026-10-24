@@ -78,6 +78,25 @@ public sealed partial class McpTools
             (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/workspaces", Pick(args, "name", "slug"), ct),
             Permission: McpPermissions.WorkspacesManage),
 
+        // Step 5.15: ready-made setups, installed as the user.
+        new("list_templates", "List the templates",
+            "Ready-made setups Bento can install — tables, dashboards, forms and example rows for one use case (projects and hours, habits and health, appointments, finance) — and those this workspace has already.",
+            Schema(new JsonObject()),
+            ReadOnly: true, Idempotent: true, ListTemplatesAsync),
+
+        new("install_template", "Install a template",
+            "Sets up a template in the workspace: new tables (nothing existing changes), example rows, dashboards and forms. Needs, besides tables and columns, dashboards, forms and adding rows (for the examples). Tell the user what it adds and ask first; when a table name is taken, Bento says which prefix to use.",
+            Schema(new JsonObject
+            {
+                ["template"] = Prop("string", "The template's id from list_templates, e.g. projects-hours."),
+                ["prefix"] = Prop("string", "Put before every table name when one is taken, e.g. work_. Leave out when the names are free."),
+                ["examples"] = new JsonObject { ["type"] = "boolean", ["description"] = "Add example rows to try it out (default true)." }
+            }, "template"),
+            ReadOnly: false, Idempotent: false,
+            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/templates/{Uri.EscapeDataString(Required(args, "template"))}/install",
+                new { prefix = Str(args, "prefix"), examples = args.TryGetProperty("examples", out var e) && e.ValueKind == JsonValueKind.False ? false : true }, ct),
+            Permission: McpPermissions.Schema),
+
         new("call_api", "Call the Bento API",
             "Any other Bento REST call, with this connection's rights (bento_guide topic api lists the endpoints). Use the dedicated tools where one exists.",
             Schema(new JsonObject
@@ -309,6 +328,18 @@ public sealed partial class McpTools
             ["role"] = w.Role,
             ["current"] = w.Current
         }).ToArray()));
+    }
+
+    private async Task<McpToolResult> ListTemplatesAsync(McpCaller caller, JsonElement args, CancellationToken ct)
+    {
+        var catalog = await _api.SendAsync(HttpMethod.Get, $"{Api}/templates/catalog", caller.Credentials, null, ct);
+        if (!catalog.IsSuccess) return Failure(catalog);
+        var installed = await _api.SendAsync(HttpMethod.Get, $"{Api}/templates", caller.Credentials, null, ct);
+        return Success(new JsonObject
+        {
+            ["available"] = JsonNode.Parse(catalog.Body!.Value.GetProperty("data").GetRawText()),
+            ["installed"] = installed.IsSuccess ? JsonNode.Parse(installed.Body!.Value.GetProperty("data").GetRawText()) : new JsonArray()
+        });
     }
 
     private Task<McpToolResult> CallApiAsync(McpCaller caller, JsonElement args, CancellationToken ct)

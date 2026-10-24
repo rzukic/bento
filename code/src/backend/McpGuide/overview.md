@@ -1,6 +1,6 @@
 # Bento — overview
 
-Bento is a self-hosted data workspace. The user designs **tables** (the schema), fills them in the Data Explorer, by CSV import, with **forms** or through the API, and looks at them on **dashboards**. **Formulas** compute columns and dashboard values; **functions** are the user's own JavaScript; **import sources** fetch data from the web — a file, or any API through a function — into a table on a schedule. What the tables hold is up to the user — projects and hours, a habit log, customers and orders, money. **Templates** set up a ready-made model; the instructions say which ones a workspace has installed.
+Bento is a self-hosted data workspace. The user designs **tables** (the schema), fills them in the Data Explorer, by CSV import, with **forms** or through the API, and looks at them on **dashboards**. **Formulas** compute columns and dashboard values; **functions** are the user's own JavaScript; **import sources** fetch data from the web — a file, or any API through a function — into a table on a schedule. What the tables hold is up to the user — projects and hours, a habit log, customers and orders, money. **Templates** set up a ready-made model — tables, dashboards, forms, example rows: `list_templates` shows them and which ones this workspace has, `install_template` sets one up (ask first; it needs tables and columns, dashboards, forms and adding rows).
 
 ## Topics (bento_guide topic=…)
 

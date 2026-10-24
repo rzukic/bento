@@ -24,19 +24,3 @@ export function suggestTemplatePrefix(base: TemplateNames, prefixes: string[], e
     if (templateConflicts(templateNames(base, prefix), existing).length === 0) return prefix;
   }
 }
-
-/** Relation names that are free in the model: "a_b", else "a_b_2" … */
-export function uniqueNamer(existing: { name: string }[]): (name: string) => string {
-  const taken = new Set(existing.map((r) => r.name.toLowerCase()));
-  return (name) => {
-    let candidate = name;
-    for (let i = 2; taken.has(candidate.toLowerCase()); i++) candidate = `${name}_${i}`;
-    taken.add(candidate.toLowerCase());
-    return candidate;
-  };
-}
-
-/** A date `back` days before today, as YYYY-MM-DD (UTC, like the example rows of every template). */
-export function daysAgo(today: Date, back: number): string {
-  return new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate() - back)).toISOString().slice(0, 10);
-}
