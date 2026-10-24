@@ -105,18 +105,24 @@ public sealed partial class WorkspaceService
         if (!string.Equals(confirm?.Trim(), workspace.Slug, StringComparison.Ordinal))
             throw Invalid("confirm", $"Type “{workspace.Slug}” to delete the workspace with all its tables, dashboards and settings.");
 
+        // All or nothing: a workspace is never left half deleted.
         using (var conn = await _systemPool.GetConnectionAsync())
         {
-            var apps = (await conn.QueryAsync<long>($"SELECT id FROM {Prefix}apps WHERE workspace_id = @Id", new { Id = id })).ToList();
-            if (apps.Count > 0)
-                await conn.ExecuteAsync($"DELETE FROM {Prefix}app_passwords WHERE app_id IN @Apps", new { Apps = apps });
+            if (conn.State != System.Data.ConnectionState.Open)
+                conn.Open();
+            using var transaction = conn.BeginTransaction();
+            var apps = (await conn.QueryAsync<long>($"SELECT id FROM {Prefix}apps WHERE workspace_id = @Id", new { Id = id }, transaction)).ToArray();
+            // Postgres takes the list as an array (Dapper does not expand IN @list for it).
+            if (apps.Length > 0)
+                await conn.ExecuteAsync($"DELETE FROM {Prefix}app_passwords WHERE {(Pg ? "app_id = ANY(@Apps)" : "app_id IN @Apps")}", new { Apps = apps }, transaction);
             foreach (var table in ScopedTables)
-                await conn.ExecuteAsync($"DELETE FROM {Prefix}{table} WHERE workspace_id = @Id", new { Id = id });
-            await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_members WHERE workspace_id = @Id", new { Id = id });
-            await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_settings WHERE key LIKE @Suffix", new { Suffix = "%@" + id.ToString(CultureInfo.InvariantCulture) });
+                await conn.ExecuteAsync($"DELETE FROM {Prefix}{table} WHERE workspace_id = @Id", new { Id = id }, transaction);
+            await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_members WHERE workspace_id = @Id", new { Id = id }, transaction);
+            await conn.ExecuteAsync($"DELETE FROM {Prefix}workspace_settings WHERE key LIKE @Suffix", new { Suffix = "%@" + id.ToString(CultureInfo.InvariantCulture) }, transaction);
             if (Pg)
-                await conn.ExecuteAsync($"DROP SCHEMA IF EXISTS {Q(workspace.DataSchema)} CASCADE");
-            await conn.ExecuteAsync($"DELETE FROM {Table} WHERE id = @Id", new { Id = id });
+                await conn.ExecuteAsync($"DROP SCHEMA IF EXISTS {Q(workspace.DataSchema)} CASCADE", transaction: transaction);
+            await conn.ExecuteAsync($"DELETE FROM {Table} WHERE id = @Id", new { Id = id }, transaction);
+            transaction.Commit();
         }
         if (!Pg)
         {
