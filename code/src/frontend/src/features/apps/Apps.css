@@ -158,3 +158,9 @@
   margin: 0;
   min-width: 0;
 }
+
+/* Opened from a setup link (Step 5.14): the app to add a device to. */
+.apps__card--focused {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}

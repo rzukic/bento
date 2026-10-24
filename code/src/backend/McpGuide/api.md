@@ -19,5 +19,7 @@ Every tool is a call to `/api/v1`. `call_api` makes any other call with this con
 | Explorer views | `GET /views/{table}`, `POST /views`, `PUT/DELETE /views/{id}` |
 | Problems | `GET /admin/problems?limit=` — slow queries (with the query and SQL), timeouts and server errors, newest first (admin) |
 | Description | `GET /openapi.json` — every endpoint of this installation with fields |
+| Rules and reports | topic `automation` — `/admin/notifications/rules` (permission `automation.write`) |
+| Calendar apps, share links, settings | topic `apps` — `/admin/apps` (`apps.write`), `…/shares` (`shares.write`), `/admin/settings` (`settings.write`) |
 
-Users, API keys, credentials and connected apps are not reachable for connected apps, nor for API keys. Admins set how numbers are written for everyone with `PUT /admin/settings` `{locale: "de-AT" | null, currency: "EUR"}`.
+Users, API keys, credentials, notification channels, device passwords and connected apps are not reachable for connected apps, nor for API keys.

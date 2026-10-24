@@ -13,6 +13,10 @@ export type McpPermission =
   | "forms.write"
   | "schema.write"
   | "functions.write"
+  | "automation.write"
+  | "apps.write"
+  | "shares.write"
+  | "settings.write"
   | "workspaces.manage";
 
 export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string; needs: "viewer" | "editor" | "admin"; danger?: boolean }[] = [
@@ -23,6 +27,10 @@ export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string
   { id: "forms.write", label: "Forms", detail: "Create, change and delete entry forms.", needs: "editor" },
   { id: "schema.write", label: "Tables and columns", detail: "Change the schema — this can delete data.", needs: "admin", danger: true },
   { id: "functions.write", label: "Functions and price sources", detail: "Write JavaScript functions and run price sources.", needs: "admin" },
+  { id: "automation.write", label: "Rules and reports", detail: "When Bento tells you something, and over which of your channels.", needs: "admin" },
+  { id: "apps.write", label: "Calendar apps", detail: "Show tables as calendars on your devices. Device passwords you always make yourself.", needs: "admin" },
+  { id: "shares.write", label: "Share links", detail: "Make dashboards and forms public for anyone with the link.", needs: "viewer", danger: true },
+  { id: "settings.write", label: "Workspace settings", detail: "How numbers and dates are written, the time zone, week and year start.", needs: "admin" },
   { id: "workspaces.manage", label: "Create workspaces", detail: "Create and rename workspaces — never delete them. Installation admins only.", needs: "admin" },
 ];
 

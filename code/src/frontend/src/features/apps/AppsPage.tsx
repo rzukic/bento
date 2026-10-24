@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
 import {
   createApp,
@@ -64,6 +65,9 @@ export function AppsPage() {
   const [apps, setApps] = useState<BentoApp[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<BentoApp | "new" | null>(null);
+  // ?app=<id> (Step 5.14): the link Claude gives after setting an app up — straight to adding a device.
+  const [params] = useSearchParams();
+  const focusId = Number(params.get("app")) || null;
 
   const load = useCallback(() => {
     listApps()
@@ -116,7 +120,7 @@ export function AppsPage() {
         ) : (
           <ul className="channels">
             {apps.map((app) => (
-              <AppCard key={app.id} app={app} onEdit={() => setEditing(app)} onChanged={load} onError={setError} />
+              <AppCard key={app.id} app={app} focused={app.id === focusId} onEdit={() => setEditing(app)} onChanged={load} onError={setError} />
             ))}
           </ul>
         )}
@@ -125,8 +129,27 @@ export function AppsPage() {
   );
 }
 
-function AppCard({ app, onEdit, onChanged, onError }: { app: BentoApp; onEdit: () => void; onChanged: () => void; onError: (message: string) => void }) {
+function AppCard({
+  app,
+  focused = false,
+  onEdit,
+  onChanged,
+  onError,
+}: {
+  app: BentoApp;
+  focused?: boolean;
+  onEdit: () => void;
+  onChanged: () => void;
+  onError: (message: string) => void;
+}) {
   const [device, setDevice] = useState("");
+  const deviceInput = useRef<HTMLInputElement>(null);
+  // Opened from a setup link: this app, its device field ready.
+  useEffect(() => {
+    if (!focused) return;
+    deviceInput.current?.scrollIntoView({ block: "center" });
+    deviceInput.current?.focus();
+  }, [focused]);
   const [busy, setBusy] = useState(false);
   const [created, setCreated] = useState<CreatedAppPassword | null>(null);
 
@@ -173,7 +196,7 @@ function AppCard({ app, onEdit, onChanged, onError }: { app: BentoApp; onEdit: (
   };
 
   return (
-    <li className={app.enabled ? "channel" : "channel channel--off"}>
+    <li className={[app.enabled ? "channel" : "channel channel--off", focused ? "apps__card--focused" : ""].filter(Boolean).join(" ")}>
       <div className="channel__main">
         <div className="channel__title">
           <strong>{app.name}</strong>
@@ -213,6 +236,7 @@ function AppCard({ app, onEdit, onChanged, onError }: { app: BentoApp; onEdit: (
           </ul>
           <div className="apps__add-device">
             <input
+              ref={deviceInput}
               className="field__control field__control--compact"
               aria-label="Device name"
               placeholder="iPhone, Mac, Thunderbird …"
