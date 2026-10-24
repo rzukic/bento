@@ -14,6 +14,17 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-24 — Claude Installs Templates
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.15 — Templates On The Server](working-steps/5.15-templates-on-the-server.md)
+
+The templates now live on the server — Claude can install them like the app does.
+
+**Highlights:**
+- **"Set up Projects & hours"** from Claude: tables, example rows, dashboards and forms, with a prefix when a name is taken.
+- **One recipe, one install** for the app and MCP — the same checks and permissions as by hand.
+
 ### 2026-10-24 — MCP Across Workspaces
 
 > **Phase**: Phase 5 — Integration
