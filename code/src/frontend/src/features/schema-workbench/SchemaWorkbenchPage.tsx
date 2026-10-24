@@ -20,6 +20,7 @@ import { ApiClientError } from "../../api/client";
 import { useAuthStore } from "../../stores/authStore";
 import { useAppStore } from "../../stores/appStore";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { useWorkspaceName } from "../../stores/workspacesStore";
 import type {
   SchemaIssue,
   SchemaModelDocument,
@@ -175,6 +176,9 @@ export function SchemaWorkbenchPage() {
   const user = useAuthStore((state) => state.user);
   const isAdmin = user?.role === "admin";
   const [state, setState] = useState<LoadState>(initialState);
+  // With several workspaces, Apply says where the changes go.
+  const workspaceName = useWorkspaceName();
+  const toWorkspace = workspaceName ? ` to ${workspaceName}` : "";
   const [reloadKey, setReloadKey] = useState(0);
   const [importFeedback, setImportFeedback] = useState<ImportFeedback | null>(
     null,
@@ -1006,7 +1010,7 @@ export function SchemaWorkbenchPage() {
             disabled={!canOpenApplyDialog}
             onClick={openApplyDialog}
           >
-            Apply
+            {`Apply${toWorkspace}`}
           </button>
         </div>
       </header>
@@ -1252,8 +1256,8 @@ export function SchemaWorkbenchPage() {
 
       <Dialog
         open={applyDialog.open}
-        title="Review and apply schema changes"
-        description="Review every change below, then apply."
+        title={`Review and apply schema changes${toWorkspace}`}
+        description={workspaceName ? `Review every change below, then apply. They change the tables of ${workspaceName} only.` : "Review every change below, then apply."}
         onClose={() => {
           if (applyInFlight) {
             return;
@@ -1285,8 +1289,8 @@ export function SchemaWorkbenchPage() {
                   ? "Applying destructive changes..."
                   : "Applying..."
                 : applyDialog.confirmationRequired
-                  ? "Apply destructive changes"
-                  : "Apply"}
+                  ? `Apply destructive changes${toWorkspace}`
+                  : `Apply${toWorkspace}`}
             </Button>
           </>
         }

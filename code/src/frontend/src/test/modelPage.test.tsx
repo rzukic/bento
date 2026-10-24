@@ -17,6 +17,8 @@ import { resetRememberedCanvasViewport } from "../features/schema-workbench/visu
 import { seedSetupInitializedForTest } from "../features/setup";
 import { resetAuthStoreForTest, useAuthStore } from "../stores/authStore";
 import { resetSchemaStoreForTest, useSchemaStore } from "../stores/schemaStore";
+import { useWorkspacesStore } from "../stores/workspacesStore";
+import { setCurrentWorkspaceForTests } from "../lib/workspace";
 import type { SchemaModelDocument } from "../types/api";
 import { addVisibleRenameHintFields } from "../features/schema-workbench/schemaDraftPresentation";
 
@@ -849,6 +851,29 @@ afterEach(() => {
 });
 
 describe("Model workbench route (/model)", () => {
+  it("says which workspace Apply changes when there are several", async () => {
+    seedAuthenticated("admin");
+    vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(jsonResponse(populatedSchema))));
+    useWorkspacesStore.setState({
+      workspaces: [
+        { id: 1, slug: "default", name: "Default", isDefault: true },
+        { id: 2, slug: "finances", name: "Finances", isDefault: false },
+      ],
+    });
+    setCurrentWorkspaceForTests("finances");
+    try {
+      render(<RouterProvider router={createTestRouter(["/model"])} />);
+      await screen.findByRole("textbox", { name: /schema json editor/i });
+      expect(screen.getByRole("button", { name: "Apply to Finances" })).toBeDisabled();
+      // The sidebar and the top bar name it, and the tab.
+      expect(screen.getAllByRole("button", { name: /Workspace: Finances/ })).toHaveLength(2);
+      await waitFor(() => expect(document.title).toBe("Schema · Finances · Bento"));
+    } finally {
+      setCurrentWorkspaceForTests(null);
+      useWorkspacesStore.getState().reset();
+    }
+  });
+
   it("loads the current schema into a local draft workbench shell for admins", async () => {
     seedAuthenticated("admin");
     // A fresh answer per request: the sidebar asks for the workspaces too.

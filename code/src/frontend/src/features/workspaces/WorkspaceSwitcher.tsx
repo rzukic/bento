@@ -10,9 +10,10 @@ import "./Workspaces.css";
 /**
  * The sidebar's "Workspace" heading (Step 5.5): with more than one workspace
  * it names the current one and opens a list to switch. Switching loads the
- * page anew in the other workspace.
+ * page anew in the other workspace. In the top bar (also the phone's header)
+ * it starts the breadcrumbs, so every page says which workspace it is in.
  */
-export function WorkspaceSwitcher() {
+export function WorkspaceSwitcher({ variant = "sidebar" }: { variant?: "sidebar" | "topbar" }) {
   const workspaces = useWorkspacesStore((state) => state.workspaces);
   const load = useWorkspacesStore((state) => state.load);
   const admin = useAuthStore((state) => isInstallationAdmin(state.user));
@@ -37,10 +38,10 @@ export function WorkspaceSwitcher() {
   }, [open]);
 
   const current = currentWorkspace(workspaces);
-  if (!workspaces || workspaces.length < 2) return <>Workspace</>;
+  if (!workspaces || workspaces.length < 2) return variant === "sidebar" ? <>Workspace</> : null;
 
   return (
-    <div className="ws-switcher" ref={root}>
+    <div className={variant === "topbar" ? "ws-switcher ws-switcher--topbar" : "ws-switcher"} ref={root}>
       <button
         type="button"
         className="ws-switcher__button"
@@ -49,6 +50,7 @@ export function WorkspaceSwitcher() {
         aria-label={`Workspace: ${current?.name ?? "Default"}. Switch workspace`}
         onClick={() => setOpen((value) => !value)}
       >
+        {variant === "topbar" ? <Icon name="layers" size={13} /> : null}
         <span className="ws-switcher__name">{current?.name ?? "Workspace"}</span>
         <Icon name="chevron-down" size={12} />
       </button>
