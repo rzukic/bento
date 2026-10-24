@@ -207,3 +207,37 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
 }
+
+/* In the top bar (and the phone's header): the workspace starts the breadcrumbs. */
+.ws-switcher--topbar {
+  flex: none;
+  min-width: 0;
+}
+
+.ws-switcher--topbar .ws-switcher__button {
+  gap: 0.375rem;
+  max-width: 16rem;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+
+.ws-switcher--topbar .ws-switcher__button:hover,
+.ws-switcher--topbar .ws-switcher__button[aria-expanded="true"] {
+  color: var(--text);
+  border-color: var(--line-2);
+}
+
+.ws-switcher--topbar .ws-switcher__menu {
+  left: 0;
+}
+
+@media (max-width: 900px) {
+  .ws-switcher--topbar .ws-switcher__button {
+    max-width: 9rem;
+  }
+}
