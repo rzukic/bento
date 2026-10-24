@@ -141,4 +141,18 @@ describe("apps", () => {
     expect(screen.getByText("Apps are set up by an administrator.")).toBeInTheDocument();
     expect(api.listApps).not.toHaveBeenCalled();
   });
+
+  it("opens at an app's devices from a setup link (?app=)", async () => {
+    api.listApps.mockResolvedValue([{ ...app, id: 3, name: "Other" }, app]);
+    window.history.pushState({}, "", "/apps?app=4");
+    try {
+      render(<AppsPage />);
+      const card = (await screen.findByText("My calendar")).closest("li")!;
+      expect(card).toHaveClass("apps__card--focused");
+      await waitFor(() => expect(within(card).getByLabelText("Device name")).toHaveFocus());
+      expect(screen.getByText("Other").closest("li")).not.toHaveClass("apps__card--focused");
+    } finally {
+      window.history.pushState({}, "", "/");
+    }
+  });
 });

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { ApiClientError } from "../../api/client";
 import {
   createApp,
@@ -66,8 +65,7 @@ export function AppsPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<BentoApp | "new" | null>(null);
   // ?app=<id> (Step 5.14): the link Claude gives after setting an app up — straight to adding a device.
-  const [params] = useSearchParams();
-  const focusId = Number(params.get("app")) || null;
+  const [focusId] = useState(() => Number(new URLSearchParams(window.location.search).get("app")) || null);
 
   const load = useCallback(() => {
     listApps()
@@ -147,7 +145,7 @@ function AppCard({
   // Opened from a setup link: this app, its device field ready.
   useEffect(() => {
     if (!focused) return;
-    deviceInput.current?.scrollIntoView({ block: "center" });
+    deviceInput.current?.scrollIntoView?.({ block: "center" });
     deviceInput.current?.focus();
   }, [focused]);
   const [busy, setBusy] = useState(false);

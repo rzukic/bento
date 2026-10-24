@@ -14,6 +14,18 @@ _Changes that are complete but not yet part of a versioned release._
 
 ## Phase 5 — Integration
 
+### 2026-10-24 — Rules, Apps, Share Links And Settings From Claude
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.14 — Phase 5's Features Over MCP](working-steps/5.14-mcp-phase5-features.md)
+
+Claude can now set up what Phase 5 brought — each behind its own permission.
+
+**Highlights:**
+- **Rules and reports**: Claude creates them and picks your channels by name.
+- **Calendar apps**: Claude sets the app up and gives you a link; you add the device and its password there — the password never passes through the chat.
+- **Share links** with their own permission (public data — never preselected), and **workspace settings**.
+
 ### 2026-10-24 — MCP Across Workspaces
 
 > **Phase**: Phase 5 — Integration
