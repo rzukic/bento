@@ -1,0 +1,474 @@
+{
+  "id": "appointments",
+  "title": "Appointments",
+  "description": "Contacts and appointments with a start and end, a place and a status. A dashboard with what is coming up, appointments per week, who you meet most and how many are cancelled; a form, New appointment.",
+  "base": {
+    "contacts": "contacts",
+    "appointments": "appointments"
+  },
+  "prefixes": [
+    "crm_",
+    "my_"
+  ],
+  "tables": [
+    {
+      "name": "{{contacts}}",
+      "displayName": "Contacts",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text",
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "email",
+          "displayName": "Email",
+          "type": "text"
+        },
+        {
+          "name": "phone",
+          "displayName": "Phone",
+          "type": "text"
+        },
+        {
+          "name": "note",
+          "displayName": "Note",
+          "type": "text"
+        },
+        {
+          "name": "appointment_count",
+          "displayName": "Number of appointments",
+          "type": "computed",
+          "formula": "COUNT({{appointments}})"
+        }
+      ]
+    },
+    {
+      "name": "{{appointments}}",
+      "displayName": "Appointments",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "title",
+          "displayName": "Title",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "starts_at",
+          "displayName": "Starts",
+          "type": "datetime",
+          "nullable": false
+        },
+        {
+          "name": "ends_at",
+          "displayName": "Ends",
+          "type": "datetime"
+        },
+        {
+          "name": "contact_id",
+          "displayName": "Contact",
+          "type": "reference",
+          "references": "{{contacts}}"
+        },
+        {
+          "name": "location",
+          "displayName": "Location",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "displayName": "Status",
+          "type": "enum",
+          "values": [
+            "planned",
+            "done",
+            "cancelled"
+          ],
+          "default": "planned"
+        },
+        {
+          "name": "note",
+          "displayName": "Note",
+          "type": "text"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "{{contacts}}_{{appointments}}",
+      "type": "1:N",
+      "from": "{{contacts}}",
+      "to": "{{appointments}}",
+      "column": "contact_id"
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "Appointments",
+      "dashboard": {
+        "description": "What is coming up and what was",
+        "dateRange": {
+          "preset": "last-3-months"
+        },
+        "filters": [
+          {
+            "column": "contact_id",
+            "label": "Contact"
+          }
+        ],
+        "widgets": [
+          {
+            "id": "coming-up",
+            "type": "table",
+            "title": "Coming up",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 8,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{appointments}}",
+                "filter": {
+                  "status": "planned"
+                }
+              },
+              "rows": {
+                "columns": [
+                  "starts_at",
+                  "title",
+                  "contact_id",
+                  "location"
+                ],
+                "sort": "starts_at",
+                "limit": 20
+              },
+              "dateColumn": "starts_at",
+              "range": {
+                "preset": "next-12-months"
+              }
+            }
+          },
+          {
+            "id": "done",
+            "type": "kpi",
+            "title": "Done in the range",
+            "position": {
+              "x": 8,
+              "y": 0,
+              "w": 4,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{appointments}}",
+                "measures": [
+                  {
+                    "name": "done",
+                    "formula": "COUNT(WHERE status = \"done\")"
+                  }
+                ]
+              },
+              "dateColumn": "starts_at"
+            },
+            "display": {
+              "format": "integer",
+              "compare": true,
+              "higherIsBetter": true
+            }
+          },
+          {
+            "id": "cancelled",
+            "type": "kpi",
+            "title": "Cancelled",
+            "position": {
+              "x": 8,
+              "y": 2,
+              "w": 4,
+              "h": 3
+            },
+            "data": {
+              "query": {
+                "source": "{{appointments}}",
+                "measures": [
+                  {
+                    "name": "cancelled",
+                    "formula": "COUNT(WHERE status = \"cancelled\") / COUNT()"
+                  }
+                ]
+              },
+              "dateColumn": "starts_at"
+            },
+            "display": {
+              "format": "percent",
+              "compare": true,
+              "higherIsBetter": false
+            }
+          },
+          {
+            "id": "per-week",
+            "type": "bar",
+            "title": "Appointments per week",
+            "position": {
+              "x": 0,
+              "y": 5,
+              "w": 8,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{appointments}}",
+                "groupBy": [
+                  {
+                    "column": "starts_at",
+                    "bucket": "week",
+                    "as": "week"
+                  },
+                  {
+                    "column": "status"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "appointments",
+                    "fn": "count"
+                  }
+                ]
+              },
+              "dateColumn": "starts_at"
+            },
+            "display": {
+              "format": "integer"
+            }
+          },
+          {
+            "id": "by-contact",
+            "type": "donut",
+            "title": "Who you meet",
+            "position": {
+              "x": 8,
+              "y": 5,
+              "w": 4,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{appointments}}",
+                "groupBy": [
+                  {
+                    "column": "contact_id",
+                    "top": 6,
+                    "other": true
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "appointments",
+                    "fn": "count"
+                  }
+                ]
+              },
+              "dateColumn": "starts_at"
+            },
+            "display": {
+              "format": "integer"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "forms": [
+    {
+      "name": "New appointment",
+      "form": {
+        "table": "{{appointments}}",
+        "pinned": true,
+        "fields": [
+          {
+            "column": "title",
+            "label": "Title"
+          },
+          {
+            "column": "starts_at",
+            "label": "Starts"
+          },
+          {
+            "column": "ends_at",
+            "label": "Ends"
+          },
+          {
+            "column": "contact_id",
+            "label": "With"
+          },
+          {
+            "section": "More"
+          },
+          {
+            "column": "location",
+            "label": "Location"
+          },
+          {
+            "column": "status",
+            "label": "Status",
+            "default": {
+              "kind": "value",
+              "value": "planned"
+            }
+          },
+          {
+            "column": "note",
+            "label": "Note"
+          }
+        ]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "table": "contacts",
+      "values": {
+        "name": "Alex Meyer",
+        "email": "alex@example.com"
+      }
+    },
+    {
+      "table": "contacts",
+      "values": {
+        "name": "Sam Rivera",
+        "phone": "+49 30 1234567"
+      }
+    },
+    {
+      "table": "contacts",
+      "values": {
+        "name": "Dr. Kim",
+        "note": "Dentist"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Kick-off",
+        "starts_at": "@days:-60T10:00:00",
+        "ends_at": "@days:-60T11:00:00",
+        "contact_id": "@ref:contacts:0",
+        "location": "Office",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Coffee",
+        "starts_at": "@days:-45T14:00:00",
+        "ends_at": "@days:-45T15:00:00",
+        "contact_id": "@ref:contacts:1",
+        "location": "Café Central",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Check-up",
+        "starts_at": "@days:-38T09:00:00",
+        "ends_at": "@days:-38T10:00:00",
+        "contact_id": "@ref:contacts:2",
+        "location": "Practice",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Review",
+        "starts_at": "@days:-30T11:00:00",
+        "ends_at": "@days:-30T12:00:00",
+        "contact_id": "@ref:contacts:0",
+        "location": "Online",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Coffee",
+        "starts_at": "@days:-21T15:00:00",
+        "ends_at": "@days:-21T16:00:00",
+        "contact_id": "@ref:contacts:1",
+        "location": "Café Central",
+        "status": "cancelled"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Planning",
+        "starts_at": "@days:-14T10:00:00",
+        "ends_at": "@days:-14T11:00:00",
+        "contact_id": "@ref:contacts:0",
+        "location": "Office",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Lunch",
+        "starts_at": "@days:-7T16:00:00",
+        "ends_at": "@days:-7T17:00:00",
+        "contact_id": "@ref:contacts:1",
+        "location": "Downtown",
+        "status": "done"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Follow-up",
+        "starts_at": "@days:3T10:00:00",
+        "ends_at": "@days:3T11:00:00",
+        "contact_id": "@ref:contacts:0",
+        "location": "Online",
+        "status": "planned"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Check-up",
+        "starts_at": "@days:10T09:00:00",
+        "ends_at": "@days:10T10:00:00",
+        "contact_id": "@ref:contacts:2",
+        "location": "Practice",
+        "status": "planned"
+      }
+    },
+    {
+      "table": "appointments",
+      "values": {
+        "title": "Lunch",
+        "starts_at": "@days:17T13:00:00",
+        "ends_at": "@days:17T14:00:00",
+        "contact_id": "@ref:contacts:1",
+        "location": "Downtown",
+        "status": "planned"
+      }
+    }
+  ]
+}

@@ -31,6 +31,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Template recipes (Step 5.15): tables, dashboards, forms and example rows, installed by the app and over MCP. -->
+    <None Remove="Templates\**" />
+    <EmbeddedResource Include="Templates\*.json" LogicalName="Bento.Api.Templates.%(Filename).json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Anthropic" Version="12.55.0" />
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
     <PackageReference Include="Dapper" Version="2.1.72" />
