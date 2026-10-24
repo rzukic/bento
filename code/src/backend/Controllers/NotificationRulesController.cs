@@ -18,6 +18,11 @@ public sealed class NotificationRulesController(NotificationRuleService rules) :
     [HttpGet]
     public async Task<IActionResult> List() => Ok(new { data = await rules.ListAsync() });
 
+    /// <summary>The channels a rule can speak on, by name only (Step 5.14): their addresses and secrets stay in Settings.</summary>
+    [HttpGet("channels")]
+    public async Task<IActionResult> Channels([FromServices] Services.Notifications.NotificationService notifications) =>
+        Ok(new { data = (await notifications.ListAsync()).Select(c => new { c.Id, c.Name, c.Kind }) });
+
     [HttpGet("{id:long}")]
     public async Task<IActionResult> Get(long id) => Ok(new { data = await rules.GetAsync(id) });
 

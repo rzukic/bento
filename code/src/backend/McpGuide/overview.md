@@ -12,6 +12,8 @@ Bento is a self-hosted data workspace. The user designs **tables** (the schema),
 | `dashboards` | Dashboard JSON: widgets, layout, variables, filters, annotations |
 | `forms` | Form JSON: entry forms such as "Log hours" |
 | `finance` | The finance template's tables, conventions and formulas (only for workspaces that have it) |
+| `automation` | Rules and reports: when Bento tells the user something, over which channel |
+| `apps` | Calendar apps on the user's devices, public share links, workspace settings, categorisation rules |
 | `functions` | JavaScript functions, `CUSTOM`/`CUSTOM_ROWS`, price sources |
 | `api` | The REST endpoints behind the tools, for `call_api` |
 

@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 using Bento.Api.Authorization;
@@ -84,7 +85,7 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
         var (link, token) = await shares.CreateAsync("form", id, request.Name, request.ExpiresInDays,
             new ShareService.ShareOptions(null, request.Embed, request.PerHour ?? ShareService.DefaultPerHour, string.IsNullOrWhiteSpace(request.Thanks) ? null : request.Thanks.Trim()),
             User.GetUserId()!.Value);
-        return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(link), token });
+        return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(link), token, url = LinkUrl(token) });
     }
 
     [HttpDelete(ApiRoutes.Prefix + "/shares/{id:long}")]
@@ -134,11 +135,23 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
         });
     }
 
-    /// <summary>The dashboard's owner and the workspace's admins share it; keys, apps and links cannot.</summary>
+    /// <summary>
+    /// People signed in, and apps connected with "Share links" (Step 5.14; the
+    /// permission is checked before) — never API keys or a link's visitors.
+    /// </summary>
+    /// <summary>The link to hand out (Step 5.14: a connected app gets it whole); shown once, like the token.</summary>
+    private string LinkUrl(string token) => $"{Services.Mcp.PublicUrl.For(Request, runtime).TrimEnd('/')}/s/{token}";
+
+    private void EnsureMayShare()
+    {
+        if (User.FindFirstValue("auth_method") is { } method && method != "oauth")
+            throw new ApiForbiddenException("Share links are made by people signed in to Bento or apps connected with \"Share links\".");
+    }
+
+    /// <summary>The dashboard's owner and the workspace's admins share it; keys and links cannot.</summary>
     private async Task<JsonElement> RequireDashboardAsync(long id)
     {
-        if (User.FindFirst("auth_method") is not null)
-            throw new ApiForbiddenException("Share links are made by people signed in to Bento.");
+        EnsureMayShare();
         var table = systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboards" : "dashboards";
         using var conn = await systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<(long? Owner, string Json)?>(
@@ -154,8 +167,7 @@ public sealed class SharesController(ShareService shares, ISystemPool systemPool
     /// <summary>The form's owner and the workspace's admins share it.</summary>
     private async Task RequireFormAsync(long id)
     {
-        if (User.FindFirst("auth_method") is not null)
-            throw new ApiForbiddenException("Share links are made by people signed in to Bento.");
+        EnsureMayShare();
         var table = systemPool.Provider == DatabaseProvider.Postgres ? "_system.forms" : "forms";
         using var conn = await systemPool.GetConnectionAsync();
         var owner = await conn.QuerySingleOrDefaultAsync<long?>(
