@@ -33,6 +33,8 @@ export function WorkspacesPanel() {
   const [renaming, setRenaming] = useState<{ id: number; name: string } | null>(null);
   const [deleting, setDeleting] = useState<Workspace | null>(null);
   const [confirm, setConfirm] = useState("");
+  // Shown in the dialog: behind it, at the top of the panel, nobody would see it.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   useEffect(() => {
     load({ force: true }).catch((cause) => setError(errorText(cause, "The workspaces could not be loaded.")));
@@ -82,7 +84,7 @@ export function WorkspacesPanel() {
   const remove = async () => {
     if (!deleting) return;
     setBusy(true);
-    setError(null);
+    setDeleteError(null);
     try {
       await deleteWorkspace(deleting.id, confirm.trim());
       const wasCurrent = deleting.slug === currentWorkspaceSlug();
@@ -94,7 +96,7 @@ export function WorkspacesPanel() {
       }
       await reload();
     } catch (cause) {
-      setError(errorText(cause, "The workspace could not be deleted."));
+      setDeleteError(errorText(cause, "The workspace could not be deleted."));
     } finally {
       setBusy(false);
     }
@@ -195,10 +197,18 @@ export function WorkspacesPanel() {
         onClose={() => {
           setDeleting(null);
           setConfirm("");
+          setDeleteError(null);
         }}
         footer={
           <>
-            <Button type="button" variant="ghost" onClick={() => setDeleting(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                setDeleting(null);
+                setDeleteError(null);
+              }}
+            >
               Cancel
             </Button>
             <Button type="button" variant="danger" disabled={busy || confirm.trim() !== deleting?.slug} onClick={() => void remove()}>
@@ -207,6 +217,7 @@ export function WorkspacesPanel() {
           </>
         }
       >
+        {deleteError ? <Alert tone="error" message={deleteError} /> : null}
         <TextField
           label={`Type “${deleting?.slug ?? ""}” to confirm`}
           value={confirm}

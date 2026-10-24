@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -132,5 +132,20 @@ describe("workspaces", () => {
     await waitFor(() => expect(useWorkspacesStore.getState().workspaces).toHaveLength(1));
     expect(screen.queryByRole("button", { name: /Workspace:/ })).not.toBeInTheDocument();
     expect(document.title).toBe("transactions · Bento");
+  });
+
+  it("says in the dialog why a workspace could not be deleted", async () => {
+    const { ApiClientError } = await import("../api/client");
+    api.deleteWorkspace.mockRejectedValue(new ApiClientError("An unexpected error occurred.", 500, "INTERNAL_ERROR"));
+    render(
+      <MemoryRouter>
+        <WorkspacesPanel />
+      </MemoryRouter>,
+    );
+    await userEvent.click(await screen.findByRole("button", { name: "Delete Finances" }));
+    await userEvent.type(screen.getByLabelText(/Type “finances” to confirm/), "finances");
+    await userEvent.click(screen.getByRole("button", { name: "Delete workspace" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(await within(dialog).findByText("An unexpected error occurred.")).toBeInTheDocument();
   });
 });

@@ -183,11 +183,56 @@ public sealed class WorkspaceTests
         Assert.True((int)response.StatusCode == status, $"{url} {(int)response.StatusCode}: {text}");
         return text;
     }
+
+    [Fact]
+    public async Task AFullWorkspace_IsDeletedWholly() => await DeleteFullAsync(await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+    {
+        ["Backend:AuthMode"] = "open",
+        ["Backend:Jwt:Secret"] = "sqlite-test-secret",
+        ["Schema:AutoMigrateOnStartup"] = "false"
+    }));
+
+    /// <summary>
+    /// A workspace with a template, a calendar app and its device password, a share link
+    /// goes as a whole — on Postgres too, where the app passwords once stopped it (IN @list).
+    /// </summary>
+    internal static async Task DeleteFullAsync(ApiIntegrationTestHost host)
+    {
+        await using var _ = host;
+        var created = await PostAsync(host, "/api/v1/workspaces", new { name = "cal" });
+        var id = created.GetProperty("id").GetInt64();
+        const string w = "/api/v1/w/cal";
+        await PostAsync(host, w + "/templates/appointments/install", new { });
+        var app = await PostAsync(host, w + "/admin/apps", new
+        {
+            name = "Termine", kind = "calendar",
+            config = new { calendars = new[] { new { name = "Appointments", table = "appointments", title = "title", start = "starts_at" } } }
+        });
+        await PostAsync(host, $"{w}/admin/apps/{app.GetProperty("id").GetInt64()}/passwords", new { name = "iPhone" });
+        var dashboard = (await GetAsync(host, w + "/dashboards"))[0].GetProperty("id").GetInt64();
+        await PostAsync(host, $"{w}/dashboards/{dashboard}/shares", new { name = "Family" });
+
+        using (var deleted = await host.Client.DeleteAsync($"/api/v1/workspaces/{id}?confirm=cal"))
+            Assert.True(deleted.StatusCode == HttpStatusCode.NoContent, await deleted.Content.ReadAsStringAsync());
+        Assert.Single((await GetAsync(host, "/api/v1/workspaces")).EnumerateArray());
+        var prefix = host.Provider == Bento.Api.Db.DatabaseProvider.Postgres ? "_system." : "";
+        Assert.Equal(0L, await host.QuerySystemScalarAsync<long>($"SELECT COUNT(*) FROM {prefix}app_passwords"));
+        Assert.Equal(0L, await host.QuerySystemScalarAsync<long>($"SELECT COUNT(*) FROM {prefix}apps"));
+        Assert.Equal(0L, await host.QuerySystemScalarAsync<long>($"SELECT COUNT(*) FROM {prefix}share_links"));
+    }
 }
 
 [Collection(PostgresCollection.Name)]
 public sealed class PostgresWorkspaceTests
 {
+    [PostgresFact]
+    public async Task AFullWorkspace_IsDeletedWholly_OnPostgres() => await WorkspaceTests.DeleteFullAsync(await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
+    {
+        ["Backend:AuthMode"] = "open",
+        ["Backend:Jwt:Secret"] = "postgres-test-secret",
+        ["Schema:AutoMigrateOnStartup"] = "false"
+    }));
+
     [PostgresFact]
     public async Task Workspaces_OnPostgres() => await WorkspaceTests.WorkspacesAsync(await ApiIntegrationTestHost.StartPostgresAsync(new Dictionary<string, string?>
     {
