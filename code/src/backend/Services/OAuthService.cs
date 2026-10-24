@@ -143,10 +143,11 @@ public sealed class OAuthService
     // --- Authorization code --------------------------------------------------------
 
     /// <summary>The signed-in user approved the client: a grant (reused per client and user) and a one-time code.</summary>
+    /// <param name="allWorkspaces">Every workspace the user can open, also those made later (Step 5.13); <paramref name="workspaces"/> is ignored.</param>
     public async Task<string> ApproveAsync(long userId, string clientId, string redirectUri, string codeChallenge, IReadOnlyList<string> permissions,
-        IReadOnlyCollection<long>? workspaces = null)
+        IReadOnlyCollection<long>? workspaces = null, bool allWorkspaces = false)
     {
-        var workspacesJson = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces ?? [Workspaces.Workspace.DefaultId]);
+        var workspacesJson = allWorkspaces ? null : Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces ?? [Workspaces.Workspace.DefaultId]);
         var granted = McpPermissions.Normalize(permissions);
         var scope = granted.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
         var permissionsJson = JsonSerializer.Serialize(granted);
@@ -299,17 +300,31 @@ public sealed class OAuthService
     /// </summary>
     /// <param name="maxRole">The highest role of the user in any workspace: what they could tick on the consent page.</param>
     /// <param name="workspaces">The workspaces it may use from now on; null keeps them.</param>
+    /// <param name="allWorkspaces">From now on every workspace its user can open, also later ones (Step 5.13).</param>
     public async Task<GrantRow> UpdateGrantPermissionsAsync(long grantId, long? ownerUserId, IEnumerable<string> permissions, string? maxRole = null,
-        IReadOnlyCollection<long>? workspaces = null)
+        IReadOnlyCollection<long>? workspaces = null, bool allWorkspaces = false)
     {
         var grant = await GetGrantAsync(grantId, ownerUserId);
-        var capped = McpPermissions.Cap(permissions.Append(McpPermissions.Read), maxRole ?? grant.UserRole);
+        // Creating workspaces stays with installation admins, whatever their role in a workspace.
+        var capped = McpPermissions.ForInstallationRole(McpPermissions.Cap(permissions.Append(McpPermissions.Read), maxRole ?? grant.UserRole), grant.UserRole == "admin");
         var scope = capped.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
+        var setWorkspaces = allWorkspaces || workspaces is not null;
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync(
-            $"UPDATE {Grants} SET permissions = @Permissions, scope = @Scope{(workspaces is null ? "" : ", workspaces = @Workspaces")} WHERE id = @Id",
-            new { Id = grantId, Permissions = JsonSerializer.Serialize(capped), Scope = scope, Workspaces = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces) });
+            $"UPDATE {Grants} SET permissions = @Permissions, scope = @Scope{(setWorkspaces ? ", workspaces = @Workspaces" : "")} WHERE id = @Id",
+            new { Id = grantId, Permissions = JsonSerializer.Serialize(capped), Scope = scope, Workspaces = allWorkspaces ? null : Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces) });
         return await GetGrantAsync(grantId, ownerUserId);
+    }
+
+    /// <summary>A workspace the connection itself created joins its list (one for all workspaces has it already).</summary>
+    public async Task AddWorkspaceAsync(long grantId, long workspaceId)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var json = await conn.ExecuteScalarAsync<string?>($"SELECT workspaces FROM {Grants} WHERE id = @Id", new { Id = grantId });
+        if (Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(json) is not { } listed || listed.Contains(workspaceId))
+            return;
+        await conn.ExecuteAsync($"UPDATE {Grants} SET workspaces = @Workspaces WHERE id = @Id",
+            new { Id = grantId, Workspaces = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces([.. listed, workspaceId]) });
     }
 
     public async Task RevokeGrantAsync(long grantId, long? ownerUserId)

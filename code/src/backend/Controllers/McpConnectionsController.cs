@@ -75,6 +75,8 @@ public sealed class McpConnectionsController : ControllerBase
         public IReadOnlyList<string>? Permissions { get; init; }
         /// <summary>The workspaces it may use from now on (Step 5.5); null keeps them.</summary>
         public IReadOnlyList<long>? Workspaces { get; init; }
+        /// <summary>From now on every workspace its user can open, also later ones (Step 5.13).</summary>
+        public bool AllWorkspaces { get; init; }
     }
 
     /// <summary>Changes what a connected app may do (capped by its user's role); applies to its next call.</summary>
@@ -87,10 +89,10 @@ public sealed class McpConnectionsController : ControllerBase
             throw new ApiValidationException($"Unknown permission: {string.Join(", ", unknown)}.", new Dictionary<string, object?> { ["field"] = "permissions" });
         var existing = await _oauth.GetGrantAsync(id, ScopeUserId());
         var openable = await OpenableAsync(existing);
-        if (request.Workspaces is { } chosen && (chosen.Count == 0 || chosen.Any(w => !openable.ContainsKey(w))))
+        if (!request.AllWorkspaces && request.Workspaces is { } chosen && (chosen.Count == 0 || chosen.Any(w => !openable.ContainsKey(w))))
             throw new ApiValidationException("Choose at least one workspace its user can open.", new Dictionary<string, object?> { ["field"] = "workspaces" });
         var grant = await _oauth.UpdateGrantPermissionsAsync(id, ScopeUserId(), request.Permissions ?? [],
-            Services.Workspaces.WorkspaceAccess.Highest(openable.Values), request.Workspaces?.Distinct().ToList());
+            Services.Workspaces.WorkspaceAccess.Highest(openable.Values), request.Workspaces?.Distinct().ToList(), request.AllWorkspaces);
         return Ok(new { data = await ToResponseAsync(grant) });
     }
 

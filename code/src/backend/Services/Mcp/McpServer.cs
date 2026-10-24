@@ -34,9 +34,12 @@ public sealed class McpServer
 
     private readonly Apps.AppService? _apps;
     private readonly TemplateRegistry? _templates;
+    private readonly Workspaces.WorkspaceService? _workspaces;
 
-    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger, Apps.AppService? apps = null, TemplateRegistry? templates = null)
+    public McpServer(McpTools tools, McpCallLog log, ILogger<McpServer> logger, Apps.AppService? apps = null, TemplateRegistry? templates = null,
+        Workspaces.WorkspaceService? workspaces = null)
     {
+        _workspaces = workspaces;
         _apps = apps;
         _templates = templates;
         _tools = tools;
@@ -69,9 +72,9 @@ public sealed class McpServer
         {
             return method switch
             {
-                "initialize" => Result(id, Initialize(parameters, await WorkspaceContextAsync())),
+                "initialize" => Result(id, Initialize(parameters, await WorkspaceContextAsync(caller, ct))),
                 "ping" => Result(id, new JsonObject()),
-                "tools/list" => Result(id, new JsonObject { ["tools"] = new JsonArray(VisibleTools(caller).Select(Describe).ToArray()) }),
+                "tools/list" => Result(id, new JsonObject { ["tools"] = new JsonArray(VisibleTools(caller).Select(t => Describe(t, ManyWorkspaces(caller))).ToArray()) }),
                 "tools/call" => await CallToolAsync(id, parameters, caller, ct),
                 "resources/list" => Result(id, new JsonObject { ["resources"] = new JsonArray() }),
                 "prompts/list" => Result(id, new JsonObject { ["prompts"] = new JsonArray() }),
@@ -85,10 +88,29 @@ public sealed class McpServer
         }
     }
 
-    /// <summary>What this workspace adds to the instructions: its templates (their tables and conventions) and which tables are calendars on the user's devices.</summary>
-    private async Task<string?> WorkspaceContextAsync()
+    /// <summary>
+    /// What this workspace adds to the instructions: the other workspaces the
+    /// connection can use (Step 5.13), its templates (their tables and
+    /// conventions) and which tables are calendars on the user's devices.
+    /// </summary>
+    private async Task<string?> WorkspaceContextAsync(McpCaller caller, CancellationToken ct)
     {
         var parts = new List<string>();
+        if (ManyWorkspaces(caller))
+        {
+            try
+            {
+                var usable = await _tools.WorkspacesAsync(caller, ct);
+                if (usable.Count > 1)
+                    parts.Add("Workspaces this connection can use — each has its own tables, dashboards and forms:\n" +
+                              string.Join("\n", usable.Select(w => $"- {w.Name} (workspace: \"{w.Slug}\"{(w.Role is null ? "" : $", you are {w.Role}")}){(w.Current ? " — used when a tool gets no workspace" : "")}")) +
+                              "\nPass workspace to any tool to work in another one; say which workspace you mean when it is not the default one.");
+            }
+            catch (Exception e) when (e is not OperationCanceledException)
+            {
+                _logger.LogWarning(e, "The workspaces could not be read for the MCP instructions.");
+            }
+        }
         try
         {
             if (_templates is not null && await _templates.ContextAsync() is { } templates)
@@ -128,12 +150,31 @@ public sealed class McpServer
     /// <summary>A connection sees only the tools its permissions allow.</summary>
     private IEnumerable<McpTool> VisibleTools(McpCaller caller) => _tools.All.Where(tool => caller.Allows(tool.Permission));
 
-    private static JsonNode Describe(McpTool tool) => new JsonObject
+    /// <summary>Tools that are about workspaces themselves take no workspace argument.</summary>
+    private static readonly HashSet<string> NoWorkspaceArgument = ["list_workspaces", "create_workspace", "bento_guide"];
+
+    /// <summary>Whether the caller may reach more than one workspace (Step 5.13): then every tool takes <c>workspace</c>.</summary>
+    private bool ManyWorkspaces(McpCaller caller) =>
+        _workspaces is not null && _workspaces.All.Count(w => caller.AllowsWorkspace(w.Id)) > 1;
+
+    private static JsonNode Describe(McpTool tool, bool manyWorkspaces)
+    {
+        var schema = tool.InputSchema.DeepClone().AsObject();
+        if (manyWorkspaces && !NoWorkspaceArgument.Contains(tool.Name) && schema["properties"] is JsonObject properties)
+            properties["workspace"] = new JsonObject
+            {
+                ["type"] = "string",
+                ["description"] = "The workspace to work in, by its short name (list_workspaces); leave out for this connection's own."
+            };
+        return Describe(tool, schema);
+    }
+
+    private static JsonNode Describe(McpTool tool, JsonObject inputSchema) => new JsonObject
     {
         ["name"] = tool.Name,
         ["title"] = tool.Title,
         ["description"] = tool.Description,
-        ["inputSchema"] = tool.InputSchema.DeepClone(),
+        ["inputSchema"] = inputSchema,
         ["annotations"] = new JsonObject
         {
             ["title"] = tool.Title,
@@ -156,11 +197,36 @@ public sealed class McpServer
             ? a
             : JsonDocument.Parse("{}").RootElement;
 
+        // Step 5.13: another workspace for this call; the inner API call checks access there again.
+        Workspaces.Workspace? target = null;
+        string? workspaceError = null;
+        if (arguments.TryGetProperty("workspace", out var named) && named.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(named.GetString()))
+        {
+            var slug = named.GetString()!.Trim();
+            target = _workspaces?.Find(slug) ?? (_workspaces is null ? null : (await _workspaces.ReloadAsync()).FirstOrDefault(w => string.Equals(w.Slug, slug, StringComparison.OrdinalIgnoreCase)));
+            if (target is null || !caller.AllowsWorkspace(target.Id))
+            {
+                workspaceError = target is null
+                    ? $"There is no workspace '{slug}'; list_workspaces names those this connection can use."
+                    : $"This connection may not use the workspace '{slug}'; list_workspaces names those it can.";
+                target = null;
+            }
+            arguments = Without(arguments, "workspace");
+        }
+
         var watch = Stopwatch.StartNew();
         McpToolResult result;
         try
         {
-            result = caller.Allows(tool.Permission) ? await tool.Run(caller, arguments, ct) : McpTools.Refusal(tool.Permission);
+            if (workspaceError is not null)
+                result = new McpToolResult(workspaceError, true);
+            else if (!caller.Allows(tool.Permission))
+                result = McpTools.Refusal(tool.Permission);
+            else
+            {
+                using (target is null ? null : Workspaces.WorkspaceContext.Use(target))
+                    result = await tool.Run(caller, arguments, ct);
+            }
         }
         catch (McpArgumentException ex)
         {
@@ -193,4 +259,12 @@ public sealed class McpServer
         new() { ["jsonrpc"] = "2.0", ["id"] = id?.DeepClone(), ["error"] = new JsonObject { ["code"] = code, ["message"] = message } };
 
     public static JsonObject ParseFailure() => Error(null, ParseError, "Parse error: the body is not JSON.");
+
+    /// <summary>The arguments without one property.</summary>
+    private static JsonElement Without(JsonElement arguments, string name)
+    {
+        var copy = JsonNode.Parse(arguments.GetRawText())!.AsObject();
+        copy.Remove(name);
+        return JsonDocument.Parse(copy.ToJsonString()).RootElement.Clone();
+    }
 }

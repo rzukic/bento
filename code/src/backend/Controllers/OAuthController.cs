@@ -122,6 +122,8 @@ public sealed class OAuthController : ControllerBase
         public bool Approve { get; init; }
         /// <summary>The workspaces the app may use (Step 5.5); each one the user can open.</summary>
         public List<long>? Workspaces { get; init; }
+        /// <summary>Every workspace the user can open, also those made later (Step 5.13).</summary>
+        public bool AllWorkspaces { get; init; }
     }
 
     /// <summary>The workspaces the signed-in user can open, with their role in each.</summary>
@@ -178,7 +180,7 @@ public sealed class OAuthController : ControllerBase
                     redirectHost = new Uri(redirectUri!).Authority is { Length: > 0 } host ? host : new Uri(redirectUri!).Scheme,
                     canWrite = role is "admin" or "editor",
                     // What this user may grant at all; the page greys out the rest.
-                    allowed = McpPermissions.ForRole(role),
+                    allowed = McpPermissions.ForInstallationRole(McpPermissions.ForRole(role), User.IsInstallationAdmin()),
                     workspaces = openable.Select(o => new Models.WorkspaceResponse(o.Workspace.Id, o.Workspace.Slug, o.Workspace.Name, o.Workspace.IsDefault, o.Role)),
                     selectedWorkspaces = selected.Workspace is null ? Array.Empty<long>() : [selected.Workspace.Id],
                     // The app asked for one workspace (its MCP address); others can be added.
@@ -230,11 +232,13 @@ public sealed class OAuthController : ControllerBase
                         : [McpPermissions.Read]);
                     var openable = await OpenableAsync(userId);
                     var chosen = request.Workspaces is { Count: > 0 } listed ? listed.Distinct().ToList() : [Services.Workspaces.Workspace.DefaultId];
-                    var roles = chosen.Select(id => openable.FirstOrDefault(o => o.Workspace.Id == id).Role).ToList();
-                    if (roles.Any(r => r is null))
+                    var roles = request.AllWorkspaces
+                        ? openable.Select(o => (string?)o.Role).ToList()
+                        : chosen.Select(id => openable.FirstOrDefault(o => o.Workspace.Id == id).Role).ToList();
+                    if (roles.Count == 0 || roles.Any(r => r is null))
                         throw new ApiValidationException("Choose workspaces you can open.", new Dictionary<string, object?> { ["field"] = "workspaces" });
-                    var permissions = McpPermissions.Cap(wanted, Services.Workspaces.WorkspaceAccess.Highest(roles));
-                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", permissions, chosen);
+                    var permissions = McpPermissions.ForInstallationRole(McpPermissions.Cap(wanted, Services.Workspaces.WorkspaceAccess.Highest(roles)), User.IsInstallationAdmin());
+                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", permissions, chosen, request.AllWorkspaces);
                 }
                 catch (OAuthException ex)
                 {
