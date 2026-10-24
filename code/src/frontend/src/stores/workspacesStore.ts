@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { create } from "zustand";
 import { listWorkspaces, type Workspace } from "../api/workspaces";
 import { currentWorkspaceSlug } from "../lib/workspace";
@@ -35,4 +36,19 @@ registerLogoutHook(() => useWorkspacesStore.getState().reset());
 export function currentWorkspace(workspaces: Workspace[] | null): Workspace | undefined {
   const slug = currentWorkspaceSlug();
   return workspaces?.find((w) => (slug ? w.slug === slug : w.isDefault));
+}
+
+/**
+ * The current workspace's name when there is more than one — for the top
+ * bar, the tab title and "Apply to …"; null with a single workspace, where
+ * naming it would only be noise.
+ */
+export function useWorkspaceName(): string | null {
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const load = useWorkspacesStore((state) => state.load);
+  useEffect(() => {
+    load().catch(() => undefined);
+  }, [load]);
+  if (!workspaces || workspaces.length < 2) return null;
+  return currentWorkspace(workspaces)?.name ?? null;
 }

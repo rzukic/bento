@@ -104,4 +104,33 @@ describe("workspaces", () => {
     await userEvent.click(confirm);
     await waitFor(() => expect(api.deleteWorkspace).toHaveBeenCalledWith(2, "finances"));
   });
+
+  it("names the workspace at the start of the top bar, and in the tab title; with one workspace, neither", async () => {
+    const { useDocumentTitle } = await import("../hooks/useDocumentTitle");
+    function Page() {
+      useDocumentTitle("transactions · Bento");
+      return <WorkspaceSwitcher variant="topbar" />;
+    }
+    setCurrentWorkspaceForTests("finances");
+    const { unmount } = render(
+      <MemoryRouter>
+        <Page />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole("button", { name: /Workspace: Finances/ })).toHaveTextContent("Finances");
+    await waitFor(() => expect(document.title).toBe("transactions · Finances · Bento"));
+    unmount();
+
+    useWorkspacesStore.getState().reset();
+    api.listWorkspaces.mockResolvedValue([all[0]]);
+    setCurrentWorkspaceForTests(null);
+    render(
+      <MemoryRouter>
+        <Page />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(useWorkspacesStore.getState().workspaces).toHaveLength(1));
+    expect(screen.queryByRole("button", { name: /Workspace:/ })).not.toBeInTheDocument();
+    expect(document.title).toBe("transactions · Bento");
+  });
 });

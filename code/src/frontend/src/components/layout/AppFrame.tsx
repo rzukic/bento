@@ -342,6 +342,7 @@ export function AppFrame({ children }: AppFrameProps) {
 
       <main className="shell__main">
         <header className="shell__topbar" aria-label="Toolbar">
+          <WorkspaceSwitcher variant="topbar" />
           <Breadcrumbs items={breadcrumbItems} />
 
           <div className="shell__topbar-spacer" />
