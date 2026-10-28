@@ -29,6 +29,45 @@ public sealed record AppCalendar
     /// <summary>#RRGGBB, shown by calendar apps that support it.</summary>
     public string? Color { get; init; }
     public IReadOnlyList<AppFilter>? Filters { get; init; }
+    /// <summary>A status column: how its values show on devices, and which of them are invitations to answer.</summary>
+    public AppStatus? Status { get; init; }
+}
+
+/// <summary>
+/// A calendar's status column (e.g. proposed, confirmed, cancelled). <see cref="Values"/>
+/// sets the iCal STATUS devices show. With <see cref="Pending"/>, rows in those
+/// states go out as invitations the user answers on the device: accepting writes
+/// <see cref="Accepted"/>, declining <see cref="Declined"/>, "maybe"
+/// <see cref="Tentative"/> (or leaves the row as it is), and
+/// <see cref="AnsweredAt"/> gets the time of the answer. An answer changes only
+/// these columns — never the times, the title or other rows.
+/// </summary>
+public sealed record AppStatus
+{
+    public string? Column { get; init; }
+    /// <summary>Value → TENTATIVE, CONFIRMED or CANCELLED.</summary>
+    public IReadOnlyDictionary<string, string>? Values { get; init; }
+    /// <summary>The values that are invitations still to be answered.</summary>
+    public IReadOnlyList<string>? Pending { get; init; }
+    public string? Accepted { get; init; }
+    public string? Declined { get; init; }
+    public string? Tentative { get; init; }
+    /// <summary>A date-time column that gets the moment of each answer.</summary>
+    public string? AnsweredAt { get; init; }
+}
+
+/// <summary>
+/// Who answers the invitations (the address the calendar app knows as its
+/// user's own — in DAVx⁵ the account name) and who sends them.
+/// </summary>
+public sealed record AppInvitations
+{
+    public string? Attendee { get; init; }
+    public string? AttendeeName { get; init; }
+    /// <summary>Default bento@bento.invalid: an address no mail is sent to.</summary>
+    public string? Organizer { get; init; }
+    /// <summary>Default "Bento".</summary>
+    public string? OrganizerName { get; init; }
 }
 
 /// <param name="Op">eq, neq, gt, gte, lt, lte, like, in, null, notnull — as the list endpoint takes them.</param>
@@ -37,6 +76,8 @@ public sealed record AppFilter(string? Column, string? Op, string? Value);
 public sealed record AppConfig
 {
     public IReadOnlyList<AppCalendar>? Calendars { get; init; }
+    /// <summary>Needed when a calendar's status has invitations.</summary>
+    public AppInvitations? Invitations { get; init; }
 }
 
 public sealed record AppRequest

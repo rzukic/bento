@@ -152,7 +152,10 @@ public sealed class DavController(AppService apps, CalDavService calDav, AuthRat
         if (href == Principal)
         {
             props[D + "principal-URL"] = () => Href(Principal);
-            props[C + "calendar-user-address-set"] = () => Href(Principal);
+            // The user's address first: calendar apps take it as "me" when they offer to answer invitations.
+            props[C + "calendar-user-address-set"] = () => app.Config.Invitations?.Attendee is { } attendee
+                ? new object[] { Href("mailto:" + attendee), Href(Principal) }
+                : Href(Principal);
         }
         return props;
     }

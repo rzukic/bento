@@ -31,7 +31,14 @@ public sealed class CalendarEvents
     /// <param name="End">Exclusive: the day after an all-day event, the moment a timed one ends.</param>
     /// <param name="Tag">Changes whenever the event does (an ETag).</param>
     /// <param name="Recurrence">An RRULE value, when the calendar maps a column to it.</param>
-    public sealed record Event(string RowId, string Uid, string Title, EventTime Start, EventTime End, string? Description, string? Location, string Tag, string? Recurrence = null);
+    /// <param name="State">The row's value in the calendar's status column.</param>
+    /// <param name="Status">The iCal STATUS it shows as: TENTATIVE, CONFIRMED or CANCELLED.</param>
+    /// <param name="Invitation">When the event is an invitation: who asks, who answers, and the answer.</param>
+    public sealed record Event(string RowId, string Uid, string Title, EventTime Start, EventTime End, string? Description, string? Location, string Tag, string? Recurrence = null,
+        string? State = null, string? Status = null, Invitation? Invitation = null);
+
+    /// <param name="PartStat">NEEDS-ACTION, ACCEPTED, DECLINED or TENTATIVE.</param>
+    public sealed record Invitation(string Organizer, string OrganizerName, string Attendee, string? AttendeeName, string PartStat);
 
     /// <summary>A day of an all-day event, or a moment (UTC).</summary>
     public readonly record struct EventTime(DateOnly? Day, DateTimeOffset? Moment)
@@ -39,7 +46,8 @@ public sealed class CalendarEvents
         public bool AllDay => Day is not null;
     }
 
-    public async Task<IReadOnlyList<Event>> ReadAsync(AppCalendar calendar)
+    /// <param name="invitations">Who answers the calendar's invitations, when its status has them.</param>
+    public async Task<IReadOnlyList<Event>> ReadAsync(AppCalendar calendar, AppInvitations? invitations = null)
     {
         var table = _schemaCache.GetTable(calendar.Table!)
             ?? throw new InvalidOperationException($"The table {calendar.Table} no longer exists.");
@@ -56,7 +64,7 @@ public sealed class CalendarEvents
             {
                 if (not.Any(f => Same(Get(row, f.Column), f.Value)))
                     continue;
-                if (ToEvent(row, calendar, key, table.Name, zone) is { } found)
+                if (ToEvent(row, calendar, key, table.Name, zone, invitations) is { } found)
                     events.Add(found);
             }
             if (page >= result.TotalPages)
@@ -65,7 +73,7 @@ public sealed class CalendarEvents
         return events;
     }
 
-    private static Event? ToEvent(IDictionary<string, object?> row, AppCalendar calendar, string key, string table, TimeZoneInfo zone)
+    private static Event? ToEvent(IDictionary<string, object?> row, AppCalendar calendar, string key, string table, TimeZoneInfo zone, AppInvitations? invitations)
     {
         var id = Text(Get(row, key));
         var title = Text(Get(row, calendar.Title));
@@ -99,8 +107,48 @@ public sealed class CalendarEvents
         if (recurrence is not null && recurrence.StartsWith("RRULE:", StringComparison.OrdinalIgnoreCase))
             recurrence = recurrence[6..];
         var uid = $"{table}-{id}@bento";
-        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\u001f', title, Stamp(start), Stamp(end.Value), description, location, recurrence)))).ToLowerInvariant()[..16];
-        return new Event(id, uid, title.Trim(), start, end.Value, description, location, tag, string.IsNullOrEmpty(recurrence) ? null : recurrence);
+        var state = calendar.Status is { Column: { } statusColumn } ? Text(Get(row, statusColumn))?.Trim() : null;
+        var answer = Answer(calendar.Status, state);
+        var invitation = answer is not null && invitations?.Attendee is { } attendee
+            ? new Invitation(invitations.Organizer ?? AppService.DefaultOrganizer, invitations.OrganizerName ?? "Bento", attendee, invitations.AttendeeName, answer)
+            : null;
+        // The status only counts where a calendar maps one, so other calendars keep their ETags.
+        var tagged = string.Join('\u001f', title, Stamp(start), Stamp(end.Value), description, location, recurrence) + (state is null ? "" : "\u001f" + state);
+        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(tagged))).ToLowerInvariant()[..16];
+        return new Event(id, uid, title.Trim(), start, end.Value, description, location, tag, string.IsNullOrEmpty(recurrence) ? null : recurrence,
+            state, Shown(calendar.Status, state), invitation);
+    }
+
+    /// <summary>The answer a status value stands for: NEEDS-ACTION while pending, then ACCEPTED, DECLINED or TENTATIVE; null for other values.</summary>
+    public static string? Answer(AppStatus? status, string? state)
+    {
+        if (status?.Pending is not { Count: > 0 } pending || state is null)
+            return null;
+        if (pending.Contains(state, StringComparer.OrdinalIgnoreCase))
+            return "NEEDS-ACTION";
+        if (string.Equals(state, status.Accepted, StringComparison.OrdinalIgnoreCase))
+            return "ACCEPTED";
+        if (string.Equals(state, status.Declined, StringComparison.OrdinalIgnoreCase))
+            return "DECLINED";
+        if (string.Equals(state, status.Tentative, StringComparison.OrdinalIgnoreCase))
+            return "TENTATIVE";
+        return null;
+    }
+
+    /// <summary>The iCal STATUS of a status value: as mapped, else from the invitation it is (pending and maybe tentative, accepted confirmed, declined cancelled).</summary>
+    private static string? Shown(AppStatus? status, string? state)
+    {
+        if (status is null || state is null)
+            return null;
+        if (status.Values?.FirstOrDefault(v => string.Equals(v.Key, state, StringComparison.OrdinalIgnoreCase)) is { Value: { } shown })
+            return shown;
+        return Answer(status, state) switch
+        {
+            "NEEDS-ACTION" or "TENTATIVE" => "TENTATIVE",
+            "ACCEPTED" => "CONFIRMED",
+            "DECLINED" => "CANCELLED",
+            _ => null
+        };
     }
 
     /// <summary>A cell equals a filter's text: yes/no as true/false (or 1/0), numbers and text as written, case aside.</summary>

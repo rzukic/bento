@@ -102,8 +102,63 @@ describe("apps", () => {
         recurrence: null,
         color: "#3B82F6",
         filters: [{ column: "private", op: "neq", value: "true" }],
+        status: null,
       },
-    ]);
+    ], null);
+  });
+
+  it("maps a status column: how values show, and proposals as invitations for every calendar of the table", async () => {
+    useSchemaStore.setState({
+      snapshot: {
+        version: 1,
+        tables: [
+          {
+            name: "events",
+            columns: [
+              { name: "id", type: "integer", primaryKey: true },
+              { name: "title", type: "text" },
+              { name: "start_at", type: "datetime" },
+              { name: "status", type: "enum", values: ["confirmed", "proposed", "done", "cancelled"] },
+              { name: "answered_at", type: "datetime" },
+            ],
+          },
+        ],
+        relations: [],
+      } as unknown as ModelSnapshot,
+    });
+    const planner: BentoApp = {
+      ...app,
+      name: "Planner",
+      config: {
+        calendars: [
+          { name: "Work", slug: "work", table: "events", title: "title", start: "start_at", color: "#2F6FED" },
+          { name: "Study", slug: "study", table: "events", title: "title", start: "start_at", color: "#16A085" },
+        ],
+      },
+    };
+    api.listApps.mockResolvedValue([planner]);
+    api.updateApp.mockResolvedValue(planner);
+    const user = userEvent.setup();
+    render(<AppsPage />);
+
+    await user.click(await screen.findByRole("button", { name: "Edit" }));
+    await user.selectOptions(screen.getByLabelText("Status (calendar 1)"), "status");
+    await user.selectOptions(screen.getByLabelText("proposed invitation (calendar 1)"), "pending");
+    await user.selectOptions(screen.getByLabelText("confirmed invitation (calendar 1)"), "accepted");
+    await user.selectOptions(screen.getByLabelText("cancelled invitation (calendar 1)"), "declined");
+    await user.selectOptions(screen.getByLabelText("done shows as (calendar 1)"), "CONFIRMED");
+    await user.selectOptions(screen.getByLabelText("Answered at (calendar 1)"), "answered_at");
+    // Invitations need the address the calendar app knows as the user's.
+    await user.type(screen.getByLabelText("Your address"), "me@example.com");
+    await user.click(screen.getAllByRole("button", { name: "Use for all calendars of this table" })[0]!);
+    expect(screen.getByLabelText("proposed invitation (calendar 2)")).toHaveValue("pending");
+    await user.click(screen.getByRole("button", { name: "Save app" }));
+
+    await waitFor(() => expect(api.updateApp).toHaveBeenCalledTimes(1));
+    const [, changes] = api.updateApp.mock.calls[0]!;
+    const status = { column: "status", pending: ["proposed"], accepted: "confirmed", declined: "cancelled", values: { done: "CONFIRMED" }, answeredAt: "answered_at" };
+    expect(changes.calendars.map((c: { status: unknown }) => c.status)).toEqual([status, status]);
+    expect(changes.invitations).toEqual({ attendee: "me@example.com" });
   });
 
   it("adds a device: its CalDAV account is shown once; a device can be taken back", async () => {

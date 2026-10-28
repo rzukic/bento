@@ -12,6 +12,18 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+### 2026-10-28 — Answer Proposals In Your Calendar App
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.16 — Proposals As Calendar Invitations](working-steps/5.16-calendar-invitations.md)
+
+Proposed time blocks arrive on your phone as invitations: accept, maybe or decline them in your calendar app, and Bento gets the answer.
+
+**Highlights:**
+- **A status per calendar**: how each value shows (tentative, confirmed, cancelled), and which values ask for an answer.
+- **The answer comes back as the row's status**, with the time of the answer. Nothing else changes: not the times, not linked tasks.
+- **Same event, same UID**: accepting keeps the event, declining takes it out of the calendar, and there are no duplicates.
+
 ## Phase 5 — Integration
 
 ### 2026-10-24 — Claude Installs Templates

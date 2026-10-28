@@ -9,6 +9,9 @@ import {
   updateApp,
   type AppCalendar,
   type AppFilter,
+  type AppInvitations,
+  type AppStatus,
+  type EventStatus,
   type BentoApp,
   type CreatedAppPassword,
 } from "../../api/apps";
@@ -38,6 +41,49 @@ const OPS: { value: AppFilter["op"]; label: string }[] = [
   { value: "null", label: "is empty" },
   { value: "notnull", label: "is not empty" },
 ];
+
+const SHOWN: { value: EventStatus | ""; label: string }[] = [
+  { value: "", label: "As usual" },
+  { value: "TENTATIVE", label: "Tentative" },
+  { value: "CONFIRMED", label: "Confirmed" },
+  { value: "CANCELLED", label: "Cancelled" },
+];
+
+type Role = "" | "pending" | "accepted" | "declined" | "tentative";
+
+const ROLES: { value: Role; label: string }[] = [
+  { value: "", label: "Not an invitation" },
+  { value: "pending", label: "Asks for an answer" },
+  { value: "accepted", label: "When accepted" },
+  { value: "declined", label: "When declined" },
+  { value: "tentative", label: "When “maybe”" },
+];
+
+function roleOf(status: AppStatus, value: string): Role {
+  if (status.pending?.includes(value)) return "pending";
+  if (status.accepted === value) return "accepted";
+  if (status.declined === value) return "declined";
+  if (status.tentative === value) return "tentative";
+  return "";
+}
+
+/** The status with <value> in <role>; accepted, declined and maybe have one value each. */
+function withRole(status: AppStatus, value: string, role: Role): AppStatus {
+  const next: AppStatus = {
+    ...status,
+    pending: (status.pending ?? []).filter((p) => p !== value),
+    accepted: status.accepted === value ? null : status.accepted,
+    declined: status.declined === value ? null : status.declined,
+    tentative: status.tentative === value ? null : status.tentative,
+  };
+  if (role === "pending") next.pending = [...(next.pending ?? []), value];
+  else if (role) next[role] = value;
+  return next;
+}
+
+function invites(calendar: AppCalendar): boolean {
+  return Boolean(calendar.status?.column && calendar.status.pending?.length);
+}
 
 function errorText(cause: unknown, fallback: string): string {
   return cause instanceof ApiClientError ? cause.message : fallback;
@@ -211,6 +257,7 @@ function AppCard({
                 · {calendar.table}: {calendar.title}, {calendar.start}
                 {calendar.end ? ` → ${calendar.end}` : ""}
                 {calendar.filters?.length ? ` · ${calendar.filters.length} ${calendar.filters.length === 1 ? "filter" : "filters"}` : ""}
+                {invites(calendar) ? " · invitations" : ""}
               </span>
             </li>
           ))}
@@ -328,10 +375,15 @@ function AppForm({ app, onCancel, onSaved }: { app: BentoApp | null; onCancel: (
   const [calendars, setCalendars] = useState<EditableCalendar[]>(() =>
     (app?.config.calendars ?? [{ name: "", table: "", title: "", start: "", color: COLORS[0] }]).map((c) => ({ ...c, key: nextKey.current++ })),
   );
+  const [invitations, setInvitations] = useState<AppInvitations>(() => app?.config.invitations ?? {});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const change = (key: number, patch: Partial<AppCalendar>) => setCalendars((current) => current.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  // The same status for every calendar of the table (one table, a calendar per category).
+  const copyStatus = (from: EditableCalendar) =>
+    setCalendars((current) => current.map((c) => (c.key !== from.key && c.table === from.table ? { ...c, status: from.status ? { ...from.status } : null } : c)));
+  const anyInvites = calendars.some(invites);
 
   const save = async () => {
     const payload = calendars.map(({ key: _key, ...calendar }) => ({
@@ -343,12 +395,14 @@ function AppForm({ app, onCancel, onSaved }: { app: BentoApp | null; onCancel: (
       recurrence: calendar.recurrence || null,
       color: calendar.color || null,
       filters: (calendar.filters ?? []).filter((f) => f.column),
+      status: calendar.status?.column ? calendar.status : null,
     }));
+    const people = anyInvites || invitations.attendee?.trim() ? invitations : null;
     setSaving(true);
     setError(null);
     try {
-      if (app) await updateApp(app.id, { name: name.trim(), calendars: payload });
-      else await createApp(name.trim(), payload);
+      if (app) await updateApp(app.id, { name: name.trim(), calendars: payload, invitations: people });
+      else await createApp(name.trim(), payload, people);
       onSaved();
     } catch (cause) {
       setError(errorText(cause, "The app could not be saved."));
@@ -375,7 +429,13 @@ function AppForm({ app, onCancel, onSaved }: { app: BentoApp | null; onCancel: (
                 </Button>
               ) : null}
             </div>
-            <CalendarFields calendar={calendar} index={index} tables={tables} onChange={(patch) => change(calendar.key, patch)} />
+            <CalendarFields
+              calendar={calendar}
+              index={index}
+              tables={tables}
+              onChange={(patch) => change(calendar.key, patch)}
+              onCopyStatus={calendars.some((c) => c.key !== calendar.key && c.table === calendar.table) ? () => copyStatus(calendar) : undefined}
+            />
           </li>
         ))}
       </ol>
@@ -390,6 +450,40 @@ function AppForm({ app, onCancel, onSaved }: { app: BentoApp | null; onCancel: (
           Another calendar
         </Button>
       </div>
+      {anyInvites ? (
+        <div className="apps__invitations">
+          <span className="field__label">Invitations</span>
+          <div className="channel-form__grid">
+            <label className="field field--compact">
+              <span className="field__label">Your address</span>
+              <input
+                className="field__control field__control--compact"
+                type="email"
+                value={invitations.attendee ?? ""}
+                placeholder="you@example.com"
+                onChange={(e) => setInvitations({ ...invitations, attendee: e.target.value })}
+              />
+            </label>
+            <label className="field field--compact">
+              <span className="field__label">Your name</span>
+              <input className="field__control field__control--compact" value={invitations.attendeeName ?? ""} onChange={(e) => setInvitations({ ...invitations, attendeeName: e.target.value || null })} />
+            </label>
+            <label className="field field--compact">
+              <span className="field__label">Invitations from</span>
+              <input
+                className="field__control field__control--compact"
+                value={invitations.organizerName ?? ""}
+                placeholder="Bento"
+                onChange={(e) => setInvitations({ ...invitations, organizerName: e.target.value || null })}
+              />
+            </label>
+          </div>
+          <p className="channel-form__hint">
+            The address your calendar app knows as yours, so it offers to accept, decline or say maybe — in DAVx⁵ the account name, on iPhone and Mac the one Bento
+            tells the device. No mail is sent.
+          </p>
+        </div>
+      ) : null}
       {error ? <Alert tone="error" message={error} /> : null}
       <div className="channel-form__actions">
         <Button type="button" variant="primary" disabled={saving || !name.trim()} onClick={() => void save()}>
@@ -408,11 +502,13 @@ function CalendarFields({
   index,
   tables,
   onChange,
+  onCopyStatus,
 }: {
   calendar: EditableCalendar;
   index: number;
   tables: ModelTable[];
   onChange: (patch: Partial<AppCalendar>) => void;
+  onCopyStatus?: () => void;
 }) {
   const table = tables.find((t) => t.name === calendar.table);
   const columns = (table?.columns ?? []).filter((c) => !c.primaryKey);
@@ -453,7 +549,18 @@ function CalendarFields({
               const nextColumns = (next?.columns ?? []).filter((c) => !c.primaryKey);
               const start = nextColumns.find((c) => ["datetime", "date"].includes(valueType(c)));
               const title = nextColumns.find((c) => valueType(c) === "text");
-              onChange({ table: e.target.value, start: start?.name ?? "", title: title?.name ?? "", end: null, allDay: null, description: null, location: null, recurrence: null, filters: [] });
+              onChange({
+                table: e.target.value,
+                start: start?.name ?? "",
+                title: title?.name ?? "",
+                end: null,
+                allDay: null,
+                description: null,
+                location: null,
+                recurrence: null,
+                filters: [],
+                status: null,
+              });
             }}
           >
             <option value="">Choose…</option>
@@ -547,6 +654,7 @@ function CalendarFields({
               </Button>
             </div>
           </div>
+          <StatusFields calendar={calendar} columns={columns} label={label} onChange={onChange} onCopy={onCopyStatus} />
           <p className="channel-form__hint">
             A date column makes all-day events; a date-time column timed ones, in the workspace's time zone. For a title made of several columns, add a computed
             column to the table. What the table has no column for (alarms, attendees) is kept for events made on a device.
@@ -554,5 +662,134 @@ function CalendarFields({
         </>
       ) : null}
     </>
+  );
+}
+
+/** The status column: how each value shows on devices, and which are invitations to answer there. */
+function StatusFields({
+  calendar,
+  columns,
+  label,
+  onChange,
+  onCopy,
+}: {
+  calendar: AppCalendar;
+  columns: ModelTable["columns"];
+  label: (text: string) => string;
+  onChange: (patch: Partial<AppCalendar>) => void;
+  onCopy?: () => void;
+}) {
+  const status = calendar.status ?? null;
+  const choices = columns.filter((c) => ["enum", "text"].includes(valueType(c)));
+  const column = columns.find((c) => c.name === status?.column);
+  const values = column?.values ?? [];
+  const moments = columns.filter((c) => ["datetime", "date"].includes(valueType(c)));
+  const set = (next: AppStatus) => onChange({ status: next });
+
+  return (
+    <div className="apps__status">
+      <div className="channel-form__grid">
+        <label className="field field--compact">
+          <span className="field__label">Status</span>
+          <select
+            className="field__control field__control--compact"
+            aria-label={label("Status")}
+            value={status?.column ?? ""}
+            onChange={(e) => onChange({ status: e.target.value ? { column: e.target.value } : null })}
+          >
+            <option value="">None</option>
+            {choices.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.displayName ?? c.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        {status?.pending?.length ? (
+          <label className="field field--compact">
+            <span className="field__label">Answered at</span>
+            <select
+              className="field__control field__control--compact"
+              aria-label={label("Answered at")}
+              value={status.answeredAt ?? ""}
+              onChange={(e) => set({ ...status, answeredAt: e.target.value || null })}
+            >
+              <option value="">None</option>
+              {moments.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.displayName ?? c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+      </div>
+      {status && values.length > 0 ? (
+        <table className="apps__status-table">
+          <thead>
+            <tr>
+              <th scope="col">Value</th>
+              <th scope="col">Shows as</th>
+              <th scope="col">Invitation</th>
+            </tr>
+          </thead>
+          <tbody>
+            {values.map((value) => (
+              <tr key={value}>
+                <th scope="row">{value}</th>
+                <td>
+                  <select
+                    className="field__control field__control--compact"
+                    aria-label={label(`${value} shows as`)}
+                    value={status.values?.[value] ?? ""}
+                    onChange={(e) => {
+                      const shown = { ...(status.values ?? {}) };
+                      if (e.target.value) shown[value] = e.target.value as EventStatus;
+                      else delete shown[value];
+                      set({ ...status, values: shown });
+                    }}
+                  >
+                    {SHOWN.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                <td>
+                  <select
+                    className="field__control field__control--compact"
+                    aria-label={label(`${value} invitation`)}
+                    value={roleOf(status, value)}
+                    onChange={(e) => set(withRole(status, value, e.target.value as Role))}
+                  >
+                    {ROLES.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : status ? (
+        <p className="channel-form__hint">Choose a column with fixed values (a choice) to set how they show and which ask for an answer.</p>
+      ) : null}
+      {status?.pending?.length ? (
+        <p className="channel-form__hint">
+          Rows that ask for an answer show as invitations: accept, maybe or decline in the calendar app sets the status here. An answer changes nothing else — not
+          the times, not linked rows; deleting such an event on the device declines it.
+        </p>
+      ) : null}
+      {status && onCopy ? (
+        <div>
+          <Button type="button" variant="ghost" size="sm" onClick={onCopy}>
+            Use for all calendars of this table
+          </Button>
+        </div>
+      ) : null}
+    </div>
   );
 }

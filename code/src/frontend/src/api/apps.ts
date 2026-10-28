@@ -24,7 +24,29 @@ export type AppCalendar = {
   duration?: number | null;
   color?: string | null;
   filters?: AppFilter[] | null;
+  /** A status column: how its values show, and which are invitations to answer on the device. */
+  status?: AppStatus | null;
 };
+
+export type EventStatus = "TENTATIVE" | "CONFIRMED" | "CANCELLED";
+
+/**
+ * Rows whose status is in `pending` go out as invitations: accepting on the
+ * device writes `accepted`, declining `declined`, "maybe" `tentative` (or
+ * nothing); `answeredAt` gets the moment of the answer.
+ */
+export type AppStatus = {
+  column: string;
+  values?: Record<string, EventStatus> | null;
+  pending?: string[] | null;
+  accepted?: string | null;
+  declined?: string | null;
+  tentative?: string | null;
+  answeredAt?: string | null;
+};
+
+/** Who answers the invitations (the address the calendar app knows as its user's) and who sends them. */
+export type AppInvitations = { attendee?: string | null; attendeeName?: string | null; organizer?: string | null; organizerName?: string | null };
 
 export type AppPassword = { id: number; name: string; prefix: string; createdAt: string; lastUsedAt: string | null };
 
@@ -32,7 +54,7 @@ export type BentoApp = {
   id: number;
   name: string;
   kind: "calendar";
-  config: { calendars: AppCalendar[] };
+  config: { calendars: AppCalendar[]; invitations?: AppInvitations | null };
   enabled: boolean;
   passwords: AppPassword[];
   createdAt: string;
@@ -49,12 +71,19 @@ export async function listApps(): Promise<BentoApp[]> {
   return (await apiClient.get<DataEnvelope<BentoApp[]>>(path)).data;
 }
 
-export async function createApp(name: string, calendars: AppCalendar[]): Promise<BentoApp> {
-  return (await apiClient.post<DataEnvelope<BentoApp>>(path, { name, kind: "calendar", config: { calendars } })).data;
+export async function createApp(name: string, calendars: AppCalendar[], invitations?: AppInvitations | null): Promise<BentoApp> {
+  return (await apiClient.post<DataEnvelope<BentoApp>>(path, { name, kind: "calendar", config: { calendars, invitations: invitations ?? null } })).data;
 }
 
-export async function updateApp(id: number, changes: { name?: string; calendars?: AppCalendar[]; enabled?: boolean }): Promise<BentoApp> {
-  const body = { name: changes.name, enabled: changes.enabled, config: changes.calendars ? { calendars: changes.calendars } : undefined };
+export async function updateApp(
+  id: number,
+  changes: { name?: string; calendars?: AppCalendar[]; invitations?: AppInvitations | null; enabled?: boolean },
+): Promise<BentoApp> {
+  const body = {
+    name: changes.name,
+    enabled: changes.enabled,
+    config: changes.calendars ? { calendars: changes.calendars, invitations: changes.invitations ?? null } : undefined,
+  };
   return (await apiClient.put<DataEnvelope<BentoApp>>(`${path}/${id}`, body)).data;
 }
 

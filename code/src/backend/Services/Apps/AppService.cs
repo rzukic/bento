@@ -213,6 +213,7 @@ public sealed partial class AppService
                     throw Invalid($"{field}.filters[{j}].op", "Filter with eq, neq, gt, gte, lt, lte, like, in, null or notnull.");
                 filters.Add(new AppFilter(column.Name, op, filter.Value));
             }
+            var status = calendar.Status is { } given ? ValidateStatus(given, $"{field}.status", Column) : null;
             result.Add(new AppCalendar
             {
                 Name = name,
@@ -227,10 +228,98 @@ public sealed partial class AppService
                 Recurrence = recurrence?.Name,
                 Duration = calendar.Duration,
                 Color = string.IsNullOrEmpty(color) ? null : color.ToUpperInvariant(),
-                Filters = filters.Count > 0 ? filters : null
+                Filters = filters.Count > 0 ? filters : null,
+                Status = status
             });
         }
-        return new AppConfig { Calendars = result };
+        var invitations = result.Any(c => c.Status?.Pending is { Count: > 0 }) || config.Invitations is not null
+            ? ValidateInvitations(config.Invitations, required: result.Any(c => c.Status?.Pending is { Count: > 0 }))
+            : null;
+        return new AppConfig { Calendars = result, Invitations = invitations };
+    }
+
+    public static readonly string[] EventStatuses = ["TENTATIVE", "CONFIRMED", "CANCELLED"];
+    public const string DefaultOrganizer = "bento@bento.invalid";
+
+    private static AppStatus? ValidateStatus(AppStatus status, string field, Func<string?, string, Func<ColumnType, bool>?, string?, bool, ColumnDef?> column)
+    {
+        if (string.IsNullOrWhiteSpace(status.Column))
+            return null;
+        var statusColumn = column(status.Column, "status.column", null, null, true)!;
+        string Value(string? value, string what)
+        {
+            var text = value?.Trim();
+            if (string.IsNullOrEmpty(text))
+                throw Invalid($"{field}.{what}", "Give the status value.");
+            if (statusColumn.Type == ColumnType.Enum && statusColumn.Values.Count > 0 && !statusColumn.Values.Contains(text))
+                throw Invalid($"{field}.{what}", $"{statusColumn.DisplayName ?? statusColumn.Name} has no value {text}.");
+            return text;
+        }
+
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (value, shown) in status.Values ?? new Dictionary<string, string>())
+        {
+            var upper = shown?.Trim().ToUpperInvariant() ?? "";
+            if (upper.Length == 0)
+                continue;
+            if (!EventStatuses.Contains(upper))
+                throw Invalid($"{field}.values", "A value shows as TENTATIVE, CONFIRMED or CANCELLED.");
+            values[Value(value, "values")] = upper;
+        }
+
+        var pending = (status.Pending ?? []).Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Value(p, "pending")).Distinct().ToList();
+        string? accepted = null, declined = null, tentative = null, answeredAt = null;
+        if (pending.Count > 0)
+        {
+            accepted = Value(status.Accepted, "accepted");
+            declined = Value(status.Declined, "declined");
+            tentative = string.IsNullOrWhiteSpace(status.Tentative) ? null : Value(status.Tentative, "tentative");
+            if (accepted == declined)
+                throw Invalid($"{field}.declined", "Accepting and declining need different values.");
+            if (pending.Contains(accepted) || pending.Contains(declined))
+                throw Invalid($"{field}.pending", "An answered value cannot also be waiting for an answer.");
+            answeredAt = column(status.AnsweredAt, "status.answeredAt", t => t is ColumnType.DateTime or ColumnType.Date or ColumnType.Text, "a date-time column", false)?.Name;
+        }
+        return new AppStatus
+        {
+            Column = statusColumn.Name,
+            Values = values.Count > 0 ? values : null,
+            Pending = pending.Count > 0 ? pending : null,
+            Accepted = accepted,
+            Declined = declined,
+            Tentative = tentative,
+            AnsweredAt = answeredAt
+        };
+    }
+
+    private static AppInvitations? ValidateInvitations(AppInvitations? invitations, bool required)
+    {
+        var attendee = Address(invitations?.Attendee);
+        if (attendee is null)
+        {
+            if (required)
+                throw Invalid("config.invitations.attendee", "Give the address your calendar app knows as yours (in DAVx⁵: the account name), so it lets you answer.");
+            if (!string.IsNullOrWhiteSpace(invitations?.Attendee))
+                throw Invalid("config.invitations.attendee", "That is not an e-mail address.");
+            return null;
+        }
+        var organizer = string.IsNullOrWhiteSpace(invitations?.Organizer) ? DefaultOrganizer : Address(invitations.Organizer)
+            ?? throw Invalid("config.invitations.organizer", "That is not an e-mail address.");
+        if (string.Equals(organizer, attendee, StringComparison.OrdinalIgnoreCase))
+            throw Invalid("config.invitations.organizer", "The one who invites needs another address than you.");
+        static string? Name(string? name) => string.IsNullOrWhiteSpace(name) ? null : name.Trim().Length > 100 ? throw Invalid("config.invitations", "The name is too long.") : name.Trim();
+        return new AppInvitations { Attendee = attendee, AttendeeName = Name(invitations!.AttendeeName), Organizer = organizer, OrganizerName = Name(invitations.OrganizerName) ?? "Bento" };
+    }
+
+    /// <summary>"mailto:Anna@Example.com " → "Anna@Example.com"; null when it is not an address.</summary>
+    public static string? Address(string? value)
+    {
+        var text = value?.Trim();
+        if (string.IsNullOrEmpty(text))
+            return null;
+        if (text.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase))
+            text = text[7..];
+        return text.Length <= 254 && EmailAddress().IsMatch(text) ? text : null;
     }
 
     /// <summary>"Termine & Fristen" → "termine-fristen".</summary>
@@ -352,6 +441,15 @@ public sealed partial class AppService
                 text.Append($", repeats `{recurrence}` (an iCal RRULE like FREQ=WEEKLY;BYDAY=TU)");
             if (calendar.Filters is { Count: > 0 } filters)
                 text.Append($"; only rows with {string.Join(" and ", filters.Select(f => $"{f.Column} {f.Op} {f.Value}"))}");
+            if (calendar.Status is { Pending: { Count: > 0 } pending } status)
+            {
+                text.Append($"; rows with `{status.Column}` {string.Join(" or ", pending)} are invitations the user accepts (→ {status.Accepted}) or declines (→ {status.Declined})");
+                if (status.Tentative is { } tentative)
+                    text.Append($", maybe → {tentative}");
+                if (status.AnsweredAt is { } answeredAt)
+                    text.Append($", `{answeredAt}` holds when");
+                text.Append(" on the device. A declined row stays (what it is linked to too); propose another time as a new row");
+            }
         }
         text.Append("\nDate-times without an offset are in the workspace's time zone.");
         return text.ToString();
@@ -381,6 +479,9 @@ public sealed partial class AppService
 
     [GeneratedRegex("^#[0-9A-Fa-f]{6}$")]
     private static partial Regex ColorCode();
+
+    [GeneratedRegex(@"^[^\s@<>""]+@[^\s@<>""]+\.[^\s@<>""]+$")]
+    private static partial Regex EmailAddress();
 
     [GeneratedRegex("[^a-z0-9]+")]
     private static partial Regex NotSlug();

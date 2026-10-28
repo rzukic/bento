@@ -258,7 +258,7 @@ public sealed class CalDavTests
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
-    private static HttpRequestMessage Dav(string method, string url, string? secret, XElement? body, string? depth = null, string? ifMatch = null)
+    internal static HttpRequestMessage Dav(string method, string url, string? secret, XElement? body, string? depth = null, string? ifMatch = null)
     {
         var request = new HttpRequestMessage(new HttpMethod(method), url);
         if (secret is not null)
@@ -272,7 +272,7 @@ public sealed class CalDavTests
         return request;
     }
 
-    private static HttpRequestMessage Ics(string method, string url, string secret, string ics, bool ifNoneMatch = false, string? ifMatch = null)
+    internal static HttpRequestMessage Ics(string method, string url, string secret, string ics, bool ifNoneMatch = false, string? ifMatch = null)
     {
         var request = Dav(method, url, secret, null, ifMatch: ifMatch);
         if (ifNoneMatch)
@@ -291,7 +291,7 @@ public sealed class CalDavTests
         return XDocument.Parse(text).Root!;
     }
 
-    private static async Task<(string Ics, string ETag)> GetEventAsync(ApiIntegrationTestHost host, string url, string secret)
+    internal static async Task<(string Ics, string ETag)> GetEventAsync(ApiIntegrationTestHost host, string url, string secret)
     {
         using var response = await host.Client.SendAsync(Dav("GET", url, secret, null));
         var text = await response.Content.ReadAsStringAsync();
@@ -299,7 +299,7 @@ public sealed class CalDavTests
         return (text, response.Headers.ETag!.ToString());
     }
 
-    private static async Task<JsonElement> RowAsync(ApiIntegrationTestHost host, string table, int id)
+    internal static async Task<JsonElement> RowAsync(ApiIntegrationTestHost host, string table, int id)
     {
         var text = await host.Client.GetStringAsync($"/api/v1/data/{table}/{id}");
         var root = JsonDocument.Parse(text).RootElement;

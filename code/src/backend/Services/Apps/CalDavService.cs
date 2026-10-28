@@ -43,7 +43,8 @@ public sealed class CalDavService
 
     /// <param name="Href">The resource's name in the calendar, e.g. "appointments-4.ics".</param>
     /// <param name="Raw">The iCalendar the device last sent, when the event came from one.</param>
-    public sealed record Resource(string Href, string Uid, CalendarEvents.Event Event, string? Raw, string ETag);
+    /// <param name="Invitations">Who answers the calendar's invitations, when its status has them.</param>
+    public sealed record Resource(string Href, string Uid, CalendarEvents.Event Event, string? Raw, string ETag, AppInvitations? Invitations = null);
 
     private sealed class LinkRow
     {
@@ -64,17 +65,34 @@ public sealed class CalDavService
 
     public async Task<IReadOnlyList<Resource>> ResourcesAsync(AppService.App app, AppCalendar calendar)
     {
-        var events = await _events.ReadAsync(calendar);
+        var invitations = calendar.Status?.Pending is { Count: > 0 } ? app.Config.Invitations : null;
+        var events = await _events.ReadAsync(calendar, invitations);
         var links = (await LinksAsync(app.Id, calendar.Slug!)).GroupBy(l => l.RowId).ToDictionary(g => g.Key, g => g.Last());
-        return events.Select(e => ToResource(e, links.GetValueOrDefault(e.RowId), calendar)).ToList();
+        return events.Select(e => ToResource(e, links.GetValueOrDefault(e.RowId), calendar, invitations)).ToList();
     }
 
-    private static Resource ToResource(CalendarEvents.Event e, LinkRow? link, AppCalendar calendar)
+    private static Resource ToResource(CalendarEvents.Event e, LinkRow? link, AppCalendar calendar, AppInvitations? invitations)
     {
         var uid = link?.Uid ?? e.Uid;
         var href = link?.Href ?? $"{calendar.Table}-{e.RowId}.ics";
-        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(e.Tag + "\u001f" + (link?.Raw ?? "")))).ToLowerInvariant()[..24];
-        return new Resource(href, uid, e with { Uid = uid }, link?.Raw, $"\"{tag}\"");
+        if (e.Invitation is { } invitation && invitations is not null)
+        {
+            if (invitation.PartStat == "NEEDS-ACTION")
+            {
+                // "Maybe" with no value of its own leaves the row waiting; the device keeps showing its answer.
+                if (link?.Raw is { } raw && IcsReader.Parse(raw)?.All("VEVENT").FirstOrDefault(v => v.First("RECURRENCE-ID") is null) is { } sent
+                    && IcsWriter.IsOurs(raw, invitations) && IcsWriter.PartStat(sent, invitations.Attendee!) == "TENTATIVE")
+                    e = e with { Invitation = invitation with { PartStat = "TENTATIVE" } };
+            }
+            else if (link?.Raw is not { } raw || !IcsWriter.IsOurs(raw, invitations))
+            {
+                // Answered, but never an invitation on a device (accepted in Bento, or made confirmed): a plain event.
+                e = e with { Invitation = null };
+            }
+        }
+        var invited = e.Invitation is { } i ? $"{i.Organizer}\u001f{i.OrganizerName}\u001f{i.Attendee}\u001f{i.AttendeeName}\u001f{i.PartStat}" : "";
+        var tag = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(e.Tag + "\u001f" + (link?.Raw ?? "") + (invited.Length > 0 ? "\u001f" + invited : "")))).ToLowerInvariant()[..24];
+        return new Resource(href, uid, e with { Uid = uid }, link?.Raw, $"\"{tag}\"", invitations);
     }
 
     /// <summary>The calendar's version: changes whenever any event does (CalendarServer's getctag).</summary>
@@ -83,7 +101,7 @@ public sealed class CalDavService
 
     /// <summary>The iCalendar of one resource: as the device sent it with the row's values put in, or written from the row.</summary>
     public static string Ics(Resource resource, AppCalendar calendar, DateTimeOffset now) =>
-        resource.Raw is { } raw ? IcsWriter.Merge(raw, resource.Event, now, calendar.Recurrence is not null) : IcsWriter.Single(resource.Event, now);
+        resource.Raw is { } raw ? IcsWriter.Merge(raw, resource.Event, now, calendar.Recurrence is not null, resource.Invitations) : IcsWriter.Single(resource.Event, now);
 
     // ── Writes ───────────────────────────────────────────────────────────
 
@@ -118,13 +136,24 @@ public sealed class CalDavService
 
         var zone = (await _workspace.CalendarAsync()).Zone;
         Dictionary<string, object?> values;
-        try
+        // An answer to an invitation writes only the answer: the times and the title stay as Bento has them.
+        var answer = existing?.Event.Invitation is { } invitation && IcsWriter.PartStat(vevent, invitation.Attendee) is { } sent && sent != invitation.PartStat
+            ? sent
+            : null;
+        if (answer is not null)
         {
-            values = Values(vevent, calendar, table, zone);
+            values = AnswerValues(calendar.Status!, answer, table, zone);
         }
-        catch (FormatException e)
+        else
         {
-            return new PutResult(PutOutcome.Invalid, null, e.Message);
+            try
+            {
+                values = Values(vevent, calendar, table, zone);
+            }
+            catch (FormatException e)
+            {
+                return new PutResult(PutOutcome.Invalid, null, e.Message);
+            }
         }
 
         string rowId;
@@ -133,7 +162,8 @@ public sealed class CalDavService
             if (existing is not null)
             {
                 rowId = existing.Event.RowId;
-                await _crud.PatchAsync(table, rowId, JsonSerializer.SerializeToElement(values));
+                if (values.Count > 0)
+                    await _crud.PatchAsync(table, rowId, JsonSerializer.SerializeToElement(values));
             }
             else
             {
@@ -167,7 +197,16 @@ public sealed class CalDavService
         if (ifMatch is not null && ifMatch != "*" && existing.ETag != ifMatch)
             return DeleteOutcome.PreconditionFailed;
         var table = _schemaCache.GetTable(calendar.Table!) ?? throw new InvalidOperationException($"The table {calendar.Table} no longer exists.");
-        await _crud.DeleteAsync(table, existing.Event.RowId);
+        if (existing.Event.Invitation is not null)
+        {
+            // Deleting an invitation on a device declines it: the row stays, and with it what it is linked to.
+            var zone = (await _workspace.CalendarAsync()).Zone;
+            await _crud.PatchAsync(table, existing.Event.RowId, JsonSerializer.SerializeToElement(AnswerValues(calendar.Status!, "DECLINED", table, zone)));
+        }
+        else
+        {
+            await _crud.DeleteAsync(table, existing.Event.RowId);
+        }
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync($"DELETE FROM {Links} WHERE app_id = @AppId AND calendar = @Calendar AND row_id = @RowId",
             new { AppId = app.Id, Calendar = calendar.Slug, RowId = existing.Event.RowId });
@@ -235,6 +274,32 @@ public sealed class CalDavService
             values[description] = vevent.First("DESCRIPTION") is { } d2 ? IcsReader.Unescape(d2.Value) : null;
         if (calendar.Recurrence is { } recurrence)
             values[recurrence] = vevent.First("RRULE")?.Value.Trim();
+        return values;
+    }
+
+    /// <summary>
+    /// What an answer writes: the status value it stands for (none for "maybe"
+    /// without one of its own) and the moment of the answer.
+    /// </summary>
+    public static Dictionary<string, object?> AnswerValues(AppStatus status, string partStat, TableDef table, TimeZoneInfo zone)
+    {
+        var values = new Dictionary<string, object?>(StringComparer.Ordinal);
+        var state = partStat switch
+        {
+            "ACCEPTED" => status.Accepted,
+            "DECLINED" => status.Declined,
+            "TENTATIVE" => status.Tentative,
+            _ => null
+        };
+        if (state is not null)
+            values[status.Column!] = FilterValue(table, status.Column!, state);
+        if (status.AnsweredAt is { } answeredAt && partStat != "NEEDS-ACTION")
+        {
+            var wall = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone).DateTime;
+            values[answeredAt] = AppService.ValueType(table.Columns.First(c => string.Equals(c.Name, answeredAt, StringComparison.OrdinalIgnoreCase))) == ColumnType.Date
+                ? wall.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+                : wall.ToString("yyyy-MM-dd'T'HH:mm:ss", CultureInfo.InvariantCulture);
+        }
         return values;
     }
 

@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Bento.Api.Models;
 
 namespace Bento.Api.Services.Apps;
 
@@ -38,14 +39,29 @@ public static class IcsWriter
     /// An event as the device sent it, with what Bento keeps in the table put in:
     /// title, times, location, notes (and the repetition, when the calendar maps
     /// it) come from the row; alarms, attendees, URLs, exceptions and anything
-    /// else stay as the device wrote them.
+    /// else stay as the device wrote them. The status comes from the row when it
+    /// maps one; so do the organizer and the user's own attendance of an
+    /// invitation from <paramref name="invitations"/> — other people's stay.
     /// </summary>
-    public static string Merge(string raw, CalendarEvents.Event e, DateTimeOffset now, bool recurrenceMapped)
+    public static string Merge(string raw, CalendarEvents.Event e, DateTimeOffset now, bool recurrenceMapped, AppInvitations? invitations = null)
     {
         var replaced = new HashSet<string>(StringComparer.Ordinal) { "UID", "DTSTAMP", "DTSTART", "DTEND", "DURATION", "SUMMARY", "DESCRIPTION", "LOCATION" };
         if (recurrenceMapped)
             replaced.Add("RRULE");
+        if (e.Status is not null)
+            replaced.Add("STATUS");
         var lines = IcsReader.Unfold(raw);
+        // Bento's invitation (now or before): its organizer and the user's answer are Bento's to write.
+        var ours = e.Invitation is not null || (invitations is not null && IsOurs(raw, invitations));
+        bool Replaced(string line)
+        {
+            var name = Name(line.ToUpperInvariant());
+            if (replaced.Contains(name))
+                return true;
+            if (!ours || invitations is null)
+                return false;
+            return name == "ORGANIZER" || (name == "ATTENDEE" && string.Equals(Address(line), invitations.Attendee, StringComparison.OrdinalIgnoreCase));
+        }
         var text = new StringBuilder();
         var depth = 0;
         var mainDone = false;
@@ -95,7 +111,8 @@ public static class IcsWriter
                             Line(text, "LOCATION:" + Escape(e.Location));
                         if (recurrenceMapped && e.Recurrence is { } rule)
                             Line(text, "RRULE:" + rule);
-                        foreach (var kept in current.Skip(1).Where(l => !(l.Own && replaced.Contains(Name(l.Line.ToUpperInvariant())))))
+                        WriteStatus(text, e);
+                        foreach (var kept in current.Skip(1).Where(l => !(l.Own && Replaced(l.Line))))
                             Line(text, kept.Line);
                     }
                     Line(text, line);
@@ -112,6 +129,26 @@ public static class IcsWriter
             Line(text, line);
         }
         return mainDone ? text.ToString() : Single(e, now);
+    }
+
+    /// <summary>Whether the event's organizer is the one who sends the invitations.</summary>
+    public static bool IsOurs(string raw, AppInvitations invitations)
+    {
+        var vevent = IcsReader.Parse(raw)?.All("VEVENT").FirstOrDefault(v => v.First("RECURRENCE-ID") is null);
+        return vevent?.First("ORGANIZER") is { } organizer && string.Equals(Address(organizer.Line), invitations.Organizer ?? AppService.DefaultOrganizer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>The user's answer in an event a device sent: the PARTSTAT of the attendee with <paramref name="attendee"/>'s address.</summary>
+    public static string? PartStat(IcsReader.Component vevent, string attendee) =>
+        vevent.Properties.FirstOrDefault(p => p.Name == "ATTENDEE" && string.Equals(Address(p.Line), attendee, StringComparison.OrdinalIgnoreCase)) is { } found
+            ? (found.Parameter("PARTSTAT") ?? "NEEDS-ACTION").Trim().ToUpperInvariant()
+            : null;
+
+    /// <summary>The address of an ORGANIZER or ATTENDEE line ("…:mailto:anna@example.com").</summary>
+    private static string? Address(string line)
+    {
+        var at = line.LastIndexOf("mailto:", StringComparison.OrdinalIgnoreCase);
+        return at < 0 ? null : line[(at + 7)..].Trim();
     }
 
     private static string Name(string line)
@@ -154,8 +191,28 @@ public static class IcsWriter
             Line(text, "LOCATION:" + Escape(e.Location));
         if (e.Recurrence is { } rule)
             Line(text, "RRULE:" + rule);
+        WriteStatus(text, e);
         Line(text, "END:VEVENT");
     }
+
+    /// <summary>
+    /// STATUS, and for an invitation its organizer and the user as attendee with
+    /// their answer — RSVP asks the calendar app to offer accept, maybe, decline.
+    /// </summary>
+    private static void WriteStatus(StringBuilder text, CalendarEvents.Event e)
+    {
+        if (e.Status is { } status)
+            Line(text, "STATUS:" + status);
+        if (e.Invitation is not { } invitation)
+            return;
+        Line(text, $"ORGANIZER;CN={Parameter(invitation.OrganizerName)}:mailto:{invitation.Organizer}");
+        var name = invitation.AttendeeName is { } cn ? $";CN={Parameter(cn)}" : "";
+        var rsvp = invitation.PartStat == "NEEDS-ACTION" ? ";RSVP=TRUE" : "";
+        Line(text, $"ATTENDEE{name};CUTYPE=INDIVIDUAL;ROLE=REQ-PARTICIPANT;PARTSTAT={invitation.PartStat}{rsvp}:mailto:{invitation.Attendee}");
+    }
+
+    /// <summary>A parameter value: quoted, without the characters a quoted value cannot hold.</summary>
+    private static string Parameter(string value) => "\"" + value.Replace("\"", "'").Replace("\r", " ").Replace("\n", " ") + "\"";
 
     private static string Property(string name, CalendarEvents.EventTime time) =>
         time.Day is { } day
