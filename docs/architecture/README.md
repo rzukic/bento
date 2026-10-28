@@ -1,7 +1,6 @@
 # Architecture
 
 > System topology, service boundaries, and data flow for the Bento platform.
-> For design decisions and rationale, see [`wiki/plan/tech-decisions.md`](../../wiki/plan/tech-decisions.md).
 
 ---
 
@@ -120,7 +119,7 @@ Browser → Caddy (/ws) → Backend (SignalR / WebSocket hub) → push on dirty 
 
 ## Environment Configuration
 
-> Full env var reference: see deployment docs in [`wiki/parts/13-deployment/`](../../wiki/parts/13-deployment/README.md).
+> Full env var reference: see [Getting Started](../user/getting-started.md) and [Backend](../backend/README.md).
 
 The frontend has **zero environment variables** — the API URL is always relative (`/api/v1/`). Caddy handles routing.
 

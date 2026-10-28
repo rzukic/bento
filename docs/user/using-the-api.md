@@ -499,4 +499,3 @@ Use the technical docs when you want the full contract:
 
 - [API Reference](../api/README.md)
 - [Backend Notes](../backend/README.md)
-- [Packaged MVP 1 Validation](../backend/packaged-mvp1-validation.md)

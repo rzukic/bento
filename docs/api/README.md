@@ -97,7 +97,7 @@ Cross-origin and request-size behavior:
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/v1/setup/status` | Public first-run status used by the `/setup` wizard |
-| `POST` | `/api/v1/setup/sample-data` | Load the demo workspace into an empty installation (admin only; Step 2.7, TASK-145) |
+| `POST` | `/api/v1/setup/sample-data` | Load the demo workspace into an empty installation (admin only) |
 
 `GET /api/v1/setup/status` is anonymous in every auth mode; it is a cheap read the SPA calls on every route load, so it is not rate-limited (the `POST` setup routes share the auth rate limit). It never contains secrets, file paths, or JWT details. Response:
 
