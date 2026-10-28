@@ -37,8 +37,7 @@ To connect Claude, see **[Connections](docs/user/connections.md)**.
 |---|---|
 | [User guide](docs/user/README.md) | Getting started, schema designer, importing, dashboards, formulas, forms, workspaces, notifications, apps, AI, the API |
 | [Technical docs](docs/README.md) | Architecture, API and backend details |
-| [Wiki](wiki/README.md) | Requirements, design and the build plan |
-| [Changelog](project-management/CHANGELOG.md) | What changed and when, with links to each step's details |
+| [Changelog](CHANGELOG.md) | What changed and when; [releases](https://github.com/rzukic/bento/releases) |
 
 ## Development
 
@@ -51,8 +50,7 @@ To connect Claude, see **[Connections](docs/user/connections.md)**.
 .
 ├── code/                   ← backend, frontend, proxy, Docker setups, tests
 ├── docs/                   ← user guide and technical docs
-├── wiki/                   ← requirements, design and plan
-└── project-management/     ← changelog, working steps, releases, tasks
+└── CHANGELOG.md            ← what changed and when
 ```
 
 ## Security

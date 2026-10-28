@@ -1,7 +1,6 @@
 # Frontend
 
 > Vite + React + TypeScript SPA — structure, routing, state, and build pipeline.
-> Tech decision rationale: [`wiki/plan/tech-decisions.md`](../../wiki/plan/tech-decisions.md).
 
 Current implementation status:
 - Phase 2 Step 2.1 workspace scaffold exists under `code/src/frontend/`
@@ -84,7 +83,7 @@ const appRoutes = [
 ```
 
 Current route behavior:
-- `/login` is outside the main shell so public auth can evolve cleanly in `TASK-064`
+- `/login` is outside the main shell so public auth can evolve on its own
 - the main app routes render inside a shared shell with sidebar navigation and breadcrumbs
 - `/data` now renders the schema-driven Data Explorer landing with live table discovery and summary chips
 - `/data/:tableId` now renders the live explorer detail route with the read-only grid, Airtable-style foldout controls, pagination, row selection, column visibility controls, and relation browsing

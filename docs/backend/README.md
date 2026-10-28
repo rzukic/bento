@@ -1,7 +1,6 @@
 # Backend
 
 > ASP.NET Core API server — structure, patterns, and key subsystems.
-> Tech decision rationale: [`wiki/plan/tech-decisions.md`](../../wiki/plan/tech-decisions.md).
 
 ---
 
@@ -85,16 +84,16 @@ src/backend/
 
 | Subsystem | Entry point | Doc |
 |-----------|-------------|-----|
-| Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | [database.md](database.md) |
-| API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | [`../../wiki/parts/02-backend-api/README.md`](../../wiki/parts/02-backend-api/README.md) |
-| Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
-| Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | [`../../wiki/parts/01-core-database/README.md`](../../wiki/parts/01-core-database/README.md) |
-| Aggregation queries | `Controllers/QueryController.cs`, `Services/AggregationQueryService.cs` | [Part 6 R6.9](../../wiki/parts/06-auto-api/README.md), [Using the API](../user/using-the-api.md#aggregate-data) |
-| CSV import | `Controllers/ImportController.cs`, `Services/Import/ImportService.cs` | [Importing Data](../user/importing-data.md), [Part 11 R11.5](../../wiki/parts/11-integration-engine/README.md) |
-| Formula evaluation | `Formula/Evaluator.cs` | [formula-engine.md](formula-engine.md) |
-| JS sandbox | `Formula/Sandbox/JintSandbox.cs` | [formula-engine.md](formula-engine.md) |
-| Background workers | `Workers/` | [background-workers.md](background-workers.md) |
-| WebSocket push | `Hubs/` | [background-workers.md](background-workers.md) |
+| Database access | `Db/SystemPool.cs`, `Db/DataPool.cs` | |
+| API host composition | `BackendHost.cs`, `ApiRoutes.cs`, `Controllers/AdminController.cs`, `Services/AdminHealthService.cs` | |
+| Schema model, validation, diff, relations, orchestration & version store | `Db/Schema/ModelJson.cs`, `Db/Schema/SchemaValidator.cs`, `Db/Schema/SchemaDiff.cs`, `Db/Schema/RelationResolver.cs`, `Db/Schema/SchemaService.cs`, `Db/Schema/ModelJsonStore.cs` | |
+| Migration planning and execution | `Db/Migrations/MigrationGenerator.cs`, `Db/Migrations/MigrationRunner.cs` | |
+| Aggregation queries | `Controllers/QueryController.cs`, `Services/AggregationQueryService.cs` | [Using the API](../user/using-the-api.md#aggregate-data) |
+| CSV import | `Controllers/ImportController.cs`, `Services/Import/ImportService.cs` | [Importing Data](../user/importing-data.md) |
+| Formula evaluation | `Formula/Evaluator.cs` | |
+| JS sandbox | `Formula/Sandbox/JintSandbox.cs` | |
+| Background workers | `Workers/` | |
+| WebSocket push | `Hubs/` | |
 
 ---
 
@@ -180,7 +179,6 @@ Runtime configuration contract:
 - the packaged Postgres compose path now also requires explicit `POSTGRES_SUPERUSER_PASSWORD`, `BENTO_SYSTEM_PASSWORD`, and `BENTO_DATA_PASSWORD`; it no longer publishes 5432 to the host unless the opt-in `docker-compose.postgres.expose.yml` override is added
 - packaged deployments now persist generated runtime config at `DATA_DIR/config.json`; when `JWT_SECRET` is not supplied, the backend generates a signing secret there on first launch and reuses it on later starts
 - on POSIX hosts, first-run packaged bootstrap creates `DATA_DIR/config.json` with mode `0600` and tightens the owned `DATA_DIR` to `0700`; if an older `config.json` is still group- or world-readable, startup logs a one-time warning instead of aborting
-- the current manual packaged validation flow for SQLite and Postgres is documented in [packaged-mvp1-validation.md](packaged-mvp1-validation.md)
 - the reusable packaged startup/readiness harness lives at `code/scripts/compose-smoke.sh` and is intended to be shared by local verification and future GitHub Actions deployment jobs
 - the executable packaged MVP 1 product-flow suite lives at `code/scripts/packaged-mvp1-demo.sh` and validates the Phase 1 golden path against SQLite or Postgres deployments
 - the in-process Postgres-backed `.NET` integration slice is opt-in and uses `ApiIntegrationTestHost.StartPostgresAsync`; enable it locally by setting `BENTO_TEST_POSTGRES_ADMIN_CONNECTION`

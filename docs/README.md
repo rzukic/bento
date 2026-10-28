@@ -1,7 +1,6 @@
 # Bento Documentation
 
 > Documentation for both current users and contributors.
-> For the project wiki (requirements, design decisions, plan), see [`wiki/`](../wiki/README.md).
 
 ---
 
@@ -18,16 +17,6 @@
 
 ---
 
-## How These Docs Are Written
-
-See [ai-guidelines.md](ai-guidelines.md) for:
-- What to document and what to skip
-- File structure conventions
-- Code example format
-- How to keep docs in sync with code
-
----
-
 ## User Docs vs Technical Docs
 
 | Audience | Best place to start |
@@ -35,12 +24,3 @@ See [ai-guidelines.md](ai-guidelines.md) for:
 | Someone trying the current product | [User Guides](user/README.md) |
 | Someone integrating against the API in detail | [API](api/README.md) |
 | Someone working on the codebase | [Backend](backend/README.md), [Architecture](architecture/README.md) |
-
-## Relationship to the Wiki
-
-| Wiki (`wiki/`) | Docs (`docs/`) |
-|----------------|----------------|
-| Requirements | Implementation |
-| Design decisions | How it actually works |
-| What to build and why | How to work with what was built |
-| For planning | For coding |
