@@ -13,3 +13,8 @@
 
 # Stray package caches at the repo root
 /node_modules/
+
+# Local runtime data: the dev instance's database files and its generated JWT secret (config.json).
+code/src/backend/data/
+# Editor and agent settings stay on each machine.
+.claude/
