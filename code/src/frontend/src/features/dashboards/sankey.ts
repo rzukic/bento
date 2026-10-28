@@ -1,31 +1,38 @@
-import type { SankeyMode } from "../../api/dashboards";
+import type { SankeyLabels, SankeyMode } from "../../api/dashboards";
 import type { AggregationQuery, QueryResult, QueryRow } from "../../api/query";
 import { toNumber, type NumberFormatKind } from "../../lib/format";
 import type { GroupPick } from "./drill";
 import { labelOf, otherKeyOf } from "./widgetData";
 
-// Step 3.7 (Part 9 R9.5): money flows from an aggregation over one to three
-// groups. "levels" draws a flow between each pair of consecutive groups
-// (income source → category → subcategory); "cashflow" splits one category
-// by sign into income → the centre → expenses, with what is left as "Saved".
+// Step 3.7 (Part 9 R9.5): flows from an aggregation over one to three groups.
+// "levels" draws a flow between each pair of consecutive groups (region →
+// product → channel); one group flows from the total into its parts.
+// "balance" splits the first group by sign: positive values flow into the
+// centre, negative ones out of it, with what is left or missing shown — for
+// money: income → expenses, the rest saved (labels chosen per widget).
 
 export type SankeyNode = {
   id: string;
   label: string;
-  /** What a click on it filters by; null = nothing to open (e.g. "Other", "Saved"). */
+  /** What a click on it filters by; null = nothing to open (e.g. "Other", the rest). */
   picks: GroupPick[] | null;
-  /** Cash flow: income rows (> 0) or expense rows (< 0) only. */
+  /** Balance: rows above 0 (in) or below 0 (out) only. */
   sign?: "positive" | "negative";
-  kind?: "center" | "saved" | "deficit";
+  kind?: "center" | "rest" | "shortfall";
 };
 
 export type SankeyLink = { source: string; target: string; value: number; picks: GroupPick[] | null; sign?: "positive" | "negative" };
 
 export type SankeyModel = { nodes: SankeyNode[]; links: SankeyLink[]; format: NumberFormatKind; mode: SankeyMode };
 
-/** The mode a Sankey widget uses: chosen, else levels from two groups on and cash flow for one. */
-export function sankeyMode(mode: SankeyMode | undefined, groupCount: number): SankeyMode {
-  return mode ?? (groupCount >= 2 ? "levels" : "cashflow");
+/** The mode a Sankey widget uses: chosen, else levels. */
+export function sankeyMode(mode: SankeyMode | undefined): SankeyMode {
+  return mode === "balance" ? "balance" : "levels";
+}
+
+/** The names of a balance's centre, rest and shortfall: chosen, else neutral ones. */
+export function sankeyLabels(labels: SankeyLabels | undefined): Required<SankeyLabels> {
+  return { center: labels?.center || "Total", rest: labels?.rest || "Left over", shortfall: labels?.shortfall || "Shortfall" };
 }
 
 type Level = { output: string; column: string; label?: string; other?: string };
@@ -47,7 +54,14 @@ function pick(row: QueryRow, level: Level): GroupPick {
 
 const picksOrNull = (picks: GroupPick[]) => (picks.some((p) => p.other) ? null : picks);
 
-export function toSankeyModel(result: QueryResult, query: AggregationQuery | undefined, mode: SankeyMode, format: NumberFormatKind): SankeyModel {
+export function toSankeyModel(
+  result: QueryResult,
+  query: AggregationQuery | undefined,
+  mode: SankeyMode,
+  format: NumberFormatKind,
+  labels?: SankeyLabels,
+): SankeyModel {
+  const names = sankeyLabels(labels);
   const levels = levelsOf(result, query);
   const measure = result.meta.columns.find((c) => c.role === "measure");
   const empty: SankeyModel = { nodes: [], links: [], format, mode };
@@ -68,8 +82,17 @@ export function toSankeyModel(result: QueryResult, query: AggregationQuery | und
     links.set(key, link);
   };
 
-  if (mode === "levels") {
-    if (levels.length < 2) return empty;
+  if (mode === "levels" && levels.length === 1) {
+    // One level: the total flows into its parts.
+    const [only] = levels;
+    const total = node({ id: "center", label: names.center, picks: [], kind: "center" });
+    for (const row of result.data) {
+      const amount = value(row);
+      if (amount === 0) continue;
+      const part = node({ id: `0:${label(row, only)}`, label: label(row, only), picks: picksOrNull([pick(row, only)]) });
+      flow(total, part, amount, picksOrNull([pick(row, only)]));
+    }
+  } else if (mode === "levels") {
     for (const row of result.data) {
       const amount = value(row);
       if (amount === 0) continue;
@@ -82,7 +105,7 @@ export function toSankeyModel(result: QueryResult, query: AggregationQuery | und
       }
     }
   } else {
-    // Cash flow: the first group's totals decide the side; a second group details the expenses.
+    // Balance: the first group's totals decide the side; a second group details what flows out.
     const [first, second] = levels;
     const totals = new Map<string, { amount: number; row: QueryRow }>();
     for (const row of result.data) {
@@ -97,17 +120,17 @@ export function toSankeyModel(result: QueryResult, query: AggregationQuery | und
     const spent = -expenses.reduce((sum, [, t]) => sum + t.amount, 0);
     if (earned === 0 && spent === 0) return empty;
 
-    const center = node({ id: "center", label: earned > 0 ? "Income" : "Spent", picks: [], kind: "center" });
+    const center = node({ id: "center", label: names.center, picks: [], kind: "center" });
     for (const [name, total] of income) {
       const id = node({ id: `in:${name}`, label: name, picks: picksOrNull([pick(total.row, first)]), sign: "positive" });
       flow(id, center, total.amount, picksOrNull([pick(total.row, first)]), "positive");
     }
-    if (spent > earned) flow(node({ id: "deficit", label: "From savings", picks: null, kind: "deficit" }), center, spent - earned, null);
+    if (spent > earned) flow(node({ id: "shortfall", label: names.shortfall, picks: null, kind: "shortfall" }), center, spent - earned, null);
     for (const [name, total] of expenses) {
       const id = node({ id: `out:${name}`, label: name, picks: picksOrNull([pick(total.row, first)]), sign: "negative" });
       flow(center, id, -total.amount, picksOrNull([pick(total.row, first)]), "negative");
     }
-    if (earned > spent) flow(center, node({ id: "saved", label: "Saved", picks: null, kind: "saved" }), earned - spent, null);
+    if (earned > spent) flow(center, node({ id: "rest", label: names.rest, picks: null, kind: "rest" }), earned - spent, null);
 
     if (second) {
       const expenseNames = new Set(expenses.map(([name]) => name));

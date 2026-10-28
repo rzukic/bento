@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { NavLink, useMatches, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useMatches, useNavigate } from "react-router-dom";
 import { useDocumentTitle } from "../../hooks/useDocumentTitle";
+import { PHONE_LAYOUT, useMediaQuery } from "../../hooks/useMediaQuery";
 import { useFormatStore } from "../../lib/preferences";
 import { useAppStore } from "../../stores/appStore";
 import { useAuthStore } from "../../stores/authStore";
@@ -14,6 +15,7 @@ import { ThemeSwitch } from "../common/ThemeSwitch";
 import { Breadcrumbs, type BreadcrumbItem } from "./Breadcrumbs";
 import "./AppFrame.css";
 import { SushiMascot } from "../brand";
+import { WorkspaceSwitcher } from "../../features/workspaces/WorkspaceSwitcher";
 
 const sidebarShortcutLabel =
   typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘\\" : "Ctrl+\\";
@@ -48,6 +50,7 @@ const navSections: NavSection[] = [
       { to: "/dashboards", label: "Dashboards", icon: "dashboard" },
       { to: "/forms", label: "Forms", icon: "forms" },
       { to: "/connections", label: "Connections", icon: "link" },
+      { to: "/apps", label: "Apps", icon: "calendar" },
       { to: "/ai", label: "AI", icon: "sparkles" },
     ],
   },
@@ -61,8 +64,30 @@ export function AppFrame({ children }: AppFrameProps) {
   const matches = useMatches();
   const navigate = useNavigate();
   const formatVersion = useFormatStore((state) => state.version);
-  const sidebarOpen = useAppStore((state) => state.sidebarOpen);
+  const storedSidebarOpen = useAppStore((state) => state.sidebarOpen);
   const toggleSidebar = useAppStore((state) => state.toggleSidebar);
+  // On the phone the sidebar is a drawer, always full width when open; the
+  // collapse belongs to the desktop.
+  const phone = useMediaQuery(PHONE_LAYOUT);
+  const sidebarOpen = storedSidebarOpen || phone;
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const location = useLocation();
+  useEffect(() => {
+    setDrawerOpen(false);
+    setAddOpen(false);
+  }, [location.pathname, location.search]);
+  useEffect(() => {
+    if (!drawerOpen && !addOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setDrawerOpen(false);
+        setAddOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [drawerOpen, addOpen]);
 
   // Collapsed, the sidebar opens over the page while the pointer (or the
   // keyboard focus) is on it — a short delay keeps passing by from opening it.
@@ -123,8 +148,9 @@ export function AppFrame({ children }: AppFrameProps) {
   useEffect(() => {
     if (canWrite) void loadForms();
   }, [canWrite, loadForms]);
+  const quickForms = useMemo(() => (canWrite ? pinnedForms(forms) : []), [canWrite, forms]);
   const sections = useMemo<NavSection[]>(() => {
-    const quick = canWrite ? pinnedForms(forms) : [];
+    const quick = quickForms;
     if (quick.length === 0) return navSections;
     const quickAdd: NavSection = {
       title: "Quick add",
@@ -132,7 +158,7 @@ export function AppFrame({ children }: AppFrameProps) {
       items: quick.map((form) => ({ to: `/forms/${form.id}`, label: form.name, icon: "plus" as const })),
     };
     return [navSections[0]!, quickAdd, ...navSections.slice(1)];
-  }, [canWrite, forms]);
+  }, [quickForms]);
 
   function handleLogout() {
     setLogoutOpen(false);
@@ -193,7 +219,9 @@ export function AppFrame({ children }: AppFrameProps) {
   useDocumentTitle(`${currentTitle} · Bento`);
 
   return (
-    <div className={`shell ${sidebarOpen ? "" : "shell--collapsed"} ${peek ? "shell--peek" : ""} ${instant ? "shell--instant" : ""}`}>
+    <div
+      className={`shell ${sidebarOpen ? "" : "shell--collapsed"} ${peek ? "shell--peek" : ""} ${instant ? "shell--instant" : ""} ${drawerOpen ? "shell--drawer" : ""}`}
+    >
       <div className="shell__sky" aria-hidden="true">
         <div className="shell__pool shell__pool--1" />
         <div className="shell__pool shell__pool--2" />
@@ -205,9 +233,12 @@ export function AppFrame({ children }: AppFrameProps) {
           <rect width="100%" height="100%" filter="url(#shell-grain)" />
         </svg>
       </div>
+      {drawerOpen ? <div className="shell__backdrop" aria-hidden="true" onClick={() => setDrawerOpen(false)} /> : null}
       <aside
         className="shell__sidebar"
         aria-label="Primary sidebar"
+        // The phone's drawer is out of reach (and of the tab order) until opened.
+        inert={phone && !drawerOpen ? true : undefined}
         onMouseEnter={() => schedulePeek(true, 150)}
         onMouseLeave={() => schedulePeek(false, 250)}
         onFocus={() => schedulePeek(true, 0)}
@@ -256,7 +287,7 @@ export function AppFrame({ children }: AppFrameProps) {
           {sections.map((section) => (
             <div key={section.title} className={section.quick ? "shell__nav-section shell__nav-section--quick" : "shell__nav-section"}>
               <div className="shell__nav-section-title section-label">
-                {section.title}
+                {section.title === "Workspace" ? <WorkspaceSwitcher /> : section.title}
               </div>
               <ul className="shell__nav-list">
                 {section.items.map((item) => (
@@ -285,6 +316,7 @@ export function AppFrame({ children }: AppFrameProps) {
         </nav>
 
         <div className="shell__sidebar-footer">
+          {phone ? <ThemeSwitch className="shell__drawer-theme" /> : null}
           <div className="shell__user">
             <div className="shell__user-avatar display" aria-hidden="true">
               {(user?.username ?? "?").slice(0, 1).toUpperCase()}
@@ -310,6 +342,7 @@ export function AppFrame({ children }: AppFrameProps) {
 
       <main className="shell__main">
         <header className="shell__topbar" aria-label="Toolbar">
+          <WorkspaceSwitcher variant="topbar" />
           <Breadcrumbs items={breadcrumbItems} />
 
           <div className="shell__topbar-spacer" />
@@ -346,6 +379,48 @@ export function AppFrame({ children }: AppFrameProps) {
         </div>
       </main>
 
+      {/* The phone: the places used every day at the thumb, the rest in the menu. */}
+      {phone ? (
+        <nav className="shell__tabbar" aria-label="Tab bar">
+          <TabLink to="/" end icon="home" label="Home" />
+          <TabLink to="/dashboards" icon="dashboard" label="Dashboards" />
+          {canWrite ? (
+            quickForms.length === 1 ? (
+              <TabLink to={`/forms/${quickForms[0]!.id}`} icon="plus" label="Add" />
+            ) : quickForms.length > 1 ? (
+              <button type="button" className={addOpen ? "shell__tab shell__tab--active" : "shell__tab"} aria-expanded={addOpen} onClick={() => setAddOpen((open) => !open)}>
+                <Icon name="plus" size={20} />
+                <span>Add</span>
+              </button>
+            ) : (
+              <TabLink to="/forms" icon="forms" label="Forms" />
+            )
+          ) : null}
+          <TabLink to="/data" icon="database" label="Data" />
+          <button type="button" className="shell__tab" aria-label="Menu" aria-expanded={drawerOpen} onClick={() => setDrawerOpen(true)}>
+            <Icon name="list" size={20} />
+            <span>Menu</span>
+          </button>
+        </nav>
+      ) : null}
+      {phone && addOpen ? (
+        <>
+          <div className="shell__backdrop shell__backdrop--light" aria-hidden="true" onClick={() => setAddOpen(false)} />
+          <div className="shell__add-sheet" role="menu" aria-label="Quick add">
+            {quickForms.map((form) => (
+              <NavLink key={form.id} role="menuitem" to={`/forms/${form.id}`} className="shell__add-item">
+                <Icon name="plus" size={16} />
+                {form.name}
+              </NavLink>
+            ))}
+            <NavLink role="menuitem" to="/forms" className="shell__add-item shell__add-item--all">
+              <Icon name="forms" size={16} />
+              All forms
+            </NavLink>
+          </div>
+        </>
+      ) : null}
+
       <ConfirmDialog
         open={logoutOpen}
         title="Sign out of this workspace?"
@@ -356,5 +431,14 @@ export function AppFrame({ children }: AppFrameProps) {
         onCancel={() => setLogoutOpen(false)}
       />
     </div>
+  );
+}
+
+function TabLink({ to, end, icon, label }: { to: string; end?: boolean; icon: IconName; label: string }) {
+  return (
+    <NavLink to={to} end={end} className={({ isActive }) => (isActive ? "shell__tab shell__tab--active" : "shell__tab")}>
+      <Icon name={icon} size={20} />
+      <span>{label}</span>
+    </NavLink>
   );
 }

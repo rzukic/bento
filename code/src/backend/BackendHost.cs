@@ -95,7 +95,8 @@ public static class BackendHost
         services.AddSingleton<IDataPool>(serviceProvider =>
             new DataPool(
                 dbConfig,
-                serviceProvider.GetRequiredService<ILogger<DataPool>>()));
+                serviceProvider.GetRequiredService<ILogger<DataPool>>(),
+                serviceProvider.GetRequiredService<WorkspaceSettings>().CalendarAsync));
 
         services.AddSingleton<QueryService>();
         DapperTypeHandlers.Register();
@@ -114,10 +115,33 @@ public static class BackendHost
         services.AddSingleton<CrudService>();
         services.AddSingleton<IncludeService>();
         services.AddSingleton<Bento.Api.Services.Import.ImportService>();
+        services.AddSingleton(sp => new Bento.Api.Services.Import.ImportFetcher(new Bento.Api.Services.Import.ImportFetchOptions
+        {
+            AllowPrivateNetwork = sp.GetRequiredService<IConfiguration>().GetValue("Import:AllowPrivateNetwork", false)
+        }, sp.GetRequiredService<CredentialService>()));
+        services.AddSingleton<Bento.Api.Services.Import.ImportFunctionRunner>();
+        services.AddSingleton<Bento.Api.Services.Import.ImportSourceService>();
+        services.AddSingleton<Bento.Api.Services.Notifications.NotificationSender>();
+        services.AddSingleton<Bento.Api.Services.Notifications.NotificationService>();
+        services.AddSingleton<Bento.Api.Services.Apps.AppService>();
+        services.AddSingleton<Bento.Api.Services.Apps.CalendarEvents>();
+        services.AddSingleton<Bento.Api.Services.Apps.CalDavService>();
+        services.AddSingleton<Bento.Api.Services.Notifications.ReportBuilder>();
+        services.AddSingleton<Bento.Api.Services.Notifications.NotificationRuleService>();
+        services.AddSingleton<RowEvents>();
         services.AddHttpContextAccessor();
         services.AddSingleton<QueryIndexes>();
         services.AddSingleton<ProblemLog>();
         services.AddSingleton<WorkspaceSettings>();
+        services.AddSingleton<Bento.Api.Services.Workspaces.WorkspaceService>();
+        services.AddSingleton<Bento.Api.Services.Workspaces.WorkspaceAccess>();
+        services.AddSingleton<Bento.Api.Services.Sharing.ShareService>();
+        services.AddSingleton<DataVersion>();
+        services.AddSingleton<QueryTables>();
+        services.AddSingleton<TemplateRegistry>();
+        services.AddSingleton<TemplateCatalog>();
+        services.AddSingleton<TemplateInstaller>();
+        services.AddSingleton<Bento.Api.Services.Sharing.ShareGuard>();
         services.AddSingleton<AggregationQueryService>();
         services.AddSingleton<FormulaService>();
         services.AddSingleton<Bento.Api.Formula.ComputedColumns>();
@@ -153,6 +177,9 @@ public static class BackendHost
         services.AddHostedService<SchemaCacheInitializer>();
         services.AddHostedService(sp => sp.GetRequiredService<Bento.Api.Workers.StoredCustomValues>());
         services.AddHostedService<Bento.Api.Workers.PriceSourceScheduler>();
+        services.AddHostedService<Bento.Api.Workers.ImportScheduler>();
+        services.AddHostedService<Bento.Api.Workers.NotificationRuleScheduler>();
+        services.AddHostedService(sp => sp.GetRequiredService<RowEvents>());
     }
 
     public static void ConfigureMiddleware(WebApplication app)
@@ -175,12 +202,17 @@ public static class BackendHost
         // -----------------------------------------------------------------------------
 
         app.UseMiddleware<RequestIdMiddleware>();
+        // The workspace first (it rewrites /api/v1/w/<slug>/… and /mcp/<slug>),
+        // then routing — explicit, so endpoints match the rewritten path.
+        app.UseMiddleware<WorkspaceMiddleware>();
+        app.UseRouting();
         app.UseMiddleware<RequestLoggingMiddleware>();
         app.UseMiddleware<ErrorHandlingMiddleware>();
         app.UseMiddleware<CorsPolicyMiddleware>();
         app.UseMiddleware<BodySizeLimitMiddleware>();
         app.UseMiddleware<AuthRateLimitMiddleware>();
         app.UseMiddleware<AuthMiddleware>();
+        app.UseMiddleware<RowOriginMiddleware>();
     }
 
     public static void ConfigureRoutes(WebApplication app)

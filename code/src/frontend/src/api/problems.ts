@@ -4,7 +4,7 @@ export type Problem = {
   id: number;
   loggedAt: string;
   /** slow: a query over the threshold; timeout: the database stopped it; error: an unexpected server error. */
-  kind: "slow" | "timeout" | "error";
+  kind: "slow" | "timeout" | "error" | "import" | "notify";
   method: string | null;
   path: string | null;
   status: number | null;

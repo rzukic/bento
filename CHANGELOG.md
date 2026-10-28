@@ -12,11 +12,260 @@
 
 _Changes that are complete but not yet part of a versioned release._
 
+## Phase 5 — Integration
+
+### 2026-10-24 — Claude Installs Templates
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.15 — Templates On The Server](working-steps/5.15-templates-on-the-server.md)
+
+The templates now live on the server — Claude can install them like the app does.
+
+**Highlights:**
+- **"Set up Projects & hours"** from Claude: tables, example rows, dashboards and forms, with a prefix when a name is taken.
+- **One recipe, one install** for the app and MCP — the same checks and permissions as by hand.
+
+### 2026-10-24 — Rules, Apps, Share Links And Settings From Claude
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.14 — Phase 5's Features Over MCP](working-steps/5.14-mcp-phase5-features.md)
+
+Claude can now set up what Phase 5 brought — each behind its own permission.
+
+**Highlights:**
+- **Rules and reports**: Claude creates them and picks your channels by name.
+- **Calendar apps**: Claude sets the app up and gives you a link; you add the device and its password there — the password never passes through the chat.
+- **Share links** with their own permission (public data — never preselected), and **workspace settings**.
+
+### 2026-10-24 — MCP Across Workspaces
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.13 — One MCP Connection, Several Workspaces](working-steps/5.13-mcp-workspaces.md)
+
+One Claude connection for all your workspaces.
+
+**Highlights:**
+- **All workspaces, also new ones** — on the consent page and in a connection's settings.
+- **Every tool takes a workspace**; `list_workspaces` shows which ones and your role there.
+- **Create workspaces** from Claude (installation admins, new permission); deleting stays in the app.
+
+### 2026-10-23 — Rules On Rows
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.12 — Row Events](working-steps/5.12-row-events.md)
+
+Hear about rows as they come: a new sign-up through a form, an urgent order, a status that changed, something deleted.
+
+**Highlights:**
+- **Settings → Notifications → Rows are added, changed or deleted** — in a table, only rows where a formula holds, only when certain columns change, only from forms, imports, the API …
+- **One message per batch**: an import of 300 rows is one message; a rule speaks at most 20 times an hour.
+- **What happened**: the row's values, changes as "open → done", who wrote it, a link to the row.
+- **Conditions react to changes** within a minute, not only after imports.
+
+### 2026-10-22 — Any API Into A Table
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.11 — Any API Into A Table: Functions As Import Sources](working-steps/5.11-functions-as-import-sources.md)
+
+A saved import can now read from a function: your JavaScript calls any API and returns the rows.
+
+**Highlights:**
+- **Import → From a function**: run it, map its rows, save it to run daily or every few hours — with keys, updates and the run log as for a URL.
+- **Only what is new**: the function gets the time of the last import that worked.
+- **Templates**: "Rows from a JSON API" and "Daily weather (Open-Meteo)".
+- **Safe**: functions that read credentials stay with admins; a function in use cannot be deleted.
+
+### 2026-10-22 — Templates
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.10 — Templates, And An AI That Knows No Use Case](working-steps/5.10-templates.md)
+
+Ready-made setups for more than money, and an AI that only hears about finance where finance is.
+
+**Highlights:**
+- **Four templates**: Projects & hours, Habits & health, Appointments and Wealth & cash flow — tables, a dashboard, forms and example rows in one click, on the home page of an empty workspace and under Dashboards.
+- **The AI knows your templates**: MCP clients, *Explain this* and *Describe* learn a workspace's template tables, and the finance conventions only where finance is installed. Existing finance setups are recognised.
+- **Neutral examples** in the guide, the AI instructions and the app's hints.
+- **Fixes**: row tables show linked records by name; a target's "current" week or month is today's.
+
+### 2026-10-21 — Saved Queries As Tables
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.8 — Saved Queries As Tables](working-steps/5.8-saved-queries-as-tables.md)
+
+A saved query's result — monthly spending, hours per project — as a table you can use everywhere.
+
+**Highlights:**
+- **Data → New table from a query**: `monthly_spending` from the "Monthly spending" query.
+- **Like any table**: the source of other queries and widgets, in formulas and variables, over the API, MCP and share links.
+- **Always current**: filled again when the data changed, before anyone reads it; *Refresh now* fills it at once.
+- **Read-only**: change the query, and the table follows.
+
+### 2026-10-21 — Public Forms
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.6 — Share Links](working-steps/5.6-share-links.md) (part B)
+
+A form anyone can fill in without an account — a booking request on your site, a sign-up, a feedback box.
+
+**Highlights:**
+- **Share** on a form: a link (and iframe code) that adds rows and shows nothing of the table.
+- **Only what the form asks**: its fields, its link fields' choices by name, hidden values set by Bento.
+- **No floods**: a few entries per visitor an hour, a daily cap, a trap for robots.
+- **A thank-you text** after each entry; nothing remembered on a shared computer.
+
+### 2026-10-21 — Share Dashboards With A Link
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.6 — Share Links](working-steps/5.6-share-links.md) (part A)
+
+A dashboard for people without an account — the tax advisor, family, a page of your own.
+
+**Highlights:**
+- **Share** on a dashboard: a link that expires when you want, revoked with a click, opens counted.
+- **Read only and nothing more**: visitors pick the period and the interval; Bento answers only what the dashboard's widgets show — no other tables, groupings or dashboards.
+- **Fixed filters**: share only "food", whatever the visitor tries.
+- **Embed** a dashboard in another site, or forbid it.
+
+### 2026-10-21 — Workspaces: Members, Roles, Users
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.5 — Workspaces](working-steps/5.5-workspaces.md) (part B)
+
+Who sees which workspace, and what they may do there.
+
+**Highlights:**
+- **Members with a role per workspace**: someone can edit in "Finances", only look in "Health" and not see "Calendar" at all. Installation admins run everything.
+- **Users in Settings**: add people with a password and their workspaces, make someone admin, reset a password.
+- **Keys and Claude per workspace**: an API key or an MCP connection works only in the workspaces it was made for; Bento's sign-in page asks which.
+- **Nothing to redo**: everyone, every key and every connection from before stays in "Default", as it was.
+- **Deleting users**: their dashboards, forms and views become yours; their keys and connections stop.
+- **Keys for some tables**: a sync script's key that may only touch `transactions`.
+
+### 2026-10-21 — Workspaces: Separate Areas In One Installation
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.5 — Workspaces](working-steps/5.5-workspaces.md)
+
+One Bento, several separate areas — finances, calendar & operations, health — each with its own tables, dashboards and settings.
+
+**Highlights:**
+- **Own tables per workspace**: a Postgres schema or SQLite file each, so the same table name can live in two workspaces; dashboards, forms, queries, views, functions, imports, rules, reports, apps and settings belong to one.
+- **Switch in the sidebar**; every workspace has its own address (`/w/finances/…`). Admins create, rename and delete them in Settings.
+- **API and Claude per workspace**: `/api/v1/w/<name>/…` or a header; Claude at `/mcp/<name>` sees only that workspace's tables.
+- **Nothing to redo**: everything so far is the workspace "Default", with the same addresses, keys, MCP connections and calendar devices.
+
+### 2026-10-21 — Apps: Your Tables As Calendars On Your Devices
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.4 — Apps](working-steps/5.4-apps.md)
+
+Bento opens to other programs. The first app is the calendar: any table becomes a calendar on your iPhone, Mac, Android or in Thunderbird, over CalDAV — the events stay rows in Bento.
+
+**Highlights:**
+- **Calendars from tables**: title, start (date for all-day, date-time for timed), end, location, notes, filters, colour — in the workspace's time zone.
+- **One password per device**, shown once, with its last use; take one back and only that device stops.
+- **Read and write with CalDAV** on iPhone, Mac, Android (DAVx⁵) and Thunderbird: events made, moved or deleted there become rows; alarms and attendees are kept with them.
+- **Claude knows** which tables are calendars, so what it adds shows up on your phone.
+
+### 2026-10-11 — Targets Instead Of Budgets, Flows For Any Data
+
+> **Phase**: Phase 5 — Integration (making the core use-case agnostic)
+
+Two widgets only fit money: budgets (spending per category against a monthly limit) and the Sankey's income → expenses. Now they fit any data, and money keeps working as before.
+
+**Highlights:**
+- **Targets**: any value per group — hours per project, orders per region, spending per category — against each group's target, per week, month, quarter or year; a goal to reach (green) or a limit to stay under (amber, red).
+- **Target rules**: told once per period when a group reaches its target or limit, with the period it is about.
+- **Sankey**: between levels by default (one level: the total into its parts); **in → out by sign** with your own names for the centre, the rest and the shortfall.
+- **Nothing to redo**: budget widgets, budget rules and money Sankeys become targets, target rules and in → out flows with the money names — dashboards look as they did.
+
+### 2026-10-11 — Your Calendar: Time Zone, Week Start, Fiscal Year
+
+> **Phase**: Phase 5 — Integration (making the core use-case agnostic)
+
+Bento ran on Europe/Berlin and on Monday weeks and January years, wherever you are. Now the workspace says.
+
+**Highlights:**
+- **Settings → Workspace**: the time zone, the day weeks start on, the month the year starts in (a fiscal year from April: Q1 2026/27).
+- **Everywhere**: `TODAY()` in formulas, the dashboards' date ranges, weekly, quarterly and yearly charts, rule periods, report periods and times, imports and price updates.
+- **New date ranges**: this or last week, last month, this or last quarter; rules can watch this quarter.
+- **Nothing moves by itself**: an existing workspace keeps Europe/Berlin; a new one starts with the server's time zone.
+
+### 2026-10-11 — Reports: Your Numbers On A Schedule
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.3 — Notification Rules And Reports](working-steps/5.3-notification-rules.md)
+
+Every day, week, month, quarter or year, Bento sends the numbers you choose — for any data, not only money.
+
+**Highlights:**
+- **Blocks you put together**: a value from any table, a top list (the biggest five of a group), the key figures of any dashboard, the rules that hold, your own text.
+- **Against the period before** or a year earlier: "+3 (+33 %) vs. Week 40", green or red as you say what is good.
+- **Optional AI sentences** at the top about what stands out, from the report's numbers only, with your instructions.
+- **Preview** while editing, **Send now** for a saved one; email, Slack and webhooks (with the plain numbers for scripts).
+
+### 2026-10-11 — Rules: Bento Tells You When Something Needs You
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.3 — Notification Rules And Reports](working-steps/5.3-notification-rules.md)
+
+Bento now speaks on its own, over the channels from Settings → Notifications — once when something starts to need you, not every hour.
+
+**Highlights:**
+- **A value crosses a line**: a formula over a table, for this month or this week, compared with a number — e.g. spending this month above 2000.
+- **A budget runs over**: from a dashboard's budget widget, at 100 % or earlier; each category once a month.
+- **Something fails**: a scheduled import or a price update, with the reason.
+- **Check now** and **Send test** for every rule; amounts in the workspace's format, links into Bento.
+
+### 2026-10-11 — Bento On The Phone
+
+> **Phase**: Phase 5 — Integration (polish between steps)
+
+The phone layout was hard to use: a strip of every page across the top, cut off at the edge, and a tap on a chart jumped straight to its rows.
+
+**Highlights:**
+- **A tab bar at the thumb**: Home, Dashboards, Add (your quick-entry form, or a choice of them), Data and Menu. The menu slides in from the left with every page, the theme and sign-out.
+- **Charts**: a tap shows the values at that point, like hovering; a second tap or **Show rows: August 2026 →** opens the rows. Sliding a finger sideways moves along the chart, up and down still scrolls.
+- **Dashboards**: key figures two to a row and compact; charts across, no taller than a phone shows comfortably; the controls in one row, History and Edit as icons.
+- **Smaller fixes**:
+  - the form's Save bar no longer lets fields show beneath it;
+  - the data pagination fits the width;
+  - the home tiles are compact;
+  - editing a dashboard wraps its tools;
+  - neutral greys in the import.
+
+### 2026-10-11 — Email, Slack And Webhooks For Notifications
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.2 — Notification Channels](working-steps/5.2-notification-channels.md)
+
+Bento can now reach you: admins set up channels under Settings → Notifications and send a test to check them. What Bento says, and when, follows with rules and the monthly review.
+
+**Highlights:**
+- **Email** over SMTP (STARTTLS, TLS or a local relay), **Slack** (also Mattermost and Discord), and **webhooks** for n8n or Home Assistant, signed with HMAC-SHA256.
+- Passwords and webhook addresses are stored encrypted and never shown again.
+- A log per channel says what was sent and why something failed.
+
+### 2026-10-11 — Bank Exports Arrive On Their Own
+
+> **Phase**: Phase 5 — Integration
+> **Working step**: [Step 5.1 — Import Extensions](working-steps/5.1-import-extensions.md)
+
+Excel and JSON import like CSV, a booking corrected at the bank is updated instead of skipped, and an export at a URL can be fetched and imported every day without you.
+
+**Highlights:**
+- **Excel and JSON**: the right sheet and header are found, dates and formulas read as Excel shows them; JSON lists are found and nested values flattened.
+- **Update rows that changed**: the preview shows old → new; only what changed is written, a category set by hand stays.
+- **From a URL**: fetched by the server (https, public addresses only), with keys from the vault as `{{name}}` in a header.
+- **Saved imports**: daily at a time or every few hours, categorised by your rules, with a run log; failures show under Settings → Problems.
+
 ## Phase 4 — Intelligence
 
 ### 2026-10-11 — Daily Values Over Years, All Time From The Start
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
 
 A daily chart over three years said "At most 1000 periods". With the new indexes it no longer needs that limit. And "All time" now really means all time.
@@ -30,6 +279,7 @@ A daily chart over three years said "At most 1000 periods". With the new indexes
 ### 2026-10-10 — Fast Weekly Charts, Results Kept In The Browser
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#speed)
 
 A weekly portfolio chart over three years took over 30 seconds and then failed. It now takes a fraction of a second, and dashboards you have seen show at once.
@@ -43,6 +293,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-10 — The Beta Feedback, Worked Through
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#package-1--quick-fixes)
 
 21 of 23 points from a beta user who built a finance workspace over MCP and the API.
@@ -67,6 +318,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-10 — Polish: Sidebar, Notices, Tables, Loading
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.10 — Speed And Beta Feedback](working-steps/4.10-speed-and-beta-feedback.md#polish)
 
 **Highlights:**
@@ -78,6 +330,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-09 — The Interval Switch On Tables, And Per Widget
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
 
 **Highlights:**
@@ -87,6 +340,7 @@ A weekly portfolio chart over three years took over 30 seconds and then failed. 
 ### 2026-10-09 — Describe A Widget Or A Formula, Undo Any Dashboard Change
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.9 — Describe Instead Of Click](working-steps/4.9-ai-describe.md)
 
 Build by saying what you want, and take back any change, also those made by Claude or ChatGPT.
@@ -100,6 +354,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Bento In ChatGPT And Codex
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-chatgpt-and-codex)
 
 **Highlights:**
@@ -110,6 +365,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Open A Connected App: Change Its Permissions, See Its Calls
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md#follow-up-2026-10-09-a-connected-app-opens-in-a-dialog)
 
 **Highlights:**
@@ -119,6 +375,7 @@ Build by saying what you want, and take back any change, also those made by Clau
 ### 2026-10-09 — Bank Bookings Arrive Categorised
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.8 — Categorise On Import](working-steps/4.8-ai-categorise.md)
 
 The monthly chore of picking a category for every booking now mostly does itself.
@@ -132,6 +389,7 @@ The monthly chore of picking a category for every booking now mostly does itself
 ### 2026-10-09 — Explain Any Number With Bento's AI
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.7 — AI Basis & "Explain This"](working-steps/4.7-ai-explain.md)
 
 Ask a dashboard what a number is made of and what changed.
@@ -145,6 +403,7 @@ Ask a dashboard what a number is made of and what changed.
 ### 2026-10-09 — Claude Connects To Bento (MCP), With Your Bento Account
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.6 — MCP Server](working-steps/4.6-mcp-server.md)
 
 Ask your own Claude about your data — in the app, on the web, on the phone or in Claude Code — and let it add a transaction.
@@ -161,6 +420,7 @@ Ask your own Claude about your data — in the app, on the web, on the phone or 
 ### 2026-10-08 — Budgets, Quarters For Viewers, Subcategories In Donuts
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.5 — Budgets & Viewer Controls](working-steps/4.5-budgets.md)
 
 Daily use of the cash-flow dashboard: how the month's budgets stand, any chart by quarter or year, and what is inside "Food".
@@ -174,6 +434,7 @@ Daily use of the cash-flow dashboard: how the month's budgets stand, any chart b
 ### 2026-10-07 — Quick Entry Forms: Add A Transaction On The Phone
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.4 — Quick Entry Forms](working-steps/4.4-quick-entry-forms.md)
 
 A form adds a row to a table in a few taps — built for the phone, checked like any other row.
@@ -188,6 +449,7 @@ A form adds a row to a table in a few taps — built for the phone, checked like
 ### 2026-10-07 — Realised Gains And A Fairer Time-Weighted Return
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.3b — Returns Refinement](working-steps/4.3b-returns-refinement.md)
 
 The Wealth dashboard shows what sales gained, and its time-weighted return no longer depends on the day of the month you buy.
@@ -202,6 +464,7 @@ The Wealth dashboard shows what sales gained, and its time-weighted return no lo
 ### 2026-10-06 — Returns: XIRR, Time-Weighted, Benchmarks
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.3 — Returns & Financial Functions](working-steps/4.3-returns.md)
 
 Dashboards compute what a depot returns, the same on SQLite and Postgres and as Excel does.
@@ -216,6 +479,7 @@ Dashboards compute what a depot returns, the same on SQLite and Postgres and as 
 ### 2026-10-06 — Live Prices From An API Of Your Choice
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.2 — Live Prices](working-steps/4.2-live-prices.md)
 
 Prices come from an API you choose and stay as history in your own table. A dashboard fetches what is stale when it opens and says "Prices as of 14:32".
@@ -231,6 +495,7 @@ Prices come from an API you choose and stay as history in your own table. A dash
 ### 2026-10-05 — Your Own Functions In JavaScript
 
 > **Phase**: Phase 4 — Intelligence
+> **Release**: [v0.4.0](releases/v0.4.0.md)
 > **Working step**: [Step 4.1 — Custom JS Functions](working-steps/4.1-custom-functions.md)
 
 Write a function once in JavaScript under **Functions** and call it from any formula with `CUSTOM("name", …)`.
@@ -985,6 +1250,19 @@ Starting the foundational database layer — .NET project scaffolding, dual conn
 ---
 
 ## Released
+
+### 2026-10-11 — Ship v0.4.0: Live Cockpit
+
+> **Version**: [v0.4.0 — Live Cockpit (Phase 4 Checkpoint)](releases/v0.4.0.md)
+> **Phase**: Phase 4 — Intelligence
+
+The Finance Cockpit becomes live and personal: prices from an API of your choice, returns (XIRR, time-weighted, benchmarks), your own JavaScript functions, quick entry forms, budgets, and your own AI working with your data over MCP or in the app, with every dashboard change undoable.
+
+**Highlights:**
+- Live prices with history; XIRR, TWR and realised gains; custom JS functions and stored values
+- Quick entry forms, budgets, the interval switch for viewers
+- MCP for Claude, ChatGPT and Codex with Bento sign-in and per-area permissions; explain, categorise and describe in the app
+- Dashboard history with restore; speed (indexes, browser cache, cancellation, problem log) and the first beta feedback worked through
 
 ### 2026-10-05 — Ship v0.3.1: Setup Mascots
 

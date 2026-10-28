@@ -21,9 +21,14 @@ public sealed class OAuthController : ControllerBase
 {
     private readonly OAuthService _oauth;
     private readonly BackendRuntimeOptions _runtimeOptions;
+    private readonly Services.Workspaces.WorkspaceService _workspaces;
+    private readonly Services.Workspaces.WorkspaceAccess _access;
 
-    public OAuthController(OAuthService oauth, BackendRuntimeOptions runtimeOptions)
+    public OAuthController(OAuthService oauth, BackendRuntimeOptions runtimeOptions, Services.Workspaces.WorkspaceService workspaces,
+        Services.Workspaces.WorkspaceAccess access)
     {
+        _workspaces = workspaces;
+        _access = access;
         _oauth = oauth;
         _runtimeOptions = runtimeOptions;
     }
@@ -115,18 +120,58 @@ public sealed class OAuthController : ControllerBase
         public string? Scope { get; init; }
         public string? State { get; init; }
         public bool Approve { get; init; }
+        /// <summary>The workspaces the app may use (Step 5.5); each one the user can open.</summary>
+        public List<long>? Workspaces { get; init; }
+        /// <summary>Every workspace the user can open, also those made later (Step 5.13).</summary>
+        public bool AllWorkspaces { get; init; }
+    }
+
+    /// <summary>The workspaces the signed-in user can open, with their role in each.</summary>
+    private async Task<List<(Services.Workspaces.Workspace Workspace, string Role)>> OpenableAsync(long userId)
+    {
+        var result = new List<(Services.Workspaces.Workspace, string)>();
+        foreach (var workspace in await _workspaces.ReloadAsync())
+        {
+            if (await _access.RoleInAsync(userId, User.GetInstallationRole(), workspace.Id) is { } role)
+                result.Add((workspace, role));
+        }
+        return result;
+    }
+
+    /// <summary>The workspace an MCP address names: …/mcp/&lt;slug&gt; (RFC 8707 resource); …/mcp is the default one.</summary>
+    private static string? SlugOfResource(string? resource)
+    {
+        if (string.IsNullOrWhiteSpace(resource) || !Uri.TryCreate(resource, UriKind.Absolute, out var uri))
+            return null;
+        var segments = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        return segments switch
+        {
+            ["mcp"] => Services.Workspaces.Workspace.DefaultSlug,
+            ["mcp", var slug] => slug,
+            _ => null
+        };
     }
 
     /// <summary>What the consent page shows: the client's name and where it will send the user back to.</summary>
     [HttpGet("authorize")]
     [RequireRole("viewer")]
-    public async Task<IActionResult> AuthorizeInfo([FromQuery(Name = "client_id")] string? clientId, [FromQuery(Name = "redirect_uri")] string? redirectUri)
+    public async Task<IActionResult> AuthorizeInfo([FromQuery(Name = "client_id")] string? clientId, [FromQuery(Name = "redirect_uri")] string? redirectUri,
+        [FromQuery(Name = "resource")] string? resource)
     {
-        EnsureSignedInUser();
+        var userId = EnsureSignedInUser();
         try
         {
             var client = await _oauth.ResolveAuthorizationAsync(clientId, redirectUri);
-            var role = User.GetRole();
+            var openable = await OpenableAsync(userId);
+            // What the user may grant: what their best role in any workspace allows; each call is capped by the role where it runs.
+            var role = Services.Workspaces.WorkspaceAccess.Highest(openable.Select(o => o.Role)) ?? User.GetRole();
+            // The address the app connects to names its workspace; without one, the default (or the first the user can open).
+            var named = SlugOfResource(resource);
+            var selected = openable.FirstOrDefault(o => string.Equals(o.Workspace.Slug, named, StringComparison.OrdinalIgnoreCase));
+            if (selected.Workspace is null)
+                selected = openable.FirstOrDefault(o => o.Workspace.IsDefault);
+            if (selected.Workspace is null && openable.Count > 0)
+                selected = openable[0];
             return Ok(new
             {
                 data = new
@@ -135,7 +180,11 @@ public sealed class OAuthController : ControllerBase
                     redirectHost = new Uri(redirectUri!).Authority is { Length: > 0 } host ? host : new Uri(redirectUri!).Scheme,
                     canWrite = role is "admin" or "editor",
                     // What this user may grant at all; the page greys out the rest.
-                    allowed = McpPermissions.ForRole(role)
+                    allowed = McpPermissions.ForInstallationRole(McpPermissions.ForRole(role), User.IsInstallationAdmin()),
+                    workspaces = openable.Select(o => new Models.WorkspaceResponse(o.Workspace.Id, o.Workspace.Slug, o.Workspace.Name, o.Workspace.IsDefault, o.Role)),
+                    selectedWorkspaces = selected.Workspace is null ? Array.Empty<long>() : [selected.Workspace.Id],
+                    // The app asked for one workspace (its MCP address); others can be added.
+                    namedWorkspace = named
                 }
             });
         }
@@ -181,8 +230,15 @@ public sealed class OAuthController : ControllerBase
                     var wanted = request.Permissions ?? (ApiKeyService.NormalizeScope(request.Scope ?? ApiKeyService.ReadScope) == ApiKeyService.ReadWriteScope
                         ? [McpPermissions.Read, McpPermissions.WriteRows]
                         : [McpPermissions.Read]);
-                    var permissions = McpPermissions.Cap(wanted, User.GetRole());
-                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", permissions);
+                    var openable = await OpenableAsync(userId);
+                    var chosen = request.Workspaces is { Count: > 0 } listed ? listed.Distinct().ToList() : [Services.Workspaces.Workspace.DefaultId];
+                    var roles = request.AllWorkspaces
+                        ? openable.Select(o => (string?)o.Role).ToList()
+                        : chosen.Select(id => openable.FirstOrDefault(o => o.Workspace.Id == id).Role).ToList();
+                    if (roles.Count == 0 || roles.Any(r => r is null))
+                        throw new ApiValidationException("Choose workspaces you can open.", new Dictionary<string, object?> { ["field"] = "workspaces" });
+                    var permissions = McpPermissions.ForInstallationRole(McpPermissions.Cap(wanted, Services.Workspaces.WorkspaceAccess.Highest(roles)), User.IsInstallationAdmin());
+                    parameters["code"] = await _oauth.ApproveAsync(userId, request.ClientId!, request.RedirectUri!, request.CodeChallenge ?? "", permissions, chosen, request.AllWorkspaces);
                 }
                 catch (OAuthException ex)
                 {

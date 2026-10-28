@@ -14,7 +14,7 @@ public static class WidgetOptions
 {
     private static readonly string[] Formats = ["auto", "currency", "number", "integer", "percent"];
     private static readonly string[] MeasureFormats = ["currency", "number", "integer", "percent"];
-    private static readonly string[] SankeyModes = ["levels", "cashflow"];
+    private static readonly string[] SankeyModes = ["levels", "balance"];
     private static readonly string[] Buckets = ["day", "week", "month", "quarter", "year"];
     private static readonly string[] TimeShifts = ["previous", "year"];
     private static readonly string[] Shows = ["change", "moving_average"];
@@ -22,7 +22,7 @@ public static class WidgetOptions
     private static readonly string[] EmptyPeriods = ["zero", "gap", "connect"];
     private static readonly string[] Presets =
     [
-        "last-7-days", "this-month", "last-3-months", "last-6-months", "last-12-months", "this-year", "last-year",
+        "last-7-days", "this-week", "last-week", "this-month", "last-month", "this-quarter", "last-quarter", "last-3-months", "last-6-months", "last-12-months", "this-year", "last-year",
         "last-3-years", "last-5-years", "next-12-months", "next-5-years", "next-10-years", "next-20-years", "all"
     ];
     private static readonly string[] Flags =
@@ -68,6 +68,15 @@ public static class WidgetOptions
         RequireObject(display, path);
         OneOf(display, "format", Formats, path);
         OneOf(display, "sankey", SankeyModes, path);
+        if (display.TryGetProperty("sankeyLabels", out var labels) && labels.ValueKind != JsonValueKind.Null)
+        {
+            RequireObject(labels, $"{path}.sankeyLabels");
+            foreach (var label in labels.EnumerateObject())
+            {
+                if (label.Name is not ("center" or "rest" or "shortfall") || label.Value.ValueKind is not (JsonValueKind.String or JsonValueKind.Null))
+                    throw Invalid($"{path}.sankeyLabels.{label.Name}", "sankeyLabels has center, rest and shortfall, each a text.");
+            }
+        }
         OneOf(display, "emptyPeriods", EmptyPeriods, path);
         if (display.TryGetProperty("yAxis", out var yAxis) && yAxis.ValueKind != JsonValueKind.Null)
         {
@@ -142,17 +151,19 @@ public static class WidgetOptions
                 throw Invalid($"{path}.range", "range is { preset } or { from, to } with days like \"2026-01-01\".");
         }
 
-        if (data.TryGetProperty("budget", out var budget) && budget.ValueKind != JsonValueKind.Null)
+        if (data.TryGetProperty("target", out var target) && target.ValueKind != JsonValueKind.Null)
         {
-            var budgetPath = $"{path}.budget";
-            RequireObject(budget, budgetPath);
-            foreach (var field in new[] { "source", "amount", "date", "category", "limit" })
+            var targetPath = $"{path}.target";
+            RequireObject(target, targetPath);
+            foreach (var field in new[] { "source", "value", "date", "group", "target" })
             {
-                if (!budget.TryGetProperty(field, out var value) || value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
-                    throw Invalid($"{budgetPath}.{field}", $"A budget needs {field}: {BudgetHelp}");
+                if (!target.TryGetProperty(field, out var value) || value.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(value.GetString()))
+                    throw Invalid($"{targetPath}.{field}", $"A target widget needs {field}: {TargetHelp}");
             }
-            OneOf(budget, "expenses", ["negative", "positive"], budgetPath);
-            OneOf(budget, "period", ["month", "range"], budgetPath);
+            OneOf(target, "per", ["week", "month", "quarter", "year"], targetPath);
+            OneOf(target, "period", ["current", "range"], targetPath);
+            OneOf(target, "kind", ["limit", "goal"], targetPath);
+            OneOf(target, "format", Formats, targetPath);
         }
 
         if (data.TryGetProperty("rows", out var rows) && rows.ValueKind != JsonValueKind.Null)
@@ -189,8 +200,9 @@ public static class WidgetOptions
         }
     }
 
-    private const string BudgetHelp =
-        "{ source, amount, date, category (the link column to the categories), limit (the categories' monthly limit column), expenses?: \"negative\"|\"positive\", period?: \"month\"|\"range\" }.";
+    private const string TargetHelp =
+        "{ source, value (a formula over its rows, e.g. SUM(hours)), date, group (a link column), target (the linked table's number column with each one's target), " +
+        "per?: \"week\"|\"month\"|\"quarter\"|\"year\", period?: \"current\"|\"range\", kind?: \"limit\"|\"goal\", format? }.";
 
     private static bool IsDay(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String &&

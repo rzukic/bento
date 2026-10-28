@@ -44,13 +44,28 @@ public sealed class FunctionsController : ControllerBase
 
     [HttpPost]
     [RequireRole("admin")]
-    public async Task<IActionResult> Create([FromBody] CustomFunctionRequest request) =>
-        StatusCode(StatusCodes.Status201Created, new { data = await _functions.CreateAsync(request) });
+    public async Task<IActionResult> Create([FromBody] CustomFunctionRequest request)
+    {
+        RequireVaultAccess(request.Credentials);
+        return StatusCode(StatusCodes.Status201Created, new { data = await _functions.CreateAsync(request) });
+    }
 
     [HttpPut("{name}")]
     [RequireRole("admin")]
-    public async Task<IActionResult> Update(string name, [FromBody] CustomFunctionRequest request) =>
-        Ok(new { data = await _functions.UpdateAsync(name, request) });
+    public async Task<IActionResult> Update(string name, [FromBody] CustomFunctionRequest request)
+    {
+        // Changing the code of a function that reads a secret could send it anywhere.
+        RequireVaultAccess((await _functions.GetAsync(name)).Credentials);
+        RequireVaultAccess(request.Credentials);
+        return Ok(new { data = await _functions.UpdateAsync(name, request) });
+    }
+
+    /// <summary>Credentials from the vault are the installation's: only its admins put them into a function (Step 5.5).</summary>
+    private void RequireVaultAccess(IReadOnlyCollection<string>? credentials)
+    {
+        if (credentials is { Count: > 0 } && !User.IsInstallationAdmin())
+            throw new Exceptions.ApiForbiddenException("Functions that use credentials from the vault are made and changed by installation admins.");
+    }
 
     [HttpDelete("{name}")]
     [RequireRole("admin")]
@@ -63,5 +78,9 @@ public sealed class FunctionsController : ControllerBase
     /// <summary>Runs unsaved code with test values in the sandbox.</summary>
     [HttpPost("test")]
     [RequireRole("admin")]
-    public async Task<IActionResult> Test([FromBody] CustomFunctionTestRequest request) => Ok(new { data = await _functions.TestAsync(request) });
+    public async Task<IActionResult> Test([FromBody] CustomFunctionTestRequest request)
+    {
+        RequireVaultAccess(request.Credentials);
+        return Ok(new { data = await _functions.TestAsync(request) });
+    }
 }

@@ -268,16 +268,16 @@ public sealed class CategoriseService
 
     private static readonly string SystemPrompt =
         """
-        You categorise rows of a table in Bento, a personal data workspace — usually bank bookings: payee, purpose, amount, date.
+        You categorise rows of a table in Bento, the user's own data workspace — bank bookings, expenses, support tickets, notes, logged activities: whatever the table holds.
 
         You get the categories to choose from (with their group, if they have one), examples of rows the user categorised before, and the rows to categorise. For each row choose the one category that fits best, the way the user would; follow the examples where they apply.
 
         Answer with JSON only, no other text: an array with one object per row, in this form:
-        [{"key": "<the row's key>", "category": "<the category's id exactly as given>", "confidence": 0.0-1.0, "keyword": "<the stable part of the text that identifies the payee or the kind of booking, e.g. REWE, Netflix, Miete>", "column": "<the column the keyword is in>"}]
+        [{"key": "<the row's key>", "category": "<the category's id exactly as given>", "confidence": 0.0-1.0, "keyword": "<the stable part of the text that identifies the kind of row, e.g. a payee (REWE, Netflix), a sender, a product or a recurring phrase>", "column": "<the column the keyword is in>"}]
 
-        - "confidence" is how sure you are: 0.9 and above only when the payee or purpose clearly says it; below 0.5 when you are guessing.
-        - "keyword" is short, without numbers, dates, references, city names or legal forms (GmbH, AG, SE), so that it matches the same payee next month. Leave it empty when nothing in the text is stable.
-        - Signs: negative amounts are usually expenses, positive ones income or refunds.
+        - "confidence" is how sure you are: 0.9 and above only when the text clearly says it; below 0.5 when you are guessing.
+        - "keyword" is short, without numbers, dates, references, city names or legal forms (GmbH, AG, SE), so that it matches the same kind of row next time. Leave it empty when nothing in the text is stable.
+        - Money columns: negative amounts are usually money going out, positive ones money coming in or refunds.
         - When no category fits at all, use "category": null.
         """;
 
@@ -476,10 +476,10 @@ public sealed class CategoriseService
             SELECT id, table_name AS TableName, target_column AS TargetColumn, match_column AS MatchColumn, pattern, value,
                    {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt
             FROM {RulesTable}
-            WHERE table_name = @Table AND (@Column IS NULL OR target_column = @Column)
+            WHERE workspace_id = @Ws AND table_name = @Table AND (@Column IS NULL OR target_column = @Column)
             ORDER BY target_column, LOWER(pattern)
             """,
-            new { Table = table.Name, Column = column })).ToList();
+            new { Table = table.Name, Column = column, Ws })).ToList();
 
         // Labels for the linked records, so the list reads "REWE → Groceries".
         var labels = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
@@ -517,14 +517,14 @@ public sealed class CategoriseService
         foreach (var (column, match, pattern, value) in validated)
         {
             await conn.ExecuteAsync(
-                $"DELETE FROM {RulesTable} WHERE table_name = @Table AND target_column = @Column AND match_column = @Match AND LOWER(pattern) = LOWER(@Pattern)",
-                new { Table = table.Name, Column = column, Match = match, Pattern = pattern }, transaction);
+                $"DELETE FROM {RulesTable} WHERE workspace_id = @Ws AND table_name = @Table AND target_column = @Column AND match_column = @Match AND LOWER(pattern) = LOWER(@Pattern)",
+                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Ws }, transaction);
             await conn.ExecuteAsync(
                 $"""
-                INSERT INTO {RulesTable} (table_name, target_column, match_column, pattern, value, created_by, created_at)
-                VALUES (@Table, @Column, @Match, @Pattern, @Value, @UserId, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
+                INSERT INTO {RulesTable} (workspace_id, table_name, target_column, match_column, pattern, value, created_by, created_at)
+                VALUES (@Ws, @Table, @Column, @Match, @Pattern, @Value, @UserId, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")})
                 """,
-                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Value = value, UserId = userId, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) },
+                new { Table = table.Name, Column = column, Match = match, Pattern = pattern, Value = value, UserId = userId, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture), Ws },
                 transaction);
         }
         transaction.Commit();
@@ -536,7 +536,7 @@ public sealed class CategoriseService
         var table = _schemaCache.GetTable(tableName)
             ?? throw new ApiNotFoundException($"Table '{tableName}' does not exist.", new Dictionary<string, object?> { ["table"] = tableName });
         using var conn = await _systemPool.GetConnectionAsync();
-        var deleted = await conn.ExecuteAsync($"DELETE FROM {RulesTable} WHERE id = @Id AND table_name = @Table", new { Id = id, Table = table.Name });
+        var deleted = await conn.ExecuteAsync($"DELETE FROM {RulesTable} WHERE id = @Id AND workspace_id = @Ws AND table_name = @Table", new { Id = id, Table = table.Name, Ws });
         if (deleted == 0)
             throw new ApiNotFoundException($"Rule {id} not found for '{table.Name}'.");
     }
@@ -552,6 +552,7 @@ public sealed class CategoriseService
         public string CreatedAt { get; init; } = "";
     }
 
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string RulesTable => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.category_rules" : "category_rules";
 
     private static string Quote(string identifier) => "\"" + identifier.Replace("\"", "\"\"") + "\"";

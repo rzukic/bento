@@ -69,8 +69,10 @@ public sealed class DashboardApiTests
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "bar", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "intervals": ["month", "decade"] } } ] } }""", "dashboard.widgets[0].display.intervals[1]")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "bar", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "referenceLines": [ { "label": "x" } ] } } ] } }""", "dashboard.widgets[0].display.referenceLines[0]")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "timeShift": "lastyear" } } ] } }""", "dashboard.widgets[0].data.timeShift")]
-    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "budget", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "budget": { "source": "t", "amount": "a", "date": "d", "category": "c" } } } ] } }""", "dashboard.widgets[0].data.budget.limit")]
-    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "budget", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "budget": { "source": "t", "amount": "a", "date": "d", "category": "c", "limit": "l", "period": "week" } } } ] } }""", "dashboard.widgets[0].data.budget.period")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "target", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "target": { "source": "t", "value": "SUM(a)", "date": "d", "group": "c" } } } ] } }""", "dashboard.widgets[0].data.target.target")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "target", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "target": { "source": "t", "value": "SUM(a)", "date": "d", "group": "c", "target": "l", "per": "day" } } } ] } }""", "dashboard.widgets[0].data.target.per")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "target", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "target": { "source": "t", "value": "SUM(a)", "date": "d", "group": "c", "target": "l", "kind": "max" } } } ] } }""", "dashboard.widgets[0].data.target.kind")]
+    [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "sankey", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "sankeyLabels": { "middle": "x" } } } ] } }""", "dashboard.widgets[0].display.sankeyLabels.middle")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "table", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "rows": { "columns": ["a"], "limit": 5000 } } } ] } }""", "dashboard.widgets[0].data.rows.limit")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "data": { "query": { "source": "t", "measures": [ { "name": "x", "fn": "sum", "column": "a", "axis": "left" } ] } } } ] } }""", "dashboard.widgets[0].data.query.measures[0].axis")]
     [InlineData("""{ "name": "x", "dashboard": { "widgets": [ { "id": "a", "type": "line", "position": { "x": 0, "y": 0, "w": 4, "h": 3 }, "display": { "yAxis": { "min": "data" } } } ] } }""", "dashboard.widgets[0].display.yAxis.min")]
@@ -231,7 +233,50 @@ public sealed class DashboardApiTests
         var body = await created.Content.ReadFromJsonAsync<JsonElement>();
         var dashboard = body.GetProperty("data").GetProperty("dashboard");
         Assert.Equal("sankey", dashboard.GetProperty("widgets")[0].GetProperty("type").GetString());
+        // The old money flow is a balance with its labels.
+        var display = dashboard.GetProperty("widgets")[0].GetProperty("display");
+        Assert.Equal(("balance", "Income", "Saved"),
+            (display.GetProperty("sankey").GetString(), display.GetProperty("sankeyLabels").GetProperty("center").GetString(), display.GetProperty("sankeyLabels").GetProperty("rest").GetString()));
         Assert.Equal("Salary raise", dashboard.GetProperty("annotations")[0].GetProperty("label").GetString());
+    }
+
+    [Fact]
+    public async Task StoredBudgetsAndMoneyFlows_AreMovedToTargetsOnce()
+    {
+        await using var host = await CreateHostAsync();
+        var pool = host.GetService<Bento.Api.Db.ISystemPool>();
+        const string legacy = """
+            { "widgets": [
+                { "id": "b", "type": "budget", "position": { "x": 0, "y": 0, "w": 6, "h": 4 },
+                  "data": { "budget": { "source": "expenses", "amount": "cost", "date": "paid_on", "category": "kind_id", "limit": "cap", "expenses": "positive", "period": "range" } } },
+                { "id": "s", "type": "sankey", "position": { "x": 6, "y": 0, "w": 6, "h": 4 },
+                  "data": { "query": { "source": "expenses", "groupBy": [ { "column": "kind_id" } ], "measures": [ { "name": "v", "fn": "sum", "column": "cost" } ] } } },
+                { "id": "l", "type": "sankey", "position": { "x": 0, "y": 4, "w": 6, "h": 4 },
+                  "data": { "query": { "source": "expenses", "groupBy": [ { "column": "kind_id" }, { "column": "paid_on" } ] } } }
+            ] }
+            """;
+        using (var conn = await pool.GetConnectionAsync())
+        {
+            await Dapper.SqlMapper.ExecuteAsync(conn,
+                "INSERT INTO dashboards (name, dashboard_json, is_shared, created_at, updated_at) VALUES ('Old', @Json, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')", new { Json = legacy });
+            await Dapper.SqlMapper.ExecuteAsync(conn, "DELETE FROM workspace_settings WHERE key = 'widgets_version'");
+        }
+        var bootstrap = host.GetService<IEnumerable<Microsoft.Extensions.Hosting.IHostedService>>().OfType<Bento.Api.Db.DatabaseBootstrap>().Single();
+        await bootstrap.StartAsync(CancellationToken.None);
+
+        string json;
+        using (var conn = await pool.GetConnectionAsync())
+            json = await Dapper.SqlMapper.ExecuteScalarAsync<string>(conn, "SELECT dashboard_json FROM dashboards WHERE name = 'Old'") ?? "";
+        var widgets = JsonDocument.Parse(json).RootElement.GetProperty("widgets");
+        Assert.Equal("target", widgets[0].GetProperty("type").GetString());
+        var target = widgets[0].GetProperty("data").GetProperty("target");
+        Assert.Equal(("SUM(cost WHERE cost > 0)", "kind_id", "cap", "range", "limit", "month"),
+            (target.GetProperty("value").GetString(), target.GetProperty("group").GetString(), target.GetProperty("target").GetString(),
+             target.GetProperty("period").GetString(), target.GetProperty("kind").GetString(), target.GetProperty("per").GetString()));
+        Assert.False(widgets[0].GetProperty("data").TryGetProperty("budget", out _));
+        // One level without a mode drew income → expenses: it still does; two levels stay as they were.
+        Assert.Equal("balance", widgets[1].GetProperty("display").GetProperty("sankey").GetString());
+        Assert.False(widgets[2].TryGetProperty("display", out _));
     }
 
     private static async Task<ApiIntegrationTestHost> CreateHostAsync()

@@ -339,7 +339,7 @@ public sealed class McpTests
     {
         await using var host = await CreateHostAsync();
         var admin = await ApiKeyTests.AdminTokenAsync(host);
-        var access = await ConnectAsync(host, admin, "read", ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write"]);
+        var access = await ConnectAsync(host, admin, "read", ["data.read", "data.write", "data.delete", "dashboards.write", "forms.write", "schema.write", "functions.write", "workspaces.manage"]);
         // Everything ticked: every tool.
         Assert.Equal(host.GetService<Bento.Api.Services.Mcp.McpTools>().All.Count, ToolNames(await McpAsync(host, access, "tools/list")).Count);
 
@@ -501,6 +501,26 @@ public sealed class McpTests
     [InlineData("PUT", "/api/v1/admin/schema", "schema.write")]
     [InlineData("POST", "/api/v1/functions", "functions.write")]
     [InlineData("POST", "/api/v1/price-sources/1/run", "functions.write")]
+    [InlineData("GET", "/api/v1/templates", "data.read")]
+    [InlineData("PUT", "/api/v1/templates/finance", "schema.write")]
+    [InlineData("GET", "/api/v1/query-tables/monthly", "data.read")]
+    [InlineData("POST", "/api/v1/query-tables/monthly/refresh", "data.read")]
+    [InlineData("POST", "/api/v1/workspaces", "workspaces.manage")]
+    [InlineData("PUT", "/api/v1/workspaces/3", "workspaces.manage")]
+    [InlineData("DELETE", "/api/v1/workspaces/3", null)]
+    [InlineData("PUT", "/api/v1/workspaces/3/members/2", null)]
+    [InlineData("POST", "/api/v1/dashboards/4/shares", "shares.write")]
+    [InlineData("POST", "/api/v1/forms/2/shares", "shares.write")]
+    [InlineData("DELETE", "/api/v1/shares/7", "shares.write")]
+    [InlineData("GET", "/api/v1/admin/notifications/rules", "data.read")]
+    [InlineData("POST", "/api/v1/admin/notifications/rules", "automation.write")]
+    [InlineData("POST", "/api/v1/admin/notifications/rules/3/test", "automation.write")]
+    [InlineData("GET", "/api/v1/admin/notifications/channels", null)]
+    [InlineData("POST", "/api/v1/admin/apps", "apps.write")]
+    [InlineData("POST", "/api/v1/admin/apps/2/passwords", null)]
+    [InlineData("PUT", "/api/v1/admin/settings", "settings.write")]
+    [InlineData("GET", "/api/v1/admin/settings", "data.read")]
+    [InlineData("POST", "/api/v1/categorise/transactions/rules", "data.write")]
     [InlineData("GET", "/api/v1/admin/api-keys", null)]
     [InlineData("GET", "/api/v1/admin/credentials", null)]
     [InlineData("POST", "/api/v1/auth/register", null)]
@@ -527,11 +547,12 @@ public sealed class McpTests
     }
 
     /// <summary>Register a client, approve it as the given user and return an access token.</summary>
-    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope, string[]? permissions = null)
+    internal static async Task<string> ConnectAsync(ApiIntegrationTestHost host, string userToken, string scope, string[]? permissions = null, long[]? workspaces = null,
+        bool allWorkspaces = false)
     {
         var clientId = await RegisterAsync(host, "Claude");
         var (verifier, challenge) = Pkce();
-        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope, permissions: permissions))["code"];
+        var code = ParseQuery(await ApproveAsync(host, userToken, clientId, challenge, scope, permissions: permissions, workspaces: workspaces, allWorkspaces: allWorkspaces))["code"];
         var tokens = await TokenAsync(host, new()
         {
             ["grant_type"] = "authorization_code", ["client_id"] = clientId, ["code"] = code,
@@ -554,10 +575,11 @@ public sealed class McpTests
         return (await response.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("client_id").GetString()!;
     }
 
-    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect, string[]? permissions = null)
+    private static async Task<string> ApproveAsync(ApiIntegrationTestHost host, string userToken, string clientId, string challenge, string scope, string? state = null, string redirectUri = Redirect, string[]? permissions = null, long[]? workspaces = null,
+        bool allWorkspaces = false)
     {
         using var response = await ApiKeyTests.SendAsync(host, HttpMethod.Post, "/api/v1/oauth/authorize", userToken,
-            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, permissions, state, approve = true });
+            new { clientId, redirectUri, codeChallenge = challenge, codeChallengeMethod = "S256", scope, permissions, state, approve = true, workspaces, allWorkspaces });
         return (await ReadDataAsync(response)).GetProperty("redirectTo").GetString()!;
     }
 
@@ -585,7 +607,7 @@ public sealed class McpTests
         return await host.Client.SendAsync(request);
     }
 
-    private static async Task<JsonElement> McpAsync(ApiIntegrationTestHost host, string token, string method, object? parameters = null)
+    internal static async Task<JsonElement> McpAsync(ApiIntegrationTestHost host, string token, string method, object? parameters = null)
     {
         using var response = await PostMcpAsync(host, token, Rpc(method, parameters));
         var body = await response.Content.ReadAsStringAsync();
@@ -593,14 +615,14 @@ public sealed class McpTests
         return JsonDocument.Parse(body).RootElement.Clone();
     }
 
-    private static async Task<(string Text, bool IsError)> CallToolAsync(ApiIntegrationTestHost host, string token, string tool, object arguments)
+    internal static async Task<(string Text, bool IsError)> CallToolAsync(ApiIntegrationTestHost host, string token, string tool, object arguments)
     {
         var response = await McpAsync(host, token, "tools/call", new { name = tool, arguments });
         var result = response.GetProperty("result");
         return (result.GetProperty("content")[0].GetProperty("text").GetString()!, result.GetProperty("isError").GetBoolean());
     }
 
-    private static List<string> ToolNames(JsonElement response) =>
+    internal static List<string> ToolNames(JsonElement response) =>
         response.GetProperty("result").GetProperty("tools").EnumerateArray().Select(t => t.GetProperty("name").GetString()!).ToList();
 
     private static (string Verifier, string Challenge) Pkce()

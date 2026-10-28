@@ -25,4 +25,6 @@ public class DatabaseConfig
     public int MinPoolSize { get; set; } = 2;
     public int MaxPoolSize { get; set; } = 20;
     public int ConnectionTimeoutSeconds { get; set; } = 30;
+    /// <summary>How long a query may run on the data database before it is stopped (both providers).</summary>
+    public int QueryTimeoutSeconds { get; set; } = 30;
 }

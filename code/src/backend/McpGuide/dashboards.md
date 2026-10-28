@@ -4,22 +4,21 @@
 
 ```json
 {
-  "description": "Where the money goes",
+  "description": "Where the time goes",
   "dateRange": { "preset": "last-12-months" },
   "variables": [ { "name": "months", "formula": "12" } ],
-  "filters": [ { "column": "account_id", "label": "Account" } ],
+  "filters": [ { "column": "project_id", "label": "Project" } ],
   "widgets": [
     {
-      "id": "spent", "type": "kpi", "title": "Spent in the range",
+      "id": "hours", "type": "kpi", "title": "Hours in the range",
       "position": { "x": 0, "y": 0, "w": 3, "h": 2 },
-      "data": { "query": { "source": "transactions", "measures": [ { "name": "spent", "formula": "-SUM(amount WHERE amount < 0)" } ] }, "dateColumn": "date" },
-      "display": { "format": "currency", "compare": true, "higherIsBetter": false }
+      "data": { "query": { "source": "time_entries", "measures": [ { "name": "hours", "fn": "sum", "column": "hours" } ] }, "dateColumn": "date" },
+      "display": { "format": "number", "compare": true, "higherIsBetter": true }
     },
     {
-      "id": "net-per-month", "type": "bar", "title": "Net per month",
+      "id": "hours-per-month", "type": "bar", "title": "Hours per month",
       "position": { "x": 0, "y": 2, "w": 8, "h": 5 },
-      "data": { "query": { "source": "transactions", "groupBy": [ { "column": "date", "bucket": "month", "as": "month" } ], "measures": [ { "name": "net", "fn": "sum", "column": "amount" } ] }, "dateColumn": "date" },
-      "display": { "colorBySign": true }
+      "data": { "query": { "source": "time_entries", "groupBy": [ { "column": "date", "bucket": "month", "as": "month" } ], "measures": [ { "name": "hours", "fn": "sum", "column": "hours" } ] }, "dateColumn": "date" }
     }
   ]
 }
@@ -36,10 +35,10 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `kpi` | a key figure | one measure; or `data.variable`; second measure = secondary value |
 | `line`, `area`, `bar` | charts | first group = horizontal axis (often a date bucket), second group = breakdown; measures = series |
 | `donut` | shares | one group, one measure; `display.drill` = a second column to drill into |
-| `sankey` | flows | 1–3 groups, one measure; `display.sankey` `levels` or `cashflow` |
+| `sankey` | flows | 1–3 groups, one measure; `display.sankey` `levels` or `balance` |
 | `table` | rows | grouped query, or `data.rows` `{columns, sort, limit}` for raw rows |
 | `text` | markdown | `display.text` |
-| `budget` | categories vs. monthly limits | `data.budget` `{source, amount, date, category, limit, expenses: "negative"|"positive", period: "month"|"range"}` |
+| `target` | each group's value against its target or limit | `data.target` `{source, value (formula over the rows, e.g. `SUM(hours)`), date, group (a link column), target (the linked table's number column), per: "week"|"month"|"quarter"|"year", period: "current"|"range", kind: "limit"|"goal", format?}` |
 
 ## `data`
 
@@ -47,7 +46,7 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 - `dateColumn`: the column the dashboard's date range filters; without it the widget ignores the range.
 - `asOf: true`: values at the end of each period of the date group (balances, net worth).
 - `timeShift`: `previous` or `year` — the same series for the period before / a year earlier, dashed.
-- `variable` (kpi), `rows` (table), `budget` (budget).
+- `variable` (kpi), `rows` (table), `target` (target).
 - `range`: the widget's own date range instead of the dashboard's, `{preset}` or `{from, to}` — e.g. a forecast `{"preset": "next-20-years"}` with `asOf` and `BUCKET_END()` in the future, on a dashboard of the last 12 months.
 
 ## `display`
@@ -63,7 +62,8 @@ A 12-column grid: `position` `{x, y, w, h}` with `x + w ≤ 12`, `h ≤ 24`; key
 | `compare`, `higherIsBetter`, `trend` | true/false: the change against the period or range before; green when up (false for costs); a small trend line | kpi |
 | `goal` | a number or a variable's name, shown as progress | kpi |
 | `summary` | true: a total row | table (grouped) |
-| `sankey` | `levels` (flows between consecutive groups) or `cashflow` (income categories → income → expense categories and saved) | sankey |
+| `sankey` | `levels` (flows between consecutive groups; one group: the total → its parts) or `balance` (the first group split by sign: positive values flow in, negative out, the rest or the shortfall shown) | sankey |
+| `sankeyLabels` | `{center, rest, shortfall}`: the names in `balance` (default Total, Left over, Shortfall; for money Income, Saved, From savings) | sankey |
 | `shares` | true: node labels as % of the first column | sankey |
 | `drill` | a column of the same table to open a slice into | donut |
 | `text` | markdown (`#` headings, `-` lists) | text |
@@ -82,7 +82,7 @@ Saving checks these values: an unknown one (`"sankey": "xyz"`) is an error that 
 
 ## Dashboard level
 
-- `dateRange`: `{preset}` with `last-7-days this-month last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
+- `dateRange`: `{preset}` with `last-7-days this-week last-week this-month last-month this-quarter last-quarter last-3-months last-6-months last-12-months this-year last-year last-3-years last-5-years next-12-months next-5-years next-10-years next-20-years all`, or `{from, to}`. Weeks, quarters and years start where the workspace says (Settings → Workspace: week start, year start), "today" is in its time zone. Ranges in the past stop at today; `next-…` presets and a `to` in the future reach ahead (forecasts: charts and `BUCKET_END()` go to the end).
 - `variables`: `{name, label?, source?, formula, dateColumn?, input?}` (a key figure showing it writes `label` under the value). With `input` `{kind: "number"|"slider"|"select", min?, max?, step?, options?}` and no `source`, viewers change it above the widgets (an assumption such as a return); `formula` is the default (`0.07`, `"base"`), and the chosen value is in the address (`?var.rate=0.05`). — a measure over `source` rows, or without `source` over other variables (`spent / months`). Widgets use them by name.
 - `filters`: `{column, label?}` — a menu narrowing every widget whose table has the column.
 - `annotations`: `{date, to?, label, color?}` (`gray blue teal amber rose violet`) on charts by date.

@@ -1,0 +1,300 @@
+/* Step 5.2: notification channels in Settings. */
+.channels {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.channels__empty {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.channel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.channel:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.channel--off .channel__main {
+  opacity: 0.6;
+}
+
+.channel__main {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1 1 20rem;
+}
+
+.channel__title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: baseline;
+}
+
+.channel__kind,
+.channel__off {
+  padding: 0 0.4rem;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--text) 8%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+
+.channel__target {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.channel__last,
+.channel__result {
+  display: flex;
+  gap: 0.375rem;
+  align-items: baseline;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
+.channel__last--sent svg,
+.channel__result--sent {
+  color: var(--success);
+}
+
+.channel__last--failed,
+.channel__result--failed {
+  color: var(--danger);
+}
+
+.channel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  align-items: flex-start;
+}
+
+.channel__history {
+  border-collapse: collapse;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.channel__history td {
+  padding: 0.25rem 0.75rem 0.25rem 0;
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.channel__delivery--failed td:last-child {
+  color: var(--danger);
+}
+
+.channel-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.channel-form__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  gap: 0.5rem 0.75rem;
+}
+
+.channel-form__wide {
+  grid-column: span 2;
+}
+
+.channel-form__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.channel-form__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .channel-form__wide {
+    grid-column: auto;
+  }
+}
+
+/* Step 5.3: rules. */
+.channel__kind--on {
+  background: color-mix(in srgb, var(--info) 14%, transparent);
+  color: var(--info);
+}
+
+.rule-form__channels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem 1rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.rule-form__channels legend {
+  margin-bottom: 0.375rem;
+}
+
+.rule-form__channel {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.channel-form__hint code {
+  font-size: inherit;
+}
+
+/* Step 5.3: reports. */
+.report-form__text {
+  min-height: 3.5rem;
+  resize: vertical;
+  font: inherit;
+}
+
+.report-form__blocks {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.report-blocks {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.report-block {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+}
+
+.report-block__head {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+
+.report-block__head .channel__kind {
+  flex: none;
+}
+
+.report-block__label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.report-form__add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.report-preview {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+  font-size: var(--fs-sm);
+}
+
+.report-preview__title,
+.report-preview__heading {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.report-preview__heading {
+  color: var(--text-2);
+}
+
+.report-preview__text {
+  margin: 0;
+  white-space: pre-line;
+}
+
+.report-preview__section {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.report-preview__facts {
+  border-collapse: collapse;
+}
+
+.report-preview__facts th,
+.report-preview__facts td {
+  padding: 0.125rem 1rem 0.125rem 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.report-preview__facts th {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.report-preview__value {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.report-preview__detail {
+  color: var(--text-3);
+}
+
+.report-preview__detail--good {
+  color: var(--success);
+}
+
+.report-preview__detail--bad {
+  color: var(--danger);
+}
+
+@media (max-width: 720px) {
+  .report-preview__facts tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    padding: 0.25rem 0;
+    border-top: 1px solid var(--line);
+  }
+
+  .report-preview__facts th,
+  .report-preview__facts td {
+    padding: 0;
+  }
+
+  .report-preview__detail {
+    grid-column: 1 / -1;
+  }
+}

@@ -10,11 +10,13 @@ public class DatabaseBootstrap : IHostedService
 {
     private readonly ISystemPool _systemPool;
     private readonly ILogger<DatabaseBootstrap> _logger;
+    private readonly Services.WorkspaceSettings? _workspace;
 
-    public DatabaseBootstrap(ISystemPool systemPool, ILogger<DatabaseBootstrap> logger)
+    public DatabaseBootstrap(ISystemPool systemPool, ILogger<DatabaseBootstrap> logger, Services.WorkspaceSettings? workspace = null)
     {
         _systemPool = systemPool;
         _logger = logger;
+        _workspace = workspace;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -27,8 +29,223 @@ public class DatabaseBootstrap : IHostedService
             await BootstrapPostgres(conn);
         else
             await BootstrapSqlite(conn);
+        await AddWorkspacesAsync(conn);
+        await AddMembersAsync(conn);
+        await KeepCalendarAsync(conn);
+        await UpgradeWidgetsAsync(conn);
+        _workspace?.Invalidate();
 
         _logger.LogInformation("Database bootstrap complete.");
+    }
+
+    /// <summary>
+    /// Workspaces (Step 5.5): the register with the default workspace (id 1, the
+    /// data that was there before), and <c>workspace_id</c> on every system table
+    /// whose rows belong to one — existing rows to the default one.
+    /// </summary>
+    private async Task AddWorkspacesAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        await conn.ExecuteAsync(pg
+            ? """
+              CREATE TABLE IF NOT EXISTS _system.workspaces (
+                  id              SERIAL PRIMARY KEY,
+                  slug            VARCHAR(40) NOT NULL UNIQUE,
+                  name            VARCHAR(100) NOT NULL,
+                  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+              );
+              INSERT INTO _system.workspaces (id, slug, name) VALUES (1, 'default', 'Default') ON CONFLICT (id) DO NOTHING;
+              SELECT setval(pg_get_serial_sequence('_system.workspaces', 'id'), GREATEST((SELECT MAX(id) FROM _system.workspaces), 1));
+              """
+            : """
+              CREATE TABLE IF NOT EXISTS workspaces (
+                  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                  slug            TEXT NOT NULL UNIQUE,
+                  name            TEXT NOT NULL,
+                  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+              );
+              INSERT OR IGNORE INTO workspaces (id, slug, name) VALUES (1, 'default', 'Default');
+              """);
+        foreach (var table in Services.Workspaces.WorkspaceService.ScopedTables)
+        {
+            if (pg)
+            {
+                await conn.ExecuteAsync($"ALTER TABLE _system.{table} ADD COLUMN IF NOT EXISTS workspace_id INTEGER NOT NULL DEFAULT 1");
+            }
+            else if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = 'workspace_id'") == 0)
+            {
+                await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN workspace_id INTEGER NOT NULL DEFAULT 1");
+            }
+            await conn.ExecuteAsync($"CREATE INDEX IF NOT EXISTS idx_{table}_workspace ON {prefix}{table}(workspace_id)");
+        }
+
+        // Names unique per workspace, not per installation: two workspaces may both
+        // have a function "fx" or a price source "ETFs", and their own explorer preferences.
+        if (pg)
+        {
+            await conn.ExecuteAsync("""
+                ALTER TABLE _system.functions DROP CONSTRAINT IF EXISTS functions_name_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_functions_workspace_name ON _system.functions(workspace_id, name);
+                ALTER TABLE _system.function_versions DROP CONSTRAINT IF EXISTS function_versions_function_name_version_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_function_versions_workspace ON _system.function_versions(workspace_id, function_name, version);
+                ALTER TABLE _system.price_sources DROP CONSTRAINT IF EXISTS price_sources_name_key;
+                CREATE UNIQUE INDEX IF NOT EXISTS ux_price_sources_workspace_name ON _system.price_sources(workspace_id, name);
+                """);
+            var key = await conn.ExecuteScalarAsync<long>("""
+                SELECT COUNT(*) FROM pg_index i JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey)
+                WHERE i.indrelid = '_system.user_table_explorer_preferences'::regclass AND i.indisprimary AND a.attname = 'workspace_id'
+                """);
+            if (key == 0)
+                await conn.ExecuteAsync("""
+                    ALTER TABLE _system.user_table_explorer_preferences DROP CONSTRAINT IF EXISTS user_table_explorer_preferences_pkey;
+                    ALTER TABLE _system.user_table_explorer_preferences ADD PRIMARY KEY (workspace_id, user_id, table_name);
+                    """);
+        }
+        else
+        {
+            await RebuildSqliteAsync(conn, "functions", sql => sql.Replace("name            TEXT NOT NULL UNIQUE", "name            TEXT NOT NULL"),
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_functions_workspace_name ON functions(workspace_id, name)");
+            await RebuildSqliteAsync(conn, "function_versions", sql => sql.Replace("UNIQUE (function_name, version)", "UNIQUE (workspace_id, function_name, version)"), null);
+            await RebuildSqliteAsync(conn, "price_sources", sql => sql.Replace("name            TEXT NOT NULL UNIQUE", "name            TEXT NOT NULL"),
+                "CREATE UNIQUE INDEX IF NOT EXISTS ux_price_sources_workspace_name ON price_sources(workspace_id, name)");
+            await RebuildSqliteAsync(conn, "user_table_explorer_preferences", sql => sql.Replace("PRIMARY KEY (user_id, table_name)", "PRIMARY KEY (workspace_id, user_id, table_name)"), null);
+        }
+    }
+
+    /// <summary>
+    /// Members per workspace (Step 5.5 part B): who may open a workspace and with
+    /// which role. Installation admins (<c>users.role = admin</c>) are admins in every
+    /// workspace and need no row. API keys and MCP connections name the workspaces
+    /// they may use (null: all). Done once, marked by members_version: every other
+    /// user becomes a member of the default workspace with their role, and existing
+    /// keys and connections keep to it — nothing changes for anyone.
+    /// </summary>
+    private async Task AddMembersAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        await conn.ExecuteAsync(pg
+            ? """
+              CREATE TABLE IF NOT EXISTS _system.workspace_members (
+                  workspace_id    INTEGER NOT NULL,
+                  user_id         INTEGER NOT NULL REFERENCES _system.users(id) ON DELETE CASCADE,
+                  role            VARCHAR(20) NOT NULL,
+                  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                  PRIMARY KEY (workspace_id, user_id)
+              );
+              ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS workspaces TEXT;
+              ALTER TABLE _system.api_keys ADD COLUMN IF NOT EXISTS tables TEXT;
+              ALTER TABLE _system.oauth_grants ADD COLUMN IF NOT EXISTS workspaces TEXT;
+              """
+            : """
+              CREATE TABLE IF NOT EXISTS workspace_members (
+                  workspace_id    INTEGER NOT NULL,
+                  user_id         INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                  role            TEXT NOT NULL,
+                  created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                  PRIMARY KEY (workspace_id, user_id)
+              );
+              """);
+        if (!pg)
+        {
+            foreach (var (table, column) in new[] { ("api_keys", "workspaces"), ("oauth_grants", "workspaces"), ("api_keys", "tables") })
+            {
+                if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}'") == 0)
+                    await conn.ExecuteAsync($"ALTER TABLE {table} ADD COLUMN {column} TEXT");
+            }
+        }
+        await conn.ExecuteAsync($"CREATE INDEX IF NOT EXISTS idx_workspace_members_user ON {prefix}workspace_members(user_id)");
+
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'members_version'") > 0)
+            return;
+        using var tx = conn.BeginTransaction();
+        await conn.ExecuteAsync(
+            $"INSERT INTO {prefix}workspace_members (workspace_id, user_id, role) SELECT 1, id, role FROM {prefix}users WHERE role <> 'admin'",
+            transaction: tx);
+        await conn.ExecuteAsync($"UPDATE {prefix}api_keys SET workspaces = '[1]' WHERE workspaces IS NULL", transaction: tx);
+        await conn.ExecuteAsync($"UPDATE {prefix}oauth_grants SET workspaces = '[1]' WHERE workspaces IS NULL", transaction: tx);
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('members_version', '1')", transaction: tx);
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// SQLite cannot drop a UNIQUE or change a key in place: the table is made
+    /// again from its own definition with <paramref name="change"/> applied,
+    /// its rows copied over and its indexes made again. Skipped when the
+    /// definition already has the change.
+    /// </summary>
+    private static async Task RebuildSqliteAsync(System.Data.IDbConnection conn, string table, Func<string, string> change, string? extraIndex)
+    {
+        var sql = await conn.ExecuteScalarAsync<string?>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = @Table", new { Table = table });
+        if (sql is null)
+            return;
+        var changed = change(sql);
+        if (!string.Equals(changed, sql, StringComparison.Ordinal))
+        {
+            var indexes = (await conn.QueryAsync<string>("SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = @Table AND sql IS NOT NULL", new { Table = table })).ToList();
+            await conn.ExecuteAsync("PRAGMA foreign_keys = OFF");
+            using (var tx = conn.BeginTransaction())
+            {
+                await conn.ExecuteAsync($"ALTER TABLE {table} RENAME TO {table}__before_workspaces", transaction: tx);
+                await conn.ExecuteAsync(changed, transaction: tx);
+                await conn.ExecuteAsync($"INSERT INTO {table} SELECT * FROM {table}__before_workspaces", transaction: tx);
+                await conn.ExecuteAsync($"DROP TABLE {table}__before_workspaces", transaction: tx);
+                foreach (var index in indexes)
+                    await conn.ExecuteAsync(index.Replace("CREATE INDEX ", "CREATE INDEX IF NOT EXISTS ").Replace("CREATE UNIQUE INDEX ", "CREATE UNIQUE INDEX IF NOT EXISTS "), transaction: tx);
+                tx.Commit();
+            }
+            await conn.ExecuteAsync("PRAGMA foreign_keys = ON");
+        }
+        if (extraIndex is not null)
+            await conn.ExecuteAsync(extraIndex);
+    }
+
+    /// <summary>
+    /// Once: dashboards and their history from before targets (budget widgets,
+    /// the money Sankey) are rewritten (<see cref="Services.DashboardUpgrade"/>),
+    /// and budget rules become target rules. Marked by widgets_version.
+    /// </summary>
+    private async Task UpgradeWidgetsAsync(System.Data.IDbConnection conn)
+    {
+        var pg = _systemPool.Provider == DatabaseProvider.Postgres;
+        var prefix = pg ? "_system." : "";
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'widgets_version'") > 0)
+            return;
+        var json = SystemSqlDialect.JsonParam(_systemPool.Provider, "@Json");
+        foreach (var table in new[] { "dashboards", "dashboard_versions" })
+        {
+            var rows = await conn.QueryAsync<(long Id, string Json)>($"SELECT id, CAST(dashboard_json AS TEXT) FROM {prefix}{table}");
+            foreach (var (id, text) in rows)
+            {
+                var upgraded = Services.DashboardUpgrade.Apply(text);
+                if (!ReferenceEquals(upgraded, text))
+                    await conn.ExecuteAsync($"UPDATE {prefix}{table} SET dashboard_json = {json} WHERE id = @Id", new { Id = id, Json = upgraded });
+            }
+        }
+        await conn.ExecuteAsync($"UPDATE {prefix}notification_rules SET kind = 'target' WHERE kind = 'budget'");
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('widgets_version', '2')");
+        _logger.LogInformation("Dashboards and rules moved from budgets to targets.");
+    }
+
+    /// <summary>
+    /// Before the workspace had a time zone, rules, reports and imports ran in
+    /// Europe/Berlin. A workspace from then (it has users or rules) keeps that zone;
+    /// a new one starts with the server's. Done once, marked by calendar_version.
+    /// </summary>
+    private async Task KeepCalendarAsync(System.Data.IDbConnection conn)
+    {
+        var prefix = _systemPool.Provider == DatabaseProvider.Postgres ? "_system." : "";
+        var settings = prefix + "workspace_settings";
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'calendar_version'") > 0)
+            return;
+        var existing = await conn.ExecuteScalarAsync<long>(
+            $"SELECT (SELECT COUNT(*) FROM {prefix}users) + (SELECT COUNT(*) FROM {prefix}notification_rules) + (SELECT COUNT(*) FROM {prefix}import_sources)");
+        if (existing > 0 && await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {settings} WHERE key = 'time_zone'") == 0)
+            await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('time_zone', 'Europe/Berlin')");
+        await conn.ExecuteAsync($"INSERT INTO {settings} (key, value) VALUES ('calendar_version', '1')");
     }
 
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -316,6 +533,76 @@ public class DatabaseBootstrap : IHostedService
             );
             CREATE INDEX IF NOT EXISTS idx_price_source_runs_source ON _system.price_source_runs(source_id, started_at);
             """);
+
+        // Notification channels and their deliveries (Step 5.2); secrets encrypted under the vault's key.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.notification_channels (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(20) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                secrets         TEXT NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS _system.notification_deliveries (
+                id              SERIAL PRIMARY KEY,
+                channel_id      INTEGER NOT NULL,
+                event           VARCHAR(100) NOT NULL,
+                title           VARCHAR(255) NOT NULL,
+                status          VARCHAR(20) NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                created_at      TIMESTAMPTZ NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON _system.notification_deliveries(channel_id, id);
+            CREATE TABLE IF NOT EXISTS _system.notification_rules (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(20) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                channels        TEXT NOT NULL DEFAULT '[]',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                state           TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            """);
+
+        // Saved imports from a URL and their runs (Step 5.1).
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.import_sources (
+                id              SERIAL PRIMARY KEY,
+                name            VARCHAR(255) NOT NULL,
+                table_name      VARCHAR(255) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_sources_table ON _system.import_sources(table_name);
+            CREATE TABLE IF NOT EXISTS _system.import_runs (
+                id              SERIAL PRIMARY KEY,
+                source_id       INTEGER NOT NULL,
+                run_trigger     VARCHAR(20) NOT NULL,
+                started_at      TIMESTAMPTZ NOT NULL,
+                finished_at     TIMESTAMPTZ,
+                status          VARCHAR(20) NOT NULL,
+                total           INTEGER NOT NULL DEFAULT 0,
+                inserted        INTEGER NOT NULL DEFAULT 0,
+                updated         INTEGER NOT NULL DEFAULT 0,
+                duplicates      INTEGER NOT NULL DEFAULT 0,
+                invalid         INTEGER NOT NULL DEFAULT 0,
+                categorised     INTEGER NOT NULL DEFAULT 0,
+                bytes           BIGINT NOT NULL DEFAULT 0,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_runs_source ON _system.import_runs(source_id, started_at);
+            """);
         // MCP (Step 4.6): OAuth clients registered by MCP clients, the grants users
         // approved for them, their codes and tokens (hashed), and the call log.
         await conn.ExecuteAsync("""
@@ -432,6 +719,62 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TIMESTAMPTZ NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON _system.dashboard_versions(dashboard_id, created_at);
+            """);
+
+        // Apps (Step 5.4): calendars made of tables, and one password per device.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS _system.apps (
+                id              SERIAL PRIMARY KEY,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                name            VARCHAR(255) NOT NULL,
+                kind            VARCHAR(30) NOT NULL,
+                config          JSONB NOT NULL DEFAULT '{}',
+                enabled         BOOLEAN NOT NULL DEFAULT TRUE,
+                created_by      INTEGER,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE TABLE IF NOT EXISTS _system.app_passwords (
+                id              SERIAL PRIMARY KEY,
+                app_id          INTEGER NOT NULL,
+                name            VARCHAR(100) NOT NULL,
+                secret_hash     VARCHAR(64) NOT NULL UNIQUE,
+                prefix          VARCHAR(20) NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL,
+                last_used_at    TIMESTAMPTZ,
+                revoked_at      TIMESTAMPTZ
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON _system.app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS _system.app_events (
+                id              SERIAL PRIMARY KEY,
+                app_id          INTEGER NOT NULL,
+                calendar        VARCHAR(80) NOT NULL,
+                row_id          VARCHAR(100) NOT NULL,
+                href            VARCHAR(255) NOT NULL,
+                uid             VARCHAR(500) NOT NULL,
+                raw             TEXT,
+                updated_at      TIMESTAMPTZ NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON _system.app_events(app_id, calendar, row_id);
+            CREATE TABLE IF NOT EXISTS _system.share_links (
+                id              SERIAL PRIMARY KEY,
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                kind            VARCHAR(20) NOT NULL,
+                target_id       INTEGER NOT NULL,
+                name            VARCHAR(120) NOT NULL,
+                token_hash      VARCHAR(64) NOT NULL UNIQUE,
+                prefix          VARCHAR(32) NOT NULL,
+                options         TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER NOT NULL,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                expires_at      TIMESTAMPTZ,
+                revoked_at      TIMESTAMPTZ,
+                last_used_at    TIMESTAMPTZ,
+                views           INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_share_links_target ON _system.share_links(kind, target_id);
             """);
     }
 
@@ -728,6 +1071,74 @@ public class DatabaseBootstrap : IHostedService
             """);
 
         await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS notification_channels (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                secrets         TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS notification_deliveries (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                channel_id      INTEGER NOT NULL,
+                event           TEXT NOT NULL,
+                title           TEXT NOT NULL,
+                status          TEXT NOT NULL,
+                error           TEXT,
+                duration_ms     INTEGER NOT NULL DEFAULT 0,
+                created_at      TEXT NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_notification_deliveries_channel ON notification_deliveries(channel_id, id);
+            CREATE TABLE IF NOT EXISTS notification_rules (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                channels        TEXT NOT NULL DEFAULT '[]',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                state           TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            """);
+
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS import_sources (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                name            TEXT NOT NULL,
+                table_name      TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_sources_table ON import_sources(table_name);
+            CREATE TABLE IF NOT EXISTS import_runs (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_id       INTEGER NOT NULL,
+                run_trigger     TEXT NOT NULL,
+                started_at      TEXT NOT NULL,
+                finished_at     TEXT,
+                status          TEXT NOT NULL,
+                total           INTEGER NOT NULL DEFAULT 0,
+                inserted        INTEGER NOT NULL DEFAULT 0,
+                updated         INTEGER NOT NULL DEFAULT 0,
+                duplicates      INTEGER NOT NULL DEFAULT 0,
+                invalid         INTEGER NOT NULL DEFAULT 0,
+                categorised     INTEGER NOT NULL DEFAULT 0,
+                bytes           INTEGER NOT NULL DEFAULT 0,
+                error           TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_import_runs_source ON import_runs(source_id, started_at);
+            """);
+
+        await conn.ExecuteAsync("""
             CREATE TABLE IF NOT EXISTS oauth_clients (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 client_id       TEXT NOT NULL UNIQUE,
@@ -848,6 +1259,62 @@ public class DatabaseBootstrap : IHostedService
                 created_at      TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_dashboard_versions_dashboard ON dashboard_versions(dashboard_id, created_at);
+            """);
+
+        // Apps (Step 5.4): calendars made of tables, and one password per device.
+        await conn.ExecuteAsync("""
+            CREATE TABLE IF NOT EXISTS apps (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                -- The workspace it belongs to (5.5); 1 is the default workspace.
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                name            TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                config          TEXT NOT NULL DEFAULT '{}',
+                enabled         INTEGER NOT NULL DEFAULT 1,
+                created_by      INTEGER,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+            );
+            CREATE TABLE IF NOT EXISTS app_passwords (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                secret_hash     TEXT NOT NULL UNIQUE,
+                prefix          TEXT NOT NULL,
+                created_at      TEXT NOT NULL,
+                last_used_at    TEXT,
+                revoked_at      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_passwords_app ON app_passwords(app_id);
+            CREATE TABLE IF NOT EXISTS app_events (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                app_id          INTEGER NOT NULL,
+                calendar        TEXT NOT NULL,
+                row_id          TEXT NOT NULL,
+                href            TEXT NOT NULL,
+                uid             TEXT NOT NULL,
+                raw             TEXT,
+                updated_at      TEXT NOT NULL,
+                UNIQUE (app_id, calendar, href)
+            );
+            CREATE INDEX IF NOT EXISTS idx_app_events_row ON app_events(app_id, calendar, row_id);
+            CREATE TABLE IF NOT EXISTS share_links (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                workspace_id    INTEGER NOT NULL DEFAULT 1,
+                kind            TEXT NOT NULL,
+                target_id       INTEGER NOT NULL,
+                name            TEXT NOT NULL,
+                token_hash      TEXT NOT NULL UNIQUE,
+                prefix          TEXT NOT NULL,
+                options         TEXT NOT NULL DEFAULT '{}',
+                created_by      INTEGER NOT NULL,
+                created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+                expires_at      TEXT,
+                revoked_at      TEXT,
+                last_used_at    TEXT,
+                views           INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS idx_share_links_target ON share_links(kind, target_id);
             """);
     }
 }

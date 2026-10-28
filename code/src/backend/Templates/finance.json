@@ -1,0 +1,1504 @@
+{
+  "id": "finance",
+  "title": "Wealth & cash flow",
+  "description": "Accounts, categories with budgets, transactions, depot trades, prices and dividends, and two dashboards: cash flow with an account filter, and wealth — net worth over time, depot value, realised and unrealised gains, returns, allocation, positions and dividends. The function avg_cost is added for realised gains unless you have it, and a form, Add transaction, for quick entry on the phone.",
+  "base": {
+    "accounts": "accounts",
+    "categories": "categories",
+    "transactions": "transactions",
+    "trades": "trades",
+    "prices": "prices",
+    "dividends": "dividends"
+  },
+  "prefixes": [
+    "finance_",
+    "my_",
+    "fin_"
+  ],
+  "functions": [
+    {
+      "template": "avg-cost",
+      "name": "avg_cost",
+      "mode": "rows",
+      "arguments": 4
+    }
+  ],
+  "tables": [
+    {
+      "name": "{{accounts}}",
+      "displayName": "Accounts",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text",
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "kind",
+          "displayName": "Kind",
+          "type": "enum",
+          "values": [
+            "giro",
+            "savings",
+            "depot",
+            "credit",
+            "cash"
+          ]
+        },
+        {
+          "name": "opened_on",
+          "displayName": "Opened on",
+          "type": "date"
+        },
+        {
+          "name": "opening_balance",
+          "displayName": "Opening balance",
+          "type": "currency"
+        },
+        {
+          "name": "balance",
+          "displayName": "Balance",
+          "type": "computed",
+          "formula": "COALESCE(opening_balance, 0) + SUM({{transactions}}.amount)"
+        }
+      ]
+    },
+    {
+      "name": "{{categories}}",
+      "displayName": "Categories",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text",
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "kind",
+          "displayName": "Kind",
+          "type": "enum",
+          "values": [
+            "income",
+            "expense",
+            "savings",
+            "transfer"
+          ]
+        },
+        {
+          "name": "parent_id",
+          "displayName": "Main category",
+          "type": "reference",
+          "references": "{{categories}}"
+        },
+        {
+          "name": "budget",
+          "displayName": "Monthly budget",
+          "type": "currency"
+        }
+      ]
+    },
+    {
+      "name": "{{transactions}}",
+      "displayName": "Transactions",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "date",
+          "displayName": "Date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "amount",
+          "displayName": "Amount",
+          "type": "currency",
+          "nullable": false
+        },
+        {
+          "name": "payee",
+          "displayName": "Payee",
+          "type": "text"
+        },
+        {
+          "name": "purpose",
+          "displayName": "Purpose",
+          "type": "text"
+        },
+        {
+          "name": "account_id",
+          "displayName": "Account",
+          "type": "reference",
+          "references": "{{accounts}}"
+        },
+        {
+          "name": "category_id",
+          "displayName": "Category",
+          "type": "reference",
+          "references": "{{categories}}"
+        },
+        {
+          "name": "main_category",
+          "displayName": "Main category",
+          "type": "computed",
+          "formula": "COALESCE(category_id.parent_id.name, category_id.name)"
+        }
+      ]
+    },
+    {
+      "name": "{{trades}}",
+      "displayName": "Trades",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "date",
+          "displayName": "Date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "isin",
+          "displayName": "ISIN",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text"
+        },
+        {
+          "name": "kind",
+          "displayName": "Kind",
+          "type": "enum",
+          "values": [
+            "buy",
+            "sell"
+          ]
+        },
+        {
+          "name": "shares",
+          "displayName": "Shares",
+          "type": "float",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "displayName": "Price",
+          "type": "currency",
+          "nullable": false
+        },
+        {
+          "name": "fees",
+          "displayName": "Fees",
+          "type": "currency"
+        },
+        {
+          "name": "account_id",
+          "displayName": "Account",
+          "type": "reference",
+          "references": "{{accounts}}"
+        },
+        {
+          "name": "signed_shares",
+          "displayName": "Shares (±)",
+          "type": "computed",
+          "formula": "IF(kind = \"sell\", -shares, shares)"
+        },
+        {
+          "name": "invested",
+          "displayName": "Invested",
+          "type": "computed",
+          "formula": "signed_shares * price + COALESCE(fees, 0)"
+        },
+        {
+          "name": "value",
+          "displayName": "Value today",
+          "type": "computed",
+          "formula": "signed_shares * LOOKUP_ASOF(\"{{prices}}\", \"isin\", isin, \"date\", TODAY(), \"price\")"
+        },
+        {
+          "name": "realized",
+          "displayName": "Realised gain",
+          "type": "computed",
+          "resultType": "currency",
+          "formula": "CUSTOM_ROWS(\"avg_cost\", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), \"realized\")"
+        },
+        {
+          "name": "cost_change",
+          "displayName": "Cost (±)",
+          "type": "computed",
+          "resultType": "currency",
+          "formula": "CUSTOM_ROWS(\"avg_cost\", PARTITION(account_id, isin), ORDER(date, id), signed_shares, price, COALESCE(fees, 0), \"cost\")"
+        }
+      ]
+    },
+    {
+      "name": "{{prices}}",
+      "displayName": "Prices",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "isin",
+          "displayName": "ISIN",
+          "type": "text",
+          "nullable": false
+        },
+        {
+          "name": "date",
+          "displayName": "Date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "price",
+          "displayName": "Price",
+          "type": "currency",
+          "nullable": false
+        }
+      ]
+    },
+    {
+      "name": "{{dividends}}",
+      "displayName": "Dividends",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "date",
+          "displayName": "Date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "isin",
+          "displayName": "ISIN",
+          "type": "text"
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text"
+        },
+        {
+          "name": "amount",
+          "displayName": "Amount",
+          "type": "currency",
+          "nullable": false
+        },
+        {
+          "name": "tax",
+          "displayName": "Tax",
+          "type": "currency"
+        },
+        {
+          "name": "account_id",
+          "displayName": "Account",
+          "type": "reference",
+          "references": "{{accounts}}"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "{{accounts}}_{{transactions}}",
+      "type": "1:N",
+      "from": "{{accounts}}",
+      "to": "{{transactions}}",
+      "column": "account_id"
+    },
+    {
+      "name": "{{categories}}_{{transactions}}",
+      "type": "1:N",
+      "from": "{{categories}}",
+      "to": "{{transactions}}",
+      "column": "category_id"
+    },
+    {
+      "name": "{{categories}}_subcategories",
+      "type": "1:N",
+      "from": "{{categories}}",
+      "to": "{{categories}}",
+      "column": "parent_id"
+    },
+    {
+      "name": "{{accounts}}_{{trades}}",
+      "type": "1:N",
+      "from": "{{accounts}}",
+      "to": "{{trades}}",
+      "column": "account_id"
+    },
+    {
+      "name": "{{accounts}}_{{dividends}}",
+      "type": "1:N",
+      "from": "{{accounts}}",
+      "to": "{{dividends}}",
+      "column": "account_id"
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "Cash flow",
+      "dashboard": {
+        "dateRange": {
+          "preset": "last-12-months"
+        },
+        "refreshSeconds": 0,
+        "widgets": [
+          {
+            "id": "balance",
+            "type": "kpi",
+            "title": "Balance",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 4,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "balance",
+                    "fn": "sum",
+                    "column": "amount",
+                    "running": true,
+                    "carryIn": true
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "auto",
+              "compare": true
+            }
+          },
+          {
+            "id": "net",
+            "type": "kpi",
+            "title": "Net per month",
+            "position": {
+              "x": 4,
+              "y": 0,
+              "w": 4,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "net",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "auto",
+              "compare": true
+            }
+          },
+          {
+            "id": "spent",
+            "type": "kpi",
+            "title": "Spent in the range",
+            "position": {
+              "x": 8,
+              "y": 0,
+              "w": 4,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "filter": {
+                  "amount": {
+                    "lt": 0
+                  }
+                },
+                "measures": [
+                  {
+                    "name": "spent",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "auto"
+            }
+          },
+          {
+            "id": "balance-over-time",
+            "type": "area",
+            "title": "Balance over time",
+            "position": {
+              "x": 0,
+              "y": 2,
+              "w": 8,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "balance",
+                    "fn": "sum",
+                    "column": "amount",
+                    "running": true,
+                    "carryIn": true
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "auto"
+            }
+          },
+          {
+            "id": "net-per-month",
+            "type": "bar",
+            "title": "Net per month",
+            "position": {
+              "x": 8,
+              "y": 2,
+              "w": 4,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "net",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "auto"
+            }
+          },
+          {
+            "id": "spending-by-category",
+            "type": "donut",
+            "title": "Spending by category",
+            "position": {
+              "x": 0,
+              "y": 6,
+              "w": 5,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "filter": {
+                  "amount": {
+                    "lt": 0
+                  }
+                },
+                "groupBy": [
+                  {
+                    "column": "main_category"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "spent",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ],
+                "sort": [
+                  "spent"
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "auto",
+              "drill": "category_id"
+            }
+          },
+          {
+            "id": "top-counterparties",
+            "type": "table",
+            "title": "Top spending: Payee",
+            "position": {
+              "x": 5,
+              "y": 6,
+              "w": 7,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "filter": {
+                  "amount": {
+                    "lt": 0
+                  }
+                },
+                "groupBy": [
+                  {
+                    "column": "payee"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "spent",
+                    "fn": "sum",
+                    "column": "amount"
+                  },
+                  {
+                    "name": "bookings",
+                    "fn": "count"
+                  }
+                ],
+                "sort": [
+                  "spent"
+                ],
+                "limit": 10
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "auto"
+            }
+          },
+          {
+            "id": "money-flow",
+            "type": "sankey",
+            "title": "Money flow",
+            "position": {
+              "x": 0,
+              "y": 10,
+              "w": 12,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{transactions}}",
+                "groupBy": [
+                  {
+                    "column": "category_id",
+                    "top": 8,
+                    "other": true,
+                    "rank": "abs"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "amount",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "auto",
+              "sankey": "balance",
+              "sankeyLabels": {
+                "center": "Income",
+                "rest": "Saved",
+                "shortfall": "From savings"
+              }
+            }
+          },
+          {
+            "id": "budgets",
+            "type": "target",
+            "title": "Budgets this month",
+            "position": {
+              "x": 0,
+              "y": 15,
+              "w": 12,
+              "h": 4
+            },
+            "data": {
+              "target": {
+                "source": "{{transactions}}",
+                "value": "-SUM(amount WHERE amount < 0)",
+                "date": "date",
+                "group": "category_id",
+                "target": "budget",
+                "per": "month",
+                "period": "current",
+                "kind": "limit"
+              }
+            }
+          }
+        ],
+        "filters": [
+          {
+            "column": "account_id",
+            "label": "Account"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Wealth",
+      "dashboard": {
+        "dateRange": {
+          "preset": "last-12-months"
+        },
+        "refreshSeconds": 0,
+        "widgets": [
+          {
+            "id": "net-worth",
+            "type": "kpi",
+            "title": "Net worth",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{accounts}}",
+                "measures": [
+                  {
+                    "name": "net_worth",
+                    "formula": "SUM(balance + SUM({{trades}}.value))"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency",
+              "compare": false
+            }
+          },
+          {
+            "id": "depot-value",
+            "type": "kpi",
+            "title": "Depot value",
+            "position": {
+              "x": 3,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{trades}}",
+                "measures": [
+                  {
+                    "name": "value",
+                    "formula": "SUM(value)"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency",
+              "compare": false
+            }
+          },
+          {
+            "id": "gain",
+            "type": "kpi",
+            "title": "Unrealised gain",
+            "position": {
+              "x": 6,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{trades}}",
+                "measures": [
+                  {
+                    "name": "gain",
+                    "formula": "SUM(value - cost_change)"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency",
+              "compare": false
+            }
+          },
+          {
+            "id": "dividends",
+            "type": "kpi",
+            "title": "Dividends in the range",
+            "position": {
+              "x": 9,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{dividends}}",
+                "measures": [
+                  {
+                    "name": "dividends",
+                    "fn": "sum",
+                    "column": "amount"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "currency"
+            }
+          },
+          {
+            "id": "net-worth-over-time",
+            "type": "area",
+            "title": "Net worth over time",
+            "position": {
+              "x": 0,
+              "y": 2,
+              "w": 8,
+              "h": 5
+            },
+            "data": {
+              "asOf": true,
+              "query": {
+                "source": "{{accounts}}",
+                "groupBy": [
+                  {
+                    "column": "opened_on",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "cash",
+                    "formula": "SUM(COALESCE(opening_balance, 0) + SUM({{transactions}}.amount WHERE {{transactions}}.date <= BUCKET_END()))",
+                    "color": "blue"
+                  },
+                  {
+                    "name": "depot",
+                    "formula": "SUM(SUM({{trades}}.signed_shares * LOOKUP_ASOF(\"{{prices}}\", \"isin\", {{trades}}.isin, \"date\", BUCKET_END(), \"price\") WHERE {{trades}}.date <= BUCKET_END()))",
+                    "color": "teal"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency",
+              "stacked": true,
+              "totalLine": true
+            }
+          },
+          {
+            "id": "allocation",
+            "type": "donut",
+            "title": "Allocation",
+            "position": {
+              "x": 8,
+              "y": 2,
+              "w": 4,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{trades}}",
+                "groupBy": [
+                  {
+                    "column": "name",
+                    "top": 8,
+                    "other": true
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "value",
+                    "formula": "SUM(value)"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency"
+            }
+          },
+          {
+            "id": "positions",
+            "type": "table",
+            "title": "Positions",
+            "position": {
+              "x": 0,
+              "y": 7,
+              "w": 8,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{trades}}",
+                "groupBy": [
+                  {
+                    "column": "name"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "shares",
+                    "formula": "SUM(signed_shares)"
+                  },
+                  {
+                    "name": "cost",
+                    "formula": "SUM(cost_change)"
+                  },
+                  {
+                    "name": "value",
+                    "formula": "SUM(value)"
+                  },
+                  {
+                    "name": "gain",
+                    "formula": "SUM(value - cost_change)"
+                  },
+                  {
+                    "name": "realized",
+                    "formula": "SUM(realized)"
+                  }
+                ],
+                "sort": [
+                  "-value"
+                ]
+              }
+            },
+            "display": {
+              "format": "auto",
+              "summary": true
+            }
+          },
+          {
+            "id": "dividends-per-month",
+            "type": "bar",
+            "title": "Dividends per month",
+            "position": {
+              "x": 8,
+              "y": 7,
+              "w": 4,
+              "h": 4
+            },
+            "data": {
+              "query": {
+                "source": "{{dividends}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "dividends",
+                    "fn": "sum",
+                    "column": "amount",
+                    "color": "green"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "currency"
+            }
+          },
+          {
+            "id": "xirr",
+            "type": "kpi",
+            "title": "Return a year (XIRR)",
+            "position": {
+              "x": 0,
+              "y": 11,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{accounts}}",
+                "measures": [
+                  {
+                    "name": "xirr",
+                    "formula": "XIRR(FLOWS(-{{trades}}.invested, {{trades}}.date), FLOWS({{dividends}}.amount - COALESCE({{dividends}}.tax, 0), {{dividends}}.date), SUM(SUM({{trades}}.value)), TODAY())"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "percent",
+              "compare": false
+            }
+          },
+          {
+            "id": "twr",
+            "type": "kpi",
+            "title": "Time-weighted return (range)",
+            "position": {
+              "x": 0,
+              "y": 13,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "asOf": true,
+              "query": {
+                "source": "{{accounts}}",
+                "groupBy": [
+                  {
+                    "column": "opened_on",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "twr",
+                    "formula": "TWR(SUM(SUM({{trades}}.signed_shares * LOOKUP_ASOF(\"{{prices}}\", \"isin\", {{trades}}.isin, \"date\", BUCKET_END(), \"price\") WHERE {{trades}}.date <= BUCKET_END())), FLOWS({{trades}}.invested, {{trades}}.date), FLOWS(COALESCE({{dividends}}.tax, 0) - {{dividends}}.amount, {{dividends}}.date))"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "percent",
+              "compare": false
+            }
+          },
+          {
+            "id": "depot-vs-benchmark",
+            "type": "line",
+            "title": "Depot vs. benchmark (100 = start)",
+            "position": {
+              "x": 3,
+              "y": 11,
+              "w": 9,
+              "h": 6
+            },
+            "data": {
+              "asOf": true,
+              "query": {
+                "source": "{{accounts}}",
+                "groupBy": [
+                  {
+                    "column": "opened_on",
+                    "bucket": "month",
+                    "as": "month"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "depot",
+                    "formula": "TWR(SUM(SUM({{trades}}.signed_shares * LOOKUP_ASOF(\"{{prices}}\", \"isin\", {{trades}}.isin, \"date\", BUCKET_END(), \"price\") WHERE {{trades}}.date <= BUCKET_END())), FLOWS({{trades}}.invested, {{trades}}.date), FLOWS(COALESCE({{dividends}}.tax, 0) - {{dividends}}.amount, {{dividends}}.date), 100)",
+                    "color": "teal"
+                  },
+                  {
+                    "name": "benchmark",
+                    "formula": "REBASE(LOOKUP_ASOF(\"{{prices}}\", \"isin\", benchmark, \"date\", BUCKET_END(), \"price\"))",
+                    "color": "gray"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "number",
+              "referenceLines": [
+                {
+                  "value": 100,
+                  "label": "Start"
+                }
+              ]
+            }
+          },
+          {
+            "id": "realized",
+            "type": "kpi",
+            "title": "Realised gains in the range",
+            "position": {
+              "x": 0,
+              "y": 15,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{trades}}",
+                "measures": [
+                  {
+                    "name": "realized",
+                    "formula": "SUM(realized)"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "currency"
+            }
+          },
+          {
+            "id": "how-to",
+            "type": "text",
+            "title": "",
+            "position": {
+              "x": 0,
+              "y": 17,
+              "w": 12,
+              "h": 3
+            },
+            "display": {
+              "text": "# How to fill this\n- {{ac accounts: one row per bank account or depot, with its opening balance\n- {{tr transactions: import your bank's CSV (Data → {{tr transactions → Import), or add one with Add transaction (Quick add in the sidebar, also on the phone)\n- {{tr trades: buys and sells with ISIN, shares and price — your broker's export\n- {{pr prices: a price per ISIN and date — by hand, imported, or live from a price source (Functions → Price sources)\n- {{di dividends: payouts per ISIN\n- Realised gains and the cost of each position come from your function avg_cost (average cost); switch to FIFO by giving it the code of the FIFO template under Functions\n- The benchmark is the ISIN in the dashboard variable benchmark; give it a symbol in the price source to fetch its prices"
+            }
+          }
+        ],
+        "variables": [
+          {
+            "name": "benchmark",
+            "label": "Benchmark ISIN",
+            "formula": "\"IE00B4L5Y983\""
+          }
+        ]
+      },
+      "open": true
+    }
+  ],
+  "forms": [
+    {
+      "name": "Add transaction",
+      "form": {
+        "table": "{{transactions}}",
+        "pinned": true,
+        "fields": [
+          {
+            "column": "amount",
+            "label": "Amount",
+            "sign": "negative",
+            "help": "− spent, + received"
+          },
+          {
+            "column": "payee",
+            "label": "Payee"
+          },
+          {
+            "column": "category_id",
+            "label": "Category"
+          },
+          {
+            "column": "account_id",
+            "label": "Account",
+            "default": {
+              "kind": "last"
+            }
+          },
+          {
+            "column": "date",
+            "label": "Date",
+            "default": {
+              "kind": "today"
+            }
+          },
+          {
+            "section": "More"
+          },
+          {
+            "column": "purpose",
+            "label": "Note"
+          }
+        ]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "table": "accounts",
+      "values": {
+        "name": "Checking",
+        "kind": "giro",
+        "opened_on": "@month:-12/1",
+        "opening_balance": 1000
+      }
+    },
+    {
+      "table": "accounts",
+      "values": {
+        "name": "Depot",
+        "kind": "depot",
+        "opened_on": "@month:-12/1",
+        "opening_balance": 0
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Salary",
+        "kind": "income"
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Rent",
+        "kind": "expense",
+        "budget": 1000
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Food",
+        "kind": "expense"
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Groceries",
+        "kind": "expense",
+        "budget": 250,
+        "parent_id": "@ref:categories:2"
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Restaurants",
+        "kind": "expense",
+        "budget": 80,
+        "parent_id": "@ref:categories:2"
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Leisure",
+        "kind": "expense",
+        "budget": 150
+      }
+    },
+    {
+      "table": "categories",
+      "values": {
+        "name": "Investing",
+        "kind": "savings"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/1",
+        "amount": 3000,
+        "payee": "Employer",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:0"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/2",
+        "amount": -1000,
+        "payee": "Landlord",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:1"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/10",
+        "amount": -200,
+        "payee": "Supermarket",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:3"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/20",
+        "amount": -100,
+        "payee": "Cinema",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:5"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/22",
+        "amount": -35,
+        "payee": "Pizzeria",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:4"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-3/14",
+        "amount": -1000,
+        "payee": "Depot",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:6"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/1",
+        "amount": 3000,
+        "payee": "Employer",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:0"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/2",
+        "amount": -1000,
+        "payee": "Landlord",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:1"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/10",
+        "amount": -200,
+        "payee": "Supermarket",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:3"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/20",
+        "amount": -100,
+        "payee": "Cinema",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:5"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/22",
+        "amount": -35,
+        "payee": "Pizzeria",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:4"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-2/14",
+        "amount": -500,
+        "payee": "Depot",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:6"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-1/1",
+        "amount": 3000,
+        "payee": "Employer",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:0"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-1/2",
+        "amount": -1000,
+        "payee": "Landlord",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:1"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-1/10",
+        "amount": -200,
+        "payee": "Supermarket",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:3"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-1/20",
+        "amount": -100,
+        "payee": "Cinema",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:5"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:-1/22",
+        "amount": -35,
+        "payee": "Pizzeria",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:4"
+      }
+    },
+    {
+      "table": "transactions",
+      "values": {
+        "date": "@month:0/1",
+        "amount": -205,
+        "payee": "Supermarket",
+        "account_id": "@ref:accounts:0",
+        "category_id": "@ref:categories:3"
+      }
+    },
+    {
+      "table": "trades",
+      "values": {
+        "date": "@month:-3/15",
+        "isin": "IE00B4L5Y983",
+        "name": "MSCI World ETF",
+        "kind": "buy",
+        "shares": 10,
+        "price": 100,
+        "account_id": "@ref:accounts:1"
+      }
+    },
+    {
+      "table": "trades",
+      "values": {
+        "date": "@month:-2/15",
+        "isin": "IE00B4L5Y983",
+        "name": "MSCI World ETF",
+        "kind": "buy",
+        "shares": 5,
+        "price": 100,
+        "account_id": "@ref:accounts:1"
+      }
+    },
+    {
+      "table": "trades",
+      "values": {
+        "date": "@month:-1/20",
+        "isin": "IE00B4L5Y983",
+        "name": "MSCI World ETF",
+        "kind": "sell",
+        "shares": 3,
+        "price": 108,
+        "fees": 1,
+        "account_id": "@ref:accounts:1"
+      }
+    },
+    {
+      "table": "prices",
+      "values": {
+        "isin": "IE00B4L5Y983",
+        "date": "@monthEnd:-3",
+        "price": 102
+      }
+    },
+    {
+      "table": "prices",
+      "values": {
+        "isin": "IE00B4L5Y983",
+        "date": "@monthEnd:-2",
+        "price": 98
+      }
+    },
+    {
+      "table": "prices",
+      "values": {
+        "isin": "IE00B4L5Y983",
+        "date": "@monthEnd:-1",
+        "price": 110
+      }
+    },
+    {
+      "table": "dividends",
+      "values": {
+        "date": "@month:-1/15",
+        "isin": "IE00B4L5Y983",
+        "name": "MSCI World ETF",
+        "amount": 12.5,
+        "account_id": "@ref:accounts:1"
+      }
+    }
+  ]
+}

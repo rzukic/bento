@@ -1,4 +1,5 @@
 import { apiClient } from "./client";
+import type { Workspace } from "./workspaces";
 import type { ApiKeyScope } from "./connections";
 
 type DataEnvelope<T> = { data: T };
@@ -11,7 +12,12 @@ export type McpPermission =
   | "dashboards.write"
   | "forms.write"
   | "schema.write"
-  | "functions.write";
+  | "functions.write"
+  | "automation.write"
+  | "apps.write"
+  | "shares.write"
+  | "settings.write"
+  | "workspaces.manage";
 
 export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string; needs: "viewer" | "editor" | "admin"; danger?: boolean }[] = [
   { id: "data.read", label: "Read everything", detail: "Tables and rows, the schema, dashboards, forms, saved queries and functions; run analyses.", needs: "viewer" },
@@ -21,6 +27,11 @@ export const MCP_PERMISSIONS: { id: McpPermission; label: string; detail: string
   { id: "forms.write", label: "Forms", detail: "Create, change and delete entry forms.", needs: "editor" },
   { id: "schema.write", label: "Tables and columns", detail: "Change the schema — this can delete data.", needs: "admin", danger: true },
   { id: "functions.write", label: "Functions and price sources", detail: "Write JavaScript functions and run price sources.", needs: "admin" },
+  { id: "automation.write", label: "Rules and reports", detail: "When Bento tells you something, and over which of your channels.", needs: "admin" },
+  { id: "apps.write", label: "Calendar apps", detail: "Show tables as calendars on your devices. Device passwords you always make yourself.", needs: "admin" },
+  { id: "shares.write", label: "Share links", detail: "Make dashboards and forms public for anyone with the link.", needs: "viewer", danger: true },
+  { id: "settings.write", label: "Workspace settings", detail: "How numbers and dates are written, the time zone, week and year start.", needs: "admin" },
+  { id: "workspaces.manage", label: "Create workspaces", detail: "Create and rename workspaces — never delete them. Installation admins only.", needs: "admin" },
 ];
 
 /** OAuth scope text → permissions: the ids, and "write" for adding and changing rows. Read is always in. */
@@ -45,6 +56,10 @@ export type McpConnection = {
   permissions: McpPermission[];
   /** What the user behind the app could grant it (their role). */
   allowed: McpPermission[];
+  /** The workspaces it may use; null: every one. */
+  workspaces?: number[] | null;
+  /** The workspaces its user can open. */
+  openable?: Workspace[];
   createdAt: string;
   lastUsedAt: string | null;
 };
@@ -76,8 +91,10 @@ export async function revokeMcpConnection(id: number): Promise<void> {
 }
 
 /** PUT /api/v1/mcp/connections/{id} — change what a connected app may do; applies to its next call. */
-export async function updateMcpConnection(id: number, permissions: McpPermission[]): Promise<McpConnection> {
-  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, { permissions })).data;
+/** Workspaces: a list, "all" (also later ones, Step 5.13) or undefined to keep them. */
+export async function updateMcpConnection(id: number, permissions: McpPermission[], workspaces?: number[] | "all"): Promise<McpConnection> {
+  const body = workspaces === "all" ? { permissions, allWorkspaces: true } : { permissions, workspaces };
+  return (await apiClient.put<DataEnvelope<McpConnection>>(`/mcp/connections/${id}`, body)).data;
 }
 
 /** The calls made through one connected app, newest first. */
@@ -90,10 +107,20 @@ export async function listMcpCalls(limit = 50): Promise<McpCall[]> {
 }
 
 /** What the consent page shows before the user decides. */
-export type AuthorizeInfo = { clientName: string; redirectHost: string; canWrite: boolean; allowed: McpPermission[] };
+export type AuthorizeInfo = {
+  clientName: string;
+  redirectHost: string;
+  canWrite: boolean;
+  allowed: McpPermission[];
+  /** The workspaces the user can open (Step 5.5), and the one the app's MCP address names. */
+  workspaces?: Workspace[];
+  selectedWorkspaces?: number[];
+};
 
-export async function getAuthorizeInfo(clientId: string, redirectUri: string): Promise<AuthorizeInfo> {
+/** `resource`: the MCP address the app connects to (…/mcp/<workspace>), as it sends it (RFC 8707). */
+export async function getAuthorizeInfo(clientId: string, redirectUri: string, resource?: string | null): Promise<AuthorizeInfo> {
   const params = new URLSearchParams({ client_id: clientId, redirect_uri: redirectUri });
+  if (resource) params.set("resource", resource);
   return (await apiClient.get<DataEnvelope<AuthorizeInfo>>(`/oauth/authorize?${params.toString()}`)).data;
 }
 
@@ -105,6 +132,9 @@ export type AuthorizeDecision = {
   permissions: McpPermission[];
   state: string | null;
   approve: boolean;
+  workspaces?: number[];
+  /** Every workspace the user can open, also those made later (Step 5.13). */
+  allWorkspaces?: boolean;
 };
 
 /** The address to send the browser to: back to the client with a code, or with access_denied. */

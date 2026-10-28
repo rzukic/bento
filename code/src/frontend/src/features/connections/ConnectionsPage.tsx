@@ -1,3 +1,4 @@
+import { isInstallationAdmin } from "../../types/auth";
 import { useSearchParams } from "react-router-dom";
 import { useAuthStore } from "../../stores/authStore";
 import { ApiExplorer } from "./ApiExplorer";
@@ -11,7 +12,8 @@ type Tab = "api" | "keys" | "ai";
 export function ConnectionsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const user = useAuthStore((state) => state.user);
-  const isAdmin = user?.role === "admin";
+  // API keys belong to the installation (Step 5.5): its admins make them, for chosen workspaces.
+  const isAdmin = isInstallationAdmin(user);
   const requested = searchParams.get("tab");
   // "claude" was the AI apps tab's first name; old links still open it.
   const tab: Tab = requested === "keys" ? "keys" : requested === "ai" || requested === "claude" ? "ai" : "api";

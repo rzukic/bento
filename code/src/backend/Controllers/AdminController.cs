@@ -65,10 +65,13 @@ public sealed class AdminController : ControllerBase
     /// </summary>
     [HttpGet("schema")]
     [RequireRole("viewer", "api")]
-    public async Task<IActionResult> GetSchema()
+    public async Task<IActionResult> GetSchema([FromServices] Services.Sharing.ShareGuard guard)
     {
         var model = await _modelJsonStore.GetCurrentAsync();
         model ??= new ModelJson { Version = 0 };
+        // A share link's visitor sees the tables its dashboard reads, nothing else (Step 5.6).
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+            model = await guard.SchemaAsync(visitor, model);
 
         var json = BuildSchemaSnapshotJson(model);
         return Content(json, "application/json");

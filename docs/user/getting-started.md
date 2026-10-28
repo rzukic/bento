@@ -264,3 +264,13 @@ For a deeper technical validation path, see [../backend/packaged-mvp1-validation
 Bento writes numbers, dates and amounts the way your browser's language does, e.g. `-1.250,00 €` in German and `-€1,250.00` in English.
 - **Settings → Appearance → Numbers and dates** picks another way for this browser.
 - Admins set the default for everyone under **Settings → Workspace**: the language and region, e.g. Deutsch (Österreich), and the currency of amounts.
+
+## Time Zone, Weeks And The Year
+
+Under **Settings → Workspace** an admin also sets the workspace's calendar:
+
+- **Time zone**: "today" (in formulas, date ranges, rules and reports) and the times of reports, imports and price updates. Without a choice, the server's time zone counts — on a Docker server usually UTC, so choose yours. A workspace from before this setting keeps Europe/Berlin, where everything ran until then.
+- **Weeks start on** Monday, Sunday or Saturday: weekly charts, "this week", weekly rules and reports.
+- **The year starts in** January, or another month for a fiscal year: "this year", yearly and quarterly charts (Q1 2026/27 for April–June 2026 in a year from April), rules and reports.
+
+An import or a price source can keep a time zone of its own; left empty, it follows the workspace.

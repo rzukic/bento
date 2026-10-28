@@ -1,0 +1,166 @@
+/* Apps (Step 5.4): calendars for devices. Uses the notification panels' list and form styles. */
+.apps {
+  display: grid;
+  gap: 1rem;
+}
+
+.apps__intro {
+  margin: 0;
+  max-width: 48rem;
+  color: var(--text-2);
+}
+
+.apps__calendars {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-sm);
+}
+
+.apps__calendars li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+  align-items: baseline;
+}
+
+.apps__swatch {
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: var(--r-pill);
+  transform: translateY(1px);
+}
+
+.apps__devices {
+  display: grid;
+  gap: 0.375rem;
+  margin-top: 0.5rem;
+}
+
+.apps__device-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.apps__device {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.75rem;
+  align-items: center;
+  font-size: var(--fs-sm);
+}
+
+.apps__prefix {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.apps__add-device {
+  display: flex;
+  gap: 0.5rem;
+  max-width: 28rem;
+}
+
+.apps__add-device input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.apps__secret {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--text) 3%, transparent);
+}
+
+.apps__secret-lead {
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.apps__link {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+}
+
+.apps__link .field__label {
+  grid-column: 1 / -1;
+}
+
+.apps__url {
+  overflow-wrap: anywhere;
+  font-size: var(--fs-xs);
+}
+
+.apps__spacer {
+  flex: 1 1 auto;
+}
+
+.apps__color {
+  min-height: 2rem;
+  padding: 0.125rem;
+}
+
+.apps__filters {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.apps__filter {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.375rem;
+}
+
+@media (max-width: 720px) {
+  .apps__filter {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  }
+
+  .apps__filter input {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}
+
+.apps__caldav {
+  display: grid;
+  gap: 0.375rem;
+}
+
+.apps__account {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.25rem 0.75rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+
+.apps__account dt {
+  color: var(--text-3);
+}
+
+.apps__account dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+  align-items: center;
+  margin: 0;
+  min-width: 0;
+}
+
+/* Opened from a setup link (Step 5.14): the app to add a device to. */
+.apps__card--focused {
+  outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 2px;
+}

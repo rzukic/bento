@@ -143,6 +143,42 @@ public sealed class QueryIndexTests
     }
 
     [Fact]
+    public async Task OnSqlite_AQueryPastTheLimit_IsStopped_AndSaysSo()
+    {
+        await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>
+        {
+            ["Backend:AuthMode"] = "open",
+            ["Backend:Jwt:Secret"] = "sqlite-test-secret",
+            ["Database:QueryTimeoutSeconds"] = "1"
+        });
+        await SeedAsync(host);
+        // Minutes of work: every week of 20 years, 2000 trades, each a lookup no index serves.
+        await host.ExecuteDataSqlAsync("""
+            WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 2000)
+            INSERT INTO trades (date, security_id, isin, shares) SELECT '2000-01-01', 1, 'X', i FROM n;
+            WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 5000)
+            INSERT INTO prices (isin, date, price) SELECT 'P' || i, '2000-01-01', i FROM n;
+            """);
+
+        var watch = Stopwatch.StartNew();
+        using var response = await host.Client.PostAsJsonAsync("/api/v1/query", new
+        {
+            source = "securities",
+            asOf = new { bucket = "week", from = "2007-01-01", to = "2026-01-01", @as = "week" },
+            measures = new[] { new { name = "n", formula = "SUM(SUM(trades.shares * LOOKUP_ASOF(\"prices\", \"price\", trades.shares + 3000, \"date\", BUCKET_END(), \"price\")))" } }
+        });
+        var body = await response.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.GatewayTimeout, response.StatusCode);
+        Assert.Contains("TIMEOUT", body);
+        Assert.True(watch.Elapsed < TimeSpan.FromSeconds(15), $"took {watch.Elapsed}");
+
+        // The next query runs as usual.
+        using var next = await host.Client.PostAsJsonAsync("/api/v1/query", new { source = "trades", measures = new[] { new { name = "n", fn = "count" } } });
+        Assert.True(next.IsSuccessStatusCode, await next.Content.ReadAsStringAsync());
+        Assert.Equal(2001, (await next.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("data")[0].GetProperty("n").GetInt32());
+    }
+
+    [Fact]
     public async Task SlowQueries_AreLogged_WithWhereTheyCameFrom_ForAdmins()
     {
         await using var host = await ApiIntegrationTestHost.StartAsync(new Dictionary<string, string?>

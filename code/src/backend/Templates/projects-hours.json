@@ -1,0 +1,810 @@
+{
+  "id": "projects-hours",
+  "title": "Projects & hours",
+  "description": "Projects with a client, an hourly rate and planned hours a month, and the time spent on them. A dashboard with hours per week, billable value, the share of billable hours and each project against its plan; a form, Log hours, for quick entry.",
+  "base": {
+    "projects": "projects",
+    "time_entries": "time_entries"
+  },
+  "prefixes": [
+    "work_",
+    "my_"
+  ],
+  "tables": [
+    {
+      "name": "{{projects}}",
+      "displayName": "Projects",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "name",
+          "displayName": "Name",
+          "type": "text",
+          "nullable": false,
+          "unique": true
+        },
+        {
+          "name": "client",
+          "displayName": "Client",
+          "type": "text"
+        },
+        {
+          "name": "status",
+          "displayName": "Status",
+          "type": "enum",
+          "values": [
+            "active",
+            "paused",
+            "done"
+          ],
+          "default": "active"
+        },
+        {
+          "name": "hourly_rate",
+          "displayName": "Hourly rate",
+          "type": "currency"
+        },
+        {
+          "name": "planned_hours",
+          "displayName": "Planned hours a month",
+          "type": "float"
+        },
+        {
+          "name": "hours",
+          "displayName": "Hours",
+          "type": "computed",
+          "formula": "SUM({{time_entries}}.hours)"
+        }
+      ]
+    },
+    {
+      "name": "{{time_entries}}",
+      "displayName": "Time entries",
+      "columns": [
+        {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true
+        },
+        {
+          "name": "date",
+          "displayName": "Date",
+          "type": "date",
+          "nullable": false
+        },
+        {
+          "name": "project_id",
+          "displayName": "Project",
+          "type": "reference",
+          "references": "{{projects}}",
+          "nullable": false
+        },
+        {
+          "name": "hours",
+          "displayName": "Hours",
+          "type": "float",
+          "nullable": false
+        },
+        {
+          "name": "status",
+          "displayName": "Status",
+          "type": "enum",
+          "values": [
+            "billable",
+            "internal"
+          ],
+          "default": "billable"
+        },
+        {
+          "name": "note",
+          "displayName": "Note",
+          "type": "text"
+        },
+        {
+          "name": "value",
+          "displayName": "Billable value",
+          "type": "computed",
+          "formula": "IF(status = \"billable\", hours * COALESCE(project_id.hourly_rate, 0), 0)"
+        }
+      ]
+    }
+  ],
+  "relations": [
+    {
+      "name": "{{projects}}_{{time_entries}}",
+      "type": "1:N",
+      "from": "{{projects}}",
+      "to": "{{time_entries}}",
+      "column": "project_id"
+    }
+  ],
+  "dashboards": [
+    {
+      "name": "Hours",
+      "dashboard": {
+        "description": "Where the time goes",
+        "dateRange": {
+          "preset": "last-3-months"
+        },
+        "filters": [
+          {
+            "column": "project_id",
+            "label": "Project"
+          }
+        ],
+        "widgets": [
+          {
+            "id": "hours",
+            "type": "kpi",
+            "title": "Hours",
+            "position": {
+              "x": 0,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}",
+                "measures": [
+                  {
+                    "name": "hours",
+                    "fn": "sum",
+                    "column": "hours"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "number",
+              "compare": true,
+              "higherIsBetter": true
+            }
+          },
+          {
+            "id": "billable-value",
+            "type": "kpi",
+            "title": "Billable value",
+            "position": {
+              "x": 3,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}",
+                "measures": [
+                  {
+                    "name": "value",
+                    "fn": "sum",
+                    "column": "value"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "currency",
+              "compare": true,
+              "higherIsBetter": true
+            }
+          },
+          {
+            "id": "billable-share",
+            "type": "kpi",
+            "title": "Billable share",
+            "position": {
+              "x": 6,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}",
+                "measures": [
+                  {
+                    "name": "share",
+                    "formula": "SUM(hours WHERE status = \"billable\") / SUM(hours)"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "percent",
+              "compare": true,
+              "higherIsBetter": true
+            }
+          },
+          {
+            "id": "active-projects",
+            "type": "kpi",
+            "title": "Active projects",
+            "position": {
+              "x": 9,
+              "y": 0,
+              "w": 3,
+              "h": 2
+            },
+            "data": {
+              "query": {
+                "source": "{{projects}}",
+                "measures": [
+                  {
+                    "name": "active",
+                    "formula": "COUNT(WHERE status = \"active\")"
+                  }
+                ]
+              }
+            },
+            "display": {
+              "format": "integer",
+              "compare": false
+            }
+          },
+          {
+            "id": "hours-per-week",
+            "type": "bar",
+            "title": "Hours per week",
+            "position": {
+              "x": 0,
+              "y": 2,
+              "w": 8,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}",
+                "groupBy": [
+                  {
+                    "column": "date",
+                    "bucket": "week",
+                    "as": "week"
+                  },
+                  {
+                    "column": "status"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "hours",
+                    "fn": "sum",
+                    "column": "hours"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "number"
+            }
+          },
+          {
+            "id": "hours-by-project",
+            "type": "donut",
+            "title": "Hours by project",
+            "position": {
+              "x": 8,
+              "y": 2,
+              "w": 4,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}",
+                "groupBy": [
+                  {
+                    "column": "project_id"
+                  }
+                ],
+                "measures": [
+                  {
+                    "name": "hours",
+                    "fn": "sum",
+                    "column": "hours"
+                  }
+                ]
+              },
+              "dateColumn": "date"
+            },
+            "display": {
+              "format": "number"
+            }
+          },
+          {
+            "id": "plan",
+            "type": "target",
+            "title": "This month against the plan",
+            "position": {
+              "x": 0,
+              "y": 7,
+              "w": 6,
+              "h": 5
+            },
+            "data": {
+              "target": {
+                "source": "{{time_entries}}",
+                "value": "SUM(hours)",
+                "date": "date",
+                "group": "project_id",
+                "target": "planned_hours",
+                "per": "month",
+                "period": "current",
+                "kind": "goal",
+                "format": "number"
+              }
+            }
+          },
+          {
+            "id": "recent",
+            "type": "table",
+            "title": "Latest entries",
+            "position": {
+              "x": 6,
+              "y": 7,
+              "w": 6,
+              "h": 5
+            },
+            "data": {
+              "query": {
+                "source": "{{time_entries}}"
+              },
+              "rows": {
+                "columns": [
+                  "date",
+                  "project_id",
+                  "hours",
+                  "status",
+                  "note"
+                ],
+                "sort": "-date",
+                "limit": 25
+              },
+              "dateColumn": "date"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "forms": [
+    {
+      "name": "Log hours",
+      "form": {
+        "table": "{{time_entries}}",
+        "pinned": true,
+        "fields": [
+          {
+            "column": "hours",
+            "label": "Hours"
+          },
+          {
+            "column": "project_id",
+            "label": "Project",
+            "default": {
+              "kind": "last"
+            }
+          },
+          {
+            "column": "date",
+            "label": "Date",
+            "default": {
+              "kind": "today"
+            }
+          },
+          {
+            "column": "status",
+            "label": "Status",
+            "default": {
+              "kind": "last"
+            }
+          },
+          {
+            "section": "More"
+          },
+          {
+            "column": "note",
+            "label": "What you worked on"
+          }
+        ]
+      }
+    }
+  ],
+  "examples": [
+    {
+      "table": "projects",
+      "values": {
+        "name": "Website relaunch",
+        "client": "Acme",
+        "status": "active",
+        "hourly_rate": 90,
+        "planned_hours": 40
+      }
+    },
+    {
+      "table": "projects",
+      "values": {
+        "name": "Mobile app",
+        "client": "Northwind",
+        "status": "active",
+        "hourly_rate": 100,
+        "planned_hours": 30
+      }
+    },
+    {
+      "table": "projects",
+      "values": {
+        "name": "Internal",
+        "status": "active",
+        "planned_hours": 8
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-41",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-40",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-40",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-37",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-36",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-35",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-34",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-33",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-33",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-30",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-29",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-28",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-27",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-26",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-26",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-23",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-22",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-21",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-20",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-19",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-19",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-16",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-15",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-14",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-13",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-12",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-12",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-9",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-8",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-7",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-6",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-5",
+        "project_id": "@ref:projects:0",
+        "hours": 2,
+        "status": "billable",
+        "note": "Review"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-5",
+        "project_id": "@ref:projects:2",
+        "hours": 1,
+        "status": "internal",
+        "note": "Planning"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-2",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:-1",
+        "project_id": "@ref:projects:1",
+        "hours": 4,
+        "status": "billable",
+        "note": "Features"
+      }
+    },
+    {
+      "table": "time_entries",
+      "values": {
+        "date": "@days:0",
+        "project_id": "@ref:projects:0",
+        "hours": 3,
+        "status": "billable",
+        "note": "Design and build"
+      }
+    }
+  ]
+}

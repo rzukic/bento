@@ -6,9 +6,11 @@ import { ShellLayout } from "./components/layout/ShellLayout";
 import { CategorisePage, DataExplorerPage, ImportPage, NewTableFromCsvPage, TableDetailPage } from "./features/data-explorer";
 import { SetupGate, SetupPage } from "./features/setup";
 import { Spinner } from "./components/ui/Spinner";
+import { routerBasename } from "./lib/workspace";
 
 // Dashboards carry the chart library; it loads when a dashboard opens.
 const DashboardsListPage = lazy(() => import("./features/dashboards/DashboardsListPage").then((m) => ({ default: m.DashboardsListPage })));
+const AppsPage = lazy(() => import("./features/apps/AppsPage").then((m) => ({ default: m.AppsPage })));
 const ConnectionsPage = lazy(() => import("./features/connections/ConnectionsPage").then((m) => ({ default: m.ConnectionsPage })));
 const FunctionsPage = lazy(() => import("./features/functions/FunctionsPage").then((m) => ({ default: m.FunctionsPage })));
 const DashboardPage = lazy(() => import("./features/dashboards/DashboardPage").then((m) => ({ default: m.DashboardPage })));
@@ -16,6 +18,7 @@ const FormsPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({
 const FormPage = lazy(() => import("./features/forms/FormsPage").then((m) => ({ default: m.FormPage })));
 const FormBuilder = lazy(() => import("./features/forms/FormBuilder").then((m) => ({ default: m.FormBuilder })));
 const AiPage = lazy(() => import("./features/ai/AiPage").then((m) => ({ default: m.AiPage })));
+const SharedPage = lazy(() => import("./features/sharing/SharedPage").then((m) => ({ default: m.SharedPage })));
 const OAuthConsentPage = lazy(() => import("./features/connections/OAuthConsentPage").then((m) => ({ default: m.OAuthConsentPage })));
 
 function Lazy({ children }: { children: ReactNode }) {
@@ -217,6 +220,19 @@ const shellRoutes: RouteObject[] = [
     } satisfies AppRouteHandle
   },
   {
+    path: "apps",
+    element: (
+      <Lazy>
+        <AppsPage />
+      </Lazy>
+    ),
+    handle: {
+      title: "Apps",
+      navLabel: "Apps",
+      navGroup: "Workspace"
+    } satisfies AppRouteHandle
+  },
+  {
     path: "settings",
     element: <SettingsPage />,
     handle: {
@@ -228,6 +244,16 @@ const shellRoutes: RouteObject[] = [
 ];
 
 export const appRoutes: RouteObject[] = [
+  {
+    // A share link (Step 5.6): no account, no app around it.
+    path: "/s/:token",
+    element: (
+      <Lazy>
+        <SharedPage />
+      </Lazy>
+    ),
+    handle: { title: "Shared dashboard" } satisfies AppRouteHandle
+  },
   {
     // The wizard decides on its own whether it should be shown; everything
     // else sits behind the SetupGate so an uninitialised installation lands
@@ -277,7 +303,7 @@ export const appRoutes: RouteObject[] = [
   }
 ];
 
-export const router = createBrowserRouter(appRoutes);
+export const router = createBrowserRouter(appRoutes, { basename: routerBasename() });
 
 export function createTestRouter(initialEntries: string[]) {
   return createMemoryRouter(appRoutes, { initialEntries });

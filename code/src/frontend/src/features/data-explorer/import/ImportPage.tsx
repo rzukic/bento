@@ -3,8 +3,13 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   analyzeImport,
   createImportProfile,
+  createImportSource,
   deleteImportProfile,
+  fetchImportFile,
+  runImportFunction,
   listImportProfiles,
+  listImportSources,
+  updateImportSource,
   previewImport,
   readFileAsBase64,
   runImport,
@@ -17,7 +22,10 @@ import {
   type ImportRowStatus,
   type ImportRunPayload,
   type ImportRunResult,
+  type ImportSchedule,
+  type ImportSource,
 } from "../../../api/import";
+import { useAuthStore } from "../../../stores/authStore";
 import { ApiClientError } from "../../../api/client";
 import { Icon } from "../../../components/common/Icon";
 import { Alert } from "../../../components/ui/Alert";
@@ -45,6 +53,7 @@ import {
   type MappingState,
 } from "./importMapping";
 import { FileDrop, ReadSettings } from "./ImportSections";
+import { FunctionSourceForm, SavedImportsList, SaveScheduleForm, UrlSourceForm, type FetchedFrom, type UrlSource } from "./SavedImports";
 import { getAiStatus } from "../../../api/ai";
 import type { CategoriseRow } from "../../../api/categorise";
 import { CategoriseBar, CategoryCell } from "../categorise/CategoriseControls";
@@ -84,12 +93,30 @@ function countRows(count: number): string {
 function skippedSummary(result: ImportRunResult): string {
   const parts = [
     result.duplicates > 0 ? `${countRows(result.duplicates)} already in the table` : null,
+    // Changed rows not updated (the option was off) are skipped too.
+    (result.changed ?? 0) > (result.updated ?? 0) ? `${countRows((result.changed ?? 0) - (result.updated ?? 0))} that changed` : null,
     result.invalid > 0 ? `${countRows(result.invalid)} with problems` : null,
   ].filter(Boolean);
+  const updated = (result.updated ?? 0) > 0 ? `Updated ${countRows(result.updated ?? 0)} that changed. ` : "";
   return parts.length === 0
-    ? "Every row of the file is in the table now."
-    : `Skipped ${parts.join(" and ")}.`;
+    ? `${updated}Every row of the file is in the table now.`
+    : `${updated}Skipped ${parts.length > 2 ? `${parts.slice(0, -1).join(", ")} and ${parts.at(-1)}` : parts.join(" and ")}.`;
 }
+
+/** "Import 3 rows", "Import 1 row and update 2", "Update 2 rows". */
+function importLabel(added: number, changed: number): string {
+  if (added === 0 && changed === 0) return "Nothing new to import";
+  if (changed === 0) return `Import ${countRows(added)}`;
+  if (added === 0) return `Update ${countRows(changed)}`;
+  return `Import ${countRows(added)} and update ${changed}`;
+}
+
+const STATUS_LABELS: Record<ImportRowStatus, [string, string]> = {
+  new: ["New", "Imported"],
+  duplicate: ["Already there", "Already there"],
+  changed: ["Changed", "Updated"],
+  invalid: ["Problem", "Problem"],
+};
 
 export function ImportPage() {
   const { tableId = "" } = useParams();
@@ -112,6 +139,7 @@ export function ImportPage() {
   const [settings, setSettings] = useState<ImportFileSettings>({});
   const [mapping, setMapping] = useState<MappingState>({});
   const [keyColumns, setKeyColumns] = useState<string[]>([]);
+  const [updateChanged, setUpdateChanged] = useState(false);
   const [profiles, setProfiles] = useState<ImportProfile[]>([]);
   const [profileId, setProfileId] = useState<number | null>(null);
   const [profileName, setProfileName] = useState("");
@@ -119,7 +147,16 @@ export function ImportPage() {
   const [preview, setPreview] = useState<ImportRunResult | null>(null);
   const [result, setResult] = useState<ImportRunResult | null>(null);
   const [reviewFilter, setReviewFilter] = useState<ReviewFilter>("all");
-  const [busy, setBusy] = useState<"analyze" | "preview" | "import" | "profile" | null>(null);
+  const [busy, setBusy] = useState<"analyze" | "fetch" | "preview" | "import" | "profile" | "schedule" | null>(null);
+  // Step 5.1: the file can come from a URL, and be saved as an import that runs on its own.
+  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  const [origin, setOrigin] = useState<"file" | "url" | "function">("file");
+  const [urlSource, setUrlSource] = useState<UrlSource>({ url: "", headers: [] });
+  const [functionSource, setFunctionSource] = useState("");
+  const [fetchedFrom, setFetchedFrom] = useState<FetchedFrom | null>(null);
+  const [sources, setSources] = useState<ImportSource[]>([]);
+  const [editingSource, setEditingSource] = useState<ImportSource | null>(null);
+  const [scheduleNotice, setScheduleNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const categoryColumns = useMemo(() => categorisableColumns(table), [table]);
@@ -148,6 +185,14 @@ export function ImportPage() {
       .catch(() => setProfiles([]));
   }, [tableId]);
 
+  const reloadSources = useCallback(() => {
+    if (!tableId) return;
+    listImportSources(tableId)
+      .then(setSources)
+      .catch(() => setSources([]));
+  }, [tableId]);
+  useEffect(reloadSources, [reloadSources]);
+
   // Any change to how the file is read or mapped makes an earlier check stale.
   const invalidate = useCallback(() => {
     setPreview(null);
@@ -168,6 +213,7 @@ export function ImportPage() {
           const applied = applyProfile(preset, nextHeaders, columns);
           setMapping(applied.mapping);
           setKeyColumns(applied.keyColumns);
+          setUpdateChanged(applied.updateChanged);
         } else {
           // Re-reading the same file keeps the user's choices where the
           // headers still exist; a new file gets a fresh suggestion.
@@ -192,6 +238,8 @@ export function ImportPage() {
   const chooseFile = useCallback(
     async (next: File) => {
       setFile(next);
+      setFetchedFrom(null);
+      setEditingSource(null);
       // A new file starts from a fresh suggestion, not the previous mapping.
       mappingRef.current = {};
       keyColumnsRef.current = [];
@@ -208,6 +256,87 @@ export function ImportPage() {
     [analyze, selectedProfile],
   );
 
+  /** Fetches the file at the URL (on the server) and reads it like an upload; a saved import brings its own settings and mapping. */
+  const fetchFromUrl = (from: UrlSource, preset: ImportProfileConfig | null) => {
+    const headers = from.headers.filter((h) => h.name.trim());
+    return fetchFrom({ kind: "url", url: from.url.trim(), headers }, preset);
+  };
+
+  /** The file from a URL or a function (on the server), read like an upload; a saved import brings its own settings and mapping. */
+  const fetchFrom = async (from: FetchedFrom, preset: ImportProfileConfig | null) => {
+    setBusy("fetch");
+    setError(null);
+    try {
+      const fetched = from.kind === "function" ? await runImportFunction(from.function) : await fetchImportFile(from.url, from.headers);
+      const bytes = Uint8Array.from(atob(fetched.content), (c) => c.charCodeAt(0));
+      setFile(new File([bytes], fetched.fileName, { type: fetched.contentType ?? "" }));
+      setContent(fetched.content);
+      setFetchedFrom(from);
+      if (!preset) {
+        mappingRef.current = {};
+        keyColumnsRef.current = [];
+      }
+      await analyze(fetched.content, preset?.settings ?? selectedProfile?.config.settings ?? {}, preset ?? selectedProfile?.config ?? null, fetched.fileName);
+    } catch (cause) {
+      setBusy(null);
+      setError(errorMessage(cause, from.kind === "function" ? "The function could not be run." : "The file could not be fetched."));
+    }
+  };
+
+  const editSource = (source: ImportSource) => {
+    setOrigin(source.config.function ? "function" : "url");
+    setEditingSource(source);
+    setScheduleNotice(null);
+    let from: FetchedFrom;
+    if (source.config.function) {
+      setFunctionSource(source.config.function);
+      from = { kind: "function", function: source.config.function };
+    } else {
+      const url = { url: source.config.url ?? "", headers: source.config.headers ?? [] };
+      setUrlSource(url);
+      from = { kind: "url", ...url };
+    }
+    if (source.config.categoryColumn) setCategoryColumn(source.config.categoryColumn);
+    void fetchFrom(from, {
+      settings: source.config.settings,
+      mapping: source.config.mapping,
+      keyColumns: source.config.keyColumns,
+      updateChanged: source.config.updateChanged,
+    });
+  };
+
+  const saveSchedule = async (name: string, schedule: ImportSchedule, asNew: boolean) => {
+    if (!fetchedFrom) return;
+    setBusy("schedule");
+    setScheduleNotice(null);
+    const config = {
+      ...(fetchedFrom.kind === "function" ? { function: fetchedFrom.function } : { url: fetchedFrom.url, headers: fetchedFrom.headers }),
+      settings: profileSettings(),
+      mapping: toMappingPayload(mapping),
+      keyColumns: keyColumns.filter((k) => mapping[k]),
+      updateChanged: updateChanged && keyColumns.some((k) => mapping[k]),
+      categoryColumn: activeCategoryColumn ?? null,
+      schedule,
+    };
+    try {
+      const saved =
+        editingSource && !asNew
+          ? await updateImportSource(tableId, editingSource.id, { name, config })
+          : await createImportSource(tableId, name, config);
+      setEditingSource(saved);
+      reloadSources();
+      setScheduleNotice(
+        schedule.kind === "manual"
+          ? `Saved “${saved.name}”. Run it from the list above whenever a new export is there.`
+          : `Saved “${saved.name}”. It runs ${schedule.kind === "daily" ? `every day at ${schedule.at}` : `every ${schedule.every} hours`}; new rows ${activeCategoryColumn ? "are categorised by your rules and " : ""}show up in ${displayName}.`,
+      );
+    } catch (cause) {
+      setScheduleNotice(errorMessage(cause, "The import could not be saved."));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   // Coming from "New table from CSV": read the same file with the same
   // settings and mapping, then check the rows right away.
   const location = useLocation();
@@ -222,7 +351,7 @@ export function ImportPage() {
     setFile(new File([bytes], handOff.fileName, { type: handOff.fileType || "text/csv" }));
     setContent(handOff.content);
     setNotice(handOff.notice);
-    void analyze(handOff.content, handOff.settings, { mapping: handOff.mapping, keyColumns: handOff.keyColumns }, handOff.fileName).then(
+    void analyze(handOff.content, handOff.settings, { mapping: handOff.mapping, keyColumns: handOff.keyColumns, updateChanged: false }, handOff.fileName).then(
       (ok) => setAutoCheck(ok),
     );
   }, [handOff, columns, analyze]);
@@ -265,6 +394,7 @@ export function ImportPage() {
           settings,
           mapping: toMappingPayload(mapping),
           keyColumns: keyColumns.filter((k) => mapping[k]),
+          ...(updateChanged && keyColumns.some((k) => mapping[k]) ? { updateChanged: true } : {}),
           ...(activeCategoryColumn && Object.keys(categorising.choices).length > 0
             ? {
                 assign: {
@@ -307,7 +437,7 @@ export function ImportPage() {
     setError(null);
     try {
       const done = await runImport(tableId, body);
-      if (done.inserted > 0) useExplorerStore.getState().markTableStale(tableId);
+      if (done.inserted + (done.updated ?? 0) > 0) useExplorerStore.getState().markTableStale(tableId);
       setResult(done);
       setPreview(done);
       // Corrections become rules for the next import ("REWE" → Groceries).
@@ -329,16 +459,29 @@ export function ImportPage() {
     }
   };
 
+  /** How the file is read, as a profile or saved import keeps it (the header row is found again in the next export). */
+  const profileSettings = (): ImportFileSettings => ({
+    encoding: settings.encoding,
+    delimiter: settings.delimiter,
+    decimalSeparator: settings.decimalSeparator,
+    dateFormat: settings.dateFormat,
+    format: settings.format,
+    // The sheet and the place of the records, so the next export of the same kind reads the same way.
+    ...(settings.sheet ? { sheet: settings.sheet } : {}),
+    ...(settings.jsonPath ? { jsonPath: settings.jsonPath } : {}),
+  });
+
   const saveProfile = async (asNew: boolean) => {
     const name = profileName.trim();
     if (!name) {
       setProfileNotice("Give the profile a name.");
       return;
     }
-    const config = {
-      settings: { encoding: settings.encoding, delimiter: settings.delimiter, decimalSeparator: settings.decimalSeparator, dateFormat: settings.dateFormat },
+    const config: ImportProfileConfig = {
+      settings: profileSettings(),
       mapping: toMappingPayload(mapping),
       keyColumns: keyColumns.filter((k) => mapping[k]),
+      ...(updateChanged ? { updateChanged: true } : {}),
     };
     setBusy("profile");
     setProfileNotice(null);
@@ -409,17 +552,44 @@ export function ImportPage() {
         </Link>
         <h1 className="import-page__title">Import into {displayName}</h1>
         <p className="import-page__lead">
-          Bank and broker exports work as they come: semicolons, decimal commas, German dates and the account lines above the header.
+          Exports work as they come — CSV with semicolons, decimal commas, local dates and extra lines above the header, Excel sheets and JSON — and so does any API through a function.
         </p>
       </header>
 
       {error ? <Alert tone="error" message={error} /> : null}
       {notice && !error && !result ? <Alert tone="success" message={notice} /> : null}
 
+      {sources.length > 0 ? (
+        <section className="import-section" aria-labelledby="import-saved-heading">
+          <div className="import-section__head">
+            <h2 id="import-saved-heading" className="import-section__title">Saved imports</h2>
+            <span className="import-section__note">Fetched from their address or function and imported on their own.</span>
+          </div>
+          <SavedImportsList table={tableId} sources={sources} editingId={editingSource?.id ?? null} onEdit={editSource} onChanged={reloadSources} />
+        </section>
+      ) : null}
+
       <section className="import-section" aria-labelledby="import-file-heading">
         <div className="import-section__head">
           <span className="import-section__step">1</span>
           <h2 id="import-file-heading" className="import-section__title">File</h2>
+          <div className="import-origin" role="tablist" aria-label="Where the file comes from">
+            <button type="button" role="tab" aria-selected={origin === "file"} className={origin === "file" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"} onClick={() => setOrigin("file")}>
+              Upload
+            </button>
+            <button type="button" role="tab" aria-selected={origin === "url"} className={origin === "url" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"} onClick={() => setOrigin("url")}>
+              From a URL
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={origin === "function"}
+              className={origin === "function" ? "import-origin__tab import-origin__tab--active" : "import-origin__tab"}
+              onClick={() => setOrigin("function")}
+            >
+              From a function
+            </button>
+          </div>
           {profiles.length > 0 ? (
             <div className="import-section__aside">
               <SelectField
@@ -433,12 +603,35 @@ export function ImportPage() {
           ) : null}
         </div>
 
-        <FileDrop
-          file={file}
-          rowCount={analysis?.rowCount ?? null}
-          inputRef={fileInputRef}
-          onChoose={(chosen) => void chooseFile(chosen)}
-        />
+        {origin === "url" || origin === "function" ? (
+          <>
+            {origin === "url" ? (
+              <UrlSourceForm value={urlSource} onChange={setUrlSource} onFetch={() => void fetchFromUrl(urlSource, null)} busy={busy === "fetch"} isAdmin={isAdmin} />
+            ) : (
+              <FunctionSourceForm
+                value={functionSource}
+                onChange={setFunctionSource}
+                onRun={() => void fetchFrom({ kind: "function", function: functionSource }, null)}
+                busy={busy === "fetch"}
+                isAdmin={isAdmin}
+              />
+            )}
+            {file && fetchedFrom && (fetchedFrom.kind === "function") === (origin === "function") ? (
+              <p className="import-url__fetched">
+                <Icon name="check" size={13} /> {fetchedFrom.kind === "function" ? `Ran ${fetchedFrom.function}` : `Fetched ${file.name}`} · {analysis ? `${analysis.rowCount} ${analysis.rowCount === 1 ? "row" : "rows"}` : ""}
+                {editingSource ? ` · editing “${editingSource.name}”` : ""}
+              </p>
+            ) : null}
+          </>
+        ) : (
+          <FileDrop
+            file={file}
+            rowCount={analysis?.rowCount ?? null}
+            inputRef={fileInputRef}
+            onChoose={(chosen) => void chooseFile(chosen)}
+          />
+        )}
+        {busy === "fetch" ? <Spinner label={origin === "function" ? "Running the function" : "Fetching the file"} /> : null}
         {busy === "analyze" ? <Spinner label="Reading the file" /> : null}
       </section>
 
@@ -492,6 +685,23 @@ export function ImportPage() {
                 ))}
               </tbody>
             </table>
+            <label className="import-update">
+              <input
+                type="checkbox"
+                checked={updateChanged}
+                disabled={!keyColumns.some((k) => mapping[k])}
+                onChange={(event) => {
+                  invalidate();
+                  setUpdateChanged(event.target.checked);
+                }}
+              />
+              <span>
+                <strong>Update rows that changed</strong>
+                <span className="import-update__hint">
+                  When a row's key is already in {displayName} but its other values differ — a corrected value, a status that moved on, today’s numbers that grew — update it instead of skipping it. Empty cells change nothing.
+                </span>
+              </span>
+            </label>
             {missingRequired.length > 0 ? (
               <p className="import-section__warning">
                 Required, not mapped: {missingRequired.map((c) => c.displayName ?? c.name).join(", ")}. Every row will be rejected.
@@ -530,6 +740,23 @@ export function ImportPage() {
               </div>
             </div>
             {profileNotice ? <p className="import-profile__notice" role="status">{profileNotice}</p> : null}
+            {fetchedFrom ? (
+              <div className="import-schedule-box">
+                <h3 className="import-schedule-box__title">{fetchedFrom.kind === "function" ? "Run and import on its own" : "Fetch and import on its own"}</h3>
+                <p className="import-section__note">
+                  Saves {fetchedFrom.kind === "function" ? "the function" : "the address"}, how the file is read, the columns and keys{activeCategoryColumn ? ` and filling in ${categoryLabel || activeCategoryColumn} by your rules` : ""}. Each run imports what is new{updateChanged ? ", updates what changed" : ""} and keeps a log; a failed run also shows under Settings → Problems.
+                </p>
+                <SaveScheduleForm
+                  key={editingSource?.id ?? "new"}
+                  initialName={editingSource?.name ?? ""}
+                  initialSchedule={editingSource?.config.schedule}
+                  editing={!!editingSource}
+                  busy={busy !== null || mappedColumns.length === 0}
+                  onSave={(name, schedule, asNew) => void saveSchedule(name, schedule, asNew)}
+                />
+                {scheduleNotice ? <p className="import-profile__notice" role="status">{scheduleNotice}</p> : null}
+              </div>
+            ) : null}
           </section>
         </>
       ) : null}
@@ -544,7 +771,7 @@ export function ImportPage() {
           {result ? (
             <Alert
               tone="success"
-              title={`${countRows(result.inserted)} imported into ${displayName}`}
+              title={`${countRows(result.inserted)} imported into ${displayName}${(result.updated ?? 0) > 0 ? `, ${result.updated} updated` : ""}`}
               message={rulesNotice ? `${skippedSummary(result)} ${rulesNotice}` : skippedSummary(result)}
             />
           ) : categoryColumns.length > 0 ? (
@@ -561,6 +788,15 @@ export function ImportPage() {
           <div className="import-summary" role="tablist" aria-label="Rows by status">
             <SummaryChip label="All" count={preview.total} active={reviewFilter === "all"} onClick={() => setReviewFilter("all")} />
             <SummaryChip label={result ? "Imported" : "New"} count={preview.new} tone="new" active={reviewFilter === "new"} onClick={() => setReviewFilter("new")} />
+            {(preview.changed ?? 0) > 0 ? (
+              <SummaryChip
+                label={result ? "Updated" : updateChanged ? "Changed" : "Changed, skipped"}
+                count={preview.changed ?? 0}
+                tone="changed"
+                active={reviewFilter === "changed"}
+                onClick={() => setReviewFilter("changed")}
+              />
+            ) : null}
             <SummaryChip label="Already there" count={preview.duplicates} tone="duplicate" active={reviewFilter === "duplicate"} onClick={() => setReviewFilter("duplicate")} />
             <SummaryChip label="Problems" count={preview.invalid} tone="invalid" active={reviewFilter === "invalid"} onClick={() => setReviewFilter("invalid")} />
           </div>
@@ -585,7 +821,7 @@ export function ImportPage() {
                       <td className="import-review__line">{row.line}</td>
                       <td>
                         <span className={`import-status import-status--${row.status}`}>
-                          {row.status === "new" ? (result ? "Imported" : "New") : row.status === "duplicate" ? "Already there" : "Problem"}
+                          {STATUS_LABELS[row.status][result ? 1 : 0]}
                         </span>
                         {row.errors.length > 0 ? (
                           <ul className="import-review__errors">
@@ -600,7 +836,15 @@ export function ImportPage() {
                           key={column.name}
                           className={errorFields.has(column.name) ? "import-review__cell import-review__cell--error" : "import-review__cell"}
                         >
-                          {row.display[column.name] ?? <span className="import-review__empty">—</span>}
+                          {row.before && column.name in row.before ? (
+                            <span className="import-review__change">
+                              <del>{row.before[column.name] ?? "—"}</del>
+                              <span aria-hidden="true"> → </span>
+                              <ins>{row.display[column.name] ?? "—"}</ins>
+                            </span>
+                          ) : (
+                            (row.display[column.name] ?? <span className="import-review__empty">—</span>)
+                          )}
                         </td>
                       ))}
                       {categoryDef ? (
@@ -654,13 +898,9 @@ export function ImportPage() {
                 type="button"
                 variant="primary"
                 onClick={() => void runImportNow()}
-                disabled={preview.new === 0 || busy !== null}
+                disabled={preview.new + (updateChanged ? (preview.changed ?? 0) : 0) === 0 || busy !== null}
               >
-                {busy === "import"
-                  ? "Importing…"
-                  : preview.new === 0
-                    ? "Nothing new to import"
-                    : `Import ${preview.new} ${preview.new === 1 ? "row" : "rows"}`}
+                {busy === "import" ? "Importing…" : importLabel(preview.new, updateChanged ? (preview.changed ?? 0) : 0)}
               </Button>
             )}
           </div>

@@ -88,6 +88,7 @@ public sealed class OpenApiDocumentBuilder
             ("Formulas", "Check spreadsheet-style formulas against a table and preview their values."),
             ("Functions", "Your own JavaScript functions, called from formulas with CUSTOM(…)."),
             ("Prices", "Price sources: your functions fetch prices into a table of your model."),
+            ("Workspaces", "The separate areas of this installation."),
             ("Dashboards", "Dashboard JSON: widgets, layout, date range."),
             ("Forms", "Quick entry forms: the table, its fields in order, sections and defaults. Submissions go through the data API."),
             ("Import", "CSV import with locale-aware parsing and duplicate skip."),
@@ -111,9 +112,14 @@ public sealed class OpenApiDocumentBuilder
                     "The API of this Bento installation, generated from its current schema. " +
                     "Authenticate with an API key (`X-API-Key: bento_…` or `Authorization: Bearer bento_…`) " +
                     "or a session token from `POST /auth/login`. Read keys may call operations marked `read`; " +
-                    "read-write keys also `write`. Errors use `{ \"error\": { \"code\", \"message\", \"details\" } }`."
+                    "read-write keys also `write`. Errors use `{ \"error\": { \"code\", \"message\", \"details\" } }`. " +
+                    $"This document describes the workspace `{Workspaces.WorkspaceContext.Current.Slug}`; another workspace is addressed as " +
+                    "`/api/v1/w/<slug>/…` or with the header `X-Bento-Workspace: <slug>` (without either: the default workspace)."
             },
-            ["servers"] = new JsonArray(new JsonObject { ["url"] = "/" + ApiRoutes.Prefix }),
+            ["servers"] = new JsonArray(new JsonObject
+            {
+                ["url"] = "/" + ApiRoutes.Prefix + (Workspaces.WorkspaceContext.Current.IsDefault ? "" : "/w/" + Workspaces.WorkspaceContext.Current.Slug)
+            }),
             ["tags"] = tags,
             ["paths"] = paths,
             ["components"] = new JsonObject
@@ -378,6 +384,12 @@ public sealed class OpenApiDocumentBuilder
                 "Starting points for new functions, e.g. prices from Yahoo Finance, Xetra symbols for ISINs, or realised gains by average cost and FIFO (mode `rows`).",
                 responses: Responses(200, "The templates.", anyObject.DeepClone()))
         };
+        paths["/workspaces"] = new JsonObject
+        {
+            ["get"] = Operation("Workspaces", "List workspaces", "read",
+                "The separate areas of this installation, each with its own tables, dashboards, forms, functions, imports, rules and settings. Address one as `/api/v1/w/<slug>/…`, with the header `X-Bento-Workspace`, or over MCP at `/mcp/<slug>`.",
+                responses: Responses(200, "The workspaces: id, slug, name, isDefault.", anyObject.DeepClone()))
+        };
         paths["/price-sources"] = new JsonObject
         {
             ["get"] = Operation("Prices", "List price sources", "read",
@@ -421,23 +433,43 @@ public sealed class OpenApiDocumentBuilder
             ["settings"] = anyObject.DeepClone(),
             ["mapping"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["source"] = Str(), ["target"] = Str(), ["value"] = Str(example: "Checking") }) },
             ["keyColumns"] = new JsonObject { ["type"] = "array", ["items"] = Str() },
-            ["distinctKeys"] = new JsonObject { ["type"] = "boolean" }
+            ["distinctKeys"] = new JsonObject { ["type"] = "boolean" },
+            ["updateChanged"] = new JsonObject { ["type"] = "boolean", ["description"] = "With keyColumns: update rows whose other values changed instead of skipping them." }
         });
         paths["/import/analyze"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Read a CSV file", "write", "Detects encoding, separator, header and number/date format.",
-                body: Obj(new JsonObject { ["content"] = Str(example: "base64 of the file") }),
+            ["post"] = Operation("Import", "Read a file", "write", "CSV, Excel (.xlsx) or JSON: detects the format, encoding, separator, header, sheet or list of records, and number/date format.",
+                body: Obj(new JsonObject { ["content"] = Str(example: "base64 of the file"), ["fileName"] = Str(example: "umsaetze.xlsx") }),
                 responses: Responses(200, "Settings, columns and samples.", anyObject.DeepClone()))
         };
         paths["/import/{table}/preview"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Check a CSV import", "write", "Nothing is written.", parameters: new JsonArray(tableParam.DeepClone()),
+            ["post"] = Operation("Import", "Check an import", "write", "Nothing is written.", parameters: new JsonArray(tableParam.DeepClone()),
                 body: importBody.DeepClone(), responses: Responses(200, "Rows by status.", anyObject.DeepClone()))
         };
         paths["/import/{table}"] = new JsonObject
         {
-            ["post"] = Operation("Import", "Import a CSV file", "write", "New, valid rows in one transaction.", parameters: new JsonArray(tableParam.DeepClone()),
+            ["post"] = Operation("Import", "Import a file", "write", "New, valid rows (and with updateChanged the changed ones) in one transaction.", parameters: new JsonArray(tableParam.DeepClone()),
                 body: importBody.DeepClone(), responses: Responses(200, "Counts and rows by status.", anyObject.DeepClone()))
+        };
+        paths["/import/fetch"] = new JsonObject
+        {
+            ["post"] = Operation("Import", "Fetch a file from a URL", "write", "https and public addresses only; {{name}} in the URL or a header is a credential from the vault (admins). Returns the file as base64 for the routes above.",
+                body: Obj(new JsonObject { ["url"] = Str(example: "https://bank.example/export.csv"), ["headers"] = new JsonObject { ["type"] = "array", ["items"] = Obj(new JsonObject { ["name"] = Str(), ["value"] = Str(example: "Bearer {{bank_token}}") }) } }),
+                responses: Responses(200, "content (base64), fileName, contentType, bytes, finalUrl.", anyObject.DeepClone()))
+        };
+        paths["/import/{table}/sources"] = new JsonObject
+        {
+            ["get"] = Operation("Import", "List saved imports", "read", "Imports from a URL with their schedule, last and next run.", parameters: new JsonArray(tableParam.DeepClone()),
+                responses: Responses(200, "Saved imports.", anyObject.DeepClone())),
+            ["post"] = Operation("Import", "Save an import from a URL", "write", "config: url, headers, settings, mapping, keyColumns, updateChanged, categoryColumn, schedule {kind: manual|daily|hours, at, every, timeZone}.", parameters: new JsonArray(tableParam.DeepClone()),
+                body: anyObject.DeepClone(), responses: Responses(201, "The saved import.", anyObject.DeepClone()))
+        };
+        var sourceParam = new JsonObject { ["name"] = "id", ["in"] = "path", ["required"] = true, ["description"] = "The saved import's id.", ["schema"] = Str(example: "1") };
+        paths["/import/{table}/sources/{id}/run"] = new JsonObject
+        {
+            ["post"] = Operation("Import", "Run a saved import now", "write", "Fetches, categorises by the rules, imports; the answer is the run, also a failed one.", parameters: new JsonArray(tableParam.DeepClone(), sourceParam),
+                responses: Responses(200, "The run: status, counts, error.", anyObject.DeepClone()))
         };
         paths["/admin/schema"] = new JsonObject
         {

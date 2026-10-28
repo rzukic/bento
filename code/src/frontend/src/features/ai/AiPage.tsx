@@ -1,3 +1,4 @@
+import { isInstallationAdmin } from "../../types/auth";
 import { useEffect, useState } from "react";
 import { getAiSettings, getAiStatus, listAiUsage, saveAiSettings, type AiSettings, type AiStatus, type AiUsageRow } from "../../api/ai";
 import { listDashboardChanges, restoreDashboardVersion, restoreDeletedDashboard, type DashboardVersion } from "../../api/dashboards";
@@ -32,7 +33,8 @@ function message(cause: unknown, fallback: string): string {
 /** AI (Step 4.7): setting up Bento's AI, the monthly budget and every call. */
 export function AiPage() {
   useDocumentTitle("AI · Bento");
-  const isAdmin = useAuthStore((state) => state.user?.role === "admin");
+  // AI settings and the budget are the installation's (Step 5.5).
+  const isAdmin = useAuthStore((state) => isInstallationAdmin(state.user));
   const [status, setStatus] = useState<AiStatus | null>(null);
   const [settings, setSettings] = useState<AiSettings | null>(null);
   const [usage, setUsage] = useState<AiUsageRow[] | null>(null);

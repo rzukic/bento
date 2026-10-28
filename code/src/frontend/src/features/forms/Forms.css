@@ -174,6 +174,15 @@
     background: linear-gradient(to top, var(--bg) 70%, transparent);
 }
 
+/* The filled-in form scrolls under its Save bar: the space below is the bar's, so nothing shows beneath it. */
+.forms-page--fill {
+    padding-bottom: 0;
+}
+
+.forms-page--fill .form-fill__actions {
+    padding-bottom: 1.25rem;
+}
+
 .form-fill__submit {
     min-width: 9rem;
     min-height: 3rem;
@@ -504,4 +513,9 @@ textarea.form-field__input {
     .form-fill__actions .btn {
         flex: 1;
     }
+}
+
+.form-page__actions {
+    display: inline-flex;
+    gap: 0.25rem;
 }

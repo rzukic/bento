@@ -16,9 +16,11 @@ import { useWidgetResult } from "../useWidgetResult";
 import { labelOf, otherKeyOf, toChartModel, toKpiModel } from "../widgetData";
 import { applyMeasureShows, placeAnnotations, withMeasureColors, resolveReferenceLines, shiftedRange, withShifted, withTotal } from "../chartTransforms";
 import { renderCellValue } from "../../data-explorer/components/cellValue";
+import { lookupReferenceLabel, useReferenceLabels } from "../../data-explorer/components/useReferenceLabels";
 import { valueTypeOf } from "../../../lib/columns";
 import { useSchemaStore } from "../../../stores/schemaStore";
-import { BudgetWidget } from "./BudgetWidget";
+import type { ModelTable } from "../../../types/api";
+import { TargetWidget } from "./TargetWidget";
 import { INTERVAL_LABELS } from "../interval";
 
 /** Re-reads the chart colors whenever the light/dark theme changes. */
@@ -127,11 +129,11 @@ export function WidgetContent({
   if (widget.type === "kpi" && widget.data?.variable) {
     return <VariableKpi widget={widget} name={widget.data.variable} variables={variables} />;
   }
-  if (widget.type === "budget") {
-    return widget.data?.budget ? (
-      <BudgetWidget config={widget.data.budget} range={range} refreshToken={refreshToken} onDrill={onDrill} />
+  if (widget.type === "target") {
+    return widget.data?.target ? (
+      <TargetWidget config={widget.data.target} range={range} refreshToken={refreshToken} onDrill={onDrill} />
     ) : (
-      <p className="widget-note">Choose the spending table and the limits in the widget's settings.</p>
+      <p className="widget-note">Choose the values and the targets in the widget's settings.</p>
     );
   }
   if (widget.type === "table" && widget.data?.rows) {
@@ -316,8 +318,24 @@ function ChartWidget({
     },
     [onDrill, onDrillDown, widget.type, widget.data, model, query, range],
   );
+  const describeItem = useCallback(
+    (click: ChartClick) => {
+      const title = formatBucketTitle(String(click.name ?? ""), model.bucket);
+      const series = widget.type === "donut" ? undefined : model.series[click.seriesIndex ?? -1];
+      return series?.pick && model.series.length > 1 ? `${series.name} · ${title}` : title;
+    },
+    [model, widget.type],
+  );
   if (model.categories.length === 0) return <p className="widget-note">No data in this range.</p>;
-  return <EChart option={option} label={widget.title || "Chart"} onHoverSeries={onHoverSeries} onItemClick={onDrill || onDrillDown ? onItemClick : undefined} />;
+  return (
+    <EChart
+      option={option}
+      label={widget.title || "Chart"}
+      onHoverSeries={onHoverSeries}
+      onItemClick={onDrill || onDrillDown ? onItemClick : undefined}
+      describeItem={describeItem}
+    />
+  );
 }
 
 function SankeyWidget({
@@ -335,12 +353,14 @@ function SankeyWidget({
   tokens: ChartTokens;
   onDrill?: (target: DrillTarget) => void;
 }) {
-  const groupCount = result.meta.columns.filter((c) => c.role === "group").length;
-  const mode = sankeyMode(widget.display?.sankey, groupCount);
-  const model = useMemo(() => toSankeyModel(result, query ?? undefined, mode, overrideFormat(widget) ?? formatKindForType(result.meta.columns.find((c) => c.role === "measure")?.type)), [result, query, mode, widget]);
+  const mode = sankeyMode(widget.display?.sankey);
+  const model = useMemo(
+    () => toSankeyModel(result, query ?? undefined, mode, overrideFormat(widget) ?? formatKindForType(result.meta.columns.find((c) => c.role === "measure")?.type), widget.display?.sankeyLabels),
+    [result, query, mode, widget],
+  );
   const shares = widget.display?.shares ?? false;
   const option = useMemo(() => buildSankeyOption(model, tokens, { shares }), [model, tokens, shares]);
-  // A node or a flow opens its rows; cash flow sides keep their sign (income above 0, expenses below).
+  // A node or a flow opens its rows; balance sides keep their sign (in above 0, out below).
   const onItemClick = useCallback(
     (click: ChartClick) => {
       if (!onDrill) return;
@@ -357,9 +377,7 @@ function SankeyWidget({
   );
   if (model.links.length === 0) {
     return (
-      <p className="widget-note">
-        {mode === "levels" && groupCount < 2 ? "Add a second level, or show it as income → expenses under Style." : "No flows in this range."}
-      </p>
+      <p className="widget-note">No flows in this range.</p>
     );
   }
   return <EChart option={option} label={widget.title || "Sankey"} onItemClick={onDrill ? onItemClick : undefined} />;
@@ -613,12 +631,16 @@ function TableWidget({
   );
 }
 
+const NO_TABLE: ModelTable = { name: "", columns: [] } as unknown as ModelTable;
+
 /** The rows as they are: the widget's columns, sorted and limited, with the explorer's formatting. */
 function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; range: ResolvedRange; refreshToken: number }) {
   const state = useRows(widget, range, refreshToken);
   const snapshot = useSchemaStore((s) => s.snapshot);
   const table = snapshot?.tables.find((t) => t.name === widget.data?.query?.source);
   const columns = (widget.data?.rows?.columns ?? []).map((name) => table?.columns.find((c) => c.name === name) ?? { name, type: "text" });
+  // Linked records by their label, as in the data view.
+  const labels = useReferenceLabels(table ?? NO_TABLE, state.rows);
   if (state.status === "error") {
     return (
       <p className="widget-note widget-note--error" role="alert">
@@ -647,7 +669,7 @@ function RowsTable({ widget, range, refreshToken }: { widget: DashboardWidget; r
                 const shown = number !== null ? numberCell(widget, column.name, number, formatKindForType(valueTypeOf(column))) : null;
                 return (
                   <td key={column.name} className={shown?.className}>
-                    {shown ? shown.text : renderCellValue(column, row[column.name])}
+                    {shown ? shown.text : (("references" in column && lookupReferenceLabel(labels, column, row[column.name])) || renderCellValue(column, row[column.name]))}
                   </td>
                 );
               })}

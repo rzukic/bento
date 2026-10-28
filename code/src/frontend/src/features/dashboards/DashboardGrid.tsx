@@ -4,6 +4,11 @@ import { GRID_COLUMNS, layoutHeight, moveItem, resizeItem, type LayoutItem } fro
 const ROW_HEIGHT = 76;
 const GAP = 16;
 const NARROW = 720;
+/** On a phone: up to a third of the grid and two rows is a small tile, two to a row. */
+const isSmall = (item: LayoutItem) => item.w <= 4 && item.h <= 2;
+const SMALL_HEIGHT = 112;
+const MIN_STACKED = 220;
+const MAX_STACKED = 360;
 
 type Gesture = {
   id: string;
@@ -17,7 +22,9 @@ type Gesture = {
 /**
  * Widgets on a 12-column grid. In edit mode a widget moves by its header
  * (`[data-drag-handle]`) and resizes by its corner (`[data-resize-handle]`);
- * the others make room while it moves. Narrow screens stack the widgets.
+ * the others make room while it moves. Narrow screens (phones) put them in
+ * two columns: small ones such as key figures side by side and compact,
+ * charts and tables across, no taller than a phone screen shows comfortably.
  */
 export function DashboardGrid({
   layout,
@@ -119,11 +126,11 @@ export function DashboardGrid({
         const placed = box(item);
         const dragging = ghost?.id === item.id;
         return (
-          <div key={item.id} className="dashboard-grid__slot">
+          <div key={item.id} className={narrow && isSmall(item) ? "dashboard-grid__slot dashboard-grid__slot--half" : "dashboard-grid__slot"}>
             {dragging && placed ? <div className="dashboard-grid__drop" style={placed} aria-hidden="true" /> : null}
             <div
               className={dragging ? "dashboard-grid__item dashboard-grid__item--dragging" : "dashboard-grid__item"}
-              style={dragging && ghost ? ghost : placed ?? { height: item.h * ROW_HEIGHT + (item.h - 1) * GAP }}
+              style={dragging && ghost ? ghost : placed ?? { height: stackedHeight(item) }}
               onPointerDown={(event) => onPointerDown(event, item)}
               onPointerMove={onPointerMove}
               onPointerUp={finish}
@@ -136,4 +143,10 @@ export function DashboardGrid({
       })}
     </div>
   );
+}
+
+/** A widget's height when the grid stacks (phones). */
+function stackedHeight(item: LayoutItem): number {
+  if (isSmall(item)) return SMALL_HEIGHT;
+  return Math.min(MAX_STACKED, Math.max(MIN_STACKED, item.h * ROW_HEIGHT + (item.h - 1) * GAP));
 }

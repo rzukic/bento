@@ -131,3 +131,20 @@ export type QueryVariableResult = {
 export async function evaluateVariables(variables: QueryVariable[]): Promise<QueryVariableResult[]> {
   return (await apiClient.post<DataEnvelope<QueryVariableResult[]>>("/query/variables", { variables })).data;
 }
+
+// ── Saved queries as tables (Step 5.8) ────────────────────────────────────
+
+export type QueryTableStatus = { table: string; queryId: number; refreshedAt: string | null; rows: number; current: boolean; error: string | null };
+
+/** The saved query's result as a read-only table of the model (admins). */
+export async function saveQueryAsTable(id: number, name?: string): Promise<QueryTableStatus> {
+  return (await apiClient.post<DataEnvelope<QueryTableStatus>>(`/queries/${id}/table`, name ? { name } : {})).data;
+}
+
+export async function getQueryTable(table: string): Promise<QueryTableStatus> {
+  return (await apiClient.get<DataEnvelope<QueryTableStatus>>(`/query-tables/${encodeURIComponent(table)}`)).data;
+}
+
+export async function refreshQueryTable(table: string): Promise<QueryTableStatus> {
+  return (await apiClient.post<DataEnvelope<QueryTableStatus>>(`/query-tables/${encodeURIComponent(table)}/refresh`)).data;
+}

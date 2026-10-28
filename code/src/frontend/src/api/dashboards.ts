@@ -1,28 +1,38 @@
 import { apiClient } from "./client";
 import type { AggregationQuery, QueryBucket } from "./query";
 
-export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text" | "budget";
+export type WidgetType = "kpi" | "line" | "area" | "bar" | "donut" | "sankey" | "table" | "text" | "target";
 
 /**
- * A budget widget (Step 4.5): spending rows (e.g. transactions) linked to
- * categories, and a column there with each category's monthly limit.
+ * A target widget: a value per group (a formula over a table's rows, e.g.
+ * hours per project, orders per region, spending per category) against each
+ * group's target — a number column of the table the group links to — per
+ * week, month, quarter or year. A limit is to stay under, a goal to reach.
  */
-export type BudgetConfig = {
+export type TargetConfig = {
   source: string;
-  amount: string;
+  /** A formula over the rows, e.g. SUM(hours) or -SUM(amount WHERE amount < 0). */
+  value: string;
+  /** The date column the period filters. */
   date: string;
-  /** The link column to the categories table. */
-  category: string;
-  /** The categories table's column with the monthly limit. */
-  limit: string;
-  /** How the source stores spending: as negative amounts (a bank account) or positive ones (an expenses table). */
-  expenses?: "negative" | "positive";
-  /** "month" (default): the last month of the dashboard's range, e.g. this month; "range": the whole range, limits times its months. */
-  period?: "month" | "range";
+  /** The link column to the table holding the targets. */
+  group: string;
+  /** The linked table's number column with each group's target per `per`. */
+  target: string;
+  /** What one target covers; default month. */
+  per?: "week" | "month" | "quarter" | "year";
+  /** "current" (default): the period at the end of the dashboard's range, e.g. this month; "range": the whole range, targets times its periods. */
+  period?: "current" | "range";
+  /** "limit" (default): stay under it, amber from 80 %, red over; "goal": reach it, green once reached. */
+  kind?: "limit" | "goal";
+  format?: "auto" | "currency" | "number" | "integer" | "percent";
 };
 
-/** levels: flows between consecutive groups; cashflow: income categories → income → expense categories (and saved). */
-export type SankeyMode = "levels" | "cashflow";
+/** levels: flows between consecutive groups (one group: the total → its parts); balance: the first group split by sign — positive in, negative out, the rest or the shortfall. */
+export type SankeyMode = "levels" | "balance";
+
+/** The names a balance Sankey gives its centre and what is left or missing. */
+export type SankeyLabels = { center?: string; rest?: string; shortfall?: string };
 
 export type WidgetPosition = { x: number; y: number; w: number; h: number };
 
@@ -40,8 +50,8 @@ export type WidgetData = {
   rows?: WidgetRows;
   /** Charts by date: the same measures over the period before or the same period a year earlier, as dashed lines. */
   timeShift?: TimeShift;
-  /** Budget widgets. */
-  budget?: BudgetConfig;
+  /** Target widgets. */
+  target?: TargetConfig;
   /** The widget's own date range instead of the dashboard's, e.g. a forecast to 2045 on a dashboard of the last 12 months. */
   range?: DashboardDateRange;
 };
@@ -120,8 +130,10 @@ export type WidgetDisplay = {
   colorBySign?: boolean;
   /** Charts by date: false hides the dashboard's annotations. */
   annotations?: boolean;
-  /** Sankey: how the groups become flows (default: levels with two or more groups, else cash flow). */
+  /** Sankey: how the groups become flows (default: levels). */
   sankey?: SankeyMode;
+  /** Sankey balance: the names of the centre, the rest and the shortfall. */
+  sankeyLabels?: SankeyLabels;
   /** Sankey: node labels as shares (%) of the first column instead of amounts. */
   shares?: boolean;
   /** Donut (Step 4.5): a column of the same table; a slice then shows its rows grouped by it, e.g. main category → category. */
@@ -172,7 +184,12 @@ export type DashboardWidget = {
 
 export type DateRangePreset =
   | "last-7-days"
+  | "this-week"
+  | "last-week"
   | "this-month"
+  | "last-month"
+  | "this-quarter"
+  | "last-quarter"
   | "last-3-months"
   | "last-6-months"
   | "last-12-months"

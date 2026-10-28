@@ -48,10 +48,10 @@ public sealed class McpCallLog
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (called_at, user_id, via, credential, tool, arguments, ok, error, duration_ms, grant_id)
-            VALUES ({Ts("@Now")}, @UserId, @Via, @Credential, @Tool, @Arguments, @Ok, @Error, @DurationMs, @GrantId)
+            INSERT INTO {Table} (workspace_id, called_at, user_id, via, credential, tool, arguments, ok, error, duration_ms, grant_id)
+            VALUES (@Ws, {Ts("@Now")}, @UserId, @Via, @Credential, @Tool, @Arguments, @Ok, @Error, @DurationMs, @GrantId)
             """,
-            new { Now = Iso(now), entry.UserId, entry.Via, entry.Credential, entry.Tool, Arguments = arguments, entry.Ok, Error = error, entry.DurationMs, entry.GrantId });
+            new { Now = Iso(now), entry.UserId, entry.Via, entry.Credential, entry.Tool, Arguments = arguments, entry.Ok, Error = error, entry.DurationMs, entry.GrantId, Ws = Workspaces.WorkspaceContext.Id });
 
         if (now - _lastPrune >= PruneInterval)
         {

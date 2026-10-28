@@ -47,7 +47,7 @@ Dates: `date + 30` is 30 days later, `date - other_date` is days between; `"2026
 
 ## Functions (summary)
 
-Logic `IF SWITCH COALESCE ISBLANK AND OR NOT`; math `ROUND FLOOR CEIL ABS MOD POWER SQRT`; text `CONCAT LEFT RIGHT MID LEN UPPER LOWER TRIM REPLACE SEARCH CONTAINS`; dates `TODAY NOW YEAR MONTH DAY HOUR MINUTE WEEKDAY (1 Monday … 7 Sunday) DATEDIFF(start, end, "days"|"weeks"|"months"|"years") DATEADD(date, n, unit)`; custom `CUSTOM("name", …)` and `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` (topic `functions`).
+Logic `IF SWITCH COALESCE ISBLANK AND OR NOT`; math `ROUND FLOOR CEIL ABS MOD POWER SQRT`; text `CONCAT LEFT RIGHT MID LEN UPPER LOWER TRIM REPLACE SEARCH CONTAINS`; dates `TODAY` (the workspace's day, in its time zone) `NOW` (UTC) `YEAR MONTH DAY HOUR MINUTE WEEKDAY (1 Monday … 7 Sunday) DATEDIFF(start, end, "days"|"weeks"|"months"|"years") DATEADD(date, n, unit)`; custom `CUSTOM("name", …)` and `CUSTOM_ROWS("name", PARTITION(…), ORDER(…), …)` (topic `functions`).
 
 ## Not supported
 

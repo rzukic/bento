@@ -853,3 +853,29 @@
     gap: 0.5rem;
     margin-bottom: 1rem;
 }
+
+/* A key limited to tables (Step 5.5) */
+.api-keys__tables {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    padding: 0;
+    border: 0;
+}
+
+.api-keys__tables legend {
+    margin-bottom: 0.25rem;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+}
+
+.api-keys__tables .api-keys__empty {
+    flex-basis: 100%;
+}
+
+.api-keys__table-choice {
+    display: inline-flex;
+    gap: 0.375rem;
+    align-items: center;
+    font-size: var(--fs-sm);
+}

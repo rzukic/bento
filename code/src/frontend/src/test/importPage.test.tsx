@@ -20,9 +20,19 @@ const api = vi.hoisted(() => ({
   createImportProfile: vi.fn(),
   updateImportProfile: vi.fn(),
   deleteImportProfile: vi.fn(),
+  fetchImportFile: vi.fn(),
+  runImportFunction: vi.fn(),
+  listImportSources: vi.fn(),
+  createImportSource: vi.fn(),
+  updateImportSource: vi.fn(),
+  deleteImportSource: vi.fn(),
+  runImportSource: vi.fn(),
+  listImportSourceRuns: vi.fn(),
 }));
 
 const dataApi = vi.hoisted(() => ({ fetchTableRows: vi.fn() }));
+const functionsApi = vi.hoisted(() => ({ listFunctions: vi.fn() }));
+vi.mock("../api/functions", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/functions")>()), ...functionsApi }));
 vi.mock("../api/data", async (importOriginal) => ({ ...(await importOriginal<typeof import("../api/data")>()), ...dataApi }));
 
 vi.mock("../api/import", async (importOriginal) => ({
@@ -106,9 +116,11 @@ beforeEach(() => {
   });
   useSchemaStore.setState({ status: "ready", snapshot, error: null, lastLoadedAt: Date.now(), inFlight: null });
   api.listImportProfiles.mockResolvedValue([]);
+  api.listImportSources.mockResolvedValue([]);
   api.analyzeImport.mockResolvedValue(analysis);
   api.previewImport.mockResolvedValue(runResult(true));
   api.runImport.mockResolvedValue(runResult(false));
+  functionsApi.listFunctions.mockResolvedValue([]);
   vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("fetch must be mocked in tests"))));
 });
 
@@ -126,7 +138,7 @@ describe("CSV import page", () => {
     expect(await screen.findByRole("heading", { name: "Import into Transactions" })).toBeInTheDocument();
 
     const file = new File([new Uint8Array([0x22, 0x42, 0x22])], "girokonto.csv", { type: "text/csv" });
-    await user.upload(screen.getByLabelText("CSV file"), file);
+    await user.upload(screen.getByLabelText("File to import"), file);
 
     await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
     expect(await screen.findByText("2 lines above the header are skipped")).toBeInTheDocument();
@@ -174,11 +186,68 @@ describe("CSV import page", () => {
     expect(screen.getByRole("button", { name: "Open Transactions" })).toBeInTheDocument();
   });
 
+  it("updates rows that changed at the source, showing what changes", async () => {
+    const changed: ImportRunResult = {
+      dryRun: true,
+      total: 2,
+      new: 1,
+      duplicates: 0,
+      invalid: 0,
+      inserted: 0,
+      changed: 1,
+      rowsTruncated: false,
+      rows: [
+        { line: 4, status: "changed", display: { booked_on: "2026-09-01", purpose: "Einkauf", amount: "-46.10" }, errors: [], before: { amount: "-45.9" } },
+        { line: 5, status: "new", display: { booked_on: "2026-09-04", purpose: "Strom", amount: "-60.00" }, errors: [] },
+      ],
+    };
+    api.previewImport.mockResolvedValue(changed);
+    api.runImport.mockResolvedValue({ ...changed, dryRun: false, inserted: 1, updated: 1 });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "girokonto.csv", { type: "text/csv" }));
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("checkbox", { name: /Update rows that changed/ }));
+    await user.click(screen.getByRole("button", { name: "Check rows" }));
+    expect(api.previewImport.mock.calls[0][1].updateChanged).toBe(true);
+
+    const review = within(document.querySelector<HTMLElement>(".import-review__table")!);
+    await review.findByText("-45.9");
+    expect(review.getByText("-45.9").tagName).toBe("DEL");
+    expect(review.getByText("-46.10").tagName).toBe("INS");
+    expect(within(screen.getByRole("tablist", { name: "Rows by status" })).getByRole("tab", { name: /1\s*Changed/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Import 1 row and update 1" }));
+    expect(await screen.findByText("1 row imported into Transactions, 1 updated")).toBeInTheDocument();
+    expect(screen.getByText("Updated 1 row that changed. Every row of the file is in the table now.")).toBeInTheDocument();
+  });
+
+  it("reads an Excel file's sheet and lets another one be chosen", async () => {
+    api.analyzeImport.mockImplementation(async (_content: string, settings: { sheet?: string }) => ({
+      ...analysis,
+      preamble: [],
+      settings: { ...analysis.settings, encoding: "utf-8", delimiter: ",", headerLine: 0, decimalSeparator: ".", format: "xlsx", sheet: settings.sheet ?? "Konto", sheets: ["Konto", "Depot"] },
+    }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "konto.xlsx"));
+
+    expect(await screen.findByLabelText("Sheet")).toHaveValue("Konto");
+    expect(screen.queryByLabelText("Encoding")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Separator")).not.toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Sheet"), "Depot");
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(2));
+    expect(api.analyzeImport.mock.calls[1][1]).toMatchObject({ sheet: "Depot", format: "xlsx" });
+    expect(await screen.findByLabelText("Sheet")).toHaveValue("Depot");
+  });
+
   it("fills a column with the same value for every row, a link by its record's name", async () => {
     dataApi.fetchTableRows.mockResolvedValue({ data: [{ id: 1, name: "Gehalt" }, { id: 2, name: "Lebensmittel" }], meta: { total: 2 } });
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "konto.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "konto.csv", { type: "text/csv" }));
     await waitFor(() => expect(screen.getByLabelText("File column for Category")).toHaveValue("Kategorie"));
 
     await user.selectOptions(screen.getByLabelText("File column for Category"), "Same value for every row…");
@@ -201,7 +270,7 @@ describe("CSV import page", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
 
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
     await user.click(await screen.findByRole("button", { name: "Check rows" }));
     expect(await screen.findByRole("heading", { name: "Review" })).toBeInTheDocument();
 
@@ -233,12 +302,137 @@ describe("CSV import page", () => {
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
 
     await user.selectOptions(await screen.findByLabelText("Profile"), "3");
-    await user.upload(screen.getByLabelText("CSV file"), new File(["x"], "a.csv", { type: "text/csv" }));
+    await user.upload(screen.getByLabelText("File to import"), new File(["x"], "a.csv", { type: "text/csv" }));
 
     await waitFor(() => expect(api.analyzeImport).toHaveBeenCalled());
     expect(api.analyzeImport.mock.calls[0][1]).toEqual({ encoding: "windows-1252", delimiter: ";" });
     expect(await screen.findByLabelText("File column for Booked on")).toHaveValue("Buchungstag");
     expect(screen.getByLabelText("File column for purpose")).toHaveValue("");
     expect(screen.getByRole("button", { name: "Update profile" })).toBeInTheDocument();
+  });
+
+  it("fetches an export from a URL and saves it as an import that runs every day", async () => {
+    api.fetchImportFile.mockResolvedValue({ content: btoa("x"), fileName: "girokonto.csv", contentType: "text/csv", bytes: 1, finalUrl: "https://bank.example/girokonto.csv" });
+    api.createImportSource.mockImplementation(async (_table: string, name: string, config: unknown) => ({ id: 7, name, tableName: "transactions", config, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    await user.click(await screen.findByRole("tab", { name: "From a URL" }));
+    await user.type(screen.getByLabelText("Address of the export"), "https://bank.example/girokonto.csv");
+    await user.click(screen.getByRole("button", { name: "Add header" }));
+    await user.type(screen.getByLabelText("Header 1 name"), "X-Account");
+    await user.type(screen.getByLabelText("Header 1 value"), "DE12");
+    await user.click(screen.getByRole("button", { name: "Fetch" }));
+
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+    expect(api.fetchImportFile).toHaveBeenCalledWith("https://bank.example/girokonto.csv", [{ name: "X-Account", value: "DE12" }]);
+    expect(api.analyzeImport.mock.calls[0][2]).toBe("girokonto.csv");
+    expect(await screen.findByText(/Fetched girokonto.csv/)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Name"), "Girokonto");
+    await user.click(screen.getByRole("button", { name: "Save import" }));
+    await waitFor(() => expect(api.createImportSource).toHaveBeenCalledTimes(1));
+    const [table, name, config] = api.createImportSource.mock.calls[0];
+    expect([table, name]).toEqual(["transactions", "Girokonto"]);
+    expect(config).toMatchObject({
+      url: "https://bank.example/girokonto.csv",
+      headers: [{ name: "X-Account", value: "DE12" }],
+      keyColumns: ["booked_on", "purpose", "amount"],
+      schedule: { kind: "daily", at: "06:00" },
+      settings: { decimalSeparator: "," },
+    });
+    expect(config.mapping).toContainEqual({ source: "Buchungstag", target: "booked_on" });
+    expect(await screen.findByText(/It runs every day at 06:00/)).toBeInTheDocument();
+  });
+
+  it("lists saved imports with their last run, and runs one now", async () => {
+    const source = {
+      id: 3,
+      name: "Depot",
+      tableName: "transactions",
+      config: { url: "https://broker.example/export.xlsx", mapping: [], schedule: { kind: "daily", at: "06:30" } },
+      enabled: true,
+      lastRun: { id: 1, trigger: "schedule", startedAt: "2026-10-11T04:30:00Z", finishedAt: "2026-10-11T04:30:02Z", status: "ok", total: 5, inserted: 3, updated: 1, duplicates: 1, invalid: 0, categorised: 2, bytes: 900, error: null },
+      nextRunAt: "2026-10-12T04:30:00Z",
+      createdAt: "",
+      updatedAt: "",
+    };
+    api.listImportSources.mockResolvedValue([source]);
+    api.runImportSource.mockResolvedValue({ ...source.lastRun, id: 2, trigger: "manual", status: "failed", inserted: 0, updated: 0, categorised: 0, error: "broker.example answered 500 Internal Server Error." });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    expect(await screen.findByText("Depot")).toBeInTheDocument();
+    expect(screen.getByText(/broker.example · Every day at 06:30/)).toBeInTheDocument();
+    expect(screen.getByText(/3 new, 1 updated, 2 categorised/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Run now" }));
+    expect(api.runImportSource).toHaveBeenCalledWith("transactions", 3);
+    expect(await screen.findByText("broker.example answered 500 Internal Server Error.")).toBeInTheDocument();
+    expect(api.listImportSources).toHaveBeenCalledTimes(2);
+  });
+
+  it("imports from a function and saves it to run on its own", async () => {
+    const fn = (name: string, extra: object = {}) => ({
+      name, description: null, arguments: [{ name: "since", type: "text" }], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "",
+      usedBy: [], allowedHosts: ["api.example.com"], credentials: [], usableInFormulas: false, mode: "row", ...extra,
+    });
+    // Only functions that give rows: not a formula function, not one over rows.
+    functionsApi.listFunctions.mockResolvedValue([fn("bank_api"), fn("risk", { resultType: "text", arguments: [{ name: "a", type: "float" }, { name: "b", type: "float" }] }), fn("costs", { mode: "rows" })]);
+    api.runImportFunction.mockResolvedValue({ content: btoa("[]"), fileName: "bank_api.json", contentType: "application/json", bytes: 2, finalUrl: "function:bank_api" });
+    api.createImportSource.mockImplementation(async (_table: string, name: string, config: unknown) => ({ id: 8, name, tableName: "transactions", config, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" }));
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    await user.click(await screen.findByRole("tab", { name: "From a function" }));
+    const select = await screen.findByLabelText("Function");
+    await waitFor(() => expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose a function", "bank_api"]));
+    await user.selectOptions(select, "bank_api");
+    expect(screen.getByText(/Calls api.example.com. Gets when the import last worked as since/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Run" }));
+
+    await waitFor(() => expect(api.analyzeImport).toHaveBeenCalledTimes(1));
+    expect(api.runImportFunction).toHaveBeenCalledWith("bank_api");
+    expect(api.analyzeImport.mock.calls[0][2]).toBe("bank_api.json");
+    expect(await screen.findByText(/Ran bank_api/)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Run and import on its own" })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText("Name"), "Bank API");
+    await user.click(screen.getByRole("button", { name: "Save import" }));
+    await waitFor(() => expect(api.createImportSource).toHaveBeenCalledTimes(1));
+    const config = api.createImportSource.mock.calls[0][2];
+    expect(config).toMatchObject({ function: "bank_api", schedule: { kind: "daily", at: "06:00" } });
+    expect(config).not.toHaveProperty("url");
+  });
+
+  it("shows a saved import from a function and opens it for editing", async () => {
+    functionsApi.listFunctions.mockResolvedValue([
+      { name: "daily_weather", description: "Open-Meteo", arguments: [], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "", usedBy: [], allowedHosts: ["api.open-meteo.com"], credentials: [], usableInFormulas: false },
+    ]);
+    api.listImportSources.mockResolvedValue([
+      { id: 4, name: "Weather", tableName: "transactions", config: { function: "daily_weather", mapping: [], schedule: { kind: "hours", every: 6 } }, enabled: true, lastRun: null, nextRunAt: null, createdAt: "", updatedAt: "" },
+    ]);
+    api.runImportFunction.mockResolvedValue({ content: btoa("[]"), fileName: "daily_weather.json", contentType: "application/json", bytes: 2, finalUrl: "function:daily_weather" });
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+
+    expect(await screen.findByText(/daily_weather\(\) · Every 6 hours/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    await waitFor(() => expect(api.runImportFunction).toHaveBeenCalledWith("daily_weather"));
+    expect(screen.getByRole("tab", { name: "From a function" })).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByText(/editing “Weather”/)).toBeInTheDocument();
+  });
+
+  it("keeps functions that read credentials for admins", async () => {
+    useAuthStore.setState({ user: { id: 2, username: "eddie", role: "editor" } });
+    functionsApi.listFunctions.mockResolvedValue([
+      { name: "bank_api", description: null, arguments: [], resultType: "any", code: "", version: 1, createdAt: "", updatedAt: "", usedBy: [], allowedHosts: ["api.example.com"], credentials: ["bank_token"], usableInFormulas: false },
+    ]);
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
+    await user.click(await screen.findByRole("tab", { name: "From a function" }));
+    await user.selectOptions(await screen.findByLabelText("Function"), "bank_api");
+    expect(screen.getByText(/reads bank_token from the vault; only admins can import from it/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run" })).toBeDisabled();
   });
 });

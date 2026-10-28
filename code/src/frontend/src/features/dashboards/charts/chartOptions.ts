@@ -1,4 +1,5 @@
 import type { EChartsCoreOption } from "echarts/core";
+import { quarterName, yearName } from "../../../lib/calendar";
 import type { QueryBucket, SeriesColor } from "../../../api/query";
 import type { AnnotationColor, WidgetType } from "../../../api/dashboards";
 import { annotationsAt, type PlacedAnnotations } from "../chartTransforms";
@@ -44,9 +45,9 @@ export function formatBucketLabel(value: string, bucket: QueryBucket | undefined
   const date = new Date(Date.UTC(y, m - 1, d));
   switch (bucket) {
     case "year":
-      return String(y);
+      return yearName(value);
     case "quarter":
-      return `Q${Math.floor((m - 1) / 3) + 1} ${String(y).slice(2)}`;
+      return quarterName(value, true);
     case "month":
       return new Intl.DateTimeFormat(locale, { month: "short", year: "2-digit", timeZone: "UTC" }).format(date);
     default:
@@ -61,9 +62,9 @@ export function formatBucketTitle(value: string, bucket: QueryBucket | undefined
   const date = new Date(Date.UTC(y, m - 1, d));
   switch (bucket) {
     case "year":
-      return String(y);
+      return yearName(value);
     case "quarter":
-      return `Q${Math.floor((m - 1) / 3) + 1} ${y}`;
+      return quarterName(value);
     case "month":
       return new Intl.DateTimeFormat(locale, { month: "long", year: "numeric", timeZone: "UTC" }).format(date);
     default:
@@ -461,7 +462,7 @@ function nodeDepths(model: SankeyModel): Map<string, number> {
 /** Step 3.7: a Sankey of money flows; the last column's labels sit left of their nodes so they stay inside. */
 export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens, { shares = false }: { shares?: boolean } = {}): EChartsCoreOption {
   const format = (value: unknown) => (typeof value === "number" ? formatNumber(value, model.format) : "—");
-  // Shares are of the first column's total: the income in a cash flow.
+  // Shares are of the first column's total: what flows in, in a balance.
   const depthsForBase = nodeDepths(model);
   const base = model.links.filter((link) => (depthsForBase.get(link.source) ?? 0) === 0).reduce((sum, link) => sum + link.value, 0);
   const share = (value: unknown) => (typeof value === "number" && base > 0 ? formatNumber(value / base, "percent") : "");
@@ -472,8 +473,8 @@ export function buildSankeyOption(model: SankeyModel, tokens: ChartTokens, { sha
   let next = 0;
   const colorOf = (node: SankeyNode) => {
     if (node.kind === "center") return tokens.text;
-    if (node.kind === "saved") return tokens.positive;
-    if (node.kind === "deficit") return tokens.negative;
+    if (node.kind === "rest") return tokens.positive;
+    if (node.kind === "shortfall") return tokens.negative;
     return tokens.palette[next++ % tokens.palette.length];
   };
   return {

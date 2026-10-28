@@ -22,7 +22,7 @@ namespace Bento.Api.Controllers;
 public sealed class DashboardsController : ControllerBase
 {
     public static readonly IReadOnlySet<string> WidgetTypes =
-        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "sankey", "table", "text", "budget" };
+        new HashSet<string>(StringComparer.Ordinal) { "kpi", "line", "area", "bar", "donut", "sankey", "table", "text", "target" };
 
     private const int GridColumns = 12;
     private const int MaxWidgets = 60;
@@ -78,16 +78,18 @@ public sealed class DashboardsController : ControllerBase
             $"""
             SELECT {Columns}
             FROM {Table}
-            WHERE owner_user_id = @UserId OR is_shared {SharedTrue}
+            WHERE workspace_id = @Ws AND (owner_user_id = @UserId OR is_shared {SharedTrue})
             ORDER BY LOWER(name)
             """,
-            new { UserId = userId });
+            new { UserId = userId, Ws });
         return Ok(new { data = rows.Select(r => ToResponse(r, userId)) });
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id)
+    public async Task<IActionResult> Get(long id, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+            await guard.CheckDashboardAsync(visitor, id);
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
@@ -104,11 +106,11 @@ public sealed class DashboardsController : ControllerBase
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
-            VALUES (@Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            INSERT INTO {Table} (workspace_id, name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Ws, @Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Json = json, OwnerId = userId, IsShared = request.IsShared ?? false, Now = now });
+            new { Name = name, Json = json, OwnerId = userId, IsShared = request.IsShared ?? false, Now = now, Ws });
 
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
@@ -176,7 +178,7 @@ public sealed class DashboardsController : ControllerBase
         var version = await GetVersionAsync(conn, versionId);
         if (version.DashboardId != id)
             throw new ApiNotFoundException($"Version {versionId} not found.");
-        using var json = JsonDocument.Parse(version.DashboardJson);
+        using var json = JsonDocument.Parse(DashboardUpgrade.Apply(version.DashboardJson));
         return Ok(new { data = new { version.Id, version.Name, dashboard = json.RootElement.Clone() } });
     }
 
@@ -196,7 +198,7 @@ public sealed class DashboardsController : ControllerBase
         await RecordVersionAsync(conn, existing, "restore", $"Restored the state of {version.CreatedAt}");
         await conn.ExecuteAsync(
             $"UPDATE {Table} SET name = @Name, dashboard_json = {JsonParam}, is_shared = @IsShared, updated_at = {NowParam} WHERE id = @Id",
-            new { Id = id, version.Name, Json = version.DashboardJson, version.IsShared, Now = UtcNowIso() });
+            new { Id = id, version.Name, Json = DashboardUpgrade.Apply(version.DashboardJson), version.IsShared, Now = UtcNowIso() });
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
@@ -225,10 +227,10 @@ public sealed class DashboardsController : ControllerBase
 
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {Table} (id, name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
-            VALUES (@Id, @Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            INSERT INTO {Table} (id, workspace_id, name, dashboard_json, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Id, @Ws, @Name, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             """,
-            new { Id = version.DashboardId, version.Name, Json = version.DashboardJson, OwnerId = userId, version.IsShared, Now = UtcNowIso() });
+            new { Id = version.DashboardId, version.Name, Json = DashboardUpgrade.Apply(version.DashboardJson), OwnerId = userId, version.IsShared, Now = UtcNowIso(), Ws });
         if (_systemPool.Provider == DatabaseProvider.Postgres)
             await conn.ExecuteAsync($"SELECT setval(pg_get_serial_sequence('{Table}', 'id'), GREATEST((SELECT MAX(id) FROM {Table}), 1))");
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, version.DashboardId, userId), userId) });
@@ -268,14 +270,14 @@ public sealed class DashboardsController : ControllerBase
     private async Task<IReadOnlyList<VersionResponse>> ListVersionsAsync(System.Data.IDbConnection conn, string where, object parameters, int limit)
     {
         var rows = await conn.QueryAsync<VersionRow>(
-            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE {where} ORDER BY v.created_at DESC, v.id DESC LIMIT {limit}",
-            parameters);
+            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE v.workspace_id = @Ws AND ({where}) ORDER BY v.created_at DESC, v.id DESC LIMIT {limit}",
+            WithWorkspace(parameters));
         return rows.Select(r => new VersionResponse(r.Id, r.DashboardId, r.Name, CountWidgets(r.DashboardJson), r.Action, r.ChangedBy, r.Via, r.Note, r.CreatedAt)).ToList();
     }
 
     private async Task<VersionRow> GetVersionAsync(System.Data.IDbConnection conn, long versionId) =>
         await conn.QuerySingleOrDefaultAsync<VersionRow>(
-            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE v.id = @Id", new { Id = versionId })
+            $"SELECT {VersionColumns} FROM {VersionsTable} v LEFT JOIN {Users} u ON u.id = v.changed_by WHERE v.id = @Id AND v.workspace_id = @Ws", new { Id = versionId, Ws })
         ?? throw new ApiNotFoundException($"Version {versionId} not found.");
 
     /// <summary>Keeps the state before a change, with who changed it and through which app.</summary>
@@ -289,13 +291,13 @@ public sealed class DashboardsController : ControllerBase
         };
         await conn.ExecuteAsync(
             $"""
-            INSERT INTO {VersionsTable} (dashboard_id, name, dashboard_json, is_shared, owner_user_id, action, changed_by, via, note, created_at)
-            VALUES (@DashboardId, @Name, {JsonParam}, @IsShared, @OwnerId, @Action, @ChangedBy, @Via, @Note, {NowParam})
+            INSERT INTO {VersionsTable} (workspace_id, dashboard_id, name, dashboard_json, is_shared, owner_user_id, action, changed_by, via, note, created_at)
+            VALUES (@Ws, @DashboardId, @Name, {JsonParam}, @IsShared, @OwnerId, @Action, @ChangedBy, @Via, @Note, {NowParam})
             """,
             new
             {
                 DashboardId = existing.Id, existing.Name, Json = existing.DashboardJson, existing.IsShared, OwnerId = existing.OwnerUserId,
-                Action = action, ChangedBy = UserId(), Via = via, Note = note is { Length: > 500 } ? note[..500] : note, Now = UtcNowIso()
+                Action = action, ChangedBy = UserId(), Via = via, Note = note is { Length: > 500 } ? note[..500] : note, Now = UtcNowIso(), Ws
             });
         await conn.ExecuteAsync(
             $"""
@@ -329,6 +331,8 @@ public sealed class DashboardsController : ControllerBase
     /// </summary>
     private static string SerializeDashboard(JsonElement dashboard)
     {
+        // Old widgets (budget, the money Sankey) from older clients or states become today's.
+        dashboard = DashboardUpgrade.Apply(dashboard);
         if (dashboard.ValueKind != JsonValueKind.Object)
             throw Invalid("dashboard", "dashboard must be an object.");
         if (!dashboard.TryGetProperty("widgets", out var widgets) || widgets.ValueKind != JsonValueKind.Array)
@@ -385,7 +389,7 @@ public sealed class DashboardsController : ControllerBase
 
     private async Task<DashboardRow> GetVisibleAsync(System.Data.IDbConnection conn, long id, long? userId)
     {
-        var row = await conn.QuerySingleOrDefaultAsync<DashboardRow>($"SELECT {Columns} FROM {Table} WHERE id = @Id", new { Id = id });
+        var row = await conn.QuerySingleOrDefaultAsync<DashboardRow>($"SELECT {Columns} FROM {Table} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
         if (row is null || (row.OwnerUserId != userId && !row.IsShared))
             throw new ApiNotFoundException($"Dashboard {id} not found.");
         return row;
@@ -408,6 +412,15 @@ public sealed class DashboardsController : ControllerBase
     }
 
     private long? UserId() => HttpContext.User.GetUserId();
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
+
+    private static DynamicParameters WithWorkspace(object parameters)
+    {
+        var result = new DynamicParameters(parameters);
+        result.Add("Ws", Ws);
+        return result;
+    }
 
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboards" : "dashboards";
     private string VersionsTable => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.dashboard_versions" : "dashboard_versions";

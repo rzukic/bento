@@ -1,6 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { createApiKey, listApiKeys, revokeApiKey, type ApiKey, type ApiKeyScope } from "../../api/connections";
 import { MCP_PERMISSIONS, type McpPermission } from "../../api/mcp";
+import { workspaceApiPath } from "../../lib/workspace";
+import { currentWorkspace, useWorkspacesStore } from "../../stores/workspacesStore";
+import { WorkspaceChecklist } from "./WorkspaceChecklist";
+import { useSchemaStore } from "../../stores/schemaStore";
 import { PermissionChecklist } from "./PermissionChecklist";
 import { ApiClientError } from "../../api/client";
 import { Icon } from "../../components/common/Icon";
@@ -41,6 +45,27 @@ export function ApiKeysPanel() {
   const [created, setCreated] = useState<{ key: string; name: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [revoking, setRevoking] = useState<ApiKey | null>(null);
+  // Where the key works (Step 5.5): this workspace, all of them, or chosen ones.
+  const workspaces = useWorkspacesStore((state) => state.workspaces);
+  const loadWorkspaces = useWorkspacesStore((state) => state.load);
+  const here = currentWorkspace(workspaces);
+  const [where, setWhere] = useState<"here" | "all" | "chosen">("here");
+  const [chosenWorkspaces, setChosenWorkspaces] = useState<number[]>([]);
+  useEffect(() => {
+    loadWorkspaces().catch(() => undefined);
+  }, [loadWorkspaces]);
+  const several = (workspaces?.length ?? 0) > 1;
+  // A key for one script: only the rows of chosen tables (and imports into them).
+  const snapshot = useSchemaStore((state) => state.snapshot);
+  const tableNames = useMemo(() => snapshot?.tables.map((t) => t.name) ?? [], [snapshot]);
+  const [limitTables, setLimitTables] = useState(false);
+  const [chosenTables, setChosenTables] = useState<string[]>([]);
+  const loadSchema = useSchemaStore((state) => state.load);
+  useEffect(() => {
+    loadSchema().catch(() => undefined);
+  }, [loadSchema]);
+  const workspaceNames = (ids: number[] | null | undefined) =>
+    ids == null ? "All" : ids.map((id) => workspaces?.find((w) => w.id === id)?.name ?? `#${id}`).join(", ");
 
   const reload = () =>
     listApiKeys()
@@ -60,7 +85,12 @@ export function ApiKeysPanel() {
     setCopied(false);
     try {
       const days = expiry ? Number(expiry) : undefined;
-      const result = scope === "permissions" ? await createApiKey(name.trim(), "read-write", days, permissions) : await createApiKey(name.trim(), scope, days);
+      const target =
+        where === "all" ? { allWorkspaces: true as const } : where === "chosen" && chosenWorkspaces.length > 0 ? { workspaces: chosenWorkspaces } : here ? { workspaces: [here.id] } : undefined;
+      const result =
+        scope === "permissions"
+          ? await createApiKey(name.trim(), "read-write", days, permissions, target, limitTables && chosenTables.length > 0 ? chosenTables : undefined)
+          : await createApiKey(name.trim(), scope, days, undefined, target, limitTables && chosenTables.length > 0 ? chosenTables : undefined);
       setCreated({ key: result.key, name: result.apiKey.name });
       setName("");
       await reload();
@@ -111,7 +141,7 @@ export function ApiKeysPanel() {
               {copied ? "Copied" : "Copy"}
             </Button>
           </div>
-          <pre className="api-keys__usage">{`curl "${window.location.origin}/api/v1/data/<table>" \\\n  -H "X-API-Key: ${created.key.slice(0, 12)}…"`}</pre>
+          <pre className="api-keys__usage">{`curl "${window.location.origin}${workspaceApiPath("/data/<table>")}" \\\n  -H "X-API-Key: ${created.key.slice(0, 12)}…"`}</pre>
           <Button
             type="button"
             variant="ghost"
@@ -145,6 +175,36 @@ export function ApiKeysPanel() {
             <option value="permissions">Choose…</option>
           </select>
         </label>
+        {several ? (
+          <label className="api-keys__field">
+            <span>Workspaces</span>
+            <select
+              className="field__control field__control--compact"
+              value={where}
+              onChange={(event) => {
+                setWhere(event.target.value as "here" | "all" | "chosen");
+                if (event.target.value === "chosen" && chosenWorkspaces.length === 0 && here) setChosenWorkspaces([here.id]);
+              }}
+            >
+              <option value="here">{here ? `This one (${here.name})` : "This one"}</option>
+              <option value="all">All, also new ones</option>
+              <option value="chosen">Choose…</option>
+            </select>
+          </label>
+        ) : null}
+        {tableNames.length > 0 ? (
+          <label className="api-keys__field">
+            <span>Tables</span>
+            <select
+              className="field__control field__control--compact"
+              value={limitTables ? "chosen" : "all"}
+              onChange={(event) => setLimitTables(event.target.value === "chosen")}
+            >
+              <option value="all">All</option>
+              <option value="chosen">Only some…</option>
+            </select>
+          </label>
+        ) : null}
         <label className="api-keys__field">
           <span>Expires</span>
           <select className="field__control field__control--compact" value={expiry} onChange={(event) => setExpiry(event.target.value)}>
@@ -166,6 +226,29 @@ export function ApiKeysPanel() {
         </div>
       ) : null}
 
+      {several && where === "chosen" ? (
+        <div className="api-keys__permissions">
+          <WorkspaceChecklist workspaces={workspaces ?? []} chosen={chosenWorkspaces} onChange={setChosenWorkspaces} disabled={creating} />
+        </div>
+      ) : null}
+
+      {limitTables ? (
+        <fieldset className="api-keys__permissions api-keys__tables">
+          <legend>Only the rows of</legend>
+          {tableNames.map((table) => (
+            <label key={table} className="api-keys__table-choice">
+              <input
+                type="checkbox"
+                checked={chosenTables.includes(table)}
+                onChange={(event) => setChosenTables((current) => (event.target.checked ? [...current, table] : current.filter((t) => t !== table)))}
+              />
+              <code>{table}</code>
+            </label>
+          ))}
+          <p className="api-keys__empty">It reads and writes these tables' rows and imports into them — no queries, dashboards, forms or other tables.</p>
+        </fieldset>
+      ) : null}
+
       {keys === null ? (
         <Spinner label="Loading keys" />
       ) : keys.length === 0 ? (
@@ -178,6 +261,7 @@ export function ApiKeysPanel() {
                 <th>Name</th>
                 <th>Key</th>
                 <th>Access</th>
+                {several ? <th>Workspaces</th> : null}
                 <th>Created</th>
                 <th>Last used</th>
                 <th>Expires</th>
@@ -201,7 +285,9 @@ export function ApiKeysPanel() {
                       : key.scope === "read"
                         ? "Read"
                         : "Read and write"}
+                    {key.tables ? <span className="api-keys__by">only {key.tables.join(", ")}</span> : null}
                   </td>
+                  {several ? <td>{workspaceNames(key.workspaces)}</td> : null}
                   <td>{formatWhen(key.createdAt)}</td>
                   <td>{key.lastUsedAt ? formatWhen(key.lastUsedAt) : "Never"}</td>
                   <td>{key.expiresAt ? formatWhen(key.expiresAt) : "Never"}</td>

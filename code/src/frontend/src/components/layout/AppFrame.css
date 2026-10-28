@@ -457,6 +457,15 @@
    Responsive
    ------------------------------------------------------------------------- */
 
+/* The tab bar and the add sheet exist only on the phone. */
+.shell__tabbar,
+.shell__add-sheet,
+.shell__drawer-theme {
+  display: none;
+}
+
+/* Phone and small tablet: the sidebar becomes a drawer from the left; the
+   places used every day sit in a tab bar at the thumb. */
 @media (max-width: 900px) {
   .shell,
   .shell--collapsed {
@@ -464,69 +473,159 @@
   }
 
   .shell__sidebar {
-    position: static;
-    height: auto;
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-    flex-direction: row;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    padding: 0.625rem 0.75rem;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 40;
+    width: min(84vw, 300px);
+    height: 100dvh;
+    padding-top: calc(1.25rem + env(safe-area-inset-top));
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+    background: var(--bg);
+    overflow-y: auto;
+    transform: translateX(-105%);
+    transition: transform var(--dur-slow) var(--ease);
+    visibility: hidden;
   }
 
-  .shell__sidebar-footer {
+  .shell--drawer .shell__sidebar {
+    transform: none;
+    visibility: visible;
+    box-shadow: var(--popover-shadow);
+  }
+
+  .shell__backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 35;
+    background: color-mix(in srgb, #000 38%, transparent);
+    animation: fade-in var(--dur) var(--ease);
+  }
+
+  .shell__backdrop--light {
+    z-index: 25;
+    background: color-mix(in srgb, #000 18%, transparent);
+  }
+
+  .shell__drawer-theme {
+    display: flex;
+    margin-bottom: 0.75rem;
+  }
+
+  .shell__theme {
     display: none;
   }
 
-  .shell__nav {
-    flex: 1 1 0;
-    min-width: 0;
-    flex-direction: row;
-    gap: 0.5rem;
-    padding: 0;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: none;
-  }
-
-  .shell__nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .shell__nav-section {
-    flex-shrink: 0;
-  }
-
-  .shell__nav-section-title {
-    display: none;
-  }
-
-  /* Quick add (pinned forms) comes first on the phone. */
-  .shell__nav-section--quick {
-    order: -1;
-  }
-
-  .shell__nav-list {
-    flex-direction: row;
-  }
-
-  .shell__nav-link--active::after {
-    display: none;
+  .shell__main {
+    padding-bottom: calc(60px + env(safe-area-inset-bottom));
   }
 
   .shell__topbar {
-    height: 48px;
-    padding: 0 0.75rem;
+    height: calc(48px + env(safe-area-inset-top));
+    padding: env(safe-area-inset-top) 1rem 0;
   }
 
-  .shell__brand-text {
-    display: none;
+  .shell__page:not(.shell__page--immersive) {
+    padding: 0.75rem 1rem 1.5rem;
+    gap: 1.25rem;
+  }
+
+  .shell__page-title {
+    font-size: 1.75rem;
   }
 
   .shell__page-header {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .shell__tabbar {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    display: flex;
+    height: calc(60px + env(safe-area-inset-bottom));
+    padding: 0 0.25rem env(safe-area-inset-bottom);
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+    border-top: 1px solid var(--line);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+  }
+
+  .shell__tab {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: var(--text-3);
+    font: inherit;
+    font-size: 11px;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+    cursor: pointer;
+  }
+
+  .shell__tab span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shell__tab--active {
+    color: var(--text);
+    font-weight: 600;
+  }
+
+  /* In the drawer: rows a thumb can hit. */
+  .shell__nav-link {
+    min-height: 44px;
+  }
+
+  .shell__add-sheet {
+    position: fixed;
+    left: 0.75rem;
+    right: 0.75rem;
+    bottom: calc(68px + env(safe-area-inset-bottom));
+    z-index: 31;
+    display: grid;
+    gap: 0.25rem;
+    padding: 0.5rem;
+    border: 1px solid var(--line);
+    border-radius: var(--r-lg, 14px);
+    background: var(--bg);
+    box-shadow: var(--popover-shadow);
+    animation: fade-up var(--dur) var(--ease);
+  }
+
+  .shell__add-item {
+    display: flex;
+    gap: 0.625rem;
+    align-items: center;
+    min-height: 44px;
+    padding: 0 0.75rem;
+    border-radius: var(--r-md, 10px);
+    color: var(--text);
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .shell__add-item:active {
+    background: color-mix(in srgb, var(--text) 8%, transparent);
+  }
+
+  .shell__add-item--all {
+    color: var(--text-2);
+    font-weight: 400;
   }
 }
 

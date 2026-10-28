@@ -39,8 +39,16 @@ public sealed class OAuthService
 
     public sealed record TokenSet(string AccessToken, string RefreshToken, int ExpiresIn, string Scope);
 
-    /// <summary>The user behind a token, their role, and what the app may do (already capped by the role).</summary>
-    public sealed record OAuthIdentity(long GrantId, long UserId, string Username, string Role, IReadOnlyList<string> Permissions, string ClientName);
+    /// <summary>
+    /// The user behind a token, their installation role, what the app may do and
+    /// in which workspaces (null: all; Step 5.5). <see cref="As"/> caps the
+    /// permissions by the user's role in the workspace the call is for.
+    /// </summary>
+    public sealed record OAuthIdentity(long GrantId, long UserId, string Username, string Role, IReadOnlyList<string> Permissions, string ClientName,
+        IReadOnlyList<long>? Workspaces = null)
+    {
+        public OAuthIdentity As(string role) => this with { Role = role, Permissions = McpPermissions.Cap(Permissions, role) };
+    }
 
     public sealed class GrantRow
     {
@@ -52,10 +60,14 @@ public sealed class OAuthService
         public string? UserRole { get; init; }
         public string Scope { get; init; } = ApiKeyService.ReadScope;
         public string? PermissionsJson { get; init; }
+        public string? WorkspacesJson { get; init; }
         public string CreatedAt { get; init; } = "";
         public string? LastUsedAt { get; init; }
 
         public IReadOnlyList<string> Permissions => ReadPermissions(PermissionsJson, Scope);
+
+        /// <summary>The workspaces the connection may use; null: all.</summary>
+        public IReadOnlyList<long>? Workspaces => Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(WorkspacesJson);
     }
 
     public static bool LooksLikeAccessToken(string? value) =>
@@ -131,8 +143,11 @@ public sealed class OAuthService
     // --- Authorization code --------------------------------------------------------
 
     /// <summary>The signed-in user approved the client: a grant (reused per client and user) and a one-time code.</summary>
-    public async Task<string> ApproveAsync(long userId, string clientId, string redirectUri, string codeChallenge, IReadOnlyList<string> permissions)
+    /// <param name="allWorkspaces">Every workspace the user can open, also those made later (Step 5.13); <paramref name="workspaces"/> is ignored.</param>
+    public async Task<string> ApproveAsync(long userId, string clientId, string redirectUri, string codeChallenge, IReadOnlyList<string> permissions,
+        IReadOnlyCollection<long>? workspaces = null, bool allWorkspaces = false)
     {
+        var workspacesJson = allWorkspaces ? null : Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces ?? [Workspaces.Workspace.DefaultId]);
         var granted = McpPermissions.Normalize(permissions);
         var scope = granted.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
         var permissionsJson = JsonSerializer.Serialize(granted);
@@ -147,17 +162,18 @@ public sealed class OAuthService
             new { ClientId = clientId, UserId = userId });
         if (grantId is { } existing)
         {
-            await conn.ExecuteAsync($"UPDATE {Grants} SET scope = @Scope, permissions = @Permissions WHERE id = @Id", new { Scope = scope, Permissions = permissionsJson, Id = existing });
+            await conn.ExecuteAsync($"UPDATE {Grants} SET scope = @Scope, permissions = @Permissions, workspaces = @Workspaces WHERE id = @Id",
+                new { Scope = scope, Permissions = permissionsJson, Workspaces = workspacesJson, Id = existing });
         }
         else
         {
             grantId = await conn.ExecuteScalarAsync<long>(
                 $"""
-                INSERT INTO {Grants} (client_id, user_id, scope, permissions, created_at)
-                VALUES (@ClientId, @UserId, @Scope, @Permissions, {Ts("@Now")})
+                INSERT INTO {Grants} (client_id, user_id, scope, permissions, workspaces, created_at)
+                VALUES (@ClientId, @UserId, @Scope, @Permissions, @Workspaces, {Ts("@Now")})
                 RETURNING id
                 """,
-                new { ClientId = clientId, UserId = userId, Scope = scope, Permissions = permissionsJson, Now = Iso(now) });
+                new { ClientId = clientId, UserId = userId, Scope = scope, Permissions = permissionsJson, Workspaces = workspacesJson, Now = Iso(now) });
         }
 
         var code = CodePrefix + Base64Url(RandomNumberGenerator.GetBytes(32));
@@ -224,7 +240,7 @@ public sealed class OAuthService
         using var conn = await _systemPool.GetConnectionAsync();
         var row = await conn.QuerySingleOrDefaultAsync<AccessLookupRow>(
             $"""
-            SELECT g.id AS GrantId, g.user_id AS UserId, u.username, u.role AS UserRole, g.scope, g.permissions AS PermissionsJson,
+            SELECT g.id AS GrantId, g.user_id AS UserId, u.username, u.role AS UserRole, g.scope, g.permissions AS PermissionsJson, g.workspaces AS WorkspacesJson,
                    c.name AS ClientName, {Text("t.expires_at")} AS ExpiresAt, {Text("g.revoked_at")} AS RevokedAt,
                    {Text("g.last_used_at")} AS LastUsedAt
             FROM {Tokens} t
@@ -245,8 +261,9 @@ public sealed class OAuthService
             await conn.ExecuteAsync($"UPDATE {Grants} SET last_used_at = {Ts("@Now")} WHERE id = @Id", new { Id = row.GrantId, Now = Iso(now) });
         }
 
-        var permissions = McpPermissions.Cap(ReadPermissions(row.PermissionsJson, row.Scope), row.UserRole);
-        return new OAuthIdentity(row.GrantId, row.UserId, row.Username ?? "", row.UserRole ?? "viewer", permissions, row.ClientName ?? "MCP client");
+        // As granted; the user's role in the workspace of the call caps it (As).
+        return new OAuthIdentity(row.GrantId, row.UserId, row.Username ?? "", row.UserRole ?? "viewer", ReadPermissions(row.PermissionsJson, row.Scope),
+            row.ClientName ?? "MCP client", Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(row.WorkspacesJson));
     }
 
     // --- Grants ("connected apps") ------------------------------------------------
@@ -258,7 +275,7 @@ public sealed class OAuthService
         var rows = await conn.QueryAsync<GrantRow>(
             $"""
             SELECT g.id, g.client_id AS ClientId, COALESCE(c.name, 'MCP client') AS ClientName, g.user_id AS UserId, u.username, u.role AS UserRole,
-                   g.scope, g.permissions AS PermissionsJson, {Text("g.created_at")} AS CreatedAt, {Text("g.last_used_at")} AS LastUsedAt
+                   g.scope, g.permissions AS PermissionsJson, g.workspaces AS WorkspacesJson, {Text("g.created_at")} AS CreatedAt, {Text("g.last_used_at")} AS LastUsedAt
             FROM {Grants} g
             LEFT JOIN {Clients} c ON c.client_id = g.client_id
             LEFT JOIN {Users} u ON u.id = g.user_id
@@ -281,16 +298,33 @@ public sealed class OAuthService
     /// as; read is always in. Applies to the next call — tokens are checked against
     /// the grant every time.
     /// </summary>
-    public async Task<GrantRow> UpdateGrantPermissionsAsync(long grantId, long? ownerUserId, IEnumerable<string> permissions)
+    /// <param name="maxRole">The highest role of the user in any workspace: what they could tick on the consent page.</param>
+    /// <param name="workspaces">The workspaces it may use from now on; null keeps them.</param>
+    /// <param name="allWorkspaces">From now on every workspace its user can open, also later ones (Step 5.13).</param>
+    public async Task<GrantRow> UpdateGrantPermissionsAsync(long grantId, long? ownerUserId, IEnumerable<string> permissions, string? maxRole = null,
+        IReadOnlyCollection<long>? workspaces = null, bool allWorkspaces = false)
     {
         var grant = await GetGrantAsync(grantId, ownerUserId);
-        var capped = McpPermissions.Cap(permissions.Append(McpPermissions.Read), grant.UserRole);
+        // Creating workspaces stays with installation admins, whatever their role in a workspace.
+        var capped = McpPermissions.ForInstallationRole(McpPermissions.Cap(permissions.Append(McpPermissions.Read), maxRole ?? grant.UserRole), grant.UserRole == "admin");
         var scope = capped.Contains(McpPermissions.WriteRows) ? ApiKeyService.ReadWriteScope : ApiKeyService.ReadScope;
+        var setWorkspaces = allWorkspaces || workspaces is not null;
         using var conn = await _systemPool.GetConnectionAsync();
         await conn.ExecuteAsync(
-            $"UPDATE {Grants} SET permissions = @Permissions, scope = @Scope WHERE id = @Id",
-            new { Id = grantId, Permissions = JsonSerializer.Serialize(capped), Scope = scope });
+            $"UPDATE {Grants} SET permissions = @Permissions, scope = @Scope{(setWorkspaces ? ", workspaces = @Workspaces" : "")} WHERE id = @Id",
+            new { Id = grantId, Permissions = JsonSerializer.Serialize(capped), Scope = scope, Workspaces = allWorkspaces ? null : Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces(workspaces) });
         return await GetGrantAsync(grantId, ownerUserId);
+    }
+
+    /// <summary>A workspace the connection itself created joins its list (one for all workspaces has it already).</summary>
+    public async Task AddWorkspaceAsync(long grantId, long workspaceId)
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var json = await conn.ExecuteScalarAsync<string?>($"SELECT workspaces FROM {Grants} WHERE id = @Id", new { Id = grantId });
+        if (Bento.Api.Services.Workspaces.WorkspaceAccess.ReadWorkspaces(json) is not { } listed || listed.Contains(workspaceId))
+            return;
+        await conn.ExecuteAsync($"UPDATE {Grants} SET workspaces = @Workspaces WHERE id = @Id",
+            new { Id = grantId, Workspaces = Bento.Api.Services.Workspaces.WorkspaceAccess.WriteWorkspaces([.. listed, workspaceId]) });
     }
 
     public async Task RevokeGrantAsync(long grantId, long? ownerUserId)
@@ -410,6 +444,7 @@ public sealed class OAuthService
         public string? UserRole { get; init; }
         public string Scope { get; init; } = ApiKeyService.ReadScope;
         public string? PermissionsJson { get; init; }
+        public string? WorkspacesJson { get; init; }
         public string? ClientName { get; init; }
         public string ExpiresAt { get; init; } = "";
         public string? RevokedAt { get; init; }

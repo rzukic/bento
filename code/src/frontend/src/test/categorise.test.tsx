@@ -120,7 +120,7 @@ describe("Categorising on import", () => {
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
 
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "oktober.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "oktober.csv", { type: "text/csv" }));
     await user.click(await screen.findByRole("button", { name: "Check rows" }));
 
     // Rules and earlier rows first, without the AI.
@@ -163,7 +163,7 @@ describe("Categorising on import", () => {
     categoriseApi.suggestCategories.mockResolvedValue(result([]));
     const user = userEvent.setup({ pointerEventsCheck: 0 });
     render(<RouterProvider router={createTestRouter(["/data/transactions/import"])} />);
-    await user.upload(await screen.findByLabelText("CSV file"), new File(["x"], "oktober.csv", { type: "text/csv" }));
+    await user.upload(await screen.findByLabelText("File to import"), new File(["x"], "oktober.csv", { type: "text/csv" }));
     await user.click(await screen.findByRole("button", { name: "Check rows" }));
 
     expect(await screen.findByText(/your choices become rules for the next import/)).toBeInTheDocument();

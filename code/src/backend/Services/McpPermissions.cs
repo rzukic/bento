@@ -19,8 +19,26 @@ public static class McpPermissions
     public const string Schema = "schema.write";
     /// <summary>JavaScript functions and price sources.</summary>
     public const string Functions = "functions.write";
+    /// <summary>Create and rename workspaces (Step 5.13): installation admins only; never delete.</summary>
+    public const string WorkspacesManage = "workspaces.manage";
 
-    public static readonly string[] All = [Read, WriteRows, DeleteRows, Dashboards, Forms, Schema, Functions];
+    /// <summary>Notification rules and reports (Step 5.14); channels are only read by name.</summary>
+    public const string Automation = "automation.write";
+    /// <summary>Calendar apps (Step 5.14); device passwords stay with the user.</summary>
+    public const string Apps = "apps.write";
+    /// <summary>Share links (Step 5.14): they make a dashboard or form public.</summary>
+    public const string Shares = "shares.write";
+    /// <summary>The workspace's locale, currency and calendar (Step 5.14).</summary>
+    public const string Settings = "settings.write";
+
+    public static readonly string[] All = [Read, WriteRows, DeleteRows, Dashboards, Forms, Schema, Functions, Automation, Apps, Shares, Settings, WorkspacesManage];
+
+    /// <summary>What only an installation admin may grant, whatever their role in a workspace.</summary>
+    public static readonly string[] InstallationOnly = [WorkspacesManage];
+
+    /// <summary>The permissions without those only an installation admin may hold.</summary>
+    public static IReadOnlyList<string> ForInstallationRole(IEnumerable<string> permissions, bool installationAdmin) =>
+        installationAdmin ? permissions.ToList() : permissions.Where(p => !InstallationOnly.Contains(p)).ToList();
 
     /// <summary>
     /// The most a role allows, matching the REST API's own rules: everyone reads and
@@ -30,8 +48,8 @@ public static class McpPermissions
     public static IReadOnlyList<string> ForRole(string? role) => role switch
     {
         "admin" => All,
-        "editor" => [Read, WriteRows, DeleteRows, Dashboards, Forms],
-        "viewer" => [Read, Dashboards],
+        "editor" => [Read, WriteRows, DeleteRows, Dashboards, Forms, Shares],
+        "viewer" => [Read, Dashboards, Shares],
         _ => [Read]
     };
 
@@ -86,7 +104,11 @@ public static class McpPermissions
         {
             return Under("/data") || Under("/query") || Under("/queries") || Under("/dashboards") || Under("/forms") ||
                    p == api + "/admin/schema" || p == api + "/admin/schema/model" || Under("/formulas") ||
-                   Under("/functions") || Under("/price-sources") || p == api + "/openapi.json" || Under("/views") ||
+                   Under("/functions") || Under("/price-sources") || p == api + "/openapi.json" || Under("/views") || p == api + "/workspaces" ||
+                   Under("/templates") || Under("/query-tables") ||
+                   // Step 5.14: rules, apps, settings and categorisation rules are read like the rest.
+                   Under("/admin/notifications/rules") || Under("/admin/apps") || p == api + "/admin/settings" ||
+                   (Under("/categorise") && p.EndsWith("/rules", StringComparison.Ordinal)) ||
                    (Under("/import") && p.EndsWith("/profiles", StringComparison.Ordinal))
                 ? Read
                 : null;
@@ -96,21 +118,41 @@ public static class McpPermissions
         if (HttpMethods.IsPost(method) &&
             (p == api + "/query" || p == api + "/query/variables" || (Under("/queries") && p.EndsWith("/run", StringComparison.Ordinal)) ||
              p == api + "/formulas/validate" || p == api + "/formulas/preview" || p == api + "/admin/schema/preview" || p == api + "/admin/schema/patch/preview" ||
-             p == api + "/price-sources/refresh"))
+             p == api + "/price-sources/refresh" || (Under("/query-tables") && p.EndsWith("/refresh", StringComparison.Ordinal))))
             return Read;
 
+        // Step 5.14: making something public is its own permission, before dashboards and forms.
+        if (((Under("/dashboards") || Under("/forms")) && p.EndsWith("/shares", StringComparison.Ordinal)) || Under("/shares"))
+            return Shares;
+        if (Under("/admin/notifications/rules"))
+            return Automation;
+        // A device's password is shown once: the user makes it in the app, never a connection.
+        if (Under("/admin/apps"))
+            return p.Contains("/passwords", StringComparison.Ordinal) ? null : Apps;
+        if (p == api + "/admin/settings")
+            return Settings;
+        if (Under("/categorise"))
+            return WriteRows;
         if (Under("/data"))
             return HttpMethods.IsDelete(method) ? DeleteRows : WriteRows;
         if (Under("/import"))
             return WriteRows;
+        // A saved query as a table changes the model.
+        if (Under("/queries") && p.EndsWith("/table", StringComparison.Ordinal))
+            return Schema;
         if (Under("/dashboards") || Under("/queries"))
             return Dashboards;
         if (Under("/forms"))
             return Forms;
-        if (p == api + "/admin/schema" || p == api + "/admin/migrations/rollback")
+        // Which templates the workspace has is part of its model.
+        if (p == api + "/admin/schema" || p == api + "/admin/migrations/rollback" || Under("/templates"))
             return Schema;
         if (Under("/functions") || Under("/price-sources"))
             return Functions;
+        // Step 5.13: a new workspace, a new name — never deleting one, never its members.
+        if ((HttpMethods.IsPost(method) && p == api + "/workspaces") ||
+            (HttpMethods.IsPut(method) && Under("/workspaces") && p.Count(c => c == '/') == 4))
+            return WorkspacesManage;
         return null;
     }
 

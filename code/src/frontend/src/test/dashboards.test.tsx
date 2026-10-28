@@ -188,7 +188,7 @@ describe("Dashboards", () => {
       "Top spending: Auftraggeber / Begünstigter",
       "Money flow",
     ]);
-    expect(document.widgets[7]).toMatchObject({ type: "sankey", display: { sankey: "cashflow" }, data: { query: { groupBy: [{ column: "kategorie_id", rank: "abs" }] } } });
+    expect(document.widgets[7]).toMatchObject({ type: "sankey", display: { sankey: "balance", sankeyLabels: { center: "Income", rest: "Saved" } }, data: { query: { groupBy: [{ column: "kategorie_id", rank: "abs" }] } } });
     const balance = document.widgets[0].data!.query!;
     expect(balance.measures![0]).toMatchObject({ fn: "sum", column: "betrag_eur", running: true, carryIn: true });
     expect(balance.groupBy![0]).toMatchObject({ column: "buchungstag", bucket: "month" });

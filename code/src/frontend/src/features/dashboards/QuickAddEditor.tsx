@@ -52,7 +52,7 @@ export function QuickAddEditor({
         </Button>
       </header>
       <div className="widget-editor__body">
-        <p className="widget-editor__hint">Buttons in the dashboard's header that open a form, e.g. Add transaction. Viewers do not see them.</p>
+        <p className="widget-editor__hint">Buttons in the dashboard's header that open a form, e.g. Log hours. Viewers do not see them.</p>
         <section className="widget-editor__section" role="radiogroup" aria-label="Form buttons">
           <label className="quick-add__choice">
             <input type="radio" name="quick-add" checked={mode === "auto"} onChange={() => setMode("auto")} />

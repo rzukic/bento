@@ -1,3 +1,4 @@
+import { currentWorkspaceSlug } from "../lib/workspace";
 import { useAuthStore } from "../stores/authStore";
 
 const API_BASE = "/api/v1";
@@ -8,6 +9,26 @@ const API_BASE = "/api/v1";
  * be out of date (see queryCache.ts).
  */
 let mutations = 0;
+
+/**
+ * A share link's token (Step 5.6): set on /s/<token>, every request then goes
+ * as that link's visitor — no session, no refresh.
+ */
+let shareToken: string | null = null;
+
+let shareOpened = 0;
+let formTrap = "";
+
+export function setShareToken(token: string | null): void {
+  shareToken = token;
+  shareOpened = Date.now();
+  formTrap = "";
+}
+
+/** A public form's trap field (Step 5.6): people leave it empty, robots fill it. */
+export function setFormTrap(value: string): void {
+  formTrap = value;
+}
 const readOnlyPosts = /^\/(query(\/|$)|queries\/\d+\/run$|formulas\/|auth\/)/;
 
 export function dataVersion(): number {
@@ -90,7 +111,20 @@ function buildInit(path: string, init: ApiRequestInit): RequestInit {
     headers.set("X-Bento-Source", encodeURIComponent(window.location.pathname + window.location.search));
   }
 
-  if (!init.anonymous) {
+  // The workspace the page works in (/w/<slug>); without the header the server uses the default one.
+  const workspace = currentWorkspaceSlug();
+  if (workspace && !headers.has("X-Bento-Workspace")) {
+    headers.set("X-Bento-Workspace", workspace);
+  }
+
+  if (shareToken) {
+    headers.set("X-Bento-Share", shareToken);
+    // What tells a person filling in a public form from a robot.
+    if ((init.method ?? "GET").toUpperCase() === "POST") {
+      headers.set("X-Bento-Form-Check", `ok:${formTrap}`);
+      headers.set("X-Bento-Form-Elapsed", ((Date.now() - shareOpened) / 1000).toFixed(1));
+    }
+  } else if (!init.anonymous) {
     const accessToken = useAuthStore.getState().accessToken;
     if (accessToken && !headers.has("Authorization")) {
       headers.set("Authorization", `Bearer ${accessToken}`);
@@ -126,7 +160,7 @@ async function doFetch(path: string, init: ApiRequestInit): Promise<Response> {
 export async function apiRequest<T>(path: string, init: ApiRequestInit = {}): Promise<T> {
   let response = await doFetch(path, init);
 
-  if (response.status === 401 && !init.skipAuthRetry) {
+  if (response.status === 401 && !init.skipAuthRetry && !shareToken) {
     const auth = useAuthStore.getState();
     // Only try to refresh if we ever had a session. For a never-authenticated
     // caller a 401 is simply "please log in".

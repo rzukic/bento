@@ -55,7 +55,7 @@ A deleted dashboard appears under **Recently deleted** in the list of dashboards
 
 ## Date Range And Refresh
 
-The range at the top (last 7 days, this month, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
+The range at the top (last 7 days, this or last week, this or last month, this or last quarter, last 3/6/12 months, this year, last year, last 3 or 5 years, the next 12 months or 5/10/20 years, all time, or a custom from–to) applies to every widget that has a date: the one it is grouped by, or the one chosen in its settings. The range is part of the address (`?range=last-12-months`), so a bookmark keeps it. Charts by month show every month of the range, also those without bookings; a running total stays level through them. Weeks, quarters and years start where the workspace says (Settings → Workspace), so "this year" can be a fiscal year from April; "today" is in the workspace's time zone. Ranges in the past stop at today ("This year" in October draws no November); the **next …** ranges and a custom end in the future reach ahead, for forecasts.
 
 A widget can have its own range under **Data → Date range**, e.g. a forecast over the next 20 years on a dashboard of the last 12 months.
 
@@ -104,7 +104,7 @@ Choose **Edit**:
 - Switching the chart type keeps the fields; options that no longer apply are dropped
 - **Shared** makes the dashboard visible to everyone; **Save** keeps the layout and the current date range as the dashboard's default
 
-Donuts show their total in the middle and each slice's share in the tooltip. A Sankey can label its nodes with shares of the first column (for a cash flow, of the income) under **Style → Show shares**.
+Donuts show their total in the middle and each slice's share in the tooltip. A Sankey can label its nodes with shares of the first column (in → out: of what flows in) under **Style → Show shares**.
 
 Tooltips list the series as they sit at that date (stacks top to bottom), mark the one under the pointer and show a stack's total. Stacks put positive values above 0 and negative ones below — for income and expenses, stacked bars with a total line read best.
 
@@ -127,14 +127,14 @@ The result is an ordinary widget: the fields, filters and style are set in the e
 - **Summarized**: rows per group with metrics, optionally a **total row**
 - **Individual rows**: the rows themselves — the columns you pick, sorted and limited — with the widget's conditions and the dashboard range
 
-## Sankey: Where The Money Goes
+## Sankey: Flows
 
-A **Sankey** shows flows. Drop one to three categories into **Levels** and a number into **Size by**, then choose under **Flows**:
+A **Sankey** shows flows. Drop one to three groups into **Levels** and a number into **Size by**, then choose under **Flows**:
 
-- **Income → expenses** (one level, the default): each category's total decides its side — income categories on the left flow into *Income*, which flows out to the expense categories on the right; what is left flows to **Saved** (or comes **From savings** when you spent more). A second level details the expenses (category → subcategory)
-- **Between levels**: a flow between each pair of levels, e.g. category → subcategory → payee, sized by the amounts
+- **Between levels** (the default): a flow between each pair of levels, e.g. region → product → channel, sized by the values; with one level, the total flows into its parts
+- **In → out (by sign)**: each group's total decides its side — groups above 0 on the left flow into the centre, which flows out to the groups below 0 on the right; what is left is shown on its own (or what is missing, when more flows out). A second level details what flows out. Name the centre, the rest and the shortfall yourself — for money: *Income*, *Saved*, *From savings*; without names they are *Total*, *Left over* and *Shortfall*
 
-Levels keep the top 8 values by amount (income and expenses alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey.
+Levels keep the top 8 values by size (both signs alike) and group the rest as Other. The cash-flow dashboard made from a table includes a **Money flow** Sankey (in → out, with the money names).
 
 ## Form Buttons
 
@@ -157,16 +157,18 @@ To change what a widget offers, go to the widget editor → **Style** → **View
 - Untick it to hide the switch.
 - Choose the intervals to offer, for example only quarters and years. The widget's own interval always stays.
 
-## Budgets
+## Targets
 
-The **Budgets** widget (*Add widget → Budgets*) puts each category's monthly limit against what was spent:
+The **Targets** widget (*Add widget → Targets*) puts each group's value against its target — hours per project against weekly hours, orders per region against a quarterly goal, spending per category against a monthly budget:
 
-- **Limits** live in a number column of the categories table, e.g. *Monthly budget*. Categories without a limit are left out; what they spent shows as one line under the bars.
-- **Spending** comes from a table with a date, an amount and a link to the categories, e.g. Transactions. Bank accounts store spending as negative amounts; an expenses table may store it as positive ones — the widget's settings say which.
-- **Period**: the **last month of the dashboard's range** (this month, by default), or the **whole range**, where limits count once per month of the range.
-- Each row shows spent of limit, a bar and the share: from 80 % in amber, above 100 % in red. Click a row for its bookings.
+- **Values** come from any table with a date and a link to the groups: a **formula** over its rows, e.g. `SUM(hours)`, `COUNT()` or, for spending stored as negative amounts, `-SUM(amount WHERE amount < 0)`.
+- **Targets** live in a number column of the linked table, e.g. *Weekly hours* or *Monthly budget*. Groups without a target are left out; their values show as one line under the bars.
+- **One target covers** a week, a month, a quarter or a year (as the workspace starts them).
+- **Compare** the **last period of the dashboard's range** (this month, this week …, by default), or the **whole range**, where targets count once per period of the range.
+- **The target is** a **goal to reach** (green once reached) or a **limit to stay under** (amber from 80 %, red over).
+- Each row shows the value of its target, a bar and the share. Click a row for the rows behind it.
 
-The Wealth template's cash-flow dashboard has **Budgets this month**.
+The Wealth template's cash-flow dashboard has **Budgets this month**: a limit per category. Budget widgets from before are targets now, with the same numbers.
 
 ## Click Through To The Rows
 
@@ -208,3 +210,14 @@ Each shows its current value (or what is wrong) as you type. A key figure can sh
 ## Amounts
 
 Amounts (currency columns) are shown in euros in your browser's language, for example `−1.150,00 €`, in tables, key figures and chart axes; negative amounts are red. The Data Explorer shows them the same way.
+
+## Share A Dashboard
+
+**Share** (next to History; the dashboard's owner and the workspace's admins) makes a link anyone can open without an account — your tax advisor, family, a page of your own:
+
+- **Read only**: the visitor sees the dashboard's widgets and may pick another date range or switch a chart's interval (month, quarter …). Nothing else: no editing, no history, no other dashboards or tables of the workspace, no click-through to rows. Bento checks every request a visitor's browser makes against the dashboard's widgets.
+- **Fixed filters**: for a dashboard filter (e.g. category), type the values the visitor may see — *food* or *food, rent*. They always apply; the visitor cannot change them.
+- **Expires** after 7, 30, 90 days, a year, or never; **Revoke** stops a link at once. The list shows how often each link was opened and when last.
+- The address (`https://<your Bento>/s/…`) is shown **once** — copy it then; Bento keeps only a fingerprint of it.
+- **May be embedded in other sites**: also shows code for an `<iframe>`; embedded, the dashboard shows without its title. Links without it refuse to show inside another site. The app itself can only be framed by its own site.
+- A link shows numbers and dates the way its workspace is set up. It stops when its maker is deleted or no longer in the workspace.

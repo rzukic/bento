@@ -34,10 +34,14 @@ public sealed class DataController : ControllerBase
     /// List rows in a table (paginated, filterable, sortable).
     /// </summary>
     [HttpGet("{table}")]
-    public async Task<IActionResult> List(string table)
+    public async Task<IActionResult> List(string table, [FromServices] Services.Sharing.ShareGuard guard, [FromServices] QueryTables queryTables)
     {
         var tableDef = ResolveTable(table);
+        await queryTables.EnsureCurrentAsync(tableDef.Name);
         var parameters = QueryParameterParser.Parse(Request.Query, tableDef);
+        // A share link's visitor reads only the dashboard's tables of rows and targets (Step 5.6).
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+            parameters = await guard.CheckRowsAsync(visitor, tableDef, parameters);
         var includes = parameters.Includes.Count > 0
             ? _includeService.ResolveIncludes(tableDef.Name, parameters.Includes)
             : null;
@@ -119,11 +123,41 @@ public sealed class DataController : ControllerBase
     /// </summary>
     [HttpPost("{table}")]
     [RequireRole("editor", "api")]
-    public async Task<IActionResult> Create(string table, [FromBody] JsonElement body)
+    public async Task<IActionResult> Create(string table, [FromBody] JsonElement body, [FromServices] Services.Sharing.ShareGuard guard,
+        [FromServices] Services.Sharing.ShareService shares)
     {
         var tableDef = ResolveTable(table);
+        // A public form's visitor (Step 5.6): only the form's fields, a few entries an hour, no robots.
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+        {
+            body = await guard.CheckEntryAsync(visitor, tableDef, body);
+            RefuseRobots();
+            var ip = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+            if (!shares.TakeEntry(visitor.Link, ip, DateTime.UtcNow))
+                throw new ApiTooManyRequestsException("Thanks — that is enough entries for now. Try again later.");
+            var created = await _crudService.CreateAsync(tableDef, body);
+            _recalculation?.Request();
+            // The visitor learns that it arrived, not what the table computes from it.
+            var key = tableDef.Columns.FirstOrDefault(c => c.PrimaryKey)?.Name ?? "id";
+            return StatusCode(StatusCodes.Status201Created, new { data = new Dictionary<string, object?> { [key] = created.TryGetValue(key, out var id) ? id : null } });
+        }
         var row = await FreshAsync(tableDef, await _crudService.CreateAsync(tableDef, body));
         return StatusCode(StatusCodes.Status201Created, new { data = row });
+    }
+
+    /// <summary>
+    /// The form's page sends its trap field as "ok:&lt;what was typed&gt;" — people
+    /// never see it, robots fill it — and how long the form was open; a few
+    /// seconds is a person.
+    /// </summary>
+    private void RefuseRobots()
+    {
+        var trap = Request.Headers["X-Bento-Form-Check"];
+        var opened = Request.Headers["X-Bento-Form-Elapsed"].ToString();
+        var seconds = double.TryParse(opened, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var s) ? s : 0;
+        if (trap.ToString() != "ok:" || seconds < 2)
+            throw new ApiValidationException("This entry looks automatic. Fill in the form on its page and send it again.",
+                new Dictionary<string, object?> { ["field"] = "form" });
     }
 
     /// <summary>

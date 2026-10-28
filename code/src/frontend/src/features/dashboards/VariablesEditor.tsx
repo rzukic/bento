@@ -96,7 +96,7 @@ export function VariablesEditor({
       </header>
       <div className="widget-editor__body">
         <p className="widget-editor__hint">
-          Named values for key figures and formulas, e.g. <code>spent</code> from a table and <code>runway = cash / spent</code> from other variables.
+          Named values for key figures and formulas, e.g. <code>hours</code> from a table and <code>per_week = hours / weeks</code> from other variables.
         </p>
         {variables.map((variable, index) => {
           const table = tables.find((t) => t.name === variable.source);
@@ -154,7 +154,7 @@ export function VariablesEditor({
                   variables={others}
                   validate={false}
                   ariaLabel={`Formula of ${variable.name}`}
-                  placeholder={variable.source ? "SUM(amount WHERE amount < 0)" : "cash / burn_rate"}
+                  placeholder={variable.source ? 'SUM(hours WHERE status = "billable")' : "hours / weeks"}
                 />
               </div>
               {table ? (

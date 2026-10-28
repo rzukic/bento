@@ -59,14 +59,16 @@ public sealed class FormsController : ControllerBase
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = await conn.QueryAsync<FormRow>(
-            $"SELECT {Columns} FROM {Table} WHERE owner_user_id = @UserId OR is_shared {SharedTrue} ORDER BY LOWER(name)",
-            new { UserId = userId });
+            $"SELECT {Columns} FROM {Table} WHERE workspace_id = @Ws AND (owner_user_id = @UserId OR is_shared {SharedTrue}) ORDER BY LOWER(name)",
+            new { UserId = userId, Ws });
         return Ok(new { data = rows.Select(r => ToResponse(r, userId)) });
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id)
+    public async Task<IActionResult> Get(long id, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        if (Services.Sharing.ShareContext.ShareVisitor(HttpContext) is { } visitor)
+            await guard.CheckFormAsync(visitor, id);
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
@@ -85,11 +87,11 @@ public sealed class FormsController : ControllerBase
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, table_name, form_json, owner_user_id, is_shared, created_at, updated_at)
-            VALUES (@Name, @TableName, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            INSERT INTO {Table} (workspace_id, name, table_name, form_json, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Ws, @Name, @TableName, {JsonParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, TableName = table, Json = json, OwnerId = userId, IsShared = request.IsShared ?? false, Now = UtcNowIso() });
+            new { Name = name, TableName = table, Json = json, OwnerId = userId, IsShared = request.IsShared ?? false, Now = UtcNowIso(), Ws });
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
@@ -263,7 +265,7 @@ public sealed class FormsController : ControllerBase
 
     private async Task<FormRow> GetVisibleAsync(System.Data.IDbConnection conn, long id, long? userId)
     {
-        var row = await conn.QuerySingleOrDefaultAsync<FormRow>($"SELECT {Columns} FROM {Table} WHERE id = @Id", new { Id = id });
+        var row = await conn.QuerySingleOrDefaultAsync<FormRow>($"SELECT {Columns} FROM {Table} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
         if (row is null || (row.OwnerUserId != userId && !row.IsShared))
             throw new ApiNotFoundException($"Form {id} not found.");
         return row;
@@ -287,6 +289,7 @@ public sealed class FormsController : ControllerBase
 
     private long? UserId() => HttpContext.User.GetUserId();
 
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.forms" : "forms";
     private string SharedTrue => _systemPool.Provider == DatabaseProvider.Postgres ? "" : "= 1";
     private string JsonParam => SystemSqlDialect.JsonParam(_systemPool.Provider, "@Json");

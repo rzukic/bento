@@ -10,6 +10,9 @@ public class ModelJsonStore
 {
     private readonly ISystemPool _systemPool;
 
+    /// <summary>The current workspace (Step 5.5): every workspace has its own versions; the counter stays one for all.</summary>
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
+
     public ModelJsonStore(ISystemPool systemPool)
     {
         _systemPool = systemPool;
@@ -18,14 +21,14 @@ public class ModelJsonStore
     public async Task<ModelJson?> GetCurrentAsync()
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        var row = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectCurrentSql());
+        var row = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectCurrentSql(), new { Ws });
         return row is null ? null : ParseRow(row);
     }
 
     public async Task<ModelJson?> GetVersionAsync(int version)
     {
         using var conn = await _systemPool.GetConnectionAsync();
-        var row = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectVersionSql(), new { Version = version });
+        var row = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectVersionSql(), new { Version = version, Ws });
         return row is null ? null : ParseRow(row);
     }
 
@@ -53,7 +56,8 @@ public class ModelJsonStore
             await conn.ExecuteAsync(GetInsertSql(), new
             {
                 Version = versionedModel.Version,
-                ModelJson = json
+                ModelJson = json,
+                Ws
             }, activeTransaction);
 
             if (ownsTransaction)
@@ -80,7 +84,7 @@ public class ModelJsonStore
     {
         using var conn = await _systemPool.GetConnectionAsync();
         using var tx = conn.BeginTransaction();
-        var current = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectCurrentSql(), transaction: tx);
+        var current = await conn.QuerySingleOrDefaultAsync<SchemaVersionRow>(GetSelectCurrentSql(), new { Ws }, transaction: tx);
 
         if (current is null)
         {
@@ -92,7 +96,8 @@ public class ModelJsonStore
         await conn.ExecuteAsync(GetUpdateModelJsonSql(), new
         {
             Version = versionedModel.Version,
-            ModelJson = json
+            ModelJson = json,
+            Ws
         }, tx);
         tx.Commit();
 
@@ -107,7 +112,7 @@ public class ModelJsonStore
 
     public async Task DeleteVersionAsync(IDbConnection conn, IDbTransaction? transaction, int version)
     {
-        await conn.ExecuteAsync($"DELETE FROM {GetSchemaVersionsTableName()} WHERE version = @Version;", new { Version = version }, transaction);
+        await conn.ExecuteAsync($"DELETE FROM {GetSchemaVersionsTableName()} WHERE version = @Version AND workspace_id = @Ws;", new { Version = version, Ws }, transaction);
     }
 
     private ModelJson ParseRow(SchemaVersionRow row)
@@ -120,16 +125,16 @@ public class ModelJsonStore
     {
         var table = GetSchemaVersionsTableName();
         return _systemPool.Provider == DatabaseProvider.Postgres
-            ? $"SELECT version, model_json::text AS ModelJson FROM {table} ORDER BY version DESC LIMIT 1;"
-            : $"SELECT version, model_json AS ModelJson FROM {table} ORDER BY version DESC LIMIT 1;";
+            ? $"SELECT version, model_json::text AS ModelJson FROM {table} WHERE workspace_id = @Ws ORDER BY version DESC LIMIT 1;"
+            : $"SELECT version, model_json AS ModelJson FROM {table} WHERE workspace_id = @Ws ORDER BY version DESC LIMIT 1;";
     }
 
     private string GetSelectVersionSql()
     {
         var table = GetSchemaVersionsTableName();
         return _systemPool.Provider == DatabaseProvider.Postgres
-            ? $"SELECT version, model_json::text AS ModelJson FROM {table} WHERE version = @Version LIMIT 1;"
-            : $"SELECT version, model_json AS ModelJson FROM {table} WHERE version = @Version LIMIT 1;";
+            ? $"SELECT version, model_json::text AS ModelJson FROM {table} WHERE version = @Version AND workspace_id = @Ws LIMIT 1;"
+            : $"SELECT version, model_json AS ModelJson FROM {table} WHERE version = @Version AND workspace_id = @Ws LIMIT 1;";
     }
 
     private async Task<int> AllocateNextVersionAsync(IDbConnection conn, IDbTransaction transaction)
@@ -163,16 +168,16 @@ public class ModelJsonStore
     {
         var table = GetSchemaVersionsTableName();
         return _systemPool.Provider == DatabaseProvider.Postgres
-            ? $"INSERT INTO {table} (model_json, version) VALUES (CAST(@ModelJson AS JSONB), @Version);"
-            : $"INSERT INTO {table} (model_json, version) VALUES (@ModelJson, @Version);";
+            ? $"INSERT INTO {table} (model_json, version, workspace_id) VALUES (CAST(@ModelJson AS JSONB), @Version, @Ws);"
+            : $"INSERT INTO {table} (model_json, version, workspace_id) VALUES (@ModelJson, @Version, @Ws);";
     }
 
     private string GetUpdateModelJsonSql()
     {
         var table = GetSchemaVersionsTableName();
         return _systemPool.Provider == DatabaseProvider.Postgres
-            ? $"UPDATE {table} SET model_json = CAST(@ModelJson AS JSONB) WHERE version = @Version;"
-            : $"UPDATE {table} SET model_json = @ModelJson WHERE version = @Version;";
+            ? $"UPDATE {table} SET model_json = CAST(@ModelJson AS JSONB) WHERE version = @Version AND workspace_id = @Ws;"
+            : $"UPDATE {table} SET model_json = @ModelJson WHERE version = @Version AND workspace_id = @Ws;";
     }
 
     private string GetSchemaVersionsTableName() =>

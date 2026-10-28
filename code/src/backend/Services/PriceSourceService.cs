@@ -26,7 +26,6 @@ public sealed class PriceSourceService
 {
     public const int DefaultFreshMinutes = 15;
     public const string DefaultDailyAt = "22:30";
-    public const string DefaultTimeZone = "Europe/Berlin";
     private const int LatestDays = 7;
 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -35,6 +34,7 @@ public sealed class PriceSourceService
     };
 
     private readonly ISystemPool _systemPool;
+    private readonly WorkspaceSettings? _workspace;
     private readonly IDataPool _dataPool;
     private readonly SchemaCache _schemaCache;
     private readonly CrudService _crud;
@@ -42,6 +42,7 @@ public sealed class PriceSourceService
     private readonly CustomFunctionService _functionService;
     private readonly ICustomValueRecalculation? _recalculation;
     private readonly ILogger<PriceSourceService>? _logger;
+    private readonly Notifications.NotificationRuleService? _rules;
     private readonly ConcurrentDictionary<long, SemaphoreSlim> _locks = new();
 
     public PriceSourceService(
@@ -52,8 +53,12 @@ public sealed class PriceSourceService
         CustomFunctionCatalog functions,
         CustomFunctionService functionService,
         ICustomValueRecalculation? recalculation = null,
-        ILogger<PriceSourceService>? logger = null)
+        ILogger<PriceSourceService>? logger = null,
+        Notifications.NotificationRuleService? rules = null,
+        WorkspaceSettings? workspace = null)
     {
+        _rules = rules;
+        _workspace = workspace;
         _systemPool = systemPool;
         _dataPool = dataPool;
         _schemaCache = schemaCache;
@@ -66,6 +71,7 @@ public sealed class PriceSourceService
 
     private bool SystemPg => _systemPool.Provider == DatabaseProvider.Postgres;
     private bool DataPg => _dataPool.Provider == DatabaseProvider.Postgres;
+    private static long Ws => Workspaces.WorkspaceContext.Id;
     private string Sources => SystemPg ? "_system.price_sources" : "price_sources";
     private string Runs => SystemPg ? "_system.price_source_runs" : "price_source_runs";
     private string NowParam => SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now");
@@ -87,8 +93,8 @@ public sealed class PriceSourceService
     {
         using var conn = await _systemPool.GetConnectionAsync();
         var rows = await conn.QueryAsync<SourceRow>(
-            $"SELECT id, name, CAST(config AS TEXT) AS Config, enabled FROM {Sources}{(id is null ? "" : " WHERE id = @Id")} ORDER BY name",
-            new { Id = id });
+            $"SELECT id, name, CAST(config AS TEXT) AS Config, enabled FROM {Sources} WHERE workspace_id = @Ws{(id is null ? "" : " AND id = @Id")} ORDER BY name",
+            new { Id = id, Ws });
         return rows.Select(r => new Source(r.Id, r.Name, r.Enabled,
             JsonSerializer.Deserialize<PriceSourceConfig>(r.Config, Json) ?? new PriceSourceConfig())).ToList();
     }
@@ -111,15 +117,15 @@ public sealed class PriceSourceService
         var name = RequireName(request.Name);
         var config = Validate(request.Config);
         using var conn = await _systemPool.GetConnectionAsync();
-        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE LOWER(name) = LOWER(@Name)", new { Name = name }) > 0)
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE workspace_id = @Ws AND LOWER(name) = LOWER(@Name)", new { Name = name, Ws }) > 0)
             throw new ApiConflictException($"A price source named '{name}' already exists.", new Dictionary<string, object?> { ["field"] = "name" });
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Sources} (name, config, enabled, created_at, updated_at)
-            VALUES (@Name, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, {NowParam}, {NowParam})
+            INSERT INTO {Sources} (workspace_id, name, config, enabled, created_at, updated_at)
+            VALUES (@Ws, @Name, {SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config")}, @Enabled, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, Now = UtcNowIso() });
+            new { Name = name, Config = JsonSerializer.Serialize(config, Json), Enabled = request.Enabled ?? true, Now = UtcNowIso(), Ws });
         return await GetAsync(id);
     }
 
@@ -129,7 +135,7 @@ public sealed class PriceSourceService
         var name = request.Name is null ? existing.Name : RequireName(request.Name);
         var config = request.Config is null ? existing.Config : Validate(request.Config);
         using var conn = await _systemPool.GetConnectionAsync();
-        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE LOWER(name) = LOWER(@Name) AND id <> @Id", new { Name = name, Id = id }) > 0)
+        if (await conn.ExecuteScalarAsync<long>($"SELECT COUNT(*) FROM {Sources} WHERE workspace_id = @Ws AND LOWER(name) = LOWER(@Name) AND id <> @Id", new { Name = name, Id = id, Ws }) > 0)
             throw new ApiConflictException($"A price source named '{name}' already exists.", new Dictionary<string, object?> { ["field"] = "name" });
         await conn.ExecuteAsync(
             $"""
@@ -222,8 +228,9 @@ public sealed class PriceSourceService
         var dailyAt = string.IsNullOrWhiteSpace(config.DailyAt) ? DefaultDailyAt : config.DailyAt.Trim();
         if (!TimeOnly.TryParseExact(dailyAt, "HH:mm", CultureInfo.InvariantCulture, DateTimeStyles.None, out _))
             throw Invalid("config.dailyAt", "dailyAt is a time of day (HH:mm), e.g. 22:30.");
-        var timeZone = string.IsNullOrWhiteSpace(config.TimeZone) ? DefaultTimeZone : config.TimeZone.Trim();
-        if (!TimeZoneInfo.TryFindSystemTimeZoneById(timeZone, out _))
+        // No zone of its own: the workspace's (Settings → Workspace).
+        var timeZone = string.IsNullOrWhiteSpace(config.TimeZone) ? null : config.TimeZone.Trim();
+        if (timeZone is not null && !TimeZoneInfo.TryFindSystemTimeZoneById(timeZone, out _))
             throw Invalid("config.timeZone", $"Unknown time zone '{timeZone}', e.g. Europe/Berlin.");
         if (config.FreshMinutes is < 1 or > 24 * 60)
             throw Invalid("config.freshMinutes", "freshMinutes is between 1 and 1440.");
@@ -398,8 +405,8 @@ public sealed class PriceSourceService
         using (var conn = await _systemPool.GetConnectionAsync())
         {
             runId = await conn.ExecuteScalarAsync<long>(
-                $"INSERT INTO {Runs} (source_id, kind, started_at) VALUES (@Source, @Kind, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Started")}) RETURNING id",
-                new { Source = source.Id, Kind = kind, Started = started });
+                $"INSERT INTO {Runs} (workspace_id, source_id, kind, started_at) VALUES (@Ws, @Source, @Kind, {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Started")}) RETURNING id",
+                new { Source = source.Id, Kind = kind, Started = started, Ws });
         }
 
         var requests = 0;
@@ -475,6 +482,12 @@ public sealed class PriceSourceService
                 """,
                 new { Id = runId, Requests = requests, Written = written, Quote = lastQuote, Error = error, Now = UtcNowIso() });
         }
+        // Rules on failed price updates (Step 5.3): a failed daily run speaks; any run that works clears it.
+        if (_rules is not null && (kind == "daily" || error is null))
+            await _rules.OnEventAsync("price.failed", $"price:{source.Id}", error is not null,
+                new Models.Notification("price.failed", $"Price update failed: {source.Name}", error ?? "", _rules.Link("/functions"),
+                    [new Models.NotificationFact("Price source", source.Name), new Models.NotificationFact("Run", kind)]),
+                cancellationToken);
         return (await RunsAsync(source.Id, 1)).First();
     }
 
@@ -663,6 +676,8 @@ public sealed class PriceSourceService
     /// <summary>Sources whose daily time has passed today (in their time zone) without a daily run.</summary>
     public async Task<IReadOnlyList<long>> DueDailyAsync()
     {
+        if (_workspace is not null)
+            await _workspace.EnsureLoadedAsync();
         var due = new List<long>();
         foreach (var source in (await LoadAsync()).Where(s => s.Enabled))
         {
@@ -682,10 +697,12 @@ public sealed class PriceSourceService
         return due;
     }
 
-    private static TimeZoneInfo Zone(PriceSourceConfig config) =>
-        TimeZoneInfo.TryFindSystemTimeZoneById(config.TimeZone ?? DefaultTimeZone, out var zone) ? zone : TimeZoneInfo.Utc;
+    private TimeZoneInfo Zone(PriceSourceConfig config) =>
+        config.TimeZone is { } own && TimeZoneInfo.TryFindSystemTimeZoneById(own, out var zone)
+            ? zone
+            : (_workspace?.Calendar ?? WorkspaceCalendar.Default).Zone;
 
-    private static DateOnly Today(PriceSourceConfig config) =>
+    private DateOnly Today(PriceSourceConfig config) =>
         DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, Zone(config)).DateTime);
 
     // ── Helpers ──────────────────────────────────────────────────────────

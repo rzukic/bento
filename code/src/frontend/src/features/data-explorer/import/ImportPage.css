@@ -121,7 +121,7 @@
     position: relative;
     border: 1.5px dashed var(--border-strong);
     border-radius: 12px;
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 4%, transparent);
     transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
 }
 
@@ -453,7 +453,7 @@
 }
 
 .import-status--duplicate {
-    background: var(--surface-sunken);
+    background: color-mix(in srgb, var(--text) 8%, transparent);
     color: var(--text-3);
 }
 
@@ -528,4 +528,246 @@
 /* Step 3.9 follow-up: a fixed value for every row under the column choice. */
 .import-map__fixed {
     margin-top: 0.375rem;
+}
+
+/* Step 5.1: rows whose key is there but whose values changed at the source. */
+.import-update {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    margin-top: 0.75rem;
+    font-size: var(--fs-sm);
+}
+
+.import-update input {
+    margin-top: 0.2rem;
+}
+
+.import-update__hint {
+    display: block;
+    color: var(--text-3);
+}
+
+.import-status--changed {
+    background: color-mix(in srgb, var(--info) 14%, transparent);
+    color: var(--info);
+}
+
+.import-chip--changed .import-chip__count {
+    color: var(--info);
+}
+
+.import-review__change del {
+    color: var(--text-3);
+    text-decoration: line-through;
+}
+
+.import-review__change ins {
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.import-settings__path {
+    min-width: 12rem;
+}
+
+/* Step 5.1: the file from a URL, and imports that run on their own. */
+.import-origin {
+    display: inline-flex;
+    margin-left: auto;
+    padding: 2px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-pill);
+}
+
+.import-origin__tab {
+    padding: 0.25rem 0.75rem;
+    border: 0;
+    border-radius: var(--r-pill);
+    background: transparent;
+    color: var(--text-2);
+    font: inherit;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+}
+
+.import-origin__tab--active {
+    background: color-mix(in srgb, var(--text) 9%, transparent);
+    color: var(--text);
+    font-weight: 600;
+}
+
+.import-url {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.import-url__row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-end;
+}
+
+.import-url__address {
+    flex: 1;
+    min-width: 0;
+}
+
+.import-url__header {
+    display: grid;
+    grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 2fr) auto;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.import-url__foot {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    align-items: center;
+}
+
+.import-url__hint {
+    color: var(--text-3);
+    font-size: var(--fs-xs);
+}
+
+.import-url__fetched {
+    display: flex;
+    gap: 0.375rem;
+    align-items: center;
+    margin: 0;
+    color: var(--text-2);
+    font-size: var(--fs-sm);
+}
+
+.import-schedule-box {
+    display: grid;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--line);
+}
+
+.import-schedule-box__title {
+    margin: 0;
+    font-size: var(--fs-md, 1rem);
+}
+
+.import-schedule {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 0.75rem;
+    align-items: flex-end;
+}
+
+.import-schedule__actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.saved-imports {
+    display: grid;
+    gap: 0;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.saved-import {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem 1rem;
+    justify-content: space-between;
+    padding: 0.75rem 0;
+    border-top: 1px solid var(--line);
+}
+
+.saved-import:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.saved-import--editing .saved-import__title strong {
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.saved-import--paused .saved-import__main {
+    opacity: 0.6;
+}
+
+.saved-import__main {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+    flex: 1 1 20rem;
+}
+
+.saved-import__title {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.5rem;
+    align-items: baseline;
+}
+
+.saved-import__meta,
+.saved-import__last,
+.saved-import__message {
+    margin: 0;
+    color: var(--text-3);
+    font-size: var(--fs-sm);
+    overflow-wrap: anywhere;
+}
+
+.saved-import__last {
+    display: flex;
+    gap: 0.375rem;
+    align-items: baseline;
+}
+
+.saved-import__last--ok svg {
+    color: var(--success);
+}
+
+.saved-import__last--failed {
+    color: var(--danger);
+}
+
+.saved-import__actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    align-items: flex-start;
+}
+
+.saved-import__runs {
+    border-collapse: collapse;
+    font-size: var(--fs-xs);
+    color: var(--text-2);
+}
+
+.saved-import__runs td {
+    padding: 0.25rem 0.75rem 0.25rem 0;
+    border-top: 1px solid var(--line);
+    vertical-align: top;
+}
+
+.saved-import__run--failed td:last-child {
+    color: var(--danger);
+}
+
+@media (max-width: 720px) {
+    .import-origin {
+        margin-left: 0;
+    }
+
+    .import-url__row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+
+    .import-url__header {
+        grid-template-columns: 1fr;
+    }
 }

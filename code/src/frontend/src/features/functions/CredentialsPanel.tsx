@@ -87,7 +87,7 @@ export function CredentialsPanel() {
   return (
     <div className="credentials">
       <p className="credentials__intro">
-        API keys for functions that call APIs, e.g. a price provider. Values are stored encrypted and never shown again; a function
+        API keys for functions that call APIs, e.g. a weather or price service. Values are stored encrypted and never shown again; a function
         reads the ones it lists as <code>credentials.name</code>. Free sources such as Yahoo Finance need none.
       </p>
 

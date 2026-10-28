@@ -8,9 +8,28 @@ export type ImportFileSettings = {
   headerLine?: number;
   decimalSeparator?: string;
   dateFormat?: string;
+  /** Detected from the file when missing. */
+  format?: ImportFormat;
+  /** Excel: the sheet to read (the first when missing). */
+  sheet?: string | null;
+  /** JSON: where the list of records is, e.g. `data.transactions` (found when missing). */
+  jsonPath?: string | null;
 };
 
-export type ImportResolvedSettings = Required<ImportFileSettings>;
+export type ImportFormat = "csv" | "xlsx" | "json";
+
+export type ImportResolvedSettings = {
+  encoding: string;
+  delimiter: string;
+  headerLine: number;
+  decimalSeparator: string;
+  dateFormat: string;
+  format?: ImportFormat;
+  sheet?: string | null;
+  /** Excel: the workbook's sheets. */
+  sheets?: string[] | null;
+  jsonPath?: string | null;
+};
 
 export type ImportAnalyzedColumn = {
   index: number;
@@ -49,17 +68,21 @@ export type ImportRunPayload = {
   keyColumns: string[];
   /** Also skip repeats within the file (filling a lookup table once per value). */
   distinctKeys?: boolean;
+  /** With key columns: update rows whose other values changed at the source instead of skipping them. */
+  updateChanged?: boolean;
   /** Values chosen per row in the review, by file line — e.g. categories (Step 4.8); they win over the file. */
   assign?: { column: string; values: Record<string, string> };
 };
 
-export type ImportRowStatus = "new" | "duplicate" | "invalid";
+export type ImportRowStatus = "new" | "duplicate" | "changed" | "invalid";
 
 export type ImportRowResult = {
   line: number;
   status: ImportRowStatus;
   display: Record<string, string | null>;
   errors: { field: string; message: string }[];
+  /** A changed row: the values it has in the table now, for the columns that change. */
+  before?: Record<string, string | null> | null;
 };
 
 export type ImportRunResult = {
@@ -71,12 +94,16 @@ export type ImportRunResult = {
   inserted: number;
   rows: ImportRowResult[];
   rowsTruncated: boolean;
+  /** Rows in the table whose other values differ (written with `updateChanged`). */
+  changed?: number;
+  updated?: number;
 };
 
 export type ImportProfileConfig = {
   settings?: ImportFileSettings;
   mapping?: ImportColumnMapping[];
   keyColumns?: string[];
+  updateChanged?: boolean;
 };
 
 export type ImportProfile = {
@@ -92,7 +119,7 @@ type DataEnvelope<T> = { data: T };
 
 const tablePath = (table: string) => `/import/${encodeURIComponent(table)}`;
 
-/** POST /api/v1/import/analyze — detect encoding, delimiter, header and locale. */
+/** POST /api/v1/import/analyze — detect the format (CSV, Excel, JSON), encoding, delimiter, header and locale. */
 export async function analyzeImport(content: string, settings: ImportFileSettings = {}, fileName?: string): Promise<ImportAnalysis> {
   const response = await apiClient.post<DataEnvelope<ImportAnalysis>>("/import/analyze", { content, fileName, settings });
   return response.data;
@@ -140,4 +167,104 @@ export function readFileAsBase64(file: Blob): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+// ── Import from a URL and saved imports (Step 5.1) ────────────────────────
+
+/** A header sent with the request; `{{name}}` in the value (or the URL) is a credential from the vault. */
+export type ImportHeader = { name: string; value: string };
+
+export type ImportFetchResult = { content: string; fileName: string; contentType: string | null; bytes: number; finalUrl: string };
+
+/** POST /api/v1/import/fetch — the server fetches the file (https, public addresses only) for the page to read like an upload. */
+export async function fetchImportFile(url: string, headers: ImportHeader[]): Promise<ImportFetchResult> {
+  const response = await apiClient.post<DataEnvelope<ImportFetchResult>>("/import/fetch", { url, headers });
+  return response.data;
+}
+
+/** POST /api/v1/import/function — runs a function (Step 5.11); its rows come back like a fetched file. */
+export async function runImportFunction(name: string): Promise<ImportFetchResult> {
+  const response = await apiClient.post<DataEnvelope<ImportFetchResult>>("/import/function", { function: name });
+  return response.data;
+}
+
+/** When a saved import runs on its own. */
+export type ImportSchedule = { kind: "manual" } | { kind: "daily"; at: string; timeZone?: string } | { kind: "hours"; every: number };
+
+export type ImportSourceConfig = {
+  /** Where the file comes from: a URL, or (Step 5.11) a function whose result is the file. */
+  url?: string | null;
+  function?: string | null;
+  headers?: ImportHeader[];
+  settings?: ImportFileSettings;
+  mapping: ImportColumnMapping[];
+  keyColumns?: string[];
+  updateChanged?: boolean;
+  /** New rows get this column from the categorisation rules and earlier rows. */
+  categoryColumn?: string | null;
+  schedule?: ImportSchedule;
+};
+
+export type ImportSourceRun = {
+  id: number;
+  trigger: "schedule" | "manual";
+  startedAt: string;
+  finishedAt: string | null;
+  status: "running" | "ok" | "failed";
+  total: number;
+  inserted: number;
+  updated: number;
+  duplicates: number;
+  invalid: number;
+  categorised: number;
+  bytes: number;
+  error: string | null;
+};
+
+export type ImportSource = {
+  id: number;
+  name: string;
+  tableName: string;
+  config: ImportSourceConfig;
+  enabled: boolean;
+  lastRun: ImportSourceRun | null;
+  nextRunAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+const sourcesPath = (table: string) => `${tablePath(table)}/sources`;
+
+export async function listImportSources(table: string): Promise<ImportSource[]> {
+  const response = await apiClient.get<DataEnvelope<ImportSource[]>>(sourcesPath(table));
+  return response.data;
+}
+
+export async function createImportSource(table: string, name: string, config: ImportSourceConfig): Promise<ImportSource> {
+  const response = await apiClient.post<DataEnvelope<ImportSource>>(sourcesPath(table), { name, config });
+  return response.data;
+}
+
+export async function updateImportSource(
+  table: string,
+  id: number,
+  changes: { name?: string; config?: ImportSourceConfig; enabled?: boolean },
+): Promise<ImportSource> {
+  const response = await apiClient.put<DataEnvelope<ImportSource>>(`${sourcesPath(table)}/${id}`, changes);
+  return response.data;
+}
+
+export async function deleteImportSource(table: string, id: number): Promise<void> {
+  await apiClient.delete<void>(`${sourcesPath(table)}/${id}`);
+}
+
+/** Fetches and imports now; a failed run comes back with its error, not as an exception. */
+export async function runImportSource(table: string, id: number): Promise<ImportSourceRun> {
+  const response = await apiClient.post<DataEnvelope<ImportSourceRun>>(`${sourcesPath(table)}/${id}/run`, {});
+  return response.data;
+}
+
+export async function listImportSourceRuns(table: string, id: number, limit = 10): Promise<ImportSourceRun[]> {
+  const response = await apiClient.get<DataEnvelope<ImportSourceRun[]>>(`${sourcesPath(table)}/${id}/runs?limit=${limit}`);
+  return response.data;
 }

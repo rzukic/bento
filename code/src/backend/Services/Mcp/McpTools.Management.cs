@@ -10,14 +10,14 @@ namespace Bento.Api.Services.Mcp;
 public sealed partial class McpTools
 {
     /// <summary>Guide topics, embedded from <c>McpGuide/*.md</c> (the explanation files of Part 12 R12.3).</summary>
-    public static readonly string[] GuideTopics = ["overview", "schema", "formulas", "queries", "dashboards", "forms", "finance", "functions", "api"];
+    public static readonly string[] GuideTopics = ["overview", "schema", "formulas", "queries", "dashboards", "forms", "finance", "functions", "automation", "apps", "api"];
 
     private static readonly HashSet<string> CallApiMethods = new(StringComparer.OrdinalIgnoreCase) { "GET", "POST", "PUT", "PATCH", "DELETE" };
 
     private List<McpTool> BuildManagement() =>
     [
         new("bento_guide", "Read the Bento guide",
-            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the Wealth & cash-flow template), functions (JavaScript, price sources), api (endpoints for call_api). Read the topic before building or changing something.",
+            "How Bento works and its exact JSON formats. Topics: overview (start here), schema (Model JSON), formulas, queries (aggregate), dashboards (Dashboard JSON), forms (Form JSON), finance (the conventions of the finance template, for workspaces that have it installed), functions (JavaScript, import and price sources), automation (rules and reports), apps (calendar apps, share links, workspace settings), api (endpoints for call_api). Read the topic before building or changing something.",
             Schema(new JsonObject
             {
                 ["topic"] = new JsonObject
@@ -60,6 +60,42 @@ public sealed partial class McpTools
             "The price sources: their function, target table, securities with the latest price, and status.",
             Schema(new JsonObject()),
             ReadOnly: true, Idempotent: true, (caller, _, ct) => PassAsync(caller, HttpMethod.Get, $"{Api}/price-sources", null, ct)),
+
+        // Step 5.13: one connection, several workspaces.
+        new("list_workspaces", "List the workspaces",
+            "The workspaces this connection can use: name, short name (pass it as workspace to any tool), your role there, and which one this connection opens by default.",
+            Schema(new JsonObject()),
+            ReadOnly: true, Idempotent: true, ListWorkspacesAsync),
+
+        new("create_workspace", "Create a workspace",
+            "Creates an empty workspace (its own tables, dashboards, forms …) and gives this connection access to it. Installation admins only. Ask the user for the name first.",
+            Schema(new JsonObject
+            {
+                ["name"] = Prop("string", "The workspace's name, e.g. Household."),
+                ["slug"] = Prop("string", "Optional short name for addresses (lower-case letters, digits, dashes); made from the name when left out.")
+            }, "name"),
+            ReadOnly: false, Idempotent: false,
+            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/workspaces", Pick(args, "name", "slug"), ct),
+            Permission: McpPermissions.WorkspacesManage),
+
+        // Step 5.15: ready-made setups, installed as the user.
+        new("list_templates", "List the templates",
+            "Ready-made setups Bento can install — tables, dashboards, forms and example rows for one use case (projects and hours, habits and health, appointments, finance) — and those this workspace has already.",
+            Schema(new JsonObject()),
+            ReadOnly: true, Idempotent: true, ListTemplatesAsync),
+
+        new("install_template", "Install a template",
+            "Sets up a template in the workspace: new tables (nothing existing changes), example rows, dashboards and forms. Needs, besides tables and columns, dashboards, forms and adding rows (for the examples). Tell the user what it adds and ask first; when a table name is taken, Bento says which prefix to use.",
+            Schema(new JsonObject
+            {
+                ["template"] = Prop("string", "The template's id from list_templates, e.g. projects-hours."),
+                ["prefix"] = Prop("string", "Put before every table name when one is taken, e.g. work_. Leave out when the names are free."),
+                ["examples"] = new JsonObject { ["type"] = "boolean", ["description"] = "Add example rows to try it out (default true)." }
+            }, "template"),
+            ReadOnly: false, Idempotent: false,
+            (caller, args, ct) => PassAsync(caller, HttpMethod.Post, $"{Api}/templates/{Uri.EscapeDataString(Required(args, "template"))}/install",
+                new { prefix = Str(args, "prefix"), examples = args.TryGetProperty("examples", out var e) && e.ValueKind == JsonValueKind.False ? false : true }, ct),
+            Permission: McpPermissions.Schema),
 
         new("call_api", "Call the Bento API",
             "Any other Bento REST call, with this connection's rights (bento_guide topic api lists the endpoints). Use the dedicated tools where one exists.",
@@ -266,6 +302,44 @@ public sealed partial class McpTools
         if (Str(args, "resultType") is { } resultType) body["resultType"] = resultType;
         if (preview) body["limit"] = Math.Clamp(OptionalInt(args, "limit") ?? 20, 1, 100);
         return PassAsync(caller, HttpMethod.Post, $"{Api}/formulas/{(preview ? "preview" : "validate")}", JsonDocument.Parse(body.ToJsonString()).RootElement, ct);
+    }
+
+    /// <summary>The workspaces the caller can use, each with its role; <c>current</c> marks the one tools use without <c>workspace</c>.</summary>
+    public async Task<IReadOnlyList<(string Slug, string Name, string? Role, bool Current)>> WorkspacesAsync(McpCaller caller, CancellationToken ct)
+    {
+        var response = await _api.SendAsync(HttpMethod.Get, $"{Api}/workspaces", caller.Credentials, null, ct);
+        if (!response.IsSuccess || response.Body is not { } body || !body.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array)
+            return [];
+        var current = Workspaces.WorkspaceContext.Current.Slug;
+        return data.EnumerateArray()
+            .Select(w => (Slug: w.GetProperty("slug").GetString()!, Name: w.GetProperty("name").GetString()!,
+                Role: w.TryGetProperty("role", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null))
+            .Select(w => (w.Slug, w.Name, w.Role, string.Equals(w.Slug, current, StringComparison.OrdinalIgnoreCase)))
+            .ToList();
+    }
+
+    private async Task<McpToolResult> ListWorkspacesAsync(McpCaller caller, JsonElement args, CancellationToken ct)
+    {
+        var list = await WorkspacesAsync(caller, ct);
+        return Success(new JsonArray(list.Select(w => (JsonNode)new JsonObject
+        {
+            ["workspace"] = w.Slug,
+            ["name"] = w.Name,
+            ["role"] = w.Role,
+            ["current"] = w.Current
+        }).ToArray()));
+    }
+
+    private async Task<McpToolResult> ListTemplatesAsync(McpCaller caller, JsonElement args, CancellationToken ct)
+    {
+        var catalog = await _api.SendAsync(HttpMethod.Get, $"{Api}/templates/catalog", caller.Credentials, null, ct);
+        if (!catalog.IsSuccess) return Failure(catalog);
+        var installed = await _api.SendAsync(HttpMethod.Get, $"{Api}/templates", caller.Credentials, null, ct);
+        return Success(new JsonObject
+        {
+            ["available"] = JsonNode.Parse(catalog.Body!.Value.GetProperty("data").GetRawText()),
+            ["installed"] = installed.IsSuccess ? JsonNode.Parse(installed.Body!.Value.GetProperty("data").GetRawText()) : new JsonArray()
+        });
     }
 
     private Task<McpToolResult> CallApiAsync(McpCaller caller, JsonElement args, CancellationToken ct)

@@ -36,8 +36,8 @@ public sealed class ComputedColumns
     private readonly DatabaseConfig _dbConfig;
     private readonly ICustomFunctionCatalog _functions;
     private readonly ILogger<ComputedColumns>? _logger;
-    private ConditionalWeakTable<ModelJson, Compiled> _compiled = new();
-    private long _functionsVersion = -1;
+    // Per workspace: the functions' version the compiled columns were made with.
+    private readonly ConcurrentDictionary<long, (long Version, ConditionalWeakTable<ModelJson, Compiled> Compiled)> _compiled = new();
 
     private sealed class Compiled(ModelJson model)
     {
@@ -65,9 +65,10 @@ public sealed class ComputedColumns
 
         var model = _schemaCache.Current;
         var version = _functions.Version;
-        if (Interlocked.Exchange(ref _functionsVersion, version) != version)
-            _compiled = new ConditionalWeakTable<ModelJson, Compiled>();
-        var compiled = _compiled.GetValue(model, m => new Compiled(m));
+        var cache = _compiled.AddOrUpdate(Services.Workspaces.WorkspaceContext.Id,
+            _ => (version, new ConditionalWeakTable<ModelJson, Compiled>()),
+            (_, existing) => existing.Version == version ? existing : (version, new ConditionalWeakTable<ModelJson, Compiled>()));
+        var compiled = cache.Compiled.GetValue(model, m => new Compiled(m));
         var current = compiled.Schema.Table(table.Name);
         if (current is null || !ReferenceEquals(current, table))
             return CompileTable(table, FormulaSchema.WithTable(model, table));

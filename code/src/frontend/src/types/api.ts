@@ -83,6 +83,8 @@ export type ModelTable = {
   columns: ModelColumn[];
   indexes?: ModelIndex[];
   recordLabel?: RecordLabel | null;
+  /** Made from this saved query (Step 5.8): read-only, filled again when the data changes. */
+  fromQuery?: number;
 };
 
 export type ModelRelation = {

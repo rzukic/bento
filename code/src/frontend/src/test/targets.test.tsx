@@ -2,11 +2,12 @@ import { act, cleanup, render, screen, waitFor, within } from "@testing-library/
 import { userEvent } from "@testing-library/user-event";
 import { RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { BudgetConfig, Dashboard, DashboardWidget } from "../api/dashboards";
+import type { Dashboard, DashboardWidget, TargetConfig } from "../api/dashboards";
 import type { AggregationQuery, QueryResult } from "../api/query";
 import type { ChartClick } from "../features/dashboards/charts/EChart";
 import type { ChartTokens } from "../features/dashboards/charts/chartOptions";
-import { budgetMonths, budgetRows, budgetState, spentQuery } from "../features/dashboards/budget";
+import { defaultTarget, targetPeriod, targetRows, targetState, valueQuery } from "../features/dashboards/target";
+import { setWorkspaceCalendar } from "../lib/calendar";
 import { intervalOptions, intervalToSearch, intervalsFromSearch, withInterval } from "../features/dashboards/interval";
 import { WidgetContent, drilledWidget } from "../features/dashboards/widgets/WidgetContent";
 import { seedSetupInitializedForTest } from "../features/setup";
@@ -59,7 +60,8 @@ const snapshot = {
   relations: [],
 } as unknown as ModelSnapshot;
 
-const config: BudgetConfig = { source: "transactions", amount: "amount", date: "date", category: "category_id", limit: "budget", expenses: "negative", period: "month" };
+// A budget is a limit target: spending (negative amounts) per category against its monthly limit.
+const config: TargetConfig = { source: "transactions", value: "-SUM(amount WHERE amount < 0)", date: "date", group: "category_id", target: "budget", per: "month", period: "current", kind: "limit" };
 const categories = [
   { id: 1, name: "Rent", budget: 1000 },
   { id: 2, name: "Groceries", budget: 250 },
@@ -68,12 +70,12 @@ const categories = [
 ];
 const spent: QueryResult = {
   data: [
-    { category_id: 1, category_id_label: "Rent", spent: -1000 },
-    { category_id: 2, category_id_label: "Groceries", spent: -205 },
-    { category_id: 3, category_id_label: "Leisure", spent: -180 },
-    { category_id: 9, category_id_label: "Gifts", spent: -40 },
+    { category_id: 1, category_id_label: "Rent", value: 1000 },
+    { category_id: 2, category_id_label: "Groceries", value: 205 },
+    { category_id: 3, category_id_label: "Leisure", value: 180 },
+    { category_id: 9, category_id_label: "Gifts", value: 40 },
   ],
-  meta: { truncated: false, columns: [{ name: "category_id", type: "integer", role: "group" }, { name: "category_id_label", type: "text", role: "label", labelOf: "category_id" }, { name: "spent", type: "currency", role: "measure" }] },
+  meta: { truncated: false, columns: [{ name: "category_id", type: "integer", role: "group" }, { name: "category_id_label", type: "text", role: "label", labelOf: "category_id" }, { name: "value", type: "currency", role: "measure" }] },
 };
 
 beforeEach(() => {
@@ -97,57 +99,97 @@ afterEach(() => {
 
 const range = { from: "2025-11-01", to: "2026-11-01" };
 
-describe("budgets", () => {
-  it("compares the range's last month, or the whole range with its months", () => {
-    expect(budgetMonths(range)).toEqual({ from: "2026-10-01", to: "2026-11-01", months: 1, month: "2026-10" });
-    expect(budgetMonths({ from: "2026-08-01", to: "2026-10-08" }, "range")).toEqual({ from: "2026-08-01", to: "2026-10-08", months: 3, month: null });
-    expect(budgetMonths({ from: null, to: null }, "month", new Date(2026, 9, 8))).toMatchObject({ from: "2026-10-01", to: "2026-11-01" });
-    expect(spentQuery(config, range)).toMatchObject({
+describe("targets", () => {
+  it("compares the range's last period, or the whole range with its periods", () => {
+    expect(targetPeriod(range)).toEqual({ from: "2026-10-01", to: "2026-11-01", count: 1, start: "2026-10-01" });
+    expect(targetPeriod({ from: "2026-08-01", to: "2026-10-08" }, "month", "range")).toEqual({ from: "2026-08-01", to: "2026-10-08", count: 3, start: null });
+    expect(targetPeriod({ from: null, to: null }, "month", "current", new Date(2026, 9, 8, 12))).toMatchObject({ from: "2026-10-01", to: "2026-11-01" });
+    // Weeks and quarters as the workspace starts them.
+    expect(targetPeriod({ from: "2026-10-01", to: "2026-10-11" }, "week")).toMatchObject({ from: "2026-10-05", to: "2026-10-12" });
+    // A range of whole months stops at today: this week, not the month's last; one reaching ahead keeps its end.
+    const thursday = new Date(2026, 9, 22, 12);
+    expect(targetPeriod({ from: "2026-08-01", to: "2026-11-01" }, "week", "current", thursday)).toMatchObject({ from: "2026-10-19", to: "2026-10-26" });
+    expect(targetPeriod({ from: "2026-10-01", to: "2026-11-01", future: true }, "week", "current", thursday)).toMatchObject({ from: "2026-10-26" });
+    setWorkspaceCalendar({ weekStart: "sunday", yearStart: 4 });
+    expect(targetPeriod({ from: "2026-10-01", to: "2026-10-11" }, "week")).toMatchObject({ from: "2026-10-04", to: "2026-10-11" });
+    expect(targetPeriod({ from: "2026-01-01", to: "2026-03-01" }, "quarter")).toMatchObject({ from: "2026-01-01", to: "2026-04-01" });
+    setWorkspaceCalendar(null);
+    expect(valueQuery(config, range)).toMatchObject({
       source: "transactions",
-      filter: { amount: { lt: 0 }, date: { gte: "2026-10-01", lt: "2026-11-01" } },
+      filter: { date: { gte: "2026-10-01", lt: "2026-11-01" } },
       groupBy: [{ column: "category_id" }],
-      measures: [{ name: "spent", fn: "sum", column: "amount" }],
+      measures: [{ name: "value", formula: "-SUM(amount WHERE amount < 0)" }],
     });
   });
 
-  it("puts each budgeted category against its spending, fullest first", () => {
-    const { rows, unbudgeted, total } = budgetRows(spent, categories, config, "name", "id", 1);
-    expect(rows.map((r) => `${r.label} ${r.spent}/${r.limit} ${Math.round((r.share ?? 0) * 100)}`)).toEqual(["Leisure 180/150 120", "Rent 1000/1000 100", "Groceries 205/250 82"]);
-    expect(unbudgeted).toEqual({ spent: 40, count: 1 });
-    expect(total).toEqual({ spent: 1385, limit: 1400 });
-    expect(budgetRows(spent, categories, config, "name", "id", 3).rows.find((r) => r.label === "Groceries")?.limit).toBe(750);
-    expect([0.5, 0.82, 1, 1.2].map(budgetState)).toEqual(["ok", "close", "close", "over"]);
+  it("puts each group with a target against its value, furthest along first", () => {
+    const { rows, untargeted, total } = targetRows(spent, categories, config, "name", "id", 1);
+    expect(rows.map((r) => `${r.label} ${r.value}/${r.target} ${Math.round(r.share * 100)}`)).toEqual(["Leisure 180/150 120", "Rent 1000/1000 100", "Groceries 205/250 82"]);
+    expect(untargeted).toEqual({ value: 40, count: 1 });
+    expect(total).toEqual({ value: 1385, target: 1400 });
+    expect(targetRows(spent, categories, config, "name", "id", 3).rows.find((r) => r.label === "Groceries")?.target).toBe(750);
+    expect([0.5, 0.82, 1, 1.2].map((share) => targetState(share, "limit"))).toEqual(["ok", "close", "close", "over"]);
+    expect([0.5, 0.99, 1, 1.2].map((share) => targetState(share, "goal"))).toEqual(["ok", "ok", "done", "done"]);
   });
 
-  it("shows bars with the share, warns from 80 % and opens a category's bookings", async () => {
+  it("finds a first target in any table that links to one with a number column", () => {
+    const hours = {
+      version: 1,
+      tables: [
+        { name: "projects", columns: [{ name: "id", type: "integer", primaryKey: true }, { name: "name", type: "text" }, { name: "weekly_hours", type: "float" }] },
+        { name: "worklog", columns: [{ name: "id", type: "integer", primaryKey: true }, { name: "day", type: "date" }, { name: "hours", type: "float" }, { name: "project_id", type: "reference", references: "projects" }] },
+      ],
+      relations: [],
+    } as unknown as ModelSnapshot;
+    expect(defaultTarget(hours.tables, hours)).toEqual({
+      source: "worklog",
+      value: "SUM(hours)",
+      date: "day",
+      group: "project_id",
+      target: "weekly_hours",
+      per: "month",
+      period: "current",
+      kind: "goal",
+    });
+  });
+
+  it("shows bars with the share, warns from 80 % and opens a group's rows", async () => {
     queryApi.runQuery.mockResolvedValue(spent);
     const onDrill = vi.fn();
-    const widget: DashboardWidget = { id: "b", type: "budget", title: "Budgets", position: { x: 0, y: 0, w: 6, h: 5 }, data: { budget: config } };
+    const widget: DashboardWidget = { id: "b", type: "target", title: "Budgets", position: { x: 0, y: 0, w: 6, h: 5 }, data: { target: config } };
     render(<WidgetContent widget={widget} range={range} refreshToken={0} tokens={tokens} onDrill={onDrill} />);
 
-    const groceries = await screen.findByRole("progressbar", { name: "Groceries: 82 % of the budget" });
+    const groceries = await screen.findByRole("progressbar", { name: "Groceries: 82 % of the limit" });
     expect(groceries).toHaveAttribute("aria-valuenow", "82");
-    expect(screen.getByRole("progressbar", { name: "Leisure: 120 % of the budget" }).firstElementChild).toHaveClass("budget__fill--over");
-    expect(screen.getByText("120 %")).toHaveClass("budget__share--over");
-    expect(screen.getByText("82 %")).toHaveClass("budget__share--close");
-    expect(screen.getByText(/in 1 category without a limit/)).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Leisure: 120 % of the limit" }).firstElementChild).toHaveClass("target__fill--over");
+    expect(screen.getByText("120 %")).toHaveClass("target__share--over");
+    expect(screen.getByText("82 %")).toHaveClass("target__share--close");
+    expect(screen.getByText(/in 1 without a limit/)).toBeInTheDocument();
 
     await userEvent.setup().click(screen.getByRole("button", { name: /Groceries/ }));
     expect(onDrill).toHaveBeenCalledWith({
       table: "transactions",
       filters: [
         { column: "category_id", op: "eq", value: "2" },
-        { column: "amount", op: "lt", value: "0" },
         { column: "date", op: "gte", value: "2026-10-01" },
         { column: "date", op: "lt", value: "2026-11-01" },
       ],
     });
   });
 
-  it("says what is missing when the categories have no limit column", async () => {
-    const widget: DashboardWidget = { id: "b", type: "budget", title: "Budgets", position: { x: 0, y: 0, w: 6, h: 5 }, data: { budget: { ...config, limit: "" } } };
+  it("a goal turns green once reached", async () => {
+    queryApi.runQuery.mockResolvedValue(spent);
+    const widget: DashboardWidget = { id: "g", type: "target", title: "Goals", position: { x: 0, y: 0, w: 6, h: 5 }, data: { target: { ...config, kind: "goal", format: "integer" } } };
     render(<WidgetContent widget={widget} range={range} refreshToken={0} tokens={tokens} />);
-    expect(screen.getByText(/Add a number column for the monthly limit to categories/)).toBeInTheDocument();
+    const rent = await screen.findByRole("progressbar", { name: "Rent: 100 % of the target" });
+    expect(rent.firstElementChild).toHaveClass("target__fill--done");
+    expect(screen.getByRole("progressbar", { name: "Groceries: 82 % of the target" }).firstElementChild).toHaveClass("target__fill--ok");
+  });
+
+  it("says what is missing when the linked table has no target column", async () => {
+    const widget: DashboardWidget = { id: "b", type: "target", title: "Budgets", position: { x: 0, y: 0, w: 6, h: 5 }, data: { target: { ...config, target: "" } } };
+    render(<WidgetContent widget={widget} range={range} refreshToken={0} tokens={tokens} />);
+    expect(screen.getByText(/Add a number column for the targets to categories/)).toBeInTheDocument();
   });
 });
 

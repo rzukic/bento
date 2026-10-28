@@ -4,14 +4,22 @@ import { ThemeSwitch } from "../components/common/ThemeSwitch";
 import { Button } from "../components/ui/Button";
 import { ConfirmDialog } from "../components/ui/Dialog";
 import { Panel } from "../components/ui/Panel";
+import { NotificationsPanel } from "../features/notifications/NotificationsPanel";
+import { ReportsPanel } from "../features/notifications/ReportsPanel";
+import { RulesPanel } from "../features/notifications/RulesPanel";
 import { ProblemsPanel } from "../features/problems/ProblemsPanel";
 import { BrowserFormatRow, WorkspaceFormatPanel } from "../features/settings/FormatSettings";
+import { WorkspacesPanel } from "../features/workspaces/WorkspacesPanel";
+import { MembersPanel } from "../features/workspaces/MembersPanel";
+import { UsersPanel } from "../features/workspaces/UsersPanel";
+import { isInstallationAdmin } from "../types/auth";
 import { useSetupStore } from "../features/setup/setupStore";
 import { useAuthStore } from "../stores/authStore";
 import "./SettingsPage.css";
 
 export function SettingsPage() {
   const user = useAuthStore((state) => state.user);
+  const installationAdmin = isInstallationAdmin(user);
   const logout = useAuthStore((state) => state.logout);
   const setupInfo = useSetupStore((state) => state.info);
   const navigate = useNavigate();
@@ -43,9 +51,23 @@ export function SettingsPage() {
         </dl>
       </Panel>
 
+      {/* The open workspace: its admins (Step 5.5). */}
       {user?.role === "admin" ? <WorkspaceFormatPanel /> : null}
 
-      {user?.role === "admin" ? <ProblemsPanel /> : null}
+      {user?.role === "admin" ? <MembersPanel /> : null}
+
+      {user?.role === "admin" ? <RulesPanel /> : null}
+
+      {user?.role === "admin" ? <ReportsPanel /> : null}
+
+      {/* The installation: its admins. */}
+      {installationAdmin ? <WorkspacesPanel /> : null}
+
+      {installationAdmin ? <UsersPanel /> : null}
+
+      {installationAdmin ? <NotificationsPanel /> : null}
+
+      {installationAdmin ? <ProblemsPanel /> : null}
 
       <Panel title="Account">
         <div className="settings__row">

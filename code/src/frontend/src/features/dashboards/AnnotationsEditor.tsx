@@ -64,7 +64,7 @@ export function AnnotationsEditor({
                   <input
                     className="field__control field__control--compact"
                     value={annotation.label}
-                    placeholder="e.g. Salary raise"
+                    placeholder="e.g. New release"
                     aria-label={`Label of annotation ${index + 1}`}
                     onChange={(event) => update(index, { label: event.target.value })}
                   />

@@ -24,9 +24,10 @@ import type { SavedForm } from "../../api/forms";
 import { Dialog } from "../../components/ui/Dialog";
 import { FormFill } from "../forms/FormFill";
 import { formsForDashboard } from "../forms/quickAdd";
-import { defaultBudget } from "./budget";
-import { BudgetEditor } from "./BudgetEditor";
+import { defaultTarget } from "./target";
+import { TargetEditor } from "./TargetEditor";
 import { HistoryDialog } from "./HistoryDialog";
+import { ShareDialog } from "./ShareDialog";
 import { QuickAddEditor } from "./QuickAddEditor";
 import { INTERVAL_LABELS, intervalOptions, intervalsFromSearch, intervalToSearch, withInterval } from "./interval";
 import { DashboardGrid } from "./DashboardGrid";
@@ -61,9 +62,15 @@ function message(cause: unknown, fallback: string): string {
   return fallback;
 }
 
-export function DashboardPage() {
+/**
+ * A dashboard seen through a share link (Step 5.6): read-only, its fixed
+ * filters from the link, no editing, history, AI, forms or drill-down.
+ */
+export type SharedView = { dashboardId: number; filters: Record<string, string[]>; embed: boolean };
+
+export function DashboardPage({ shared }: { shared?: SharedView } = {}) {
   const { dashboardId } = useParams();
-  const id = Number(dashboardId);
+  const id = shared ? shared.dashboardId : Number(dashboardId);
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -103,7 +110,9 @@ export function DashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   // Step 4.4: pinned forms for the tables this dashboard shows, opened in a dialog.
-  const canWrite = useAuthStore((state) => state.user?.role === "admin" || state.user?.role === "editor");
+  const canWrite = useAuthStore((state) => !shared && (state.user?.role === "admin" || state.user?.role === "editor"));
+  const canShare = useAuthStore((state) => !shared && state.user?.role === "admin");
+  const [shareOpen, setShareOpen] = useState(false);
   const forms = useFormsStore((state) => state.forms);
   const loadForms = useFormsStore((state) => state.load);
   const [quickForm, setQuickForm] = useState<SavedForm | null>(null);
@@ -136,7 +145,7 @@ export function DashboardPage() {
   const document = draft?.document ?? dashboard?.dashboard ?? null;
   const range: DashboardDateRange = rangeFromSearch(searchParams) ?? document?.dateRange ?? { preset: "last-12-months" };
   // The chosen filter values (from the address) travel with the range into every query.
-  const selection = selectionFromSearch(searchParams);
+  const selection = shared ? shared.filters : selectionFromSearch(searchParams);
   // Step 4.5: intervals viewers chose for charts by date.
   const intervals = intervalsFromSearch(searchParams);
   const selectionKey = JSON.stringify(selection);
@@ -186,7 +195,7 @@ export function DashboardPage() {
   }, [refresh, refreshSeconds]);
 
   // Prices older than their source's window are fetched on open and refresh (Step 4.2).
-  const prices = usePriceRefresh(dashboard?.dashboard, refreshToken, !editing, () => setRefreshToken((n) => n + 1));
+  const prices = usePriceRefresh(dashboard?.dashboard, refreshToken, !editing && !shared, () => setRefreshToken((n) => n + 1));
 
   const tables = useMemo(() => snapshot?.tables ?? [], [snapshot]);
   const widgets = useMemo(() => document?.widgets ?? [], [document]);
@@ -196,6 +205,7 @@ export function DashboardPage() {
   const openRows = useCallback((target: DrillTarget) => navigate(drillUrl(target)), [navigate]);
 
   useEffect(() => {
+    if (shared) return;
     let cancelled = false;
     getAiStatus().then(
       (status) => !cancelled && setAiEnabled(status.enabled),
@@ -204,7 +214,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [shared]);
   // Variables viewers changed (?var.rate=0.07) replace their defaults for this view.
   const inputValues = inputValuesFromSearch(searchParams);
   const inputKey = JSON.stringify(inputValues);
@@ -342,7 +352,7 @@ export function DashboardPage() {
     const candidates = dataTables(tables);
     const used = [...widgets].reverse().map((w) => w.data?.query?.source).find(Boolean);
     const table = candidates.find((t) => t.name === used) ?? candidates.find(isFinanceTable) ?? candidates[0];
-    const widget = newWidget(type, table, layout, type === "budget" ? defaultBudget(candidates, snapshot) : undefined);
+    const widget = newWidget(type, table, layout, type === "target" ? defaultTarget(candidates, snapshot) : undefined);
     updateDocument((doc) => ({ ...doc, widgets: [...doc.widgets, widget] }));
     setAddOpen(false);
     setEditingWidgetId(widget.id);
@@ -366,12 +376,14 @@ export function DashboardPage() {
   const customRange = "from" in range ? range : null;
 
   return (
-    <div className="dashboard-page">
+    <div className={shared?.embed ? "dashboard-page dashboard-page--shared dashboard-page--embed" : shared ? "dashboard-page dashboard-page--shared" : "dashboard-page"}>
       <header className="dashboard-page__header">
-        <Link className="dashboard-page__back" to="/dashboards">
-          <Icon name="chevron-left" size={14} />
-          Dashboards
-        </Link>
+        {shared ? null : (
+          <Link className="dashboard-page__back" to="/dashboards">
+            <Icon name="chevron-left" size={14} />
+            Dashboards
+          </Link>
+        )}
         <div className="dashboard-page__heading">
           {editing ? (
             <input
@@ -460,12 +472,17 @@ export function DashboardPage() {
                   : null}
               </>
             )}
-            {!editing ? (
+            {!editing && !shared ? (
               <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="clock" size={13} />} onClick={() => setHistoryOpen(true)}>
-                History
+                <span className="dashboard-page__label">History</span>
               </Button>
             ) : null}
-            {dashboard.isOwner ? (
+            {!editing && (dashboard.isOwner || canShare) && !shared ? (
+              <Button type="button" variant="ghost" size="sm" leadingIcon={<Icon name="link" size={13} />} onClick={() => setShareOpen(true)}>
+                <span className="dashboard-page__label">Share</span>
+              </Button>
+            ) : null}
+            {dashboard.isOwner && !shared ? (
               editing ? (
                 <>
                   <label className="dashboard-page__share">
@@ -496,7 +513,7 @@ export function DashboardPage() {
                 </>
               ) : (
                 <Button type="button" variant="ghost" leadingIcon={<Icon name="pencil" size={13} />} onClick={startEditing}>
-                  Edit
+                  <span className="dashboard-page__label">Edit</span>
                 </Button>
               )
             ) : null}
@@ -509,6 +526,9 @@ export function DashboardPage() {
 
       {error ? <Alert tone="error" message={error} /> : null}
       {restoredNote && !editing ? <Alert tone="success" message={restoredNote} /> : null}
+      {shareOpen ? (
+        <ShareDialog kind="dashboard" targetId={dashboard.id} title={dashboard.name} filters={dashboard.dashboard.filters ?? []} onClose={() => setShareOpen(false)} />
+      ) : null}
       {historyOpen ? (
         <HistoryDialog
           dashboard={dashboard}
@@ -529,6 +549,7 @@ export function DashboardPage() {
         onReset={() => setSearchParams((current) => clearInputs(current), { replace: true })}
       />
 
+      {shared ? null : (
       <FilterBar
         filters={editing ? (document?.filters ?? []) : filterDefs}
         widgets={widgets}
@@ -537,6 +558,7 @@ export function DashboardPage() {
         onSelect={(column, values) => setSearchParams(selectionToSearch(column, values, searchParams), { replace: true })}
         onReset={() => setSearchParams(clearSelection(searchParams), { replace: true })}
       />
+      )}
 
       {editing ? (
         <div className="dashboard-page__toolbar">
@@ -621,7 +643,7 @@ export function DashboardPage() {
       {widgets.length === 0 ? (
         <div className="dashboard-page__empty">
           <p>{editing ? "Add a widget to start." : "This dashboard has no widgets yet."}</p>
-          {!editing && dashboard.isOwner ? (
+          {!editing && dashboard.isOwner && !shared ? (
             <Button type="button" variant="primary" onClick={startEditing}>
               Add widgets
             </Button>
@@ -710,7 +732,7 @@ export function DashboardPage() {
                     variables={widgetVariables}
                     variablesPending={widgetVariables === undefined && variables.length > 0}
                     annotations={annotations}
-                    onDrill={editing ? undefined : openRows}
+                    onDrill={editing || shared ? undefined : openRows}
                     onResult={(result) => widgetResults.current.set(widget.id, result)}
                     onLoading={(loading) => setWidgetLoading(widget.id, loading)}
                   />
@@ -722,8 +744,8 @@ export function DashboardPage() {
         />
       )}
 
-      {editing && editingWidget?.type === "budget" ? (
-        <BudgetEditor
+      {editing && editingWidget?.type === "target" ? (
+        <TargetEditor
           widget={editingWidget}
           tables={dataTables(tables)}
           snapshot={snapshot}

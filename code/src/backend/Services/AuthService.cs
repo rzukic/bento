@@ -228,6 +228,107 @@ public sealed class AuthService
         }
     }
 
+    // ── Users (Step 5.5 part B: admins manage them in Settings) ──────────
+
+    public sealed class UserRow
+    {
+        public int Id { get; init; }
+        public string Username { get; init; } = "";
+        public string Role { get; init; } = "";
+        public string CreatedAt { get; init; } = "";
+    }
+
+    public async Task<IReadOnlyList<UserRow>> ListUsersAsync()
+    {
+        using var conn = await _systemPool.GetConnectionAsync();
+        var rows = await conn.QueryAsync<UserRow>(
+            $"SELECT id, username, role, {SystemSqlDialect.TimestampText(_systemPool.Provider, "created_at")} AS CreatedAt FROM {GetUsersTableName()} ORDER BY LOWER(username)");
+        return rows.ToList();
+    }
+
+    /// <summary>A new user; their workspaces are set apart (members).</summary>
+    public async Task<int> CreateUserAsync(string? username, string? password, string? role)
+    {
+        var normalizedUsername = NormalizeUsername(username);
+        var checkedPassword = ValidatePassword(password);
+        var normalizedRole = NormalizeRequestedRole(role) ?? "viewer";
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        if (await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE LOWER(username) = LOWER(@Username)", new { Username = normalizedUsername }, tx) > 0)
+            throw new ApiConflictException($"There is a user '{normalizedUsername}' already.", new Dictionary<string, object?> { ["field"] = "username" });
+        var id = await InsertUserAsync(conn, tx, normalizedUsername, BCrypt.Net.BCrypt.HashPassword(checkedPassword), normalizedRole);
+        tx.Commit();
+        return id;
+    }
+
+    /// <summary>
+    /// Changes a user's installation role or password. The last admin stays one;
+    /// a new password signs the user out everywhere.
+    /// </summary>
+    public async Task UpdateUserAsync(int id, string? role, string? password)
+    {
+        var normalizedRole = NormalizeRequestedRole(role);
+        var checkedPassword = password is null ? null : ValidatePassword(password);
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        var current = await conn.ExecuteScalarAsync<string?>($"SELECT role FROM {GetUsersTableName()} WHERE id = @Id", new { Id = id }, tx)
+            ?? throw new ApiNotFoundException($"User {id} not found.");
+        if (normalizedRole is not null && normalizedRole != current)
+        {
+            if (current == "admin" &&
+                await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE role = 'admin'", transaction: tx) <= 1)
+                throw Validation("role", "This is the last installation admin; make someone else admin first.");
+            await conn.ExecuteAsync(
+                $"UPDATE {GetUsersTableName()} SET role = @Role, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id",
+                new { Id = id, Role = normalizedRole, Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, tx);
+        }
+        if (checkedPassword is not null)
+        {
+            await conn.ExecuteAsync(
+                $"UPDATE {GetUsersTableName()} SET password_hash = @Hash, updated_at = {SystemSqlDialect.TimestampParam(_systemPool.Provider, "@Now")} WHERE id = @Id",
+                new { Id = id, Hash = BCrypt.Net.BCrypt.HashPassword(checkedPassword), Now = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture) }, tx);
+            await conn.ExecuteAsync(
+                $"UPDATE {GetAuthSessionsTableName()} SET revoked_at = @Now WHERE user_id = @Id AND revoked_at IS NULL",
+                new { Id = id, Now = ToDbValue(DateTimeOffset.UtcNow) }, tx);
+        }
+        tx.Commit();
+    }
+
+    /// <summary>
+    /// Deletes a user. What they made for others to use — dashboards, forms,
+    /// saved queries, views — goes to <paramref name="transferTo"/>; their
+    /// sessions, memberships and connected apps go, their API keys are revoked
+    /// (kept in the list without an owner). The last admin stays.
+    /// </summary>
+    public async Task DeleteUserAsync(int id, int transferTo)
+    {
+        if (id == transferTo)
+            throw Validation("transferTo", "Hand their dashboards and forms to someone else.");
+        var p = _systemPool.Provider == DatabaseProvider.Postgres ? "_system." : "";
+        using var conn = await _systemPool.GetConnectionAsync();
+        using var tx = conn.BeginTransaction();
+        var role = await conn.ExecuteScalarAsync<string?>($"SELECT role FROM {GetUsersTableName()} WHERE id = @Id", new { Id = id }, tx)
+            ?? throw new ApiNotFoundException($"User {id} not found.");
+        if (await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE id = @Id", new { Id = transferTo }, tx) == 0)
+            throw Validation("transferTo", $"User {transferTo} not found.");
+        if (role == "admin" && await conn.ExecuteScalarAsync<int>($"SELECT COUNT(*) FROM {GetUsersTableName()} WHERE role = 'admin'", transaction: tx) <= 1)
+            throw Validation("id", "This is the last installation admin; make someone else admin first.");
+
+        var ids = new { Id = id, To = transferTo, Now = ToDbValue(DateTimeOffset.UtcNow) };
+        foreach (var table in new[] { "dashboards", "dashboard_versions", "forms", "saved_queries", "system_views" })
+            await conn.ExecuteAsync($"UPDATE {p}{table} SET owner_user_id = @To WHERE owner_user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}user_table_explorer_preferences WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}workspace_members WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {GetAuthSessionsTableName()} WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}oauth_tokens WHERE grant_id IN (SELECT id FROM {p}oauth_grants WHERE user_id = @Id)", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {p}oauth_grants WHERE user_id = @Id", ids, tx);
+        await conn.ExecuteAsync($"UPDATE {p}api_keys SET revoked_at = COALESCE(revoked_at, @Now), user_id = NULL WHERE user_id = @Id", ids, tx);
+        // Share links act as the one who made them: they stop with them.
+        await conn.ExecuteAsync($"UPDATE {p}share_links SET revoked_at = COALESCE(revoked_at, @Now) WHERE created_by = @Id", ids, tx);
+        await conn.ExecuteAsync($"DELETE FROM {GetUsersTableName()} WHERE id = @Id", ids, tx);
+        tx.Commit();
+    }
+
     private static string NormalizeUsername(string? username)
     {
         var normalized = username?.Trim();

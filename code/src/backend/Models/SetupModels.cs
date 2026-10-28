@@ -18,7 +18,12 @@ public sealed record SetupStatusResponse(
     [property: JsonPropertyName("version")] string Version,
     // How numbers, dates and amounts are written in this workspace (null: each browser's language).
     [property: JsonPropertyName("locale")] string? Locale = null,
-    [property: JsonPropertyName("currency")] string Currency = "EUR");
+    [property: JsonPropertyName("currency")] string Currency = "EUR",
+    // The calendar: the time zone "today" and schedules are in (the server's when not chosen), week and year start.
+    [property: JsonPropertyName("time_zone")] string TimeZone = "UTC",
+    [property: JsonPropertyName("time_zone_set")] bool TimeZoneSet = false,
+    [property: JsonPropertyName("week_start")] string WeekStart = "monday",
+    [property: JsonPropertyName("year_start")] int YearStart = 1);
 
 /// <summary>Summary returned after the demo workspace has been loaded.</summary>
 public sealed record SampleDataResponse(

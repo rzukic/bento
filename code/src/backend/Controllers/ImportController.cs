@@ -27,13 +27,57 @@ public sealed class ImportController : ControllerBase
     private readonly ISystemPool _systemPool;
     private readonly SchemaCache _schemaCache;
     private readonly ICustomValueRecalculation? _recalculation;
+    private readonly ImportFetcher _fetcher;
+    private readonly ImportFunctionRunner? _functions;
 
-    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ICustomValueRecalculation? recalculation = null)
+    public ImportController(ImportService importService, ISystemPool systemPool, SchemaCache schemaCache, ImportFetcher fetcher, ICustomValueRecalculation? recalculation = null, ImportFunctionRunner? functions = null)
     {
         _importService = importService;
         _systemPool = systemPool;
         _schemaCache = schemaCache;
+        _fetcher = fetcher;
+        _functions = functions;
         _recalculation = recalculation;
+    }
+
+    /// <summary>The largest file the page can fetch: it goes back to the browser as base64 and returns in the next request.</summary>
+    public const long MaxPageFetchBytes = 7 * 1024 * 1024;
+
+    /// <summary>
+    /// Fetches a file from a URL for the import page (Step 5.1), which then
+    /// analyses and checks it like an upload. Credentials from the vault
+    /// (<c>{{name}}</c>) need <c>admin</c>.
+    /// </summary>
+    [HttpPost("fetch")]
+    public async Task<IActionResult> Fetch([FromBody] ImportFetchRequest request)
+    {
+        if (ImportFetcher.CredentialNames(request.Url, request.Headers).Count > 0 && !User.IsInstallationAdmin())
+            throw new ApiForbiddenException("Only installation admins can use credentials from the vault in an import.");
+        var file = await _fetcher.FetchAsync(request.Url, request.Headers, HttpContext.RequestAborted);
+        if (file.Bytes.Length > MaxPageFetchBytes)
+            throw new ApiUnprocessableEntityException(
+                $"The file is {file.Bytes.Length / 1024 / 1024} MB; the import page takes up to {MaxPageFetchBytes / 1024 / 1024} MB. Save it as a scheduled import, which reads up to {_fetcher.Options.MaxBytes / 1024 / 1024} MB.");
+        return Ok(new { data = new ImportFetchResponse(Convert.ToBase64String(file.Bytes), file.FileName, file.ContentType, file.Bytes.Length, file.FinalUrl) });
+    }
+
+    /// <summary>
+    /// Runs a function for the import page (Step 5.11): its result comes back
+    /// like a fetched file, to be read and mapped. A function that reads
+    /// credentials from the vault needs an installation admin.
+    /// </summary>
+    [HttpPost("function")]
+    public async Task<IActionResult> RunFunction([FromBody] ImportFunctionRequest request)
+    {
+        if (_functions is null)
+            throw new ApiNotFoundException("Functions cannot be used as an import source here.");
+        var function = _functions.Require(request.Function, "function");
+        if (function.Credentials.Count > 0 && !User.IsInstallationAdmin())
+            throw new ApiForbiddenException($"{function.Name} reads credentials from the vault; only installation admins can use it in an import.");
+        var file = await _functions.RunAsync(function.Name, null, HttpContext.RequestAborted);
+        if (file.Bytes.Length > MaxPageFetchBytes)
+            throw new ApiUnprocessableEntityException(
+                $"{function.Name} returned {file.Bytes.Length / 1024 / 1024} MB; the import page takes up to {MaxPageFetchBytes / 1024 / 1024} MB. Save it as a scheduled import.");
+        return Ok(new { data = new ImportFetchResponse(Convert.ToBase64String(file.Bytes), file.FileName, file.ContentType, file.Bytes.Length, $"function:{function.Name}") });
     }
 
     /// <summary>Detects encoding, delimiter, header and locale, and returns columns with samples.</summary>
@@ -50,7 +94,10 @@ public sealed class ImportController : ControllerBase
     [HttpPost("{table}")]
     public async Task<IActionResult> Run(string table, [FromBody] ImportRunRequest request)
     {
-        var result = await _importService.RunAsync(table, request, dryRun: false);
+        // Row events (Step 5.12): an upload is an import of its file.
+        ImportRunResponse result;
+        using (RowOrigin.Use("import", string.IsNullOrWhiteSpace(request.FileName) ? null : request.FileName))
+            result = await _importService.RunAsync(table, request, dryRun: false);
         _recalculation?.Request();
         return Ok(new { data = result });
     }
@@ -67,10 +114,10 @@ public sealed class ImportController : ControllerBase
             SELECT id, name, table_name AS TableName, config,
                    {CreatedAtText} AS CreatedAt, {UpdatedAtText} AS UpdatedAt
             FROM {ProfilesTable}
-            WHERE table_name = @TableName
+            WHERE workspace_id = @Ws AND table_name = @TableName
             ORDER BY name
             """,
-            new { TableName = tableName });
+            new { TableName = tableName, Ws });
         return Ok(new { data = rows.Select(ToResponse) });
     }
 
@@ -86,11 +133,11 @@ public sealed class ImportController : ControllerBase
         await EnsureNameFreeAsync(conn, tableName, name, exceptId: null);
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {ProfilesTable} (name, table_name, config, created_by, created_at, updated_at)
-            VALUES (@Name, @TableName, {ConfigParam}, @CreatedBy, {NowParam}, {NowParam})
+            INSERT INTO {ProfilesTable} (workspace_id, name, table_name, config, created_by, created_at, updated_at)
+            VALUES (@Ws, @Name, @TableName, {ConfigParam}, @CreatedBy, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, TableName = tableName, Config = config, CreatedBy = HttpContext.User.GetUserId(), Now = now });
+            new { Name = name, TableName = tableName, Config = config, CreatedBy = HttpContext.User.GetUserId(), Now = now, Ws });
 
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetProfileAsync(conn, tableName, id)) });
     }
@@ -147,17 +194,17 @@ public sealed class ImportController : ControllerBase
             SELECT id, name, table_name AS TableName, config,
                    {CreatedAtText} AS CreatedAt, {UpdatedAtText} AS UpdatedAt
             FROM {ProfilesTable}
-            WHERE id = @Id AND table_name = @TableName
+            WHERE id = @Id AND workspace_id = @Ws AND table_name = @TableName
             """,
-            new { Id = id, TableName = tableName })
+            new { Id = id, TableName = tableName, Ws })
             ?? throw new ApiNotFoundException($"Import profile {id} not found for '{tableName}'.");
     }
 
     private async Task EnsureNameFreeAsync(System.Data.IDbConnection conn, string tableName, string name, long? exceptId)
     {
         var taken = await conn.ExecuteScalarAsync<long>(
-            $"SELECT COUNT(*) FROM {ProfilesTable} WHERE table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
-            new { TableName = tableName, Name = name, ExceptId = exceptId });
+            $"SELECT COUNT(*) FROM {ProfilesTable} WHERE workspace_id = @Ws AND table_name = @TableName AND LOWER(name) = LOWER(@Name) AND (@ExceptId IS NULL OR id <> @ExceptId)",
+            new { TableName = tableName, Name = name, ExceptId = exceptId, Ws });
         if (taken > 0)
             throw new ApiConflictException($"A profile named '{name}' already exists for this table.",
                 new Dictionary<string, object?> { ["field"] = "name" });
@@ -180,6 +227,8 @@ public sealed class ImportController : ControllerBase
 
     private static string SerializeConfig(ImportProfileConfig? config) =>
         JsonSerializer.Serialize(config ?? new ImportProfileConfig(), ConfigJson);
+
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
 
     private string ProfilesTable =>
         _systemPool.Provider == DatabaseProvider.Postgres ? "_system.import_profiles" : "import_profiles";

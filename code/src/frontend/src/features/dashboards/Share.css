@@ -1,0 +1,174 @@
+/* ── Share links (Step 5.6) ─────────────────────────────────────────── */
+
+.share-dialog {
+  width: min(44rem, calc(100vw - 2rem));
+}
+
+.share-dialog__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.share-dialog__field {
+  display: grid;
+  gap: 0.25rem;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.share-dialog__field--grow {
+  flex: 1 1 14rem;
+}
+
+.share-dialog__check {
+  display: inline-flex;
+  gap: 0.375rem;
+  align-items: center;
+  min-height: 2rem;
+  font-size: var(--fs-sm);
+}
+
+.share-dialog__hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.share-dialog__created {
+  display: grid;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+}
+
+.share-dialog__created p {
+  margin: 0;
+}
+
+.share-dialog__secret {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.share-dialog__secret code {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--fs-xs);
+}
+
+.share-dialog__links {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.share-dialog__link {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--line);
+}
+
+.share-dialog__link:first-child {
+  border-top: 0;
+}
+
+.share-dialog__link--off {
+  opacity: 0.6;
+}
+
+.share-dialog__meta {
+  display: block;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* The shared view: no app around it; embedded, not even the title. */
+.shared-page {
+  min-height: 100vh;
+  padding: 1.5rem clamp(1rem, 3vw, 2rem);
+  background: var(--bg, var(--surface));
+}
+
+.shared-page--embed {
+  min-height: 0;
+  padding: 0.75rem;
+}
+
+.dashboard-page--embed .dashboard-page__title {
+  display: none;
+}
+
+.shared-page__footer {
+  margin-top: 1.5rem;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-align: center;
+}
+
+.shared-page__message {
+  display: grid;
+  min-height: 60vh;
+  place-items: center;
+  color: var(--text-2);
+  text-align: center;
+}
+
+/* A public form (part B) */
+.shared-form {
+  display: grid;
+  justify-items: center;
+}
+
+.shared-form__card {
+  width: min(36rem, 100%);
+  padding: 1.25rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg, 12px);
+  background: var(--surface);
+}
+
+.shared-page--embed .shared-form__card {
+  border: 0;
+  padding: 0;
+}
+
+.shared-form__title {
+  margin: 0 0 1rem;
+  font-size: var(--fs-xl, 1.5rem);
+}
+
+.shared-form__thanks {
+  margin: 0 0 1rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* Out of sight for people, there for robots. */
+.shared-form__trap {
+  position: absolute;
+  left: -10000px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+
+/* The save bar fades into the card, not into the page behind it. */
+.shared-form__card .form-fill__actions {
+  background: linear-gradient(to top, var(--surface) 70%, transparent);
+}

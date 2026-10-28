@@ -6140,3 +6140,51 @@
 .table-detail__workspace > .alert {
     margin: 0.75rem var(--page-gutter) 0;
 }
+
+/* Phone: the page switcher fits the width — rows per page on its own line, then ‹ page › across. */
+@media (max-width: 640px) {
+    .data-pagination .data-pagination__controls {
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 0.5rem;
+    }
+
+    .data-pagination .data-pagination__switcher {
+        flex: 1 1 100%;
+        justify-content: space-between;
+    }
+
+    .data-pagination .data-pagination__page {
+        width: auto;
+        min-width: 0;
+    }
+}
+
+/* Tables made from saved queries (Step 5.8) */
+.query-table__form {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.query-table__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.query-table__banner {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0 0 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md, 8px);
+  background: color-mix(in srgb, var(--text) 4%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+
+.query-table__banner span {
+  flex: 1;
+}

@@ -7,6 +7,7 @@ using Bento.Api.Db;
 using Bento.Api.Exceptions;
 using Bento.Api.Models;
 using Bento.Api.Services;
+using Bento.Api.Services.Sharing;
 
 namespace Bento.Api.Controllers;
 
@@ -27,16 +28,23 @@ public sealed class QueryController : ControllerBase
     }
 
     [HttpPost]
-    public async Task<IActionResult> Run([FromBody] AggregationQueryRequest request)
+    public async Task<IActionResult> Run([FromBody] AggregationQueryRequest request, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        // A share link's visitor runs only the shared dashboard's widget queries (Step 5.6).
+        if (HttpContext.ShareVisitor() is { } visitor)
+            request = await guard.CheckQueryAsync(visitor, request);
         var result = await _queries.RunAsync(request);
         return Ok(new { data = result.Data, meta = result.Meta });
     }
 
     /// <summary>Dashboard variables (Step 3.6): each one's value, type or error, in the order given.</summary>
     [HttpPost("variables")]
-    public async Task<IActionResult> Variables([FromBody] QueryVariablesRequest request) =>
-        Ok(new { data = await _queries.EvaluateVariablesAsync(request) });
+    public async Task<IActionResult> Variables([FromBody] QueryVariablesRequest request, [FromServices] Services.Sharing.ShareGuard guard)
+    {
+        if (HttpContext.ShareVisitor() is { } visitor)
+            request = await guard.CheckVariablesAsync(visitor, request);
+        return Ok(new { data = await _queries.EvaluateVariablesAsync(request) });
+    }
 }
 
 /// <summary>
@@ -73,17 +81,19 @@ public sealed class SavedQueriesController : ControllerBase
             $"""
             SELECT {Columns}
             FROM {Table}
-            WHERE (owner_user_id = @UserId OR is_shared {SharedTrue})
+            WHERE workspace_id = @Ws AND (owner_user_id = @UserId OR is_shared {SharedTrue})
               AND (@Source IS NULL OR LOWER(source_table) = LOWER(@Source))
             ORDER BY LOWER(name)
             """,
-            new { UserId = userId, Source = string.IsNullOrWhiteSpace(source) ? null : source.Trim() });
+            new { UserId = userId, Source = string.IsNullOrWhiteSpace(source) ? null : source.Trim(), Ws });
         return Ok(new { data = rows.Select(r => ToResponse(r, userId)) });
     }
 
     [HttpGet("{id:long}")]
-    public async Task<IActionResult> Get(long id)
+    public async Task<IActionResult> Get(long id, [FromServices] Services.Sharing.ShareGuard guard)
     {
+        if (HttpContext.ShareVisitor() is { } visitor)
+            await guard.CheckSavedQueryAsync(visitor, id);
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
@@ -100,17 +110,17 @@ public sealed class SavedQueriesController : ControllerBase
         using var conn = await _systemPool.GetConnectionAsync();
         var id = await conn.ExecuteScalarAsync<long>(
             $"""
-            INSERT INTO {Table} (name, source_table, config, owner_user_id, is_shared, created_at, updated_at)
-            VALUES (@Name, @Source, {ConfigParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
+            INSERT INTO {Table} (workspace_id, name, source_table, config, owner_user_id, is_shared, created_at, updated_at)
+            VALUES (@Ws, @Name, @Source, {ConfigParam}, @OwnerId, @IsShared, {NowParam}, {NowParam})
             RETURNING id
             """,
-            new { Name = name, Source = query.Source!.Trim(), Config = Serialize(query), OwnerId = userId, IsShared = request.IsShared ?? false, Now = now });
+            new { Name = name, Source = query.Source!.Trim(), Config = Serialize(query), OwnerId = userId, IsShared = request.IsShared ?? false, Now = now, Ws });
 
         return StatusCode(StatusCodes.Status201Created, new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
     [HttpPut("{id:long}")]
-    public async Task<IActionResult> Update(long id, [FromBody] SavedQueryRequest request)
+    public async Task<IActionResult> Update(long id, [FromBody] SavedQueryRequest request, [FromServices] QueryTables tables)
     {
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
@@ -135,22 +145,47 @@ public sealed class SavedQueriesController : ControllerBase
                 Now = UtcNowIso()
             });
 
+        tables.Forget(id);
         return Ok(new { data = ToResponse(await GetVisibleAsync(conn, id, userId), userId) });
     }
 
     [HttpDelete("{id:long}")]
-    public async Task<IActionResult> Delete(long id)
+    public async Task<IActionResult> Delete(long id, [FromServices] QueryTables tables)
     {
         var userId = UserId();
         using var conn = await _systemPool.GetConnectionAsync();
         RequireOwner(await GetVisibleAsync(conn, id, userId), userId);
+        if (tables.TablesOf(id) is { Count: > 0 } used)
+            throw new ApiConflictException($"The table {string.Join(", ", used)} is made from this query; delete the table first (Schema).",
+                new Dictionary<string, object?> { ["tables"] = used });
         await conn.ExecuteAsync($"DELETE FROM {Table} WHERE id = @Id", new { Id = id });
         return NoContent();
     }
 
+    public sealed record QueryTableRequest
+    {
+        /// <summary>The table's name; from the query's name when left out.</summary>
+        public string? Name { get; init; }
+    }
+
+    /// <summary>
+    /// The saved query's result as a read-only table of the model (Step 5.8),
+    /// filled again whenever the data changes. A change of the model: admins.
+    /// </summary>
+    [HttpPost("{id:long}/table")]
+    [RequireRole("admin")]
+    public async Task<IActionResult> AsTable(long id, [FromBody] QueryTableRequest? request, [FromServices] QueryTables tables)
+    {
+        var userId = UserId();
+        using (var conn = await _systemPool.GetConnectionAsync())
+            await GetVisibleAsync(conn, id, userId);
+        var table = await tables.CreateAsync(id, request?.Name);
+        return StatusCode(StatusCodes.Status201Created, new { data = tables.StatusOf(table) });
+    }
+
     /// <summary>Runs a saved query; extra filters (e.g. a dashboard's date range) are added to its own.</summary>
     [HttpPost("{id:long}/run")]
-    public async Task<IActionResult> Run(long id, [FromBody] SavedQueryRunRequest? request)
+    public async Task<IActionResult> Run(long id, [FromBody] SavedQueryRunRequest? request, [FromServices] Services.Sharing.ShareGuard guard)
     {
         var userId = UserId();
         AggregationQueryRequest query;
@@ -161,7 +196,10 @@ public sealed class SavedQueriesController : ControllerBase
                 ?? throw new ApiUnprocessableEntityException($"Saved query {id} cannot be read.");
         }
 
-        var result = await _queries.RunAsync(query, request?.Filter);
+        var extra = request?.Filter;
+        if (HttpContext.ShareVisitor() is { } visitor)
+            extra = await guard.CheckSavedRunAsync(visitor, id, query.Source ?? "", extra);
+        var result = await _queries.RunAsync(query, extra);
         return Ok(new { data = result.Data, meta = result.Meta });
     }
 
@@ -187,7 +225,7 @@ public sealed class SavedQueriesController : ControllerBase
     private async Task<SavedQueryRow> GetVisibleAsync(System.Data.IDbConnection conn, long id, long? userId)
     {
         var row = await conn.QuerySingleOrDefaultAsync<SavedQueryRow>(
-            $"SELECT {Columns} FROM {Table} WHERE id = @Id", new { Id = id });
+            $"SELECT {Columns} FROM {Table} WHERE id = @Id AND workspace_id = @Ws", new { Id = id, Ws });
         if (row is null || (row.OwnerUserId != userId && !row.IsShared))
             throw new ApiNotFoundException($"Saved query {id} not found.");
         return row;
@@ -228,6 +266,7 @@ public sealed class SavedQueriesController : ControllerBase
 
     private long? UserId() => HttpContext.User.GetUserId();
 
+    private static long Ws => Services.Workspaces.WorkspaceContext.Id;
     private string Table => _systemPool.Provider == DatabaseProvider.Postgres ? "_system.saved_queries" : "saved_queries";
     private string SharedTrue => _systemPool.Provider == DatabaseProvider.Postgres ? "" : "= 1";
     private string ConfigParam => SystemSqlDialect.JsonParam(_systemPool.Provider, "@Config");

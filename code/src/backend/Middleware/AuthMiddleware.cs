@@ -6,6 +6,7 @@ using System.Text.Json;
 using Bento.Api.Configuration;
 using Bento.Api.Exceptions;
 using Bento.Api.Services;
+using Bento.Api.Services.Workspaces;
 
 namespace Bento.Api.Middleware;
 
@@ -22,11 +23,19 @@ public sealed class AuthMiddleware
         _runtimeOptions = runtimeOptions;
     }
 
-    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
+    public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, WorkspaceAccess access)
     {
+        // A share link's visitor (Step 5.6): read-only, only what the shared dashboard asks for.
+        if (IsVersionedApiRoute(context.Request.Path) && context.Request.Headers.TryGetValue(Services.Sharing.ShareService.HeaderName, out var share) &&
+            !string.IsNullOrWhiteSpace(share.ToString()))
+        {
+            await AuthenticateShareAsync(context, share.ToString(), access);
+            return;
+        }
+
         if (IsMcpRoute(context.Request.Path))
         {
-            await AuthenticateMcpAsync(context, apiKeys, oauth);
+            await AuthenticateMcpAsync(context, apiKeys, oauth, access);
             return;
         }
 
@@ -50,7 +59,7 @@ public sealed class AuthMiddleware
             return;
         }
 
-        if (await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: true))
+        if (await TryAuthenticateCredentialAsync(context, apiKeys, oauth, access, enforceScope: true))
         {
             await _next(context);
             return;
@@ -63,9 +72,161 @@ public sealed class AuthMiddleware
             return;
         }
 
-        context.User = CreateAuthenticatedPrincipal(context.Request.Headers.Authorization);
+        context.User = await InWorkspaceAsync(context, access, CreateAuthenticatedPrincipal(context.Request.Headers.Authorization));
 
         await _next(context);
+    }
+
+    // ── Share links (Step 5.6) ───────────────────────────────────────────
+
+    public const string ShareItem = "bento.share";
+    private const int ShareRequestsPerMinute = 600;
+
+    /// <summary>
+    /// The paths a dashboard needs: the link's own info, the dashboard, its
+    /// queries, variables, saved queries, tables of rows and the schema of its
+    /// tables. ShareGuard checks each one against the dashboard.
+    /// </summary>
+    private static bool IsSharePath(HttpRequest request, string kind)
+    {
+        var path = (request.Path.Value ?? "").TrimEnd('/').ToLowerInvariant();
+        const string api = "/" + ApiRoutes.Prefix;
+        var get = HttpMethods.IsGet(request.Method);
+        var post = HttpMethods.IsPost(request.Method);
+        // A form (part B): the form, its tables' schema, the choices of its links, and sending a row.
+        if (kind == "form")
+            return (get && path == api + "/share") ||
+                   (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/forms/\d+$")) ||
+                   (get && path == api + "/admin/schema") ||
+                   ((get || post) && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/data/[^/]+$"));
+        return (get && path == api + "/share") ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/dashboards/\d+$")) ||
+               (post && (path == api + "/query" || path == api + "/query/variables")) ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/queries/\d+$")) ||
+               (post && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/queries/\d+/run$")) ||
+               (get && System.Text.RegularExpressions.Regex.IsMatch(path, @"^/api/v1/data/[^/]+$")) ||
+               (get && path == api + "/admin/schema");
+    }
+
+    private async Task AuthenticateShareAsync(HttpContext context, string token, WorkspaceAccess access)
+    {
+        var services = context.RequestServices;
+        var shares = services.GetRequiredService<Services.Sharing.ShareService>();
+        var visitor = await shares.AuthenticateAsync(token.Trim(), countView: context.Request.Path.Value?.TrimEnd('/').EndsWith("/share", StringComparison.OrdinalIgnoreCase) == true)
+            ?? throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+        var limiter = services.GetRequiredService<AuthRateLimiter>();
+        var ip = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var limit = limiter.CheckRequest($"share:{visitor.Link.Id}:{ip}", ShareRequestsPerMinute, DateTimeOffset.UtcNow);
+        if (!limit.Allowed)
+            throw new ApiTooManyRequestsException("Too many requests for this link; try again in a minute.",
+                new Dictionary<string, object?> { ["retryAfterSeconds"] = limit.RetryAfterSeconds });
+        if (!IsSharePath(context.Request, visitor.Link.Kind))
+            throw new ApiForbiddenException(visitor.Link.Kind == "form" ? "A form link sends its form, nothing else." : "A share link shows its dashboard, nothing else.");
+        // A form's visitor adds rows (checked against the form); a dashboard's only reads.
+        var role = visitor.Link.Kind == "form" ? "editor" : "viewer";
+
+        // It works in its workspace, as the one who made it — while they still may open it.
+        var workspace = services.GetRequiredService<WorkspaceService>().Find(visitor.Link.WorkspaceId)
+            ?? throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+        if (await access.RoleInAsync(visitor.Link.CreatedBy, visitor.CreatorRole, workspace.Id) is null)
+            throw new ApiNotFoundException("This link does not exist, has expired or was revoked.");
+
+        context.User = new ClaimsPrincipal(new ClaimsIdentity(
+        [
+            new Claim(ClaimTypes.NameIdentifier, visitor.Link.CreatedBy.ToString(CultureInfo.InvariantCulture)),
+            new Claim(ClaimTypes.Name, "share link " + visitor.Link.Prefix),
+            new Claim(ClaimTypes.Role, role),
+            new Claim("role", role),
+            new Claim("installation_role", "viewer"),
+            new Claim("auth_method", "share"),
+            new Claim("share_id", visitor.Link.Id.ToString(CultureInfo.InvariantCulture))
+        ], "Share"));
+        context.Items[ShareItem] = visitor;
+        using (WorkspaceContext.Use(workspace))
+            await _next(context);
+    }
+
+    // ── Workspaces (Step 5.5 part B) ─────────────────────────────────────
+
+    /// <summary>
+    /// The caller's role for this request: in the workspace it is for, or — for
+    /// the installation's own parts (users, keys, connections, vault …) — their
+    /// installation role. Not a member: the workspace is not found, as if it did
+    /// not exist.
+    /// </summary>
+    private static async Task<string> RoleForRequestAsync(HttpContext context, WorkspaceAccess access, long userId, string installationRole)
+    {
+        if (WorkspaceAccess.IsInstallationPath(context.Request.Path.Value ?? ""))
+            return installationRole;
+        var workspace = WorkspaceContext.Current;
+        return await access.RoleInAsync(userId, installationRole, workspace.Id)
+            ?? throw new ApiNotFoundException($"There is no workspace '{workspace.Slug}'.", new Dictionary<string, object?> { ["workspace"] = workspace.Slug });
+    }
+
+    /// <summary>
+    /// A key limited to tables reads and writes rows of them and imports into
+    /// them — nothing else: no queries, dashboards, forms or functions, and no
+    /// related rows of other tables. Reading the schema stays (structure, not data).
+    /// </summary>
+    private static void EnsureTablesAllow(IReadOnlyList<string>? tables, HttpRequest request)
+    {
+        if (tables is null)
+            return;
+        var path = (request.Path.Value ?? "").TrimEnd('/');
+        const string api = "/" + ApiRoutes.Prefix;
+        string[] Segments(string area) => path.StartsWith(api + area + "/", StringComparison.OrdinalIgnoreCase)
+            ? path[(api.Length + area.Length + 1)..].Split('/', StringSplitOptions.RemoveEmptyEntries)
+            : [];
+        bool Allowed(string table) => tables.Contains(Uri.UnescapeDataString(table), StringComparer.OrdinalIgnoreCase);
+
+        // /data/<table>, /data/<table>/<id>, /data/<table>/bulk — not /data/<table>/<id>/<relation>.
+        var data = Segments("/data");
+        if (data.Length is 1 or 2 && Allowed(data[0]) && !request.Query.ContainsKey("include"))
+            return;
+        var import = Segments("/import");
+        if (import.Length >= 1 && (import[0] is "analyze" or "fetch" || Allowed(import[0])))
+            return;
+        var readsStructure = HttpMethods.IsGet(request.Method) &&
+            (path.Equals(api + "/admin/schema", StringComparison.OrdinalIgnoreCase) || path.Equals(api + "/admin/schema/model", StringComparison.OrdinalIgnoreCase) ||
+             path.Equals(api + "/openapi.json", StringComparison.OrdinalIgnoreCase) || path.Equals(api + "/workspaces", StringComparison.OrdinalIgnoreCase));
+        if (readsStructure)
+            return;
+        throw new ApiForbiddenException($"This API key may only use the rows of {string.Join(", ", tables)}.",
+            new Dictionary<string, object?> { ["tables"] = tables });
+    }
+
+    /// <summary>A key or a connection may use only the workspaces it was made for.</summary>
+    private static void EnsureWorkspaceAllowed(HttpContext context, IReadOnlyList<long>? workspaces, string what)
+    {
+        if (WorkspaceAccess.IsInstallationPath(context.Request.Path.Value ?? ""))
+            return;
+        var workspace = WorkspaceContext.Current;
+        if (!WorkspaceAccess.Allows(workspaces, workspace.Id))
+            throw new ApiForbiddenException($"This {what} may not use the workspace '{workspace.Slug}'.",
+                new Dictionary<string, object?> { ["workspace"] = workspace.Slug });
+    }
+
+    /// <summary>A signed-in user's principal with their role in the workspace; their own role stays as installation_role.</summary>
+    private static async Task<ClaimsPrincipal> InWorkspaceAsync(HttpContext context, WorkspaceAccess access, ClaimsPrincipal principal)
+    {
+        var userId = principal.FindFirstValue(ClaimTypes.NameIdentifier);
+        var installationRole = principal.FindFirstValue(ClaimTypes.Role) ?? "viewer";
+        if (!long.TryParse(userId, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id))
+            return principal;
+        var role = await RoleForRequestAsync(context, access, id, installationRole);
+        return WithRole(principal, role, installationRole, null);
+    }
+
+    private static ClaimsPrincipal WithRole(ClaimsPrincipal principal, string role, string installationRole, IReadOnlyList<long>? workspaces)
+    {
+        var claims = principal.Claims.Where(c => c.Type is not (ClaimTypes.Role or "role")).ToList();
+        claims.Add(new Claim(ClaimTypes.Role, role));
+        claims.Add(new Claim("role", role));
+        claims.Add(new Claim("installation_role", installationRole));
+        if (workspaces is not null)
+            claims.Add(new Claim("workspaces", string.Join(' ', workspaces.Select(w => w.ToString(CultureInfo.InvariantCulture)))));
+        var original = principal.Identity as ClaimsIdentity;
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, original?.AuthenticationType));
     }
 
     /// <summary>
@@ -73,16 +234,19 @@ public sealed class AuthMiddleware
     /// (<c>X-API-Key</c> or <c>Bearer bento_…</c>). Both act as their user within
     /// their scope; false when the request carries neither.
     /// </summary>
-    private async Task<bool> TryAuthenticateCredentialAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, bool enforceScope)
+    private async Task<bool> TryAuthenticateCredentialAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, WorkspaceAccess access, bool enforceScope)
     {
         var bearer = ReadBearer(context.Request);
         if (OAuthService.LooksLikeAccessToken(bearer))
         {
             if (!_runtimeOptions.IsStandardAuthMode)
                 throw Unauthorized("This auth mode is not available yet.");
-            var grant = await oauth.AuthenticateAsync(bearer!);
+            var stored = await oauth.AuthenticateAsync(bearer!);
+            EnsureWorkspaceAllowed(context, stored.Workspaces, "connection");
+            // The user's role in this workspace caps what the app may do here.
+            var grant = stored.As(await RoleForRequestAsync(context, access, stored.UserId, stored.Role));
             if (enforceScope) EnsurePermissionAllows(grant, context.Request);
-            context.User = CreateOAuthPrincipal(grant);
+            context.User = WithRole(CreateOAuthPrincipal(grant), grant.Role, stored.Role, stored.Workspaces);
             return true;
         }
 
@@ -92,15 +256,19 @@ public sealed class AuthMiddleware
             return false;
         if (!_runtimeOptions.IsStandardAuthMode)
             throw Unauthorized("This auth mode is not available yet.");
-        var identity = await apiKeys.AuthenticateAsync(apiKey);
+        var key = await apiKeys.AuthenticateAsync(apiKey);
+        EnsureWorkspaceAllowed(context, key.Workspaces, "API key");
+        var identity = key.As(await RoleForRequestAsync(context, access, key.UserId, key.UserRole ?? "viewer"));
         if (enforceScope)
         {
+            EnsureTablesAllow(identity.Tables, context.Request);
             if (identity.Permissions is { } permissions)
                 EnsureKeyPermissionAllows(permissions, context.Request);
             else
                 EnsureScopeAllows(identity.Scope, context.Request);
         }
-        context.User = CreateApiKeyPrincipal(identity);
+        var principal = CreateApiKeyPrincipal(identity);
+        context.User = WithRole(principal, principal.FindFirstValue(ClaimTypes.Role) ?? "viewer", key.UserRole ?? "viewer", key.Workspaces);
         return true;
     }
 
@@ -110,7 +278,7 @@ public sealed class AuthMiddleware
     /// POST); the REST calls behind each tool enforce it. Without valid credentials
     /// the answer points the client at the OAuth metadata (RFC 9728 §5.1).
     /// </summary>
-    private async Task AuthenticateMcpAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth)
+    private async Task AuthenticateMcpAsync(HttpContext context, ApiKeyService apiKeys, OAuthService oauth, WorkspaceAccess access)
     {
         if (_runtimeOptions.IsOpenAuthMode)
         {
@@ -121,8 +289,20 @@ public sealed class AuthMiddleware
 
         try
         {
-            if (!await TryAuthenticateCredentialAsync(context, apiKeys, oauth, enforceScope: false))
-                context.User = CreateAuthenticatedPrincipal(context.Request.Headers.Authorization);
+            if (!await TryAuthenticateCredentialAsync(context, apiKeys, oauth, access, enforceScope: false))
+                context.User = await InWorkspaceAsync(context, access, CreateAuthenticatedPrincipal(context.Request.Headers.Authorization));
+        }
+        catch (Exception ex) when (ex is ApiNotFoundException or ApiForbiddenException)
+        {
+            // Not a member of this workspace, or a connection made for others.
+            context.Response.StatusCode = ex is ApiNotFoundException ? StatusCodes.Status404NotFound : StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                jsonrpc = "2.0",
+                id = (object?)null,
+                error = new { code = -32001, message = ex.Message }
+            });
+            return;
         }
         catch (ApiUnauthorizedException ex)
         {
